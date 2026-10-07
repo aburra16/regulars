@@ -47,4 +47,10 @@ export const copy = {
     /** Monday first. The weekday before a time that is more than a day away: "Closed · opens Mon 9 am". */
     weekdaysShort: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
   },
+  /** The words after a distance: "0.6 mi", "1.1 km", "250 m". */
+  units: {
+    mi: "mi",
+    km: "km",
+    m: "m",
+  },
 } satisfies { readonly [key: string]: CopyNode };
