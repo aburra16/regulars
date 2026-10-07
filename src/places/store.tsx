@@ -1,3 +1,4 @@
+import type { NostrEvent } from "@nostrify/nostrify";
 import {
   createContext,
   type JSX,
@@ -11,7 +12,7 @@ import {
 } from "react";
 
 import { readSaved, writeSaved } from "./cache.ts";
-import { fetchHouseEvents, placesFromEvents, type RelayReader } from "./load.ts";
+import { debug, fetchHouseEvents, parsePlaces, placesFromEvents, type RelayReader } from "./load.ts";
 import type { Place } from "./place.ts";
 
 /** Why the places could not be refreshed: a code, never a message. The screens choose the words. */
@@ -22,7 +23,9 @@ export interface PlacesState {
   places: Place[];
   /** Where `places` came from: the copy saved on this device, or the relay just now. */
   source: "cache" | "network";
-  /** When `places` were saved on this device, in milliseconds since the epoch. */
+  /** False when `places` may be short of the whole list: the load stopped before its end. */
+  complete: boolean;
+  /** When the places on this device were saved, in milliseconds since the epoch. */
   savedAt?: number;
   /** Set when the last load from the relay failed. Any places shown are the saved ones. */
   error?: PlacesError;
@@ -33,9 +36,24 @@ export type PlacesValue = PlacesState & {
   retry(): void;
 };
 
-const LOADING: PlacesState = { status: "loading", places: [], source: "network" };
+const LOADING: PlacesState = { status: "loading", places: [], source: "network", complete: false };
 
 const PlacesContext = createContext<PlacesValue | null>(null);
+
+/** The copy saved on this device, read back. */
+interface SavedCopy {
+  places: Place[];
+  savedAt: number;
+  complete: boolean;
+}
+
+/** What one mount knows of the saved copy. */
+interface Device {
+  /** The one read of the saved copy. It never rejects; null means there is none to show. */
+  read?: Promise<SavedCopy | null>;
+  /** The saved copy's size, once the read has answered or a save has worked; null: none. */
+  saved?: { count: number; savedAt: number; complete: boolean } | null;
+}
 
 /**
  * The app's reader. It is a separate chunk with Nostrify and what it brings (zod, websocket-ts,
@@ -46,9 +64,35 @@ async function placesRelayReader(): Promise<RelayReader> {
   return (await import("./relayReader.ts")).relayReader;
 }
 
+/** The saved copy, or null when there is none, it holds no places, or it cannot be read. */
+async function readSavedCopy(): Promise<SavedCopy | null> {
+  try {
+    const record = await readSaved();
+    if (record === undefined) return null;
+    const places = placesFromEvents(record.events);
+    return places.length > 0 ? { places, savedAt: record.savedAt, complete: record.complete } : null;
+  } catch (error) {
+    debug("could not use the saved places", error);
+    return null;
+  }
+}
+
 /**
- * Loads the places for the screens below it. On mount it shows the copy saved on the device, if
- * there is one, then loads the list from the relay in the background and shows that instead.
+ * Whether places from the relay may replace the saved copy. The list is never empty, so no
+ * places means the load went wrong. With nothing saved, anything else may. Over a saved copy,
+ * only a complete load may, and only one that keeps at least half its places: a relay whose
+ * limit fell below ours, or a partial re-import, must not shrink the list.
+ */
+function mayReplace(count: number, complete: boolean, saved: { count: number } | null): boolean {
+  if (count === 0) return false;
+  if (saved === null) return true;
+  return complete && count * 2 >= saved.count;
+}
+
+/**
+ * Loads the places for the screens below it. On mount it reads the copy saved on the device
+ * and loads the list from the relay, side by side. The saved copy shows as soon as it is read,
+ * unless the relay's places are on screen already; the relay's places replace it when they come.
  * A load that fails keeps the saved copy on screen; with no saved copy, it is an error.
  * `reader` is read once, on mount; without one, the provider reads the places relay.
  */
@@ -56,54 +100,78 @@ export function PlacesProvider({ children, reader }: { children: ReactNode; read
   const [state, setState] = useState<PlacesState>(LOADING);
   const [attempt, setAttempt] = useState(0);
   const [givenReader] = useState(reader);
-  // The saved copy is read once per mount. `count` is how many places it holds (undefined: none).
-  const saved = useRef<{ read: boolean; count?: number }>({ read: false });
+  const deviceRef = useRef<Device>({});
 
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
+    const device = deviceRef.current;
 
     const fail = () =>
       setState((current) =>
         current.status === "ready"
           ? { ...current, error: "network" }
-          : { status: "error", places: [], source: "network", error: "network" },
+          : { status: "error", places: [], source: "network", complete: false, error: "network" },
       );
 
-    // Fetch the relay code while the saved copy is read. A failure surfaces where it is awaited.
+    // Read the saved copy once per mount. It shows unless places are on screen already: the
+    // relay's, which win, or this same copy, shown by an earlier run.
+    device.read ??= readSavedCopy().then((copy) => {
+      if (device.saved === undefined) {
+        device.saved = copy && { count: copy.places.length, savedAt: copy.savedAt, complete: copy.complete };
+      }
+      return copy;
+    });
+    void device.read.then((copy) => {
+      if (signal.aborted || copy === null) return;
+      setState((current) =>
+        current.status === "ready"
+          ? current
+          : {
+              status: "ready",
+              places: copy.places,
+              source: "cache",
+              complete: copy.complete,
+              savedAt: copy.savedAt,
+              ...(current.status === "error" ? { error: "network" as const } : {}),
+            },
+      );
+    });
+
+    // Load from the relay at the same time. Its code loads while the saved copy is read.
     const readerReady = givenReader === undefined ? placesRelayReader() : Promise.resolve(givenReader);
     readerReady.catch(() => {});
 
     void (async () => {
-      if (!saved.current.read) {
-        const copy = await readSaved();
-        if (signal.aborted) return;
-        saved.current.read = true;
-        const places = copy ? placesFromEvents(copy.events) : [];
-        if (copy && places.length > 0) {
-          saved.current.count = places.length;
-          setState({ status: "ready", places, source: "cache", savedAt: copy.savedAt });
-        }
-      }
-
+      let loaded: { events: NostrEvent[]; complete: boolean; places: Place[] };
       try {
         const { events, complete } = await fetchHouseEvents(await readerReady, { signal });
-        if (signal.aborted) return;
-        const places = placesFromEvents(events);
-        const before = saved.current.count;
-        // The list is never empty, so no places means the read went wrong. An incomplete read
-        // replaces a saved copy only if it holds at least as many places.
-        if (places.length === 0 || (!complete && before !== undefined && places.length < before)) {
-          fail();
-          return;
-        }
-        const savedAt = Date.now();
-        saved.current.count = places.length;
-        setState({ status: "ready", places, source: "network", savedAt });
-        void writeSaved({ events, savedAt });
+        loaded = { events, complete, places: parsePlaces(events) };
       } catch {
         if (!signal.aborted) fail();
+        return;
       }
+      const { events, complete, places } = loaded;
+      if (signal.aborted) return;
+
+      // Judged against the saved copy if it has been read. If not, the relay has won the race.
+      if (!mayReplace(places.length, complete, device.saved ?? null)) {
+        fail();
+        return;
+      }
+      // `savedAt` stays the saved copy's until these places are saved too.
+      const before = device.saved?.savedAt;
+      setState({ status: "ready", places, source: "network", complete, ...(before === undefined ? {} : { savedAt: before }) });
+
+      // Save only what may replace the saved copy, so wait for it to be read: a read that never
+      // answers means nothing is saved, which is what a stuck device would do anyway.
+      await device.read;
+      if (signal.aborted || !mayReplace(places.length, complete, device.saved ?? null)) return;
+      const savedAt = Date.now();
+      if (!(await writeSaved({ events, savedAt, complete }))) return;
+      device.saved = { count: places.length, savedAt, complete };
+      if (signal.aborted) return;
+      setState((current) => (current.places === places ? { ...current, savedAt } : current));
     })();
 
     return () => controller.abort();

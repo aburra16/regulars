@@ -162,7 +162,7 @@ describe("fetchHousePlaces: which version of a place wins", () => {
     expect(places[0]!.createdAt).toBe(BASE + 1);
   });
 
-  it("breaks a tie in time with the larger id", async () => {
+  it("breaks a tie in time with the lowest id, as NIP-01 says", async () => {
     const low = { ...renamed(fixtures[0]!, "Low id"), id: idOf("a"), created_at: BASE };
     const high = { ...renamed(fixtures[0]!, "High id"), id: idOf("f"), created_at: BASE };
     for (const events of [
@@ -170,7 +170,7 @@ describe("fetchHousePlaces: which version of a place wins", () => {
       [high, low],
     ]) {
       const { places } = await fetchHousePlaces(rawReader(events));
-      expect(places.map((place) => place.name)).toEqual(["High id"]);
+      expect(places.map((place) => place.name)).toEqual(["Low id"]);
     }
   });
 
@@ -287,10 +287,22 @@ describe("fetchHousePlaces: failure", () => {
     await expect(fetchHousePlaces(reader)).rejects.toThrow("unreachable");
   });
 
-  it("rejects when aborted, even if the reader just stops", async () => {
+  it("sends no request once aborted", async () => {
     const controller = new AbortController();
     controller.abort();
-    const quiet: RelayReader = { async *req() {} };
+    const reader = createMemoryReader(fixtures);
+    await expect(fetchHousePlaces(reader, { signal: controller.signal })).rejects.toThrow();
+    expect(reader.requests).toEqual([]);
+  });
+
+  it("rejects when aborted during a page, even if the reader then just stops", async () => {
+    const controller = new AbortController();
+    const quiet: RelayReader = {
+      async *req() {
+        yield fixtures[0]!;
+        controller.abort();
+      },
+    };
     await expect(fetchHousePlaces(quiet, { signal: controller.signal })).rejects.toThrow();
   });
 });

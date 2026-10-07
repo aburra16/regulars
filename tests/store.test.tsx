@@ -7,29 +7,36 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config";
 import { CACHE_KEY } from "../src/places/cache";
 import type { RelayReader } from "../src/places/load";
-import { PlacesProvider, usePlaces } from "../src/places/store";
+import * as defaultStore from "../src/places/store";
 import raw from "./fixtures/funchal-items.json";
 import { createMemoryReader } from "./support/memoryReader";
 
 const fixtures: NostrEvent[] = raw;
+const { usePlaces } = defaultStore;
+
+type Store = typeof defaultStore;
 
 interface Saved {
   events: NostrEvent[];
   savedAt: number;
+  complete: boolean;
 }
 
-const saveCopy = (events: unknown[], savedAt = 1_000) => set(CACHE_KEY, { events, savedAt });
+const saveCopy = (events: unknown[], { savedAt = 1_000, complete = true } = {}) =>
+  set(CACHE_KEY, { events, savedAt, complete });
 const savedCopy = () => get<Saved>(CACHE_KEY);
 
 /**
  * Renders `usePlaces` inside a provider, and keeps every distinct `status:source` it showed,
- * in order, so a test can tell what a person saw on the way.
+ * in order, so a test can tell what a person saw on the way. `store` is a fresh copy of the
+ * store module, for tests that replace its storage.
  */
-function renderPlaces(reader?: RelayReader, opts: { strict?: boolean } = {}) {
+function renderPlaces(reader?: RelayReader, opts: { strict?: boolean; store?: Store } = {}) {
+  const { PlacesProvider, usePlaces: use } = opts.store ?? defaultStore;
   const seen: string[] = [];
   const view = renderHook(
     () => {
-      const state = usePlaces();
+      const state = use();
       const step = `${state.status}:${state.source}`;
       if (seen.at(-1) !== step) seen.push(step);
       return state;
@@ -42,6 +49,29 @@ function renderPlaces(reader?: RelayReader, opts: { strict?: boolean } = {}) {
     },
   );
   return { ...view, seen };
+}
+
+/** The device's storage as idb-keyval presents it, for tests that replace it. */
+interface Storage {
+  get(key: unknown): Promise<unknown>;
+  set(key: unknown, value: unknown): Promise<void>;
+}
+
+/** Renders a fresh copy of the store whose IndexedDB (idb-keyval) is `storage`. */
+async function renderWithStorage(storage: Storage, reader: RelayReader) {
+  vi.resetModules();
+  vi.doMock("idb-keyval", () => storage);
+  const store: Store = await import("../src/places/store");
+  return renderPlaces(reader, { store });
+}
+
+/** A promise and the function that settles it, for a storage read that answers when told. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }
 
 /** `count` distinct places that share one time, as the importer signs a run. */
@@ -60,21 +90,36 @@ function generated(count: number): NostrEvent[] {
  */
 function held(inner: RelayReader) {
   const gates: Array<() => void> = [];
+  let open = false;
   return {
     reader: {
       async *req(filter, signal) {
-        await new Promise<void>((resolve) => gates.push(resolve));
+        if (!open) await new Promise<void>((resolve) => gates.push(resolve));
         yield* inner.req(filter, signal);
       },
     } satisfies RelayReader,
-    /** Lets request `index` through, or every request held so far. */
+    /** Lets request `index` through; or, with no index, every request, now and later. */
     release(index?: number) {
-      for (const open of index === undefined ? gates : [gates[index]!]) open();
+      if (index === undefined) open = true;
+      for (const gate of index === undefined ? gates : [gates[index]!]) gate();
     },
     get waiting() {
       return gates.length;
     },
   };
+}
+
+/**
+ * Renders the provider over a saved copy, and lets the network answer from `inner` only once
+ * the saved copy is on screen, so the test sees what follows a saved copy.
+ */
+async function renderAfterSavedCopy(inner: RelayReader) {
+  const gate = held(inner);
+  const view = renderPlaces(gate.reader);
+  await waitFor(() => expect(view.result.current.source).toBe("cache"));
+  await waitFor(() => expect(gate.waiting).toBe(1));
+  gate.release();
+  return view;
 }
 
 /** A reader that fails its first request and then answers from the fixtures. */
@@ -93,6 +138,9 @@ function failingOnce(): RelayReader & { calls: number } {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.doUnmock("idb-keyval");
+  vi.doUnmock("../src/places/relayReader");
+  vi.resetModules();
 });
 
 describe("the saved copy", () => {
@@ -106,6 +154,7 @@ describe("PlacesProvider (Review Focus 1)", () => {
     const { result } = renderPlaces(createMemoryReader(fixtures, { delayMs: 20 }));
     expect(result.current.status).toBe("loading");
     expect(result.current.places).toEqual([]);
+    expect(result.current.complete).toBe(false);
     expect(result.current.error).toBeUndefined();
     await waitFor(() => expect(result.current.status).toBe("ready"));
   });
@@ -119,6 +168,7 @@ describe("PlacesProvider (Review Focus 1)", () => {
     expect(result.current.status).toBe("ready");
     expect(result.current.places).toHaveLength(5);
     expect(result.current.savedAt).toBe(1_000);
+    expect(result.current.complete).toBe(true);
     expect(result.current.error).toBeUndefined();
 
     await waitFor(() => expect(gate.waiting).toBe(1));
@@ -126,9 +176,21 @@ describe("PlacesProvider (Review Focus 1)", () => {
     await waitFor(() => expect(result.current.places).toHaveLength(43));
     expect(result.current.source).toBe("network");
     expect(result.current.status).toBe("ready");
+    expect(result.current.complete).toBe(true);
     expect(result.current.error).toBeUndefined();
-    expect(result.current.savedAt).toBeGreaterThan(1_000);
+    await waitFor(() => expect(result.current.savedAt).toBeGreaterThan(1_000));
     expect(seen).toEqual(["loading:network", "ready:cache", "ready:network"]);
+  });
+
+  it("shows a saved copy from an incomplete load as incomplete", async () => {
+    await saveCopy(fixtures.slice(0, 5), { complete: false });
+    const gate = held(createMemoryReader(fixtures));
+    const { result } = renderPlaces(gate.reader);
+
+    await waitFor(() => expect(result.current.source).toBe("cache"));
+    expect(result.current.complete).toBe(false);
+    gate.release();
+    await waitFor(() => expect(result.current.places).toHaveLength(43));
   });
 
   it("with no saved copy and the network down, gives an error code, and retry() tries again", async () => {
@@ -138,6 +200,7 @@ describe("PlacesProvider (Review Focus 1)", () => {
     await waitFor(() => expect(result.current.status).toBe("error"));
     expect(result.current.error).toBe("network");
     expect(result.current.places).toEqual([]);
+    expect(result.current.complete).toBe(false);
 
     act(() => result.current.retry());
     expect(result.current.status).toBe("loading");
@@ -186,8 +249,7 @@ describe("PlacesProvider (Review Focus 1)", () => {
 
   it("with a saved copy and the network down, stays ready from the saved copy", async () => {
     await saveCopy(fixtures.slice(0, 5));
-    const reader = createMemoryReader(fixtures, { failWith: new Error("down"), delayMs: 10 });
-    const { result, seen } = renderPlaces(reader);
+    const { result, seen } = await renderAfterSavedCopy(createMemoryReader(fixtures, { failWith: new Error("down") }));
 
     await waitFor(() => expect(result.current.error).toBe("network"));
     expect(result.current.status).toBe("ready");
@@ -200,8 +262,7 @@ describe("PlacesProvider (Review Focus 1)", () => {
 
   it("keeps showing the saved copy while retry() runs, and clears the error when it succeeds", async () => {
     await saveCopy(fixtures.slice(0, 5));
-    const reader = failingOnce();
-    const { result } = renderPlaces(reader);
+    const { result } = await renderAfterSavedCopy(failingOnce());
 
     await waitFor(() => expect(result.current.error).toBe("network"));
     act(() => result.current.retry());
@@ -230,25 +291,95 @@ describe("PlacesProvider (Review Focus 1)", () => {
     expect(await savedCopy()).toBeUndefined();
   });
 
-  it("settles on the network's places under StrictMode, which mounts twice", async () => {
+  it("sends exactly one request under StrictMode, which mounts twice", async () => {
     const reader = createMemoryReader(fixtures, { delayMs: 10 });
     const { result } = renderPlaces(reader, { strict: true });
 
     await waitFor(() => expect(result.current.status).toBe("ready"));
     expect(result.current.source).toBe("network");
     expect(result.current.places).toHaveLength(43);
+    expect(reader.requests).toHaveLength(1);
     await waitFor(async () => expect((await savedCopy())?.events).toHaveLength(43));
   });
 
   it("asks the places relay when no reader is given", async () => {
     vi.doMock("../src/places/relayReader", () => ({ relayReader: createMemoryReader(fixtures) }));
-    try {
-      const { result } = renderPlaces();
-      await waitFor(() => expect(result.current.status).toBe("ready"));
-      expect(result.current.places).toHaveLength(43);
-    } finally {
-      vi.doUnmock("../src/places/relayReader");
-    }
+    const { result } = renderPlaces();
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.places).toHaveLength(43);
+  });
+});
+
+describe("reading the saved copy alongside the network", () => {
+  it("does not let a saved copy that never loads hold up the network's places", async () => {
+    const write = vi.fn(() => Promise.resolve());
+    const { result, seen } = await renderWithStorage(
+      { get: () => new Promise(() => {}), set: write },
+      createMemoryReader(fixtures),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.source).toBe("network");
+    expect(result.current.places).toHaveLength(43);
+    expect(result.current.savedAt).toBeUndefined();
+    expect(seen).toEqual(["loading:network", "ready:network"]);
+    // With no answer about the saved copy, the device is not written to either.
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("ignores a saved copy that arrives after the network's places, then saves them", async () => {
+    const read = deferred<unknown>();
+    const write = vi.fn((_key: unknown, _value: unknown) => Promise.resolve());
+    const { result, seen } = await renderWithStorage({ get: () => read.promise, set: write }, createMemoryReader(fixtures));
+
+    await waitFor(() => expect(result.current.places).toHaveLength(43));
+    await act(async () => {
+      read.resolve({ events: fixtures.slice(0, 5), savedAt: 1_000, complete: true });
+    });
+
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    expect((write.mock.calls[0]![1] as Saved).events).toHaveLength(43);
+    await waitFor(() => expect(result.current.savedAt).toBe((write.mock.calls[0]![1] as Saved).savedAt));
+    expect(result.current.source).toBe("network");
+    expect(result.current.places).toHaveLength(43);
+    expect(seen).toEqual(["loading:network", "ready:network"]);
+  });
+
+  it("does not save over a fuller saved copy that arrives after the network's places", async () => {
+    const read = deferred<unknown>();
+    const write = vi.fn(() => Promise.resolve());
+    const { result } = await renderWithStorage({ get: () => read.promise, set: write }, createMemoryReader(generated(40)));
+
+    await waitFor(() => expect(result.current.places).toHaveLength(40));
+    await act(async () => {
+      read.resolve({ events: generated(100), savedAt: 1_000, complete: true });
+    });
+
+    // The places on screen stay the network's; the device keeps its fuller copy.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(result.current.source).toBe("network");
+    expect(result.current.places).toHaveLength(40);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("when the network fails before the saved copy is read, shows the saved copy with the error", async () => {
+    const read = deferred<unknown>();
+    const { result } = await renderWithStorage(
+      { get: () => read.promise, set: () => Promise.resolve() },
+      createMemoryReader(fixtures, { failWith: new Error("down") }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    await act(async () => {
+      read.resolve({ events: fixtures.slice(0, 5), savedAt: 1_000, complete: true });
+    });
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.source).toBe("cache");
+    expect(result.current.places).toHaveLength(5);
+    expect(result.current.error).toBe("network");
   });
 });
 
@@ -259,12 +390,64 @@ describe("saving places on the device", () => {
     await waitFor(async () => expect((await savedCopy())?.events).toHaveLength(43));
     const saved = (await savedCopy())!;
     expect(saved.events).toEqual(expect.arrayContaining(fixtures));
-    expect(saved.savedAt).toBe(result.current.savedAt);
+    expect(saved.complete).toBe(true);
+    await waitFor(() => expect(result.current.savedAt).toBe(saved.savedAt));
+    expect(result.current.complete).toBe(true);
+  });
+
+  it("leaves savedAt unset when the save fails and nothing was saved (private browsing)", async () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const write = vi.fn(() => Promise.reject(new Error("IndexedDB is unavailable")));
+    const { result } = await renderWithStorage(
+      { get: () => Promise.reject(new Error("IndexedDB is unavailable")), set: write },
+      createMemoryReader(fixtures),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.source).toBe("network");
+    expect(result.current.places).toHaveLength(43);
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(debug).toHaveBeenCalledTimes(2)); // one read, one write
+    expect(result.current.savedAt).toBeUndefined();
+  });
+
+  it("keeps the earlier savedAt when the save fails", async () => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    const write = vi.fn(() => Promise.reject(new Error("quota exceeded")));
+    const { result } = await renderWithStorage(
+      {
+        get: () => Promise.resolve({ events: fixtures.slice(0, 5), savedAt: 1_000, complete: true }),
+        set: write,
+      },
+      createMemoryReader(fixtures, { delayMs: 10 }),
+    );
+
+    await waitFor(() => expect(result.current.places).toHaveLength(43));
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    expect(result.current.source).toBe("network");
+    expect(result.current.savedAt).toBe(1_000);
+  });
+
+  it("judges a later load against what this mount saved", async () => {
+    let calls = 0;
+    const answers = [createMemoryReader(generated(100)), createMemoryReader(generated(40))];
+    const reader: RelayReader = {
+      req(filter, signal) {
+        return answers[Math.min(calls++, 1)]!.req(filter, signal);
+      },
+    };
+    const { result } = renderPlaces(reader);
+    await waitFor(async () => expect((await savedCopy())?.events).toHaveLength(100));
+
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.error).toBe("network"));
+    expect(result.current.places).toHaveLength(100);
+    expect((await savedCopy())!.events).toHaveLength(100);
   });
 
   it("treats an answer with no places as a failure, and keeps the saved copy", async () => {
     await saveCopy(fixtures.slice(0, 5));
-    const { result } = renderPlaces(createMemoryReader([], { delayMs: 10 }));
+    const { result } = await renderAfterSavedCopy(createMemoryReader([]));
 
     await waitFor(() => expect(result.current.error).toBe("network"));
     expect(result.current.source).toBe("cache");
@@ -284,33 +467,51 @@ describe("saving places on the device", () => {
     // 10,005 places at one time: the first page holds 10,000 and the next adds nothing.
     const incomplete = generated(10_005);
 
-    it("is shown and saved when nothing was saved before", async () => {
+    it("is shown and saved, marked incomplete, when nothing was saved before", async () => {
       const { result } = renderPlaces(createMemoryReader(incomplete));
 
       await waitFor(() => expect(result.current.status).toBe("ready"));
       expect(result.current.source).toBe("network");
       expect(result.current.places).toHaveLength(10_000);
+      expect(result.current.complete).toBe(false);
       await waitFor(async () => expect((await savedCopy())?.events).toHaveLength(10_000));
+      expect((await savedCopy())!.complete).toBe(false);
     });
 
-    it("replaces a smaller saved copy", async () => {
-      await saveCopy(fixtures.slice(0, 5));
-      const { result } = renderPlaces(createMemoryReader(incomplete, { delayMs: 10 }));
-
-      await waitFor(() => expect(result.current.places).toHaveLength(10_000));
-      expect(result.current.source).toBe("network");
-      await waitFor(async () => expect((await savedCopy())?.events).toHaveLength(10_000));
-    });
-
-    it("never replaces a fuller saved copy, which stays on screen", async () => {
-      await saveCopy(generated(10_002));
-      const { result } = renderPlaces(createMemoryReader(incomplete, { delayMs: 10 }));
+    it.each([
+      ["a smaller", 5],
+      ["a fuller", 10_002],
+    ])("is a failure over %s saved copy, which stays on screen", async (_size, count) => {
+      await saveCopy(count === 5 ? fixtures.slice(0, 5) : generated(count));
+      const { result } = await renderAfterSavedCopy(createMemoryReader(incomplete));
 
       await waitFor(() => expect(result.current.error).toBe("network"));
       expect(result.current.status).toBe("ready");
       expect(result.current.source).toBe("cache");
-      expect(result.current.places).toHaveLength(10_002);
-      expect((await savedCopy())!.events).toHaveLength(10_002);
+      expect(result.current.places).toHaveLength(count);
+      expect((await savedCopy())!.events).toHaveLength(count);
+    });
+  });
+
+  describe("a complete fetch never shrinks the saved copy by more than half", () => {
+    it("keeps 100 saved places over a complete answer of 40, with the error", async () => {
+      await saveCopy(generated(100));
+      const { result } = await renderAfterSavedCopy(createMemoryReader(generated(40)));
+
+      await waitFor(() => expect(result.current.error).toBe("network"));
+      expect(result.current.source).toBe("cache");
+      expect(result.current.places).toHaveLength(100);
+      expect((await savedCopy())!.events).toHaveLength(100);
+    });
+
+    it.each([60, 50])("accepts a complete answer of %i over 100 saved places", async (count) => {
+      await saveCopy(generated(100));
+      const { result } = await renderAfterSavedCopy(createMemoryReader(generated(count)));
+
+      await waitFor(() => expect(result.current.source).toBe("network"));
+      expect(result.current.places).toHaveLength(count);
+      expect(result.current.error).toBeUndefined();
+      await waitFor(async () => expect((await savedCopy())?.events).toHaveLength(count));
     });
   });
 
@@ -333,40 +534,18 @@ describe("saving places on the device", () => {
 
   it.each<[string, unknown]>([
     ["not an object", "junk"],
-    ["no list of events", { events: { length: 1 }, savedAt: 1 }],
-    ["no time", { events: fixtures, savedAt: "yesterday" }],
-    ["no places", { events: [], savedAt: 1 }],
-  ])("ignores a saved copy with %s", async (_why, value) => {
+    ["no list of events", { events: { length: 1 }, savedAt: 1, complete: true }],
+    ["no time", { events: fixtures, savedAt: "yesterday", complete: true }],
+    ["no completeness flag", { events: fixtures, savedAt: 1 }],
+    ["no places", { events: [], savedAt: 1, complete: true }],
+  ])("ignores a saved copy with %s, quietly", async (_why, value) => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
     await set(CACHE_KEY, value);
     const { result, seen } = renderPlaces(createMemoryReader(fixtures, { delayMs: 10 }));
 
     await waitFor(() => expect(result.current.status).toBe("ready"));
     expect(seen).toEqual(["loading:network", "ready:network"]);
-  });
-
-  it("still loads from the network when the device cannot save (private browsing)", async () => {
-    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
-    vi.resetModules();
-    vi.doMock("idb-keyval", () => ({
-      get: () => Promise.reject(new Error("IndexedDB is unavailable")),
-      set: () => Promise.reject(new Error("IndexedDB is unavailable")),
-    }));
-    try {
-      const store = await import("../src/places/store");
-      const { result } = renderHook(() => store.usePlaces(), {
-        wrapper: ({ children }: { children: ReactNode }) => (
-          <store.PlacesProvider reader={createMemoryReader(fixtures)}>{children}</store.PlacesProvider>
-        ),
-      });
-
-      await waitFor(() => expect(result.current.status).toBe("ready"));
-      expect(result.current.source).toBe("network");
-      expect(result.current.places).toHaveLength(43);
-      await waitFor(() => expect(debug).toHaveBeenCalledTimes(2)); // one read, one write
-    } finally {
-      vi.doUnmock("idb-keyval");
-      vi.resetModules();
-    }
+    expect(debug).not.toHaveBeenCalled();
   });
 });
 

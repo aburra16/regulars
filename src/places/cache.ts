@@ -15,12 +15,15 @@ export interface SavedPlaces {
   events: NostrEvent[];
   /** When they were saved, in milliseconds since the epoch. */
   savedAt: number;
+  /** False when the load they came from stopped before the end of the list. */
+  complete: boolean;
 }
 
 /** What a read gives back: the events are unchecked until `placesFromEvents` sees them. */
 export interface SavedValues {
   events: readonly unknown[];
   savedAt: number;
+  complete: boolean;
 }
 
 /**
@@ -31,20 +34,26 @@ export async function readSaved(): Promise<SavedValues | undefined> {
   try {
     const value: unknown = await get(CACHE_KEY);
     if (typeof value !== "object" || value === null) return undefined;
-    const { events, savedAt } = value as Record<string, unknown>;
+    const { events, savedAt, complete } = value as Record<string, unknown>;
     if (!Array.isArray(events) || typeof savedAt !== "number" || !Number.isFinite(savedAt)) return undefined;
-    return { events, savedAt };
+    if (typeof complete !== "boolean") return undefined;
+    return { events, savedAt, complete };
   } catch (error) {
     debug("could not read the saved places", error);
     return undefined;
   }
 }
 
-/** Saves the places. A device that cannot save still shows them; it loads them again next time. */
-export async function writeSaved(saved: SavedPlaces): Promise<void> {
+/**
+ * Saves the places, and says whether that worked. A device that cannot save still shows them;
+ * it loads them again next time.
+ */
+export async function writeSaved(saved: SavedPlaces): Promise<boolean> {
   try {
     await set(CACHE_KEY, saved);
+    return true;
   } catch (error) {
     debug("could not save the places", error);
+    return false;
   }
 }

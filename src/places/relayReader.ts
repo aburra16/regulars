@@ -23,24 +23,26 @@ class PlacesRelay extends NRelay1 {
 export const relayReader: RelayReader = {
   async *req(filter, signal) {
     signal.throwIfAborted();
-    const relay = new PlacesRelay(config.placesRelay, {
-      // TODO(follow-up "Verify place signatures", Ruling R12): NRelay1 checks each signature by
-      // default, which took 6.7 s for the list on a desktop, on the main thread. Off until then.
-      verifyEvent: () => true,
-    });
-    const stop = AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS), relay.notices.signal]);
+    let relay: PlacesRelay | undefined;
+    let stop: AbortSignal | undefined;
     try {
+      relay = new PlacesRelay(config.placesRelay, {
+        // TODO(follow-up "Verify place signatures", Ruling R12): NRelay1 checks each signature by
+        // default, which took 6.7 s for the list on a desktop, on the main thread. Off until then.
+        verifyEvent: () => true,
+      });
+      stop = AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS), relay.notices.signal]);
       for await (const msg of relay.req([filter], { signal: stop })) {
         if (msg[0] === "EVENT") yield msg[2];
         else if (msg[0] === "EOSE") return;
-        else break;
       }
+      // NRelay1 ends the stream on CLOSED without passing it on.
       throw new Error("The places relay closed the request before the end of its stored events");
     } catch (error) {
       // NRelay1 ends an aborted request with a bare AbortError; pass on the reason instead.
-      throw stop.aborted ? stop.reason : error;
+      throw stop?.aborted ? stop.reason : error;
     } finally {
-      void relay.close().catch(() => {});
+      void relay?.close().catch(() => {});
     }
   },
 };

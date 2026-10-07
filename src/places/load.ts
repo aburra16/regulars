@@ -116,9 +116,9 @@ class Latest {
   }
 }
 
-/** NIP-01's rule for two versions of one address: the later wins, then the larger id. */
+/** NIP-01's rule for two versions of one address: the later wins; at the same time, the lowest id. */
 function isNewer(a: NostrEvent, b: NostrEvent): boolean {
-  return a.created_at > b.created_at || (a.created_at === b.created_at && a.id > b.id);
+  return a.created_at > b.created_at || (a.created_at === b.created_at && a.id < b.id);
 }
 
 /**
@@ -138,6 +138,8 @@ export async function fetchHouseEvents(
   let complete = false;
 
   for (let page = 0; page < MAX_PAGES; page++) {
+    // An aborted load sends nothing (StrictMode's first mount, an unmount, a retry).
+    signal.throwIfAborted();
     let received = 0;
     let added = 0;
     for await (const value of reader.req(houseFilter(pageSize, until), signal)) {
@@ -158,15 +160,20 @@ export async function fetchHouseEvents(
   return { events: latest.events, complete };
 }
 
+/** The places among `events`, which `fetchHouseEvents` has already checked and deduplicated. */
+export function parsePlaces(events: readonly NostrEvent[]): Place[] {
+  return events.flatMap((ev) => parsePlace(ev, config.headerCoordinate) ?? []);
+}
+
 /**
- * The places in `values`: well-formed events of the house account, the newest at each
- * address, that are places of the list. Values from the device are checked like the relay's.
+ * The places in `values` saved on the device: well-formed events of the house account, the
+ * newest at each address, that are places of the list. They are checked like the relay's.
  */
 export function placesFromEvents(values: readonly unknown[]): Place[] {
   const latest = new Latest();
   for (const value of values) latest.add(value);
   latest.report("this device");
-  return latest.events.flatMap((ev) => parsePlace(ev, config.headerCoordinate) ?? []);
+  return parsePlaces(latest.events);
 }
 
 /** Reads the house's places from the relay. See `fetchHouseEvents` for the paging. */
@@ -175,5 +182,5 @@ export async function fetchHousePlaces(
   opts: { pageSize?: number; signal?: AbortSignal } = {},
 ): Promise<{ places: Place[]; complete: boolean }> {
   const { events, complete } = await fetchHouseEvents(reader, opts);
-  return { places: placesFromEvents(events), complete };
+  return { places: parsePlaces(events), complete };
 }
