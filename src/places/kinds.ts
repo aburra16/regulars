@@ -94,6 +94,19 @@ export function cuisineLabel(cuisine: string): string {
   return sentenceCase(cuisine);
 }
 
+/**
+ * Words people use for a kind of place that its label does not say, found by search and shown
+ * nowhere. They are by family; the bars family holds pubs too, so it has the word for both.
+ */
+export const FAMILY_SEARCH_TERMS: Partial<Record<FamilyId, string>> = {
+  cafes: "coffee café",
+  bars: "drinks beer",
+  bakeries: "bread pastry cake",
+  "ice-cream": "gelato",
+  "fast-food": "takeaway burger",
+  breweries: "beer wine",
+};
+
 /** These kinds take the cuisine in front: "Mexican restaurant". Every other kind takes it after a dot. */
 const CUISINE_FIRST = new Set(["restaurant", "cafe", "bar", "pub"]);
 

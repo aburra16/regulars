@@ -1,6 +1,5 @@
-import { distance } from "geokdbush-tk";
-
 import { copy } from "../copy/en.ts";
+import { distance } from "./geo.ts";
 
 const KM_PER_MILE = 1.609344;
 
@@ -12,15 +11,24 @@ export function distanceKm(lat1: number, lon1: number, lat2: number, lon2: numbe
   return distance(lon1, lat1, lon2, lat2);
 }
 
-/** Whether a locale reads distance in miles: its region is the US, Liberia or Myanmar. A locale with no region reads kilometres. */
+const usesMilesByLocale = new Map<string, boolean>();
+
+/**
+ * Whether a locale reads distance in miles: its region is the US, Liberia or Myanmar. A locale
+ * with no region is read as its language's usual one, so "en" is the US and "pt" is Brazil.
+ */
 function usesMiles(locale: string): boolean {
+  const known = usesMilesByLocale.get(locale);
+  if (known !== undefined) return known;
+  let miles = false;
   try {
-    const region = new Intl.Locale(locale).region;
-    return region !== undefined && MILE_REGIONS.has(region);
+    const region = new Intl.Locale(locale).maximize().region;
+    miles = region !== undefined && MILE_REGIONS.has(region);
   } catch {
     // Not a locale. Nobody should see a broken distance for it.
-    return false;
   }
+  usesMilesByLocale.set(locale, miles);
+  return miles;
 }
 
 /** `value` to one decimal place, or, when that is ten or more, to a whole number. */
@@ -32,9 +40,11 @@ function tenths(value: number, unit: string): string {
 /**
  * A distance for a person: "0.6 mi" in the US, Liberia and Myanmar, otherwise "1.1 km", or
  * "250 m" under a kilometre. Short distances round to 0.1 mi or 50 m, and long ones to the
- * whole mile or kilometre, because a more exact figure is not one a person can walk by.
+ * whole mile or kilometre, because a more exact figure is not one a person can walk by. A
+ * distance that is not a number is empty.
  */
 export function formatDistance(km: number, locale: string): string {
+  if (!Number.isFinite(km)) return "";
   if (usesMiles(locale)) return tenths(Math.max(0.1, km / KM_PER_MILE), copy.units.mi);
   if (km < 1) {
     const metres = Math.max(50, Math.round(km * 20) * 50);

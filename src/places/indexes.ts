@@ -1,10 +1,10 @@
-import { around } from "geokdbush-tk";
 import KDBush from "kdbush";
 import MiniSearch from "minisearch";
 
 import { config } from "../config.ts";
 import { distanceKm } from "./distance.ts";
-import { cuisineLabel, kindOf } from "./kinds.ts";
+import { around, HALF_EARTH_KM, withinCounter } from "./geo.ts";
+import { cuisineLabel, FAMILY_SEARCH_TERMS, kindOf } from "./kinds.ts";
 import type { Place } from "./place.ts";
 
 export { formatDistance } from "./distance.ts";
@@ -15,10 +15,12 @@ export interface PlaceDistance {
   km: number;
 }
 
-/** Places that share a name. Each location is still its own place; the chain is for display. */
+/** Places that share a name in a country. Each location is still its own place; the chain is for display. */
 export interface Chain {
-  /** `chainKey` of the name. It is what the chain's page is found by (see `chainSlug`). */
+  /** `chainKey` of the name. With the country, it is what the chain's page is found by (see `chainSlug`). */
   key: string;
+  /** An upper-case country code; empty for places that have none. */
+  country: string;
   /** The spelling most of its places use. */
   name: string;
   /** In the order of the list of places. */
@@ -29,9 +31,12 @@ export interface City {
   name: string;
   /** An upper-case country code; empty when its places have none. */
   country: string;
-  /** The median of its places' coordinates. */
+  /** The region its places name, when they do: "KY" for Lexington, Kentucky. */
+  region?: string;
+  /** The median of the coordinates of the places in its main cluster. */
   lat: number;
   lon: number;
+  /** The places in its main cluster. */
   count: number;
 }
 
@@ -42,46 +47,67 @@ export interface ChainGroup<T> {
 }
 
 export interface Indexes {
-  /** The places within `radiusKm` of a point, nearest first; at most `limit` of them. */
+  /** The places within `radiusKm` of a point, nearest first; at most `limit` of them. Nothing for a point that is not a place on Earth. */
   near(lat: number, lon: number, radiusKm: number, limit?: number): PlaceDistance[];
   /**
    * The places that match every word of `q`, best match first and, among matches that are
    * about as good, nearest first. With `radiusKm`, only those within it. An empty query lists
-   * the places near the point, as `near` does.
+   * the places near the point, as `near` does. Nothing for a point that is not a place on Earth.
    */
   search(q: string, opts: { lat: number; lon: number; radiusKm?: number }): PlaceDistance[];
-  /** The chain a place belongs to; undefined unless two or more places share its name. */
+  /** The chain a place belongs to; undefined unless two or more places in its country share its name. */
   chainOf(place: Place): Chain | undefined;
   /**
    * The chain a page is for: `slug` as `chainSlug` made it, or the same after a router has
    * decoded it. Undefined for a slug that is not a chain's.
    */
   chainBySlug(slug: string): Chain | undefined;
-  /** Every chain, by `Chain.key`. */
+  /** Every chain, by `chainId(chain.key, chain.country)`. */
   chains: Map<string, Chain>;
-  /** Localities with three or more places, those with the most first. */
+  /** Towns with three or more places close together, those with the most first. */
   cities: City[];
   /** Places by their `d`, the last part of the route `/place/:d`. */
   byD: Map<string, Place>;
 }
+
+/** Names that stand for no name. A shared one says nothing about what two places have in common. */
+const PLACEHOLDER_KEYS: ReadonlySet<string> = new Set(["unnamed", "no name", "sin nombre", "sem nome", "noname"]);
+
+const TRAILING_PUNCTUATION: ReadonlySet<string> = new Set([".", ",", ";", ":", "!"]);
 
 /**
  * What makes two names the same chain: case, quotes, spacing and trailing punctuation do not.
  * The quotes are the right and left single quotation marks and the backtick; they read as '.
  */
 export function chainKey(name: string): string {
-  return name
+  const text = name
     .normalize("NFKC")
     .toLowerCase()
     .replace(/[’‘`]/g, "'")
-    .replace(/\s+/g, " ")
-    .replace(/[\s.,;:!]+$/, "")
-    .trim();
+    .replace(/\s+/g, " ");
+  // A loop, not a pattern: a pattern for a trailing run is tried from every start, and a long
+  // run of punctuation that is not at the end would take time in proportion to its square.
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === " " || TRAILING_PUNCTUATION.has(text[end - 1]!))) end -= 1;
+  return text.slice(0, end).trim();
 }
 
-/** A chain's key as a piece of a URL. */
-export function chainSlug(key: string): string {
-  return encodeURIComponent(key);
+/** A place's country as chains and cities read it: upper case, trimmed, empty when it has none. */
+function countryOf(place: Place): string {
+  return (place.country ?? "").trim().toUpperCase();
+}
+
+/** What a chain is found by in `Indexes.chains`: its country, a colon, and its key. */
+export function chainId(key: string, country: string): string {
+  return `${country}:${key}`;
+}
+
+/**
+ * A chain as a piece of a URL: its country and its key, each encoded, with a colon between.
+ * A colon in either is encoded, so the first one is always the one between them.
+ */
+export function chainSlug(chain: Pick<Chain, "key" | "country">): string {
+  return `${encodeURIComponent(chain.country)}:${encodeURIComponent(chain.key)}`;
 }
 
 /** The value that comes up most often; the first of them to come up if there is a tie. */
@@ -112,43 +138,108 @@ function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   else list.push(value);
 }
 
+/** Orders names the way an English reader expects, whatever the machine's own language. */
+const collator = new Intl.Collator("en");
+
 function buildChains(places: readonly Place[]): Map<string, Chain> {
-  const groups = new Map<string, Place[]>();
+  const groups = new Map<string, { key: string; country: string; places: Place[] }>();
   for (const place of places) {
     const key = chainKey(place.name);
-    // A name of nothing but punctuation says nothing about what two places have in common.
-    if (key !== "") push(groups, key, place);
+    if (key === "" || PLACEHOLDER_KEYS.has(key)) continue;
+    const country = countryOf(place);
+    const id = chainId(key, country);
+    const group = groups.get(id);
+    if (group === undefined) groups.set(id, { key, country, places: [place] });
+    else group.places.push(place);
   }
   const chains = new Map<string, Chain>();
-  for (const [key, group] of groups) {
-    if (group.length >= 2) chains.set(key, { key, name: commonest(group.map((place) => place.name.trim())), places: group });
+  for (const [id, group] of groups) {
+    if (group.places.length < 2) continue;
+    chains.set(id, { ...group, name: commonest(group.places.map((place) => place.name.trim())) });
   }
   return chains;
 }
 
+/** How far a town reaches: places farther than this from its busiest spot are not counted in it. */
+const CITY_RADIUS_KM = 25;
+
+/** The places of `group` that are within the city radius of the one that has the most of them within it. */
+function busiestCluster(group: readonly Place[]): Place[] {
+  const tree = new KDBush(group.length);
+  for (const place of group) tree.add(place.lon, place.lat);
+  tree.finish();
+
+  const countNear = withinCounter(tree);
+  let busiest = 0;
+  let most = -1;
+  group.forEach((place, i) => {
+    const count = countNear(place.lon, place.lat, CITY_RADIUS_KM);
+    if (count > most) {
+      busiest = i;
+      most = count;
+    }
+  });
+
+  const centre = group[busiest]!;
+  return around(tree, centre.lon, centre.lat, undefined, CITY_RADIUS_KM)
+    .sort((a, b) => a - b)
+    .map((id) => group[id]!);
+}
+
+/**
+ * Towns. Places are grouped by locality, region and country, since many towns share a name; of
+ * each group only its busiest cluster counts, since a group can be spread over a continent.
+ */
 function buildCities(places: readonly Place[]): City[] {
-  const groups = new Map<string, { country: string; places: Place[] }>();
+  const groups = new Map<string, Place[]>();
   for (const place of places) {
     const locality = place.locality?.trim();
     if (locality === undefined || locality === "") continue;
-    const country = (place.country ?? "").trim().toUpperCase();
-    const key = `${locality.toLowerCase()}\n${country}`;
-    const group = groups.get(key);
-    if (group === undefined) groups.set(key, { country, places: [place] });
-    else group.places.push(place);
+    const region = place.region?.trim() ?? "";
+    push(groups, [locality.toLowerCase(), region.toLowerCase(), countryOf(place)].join("\n"), place);
   }
+
   const cities: City[] = [];
-  for (const { country, places: group } of groups.values()) {
+  for (const group of groups.values()) {
     if (group.length < 3) continue;
-    cities.push({
-      name: commonest(group.map((place) => place.locality!.trim())),
-      country,
-      lat: median(group.map((place) => place.lat)),
-      lon: median(group.map((place) => place.lon)),
-      count: group.length,
-    });
+    const cluster = busiestCluster(group);
+    if (cluster.length < 3) continue;
+    const regions = cluster.flatMap((place) => (place.region?.trim() ? [place.region.trim()] : []));
+    const city: City = {
+      name: commonest(cluster.map((place) => place.locality!.trim())),
+      country: countryOf(cluster[0]!),
+      lat: median(cluster.map((place) => place.lat)),
+      lon: median(cluster.map((place) => place.lon)),
+      count: cluster.length,
+    };
+    if (regions.length > 0) city.region = commonest(regions);
+    cities.push(city);
   }
-  return cities.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  return cities.sort(
+    (a, b) =>
+      b.count - a.count ||
+      collator.compare(a.name, b.name) ||
+      collator.compare(a.region ?? "", b.region ?? "") ||
+      collator.compare(a.country, b.country),
+  );
+}
+
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * What to call a city in a list of cities: its name, or, when another city in `all` has the
+ * same name, the name and where it is: "Lexington, KY". That is the region, or the country
+ * for a city with no region. A city that has neither is called by its name alone.
+ */
+export function cityLabel(city: City, all: readonly City[]): string {
+  const shared = all.some(
+    (other) =>
+      sameName(other.name, city.name) &&
+      !(other.name === city.name && other.region === city.region && other.country === city.country),
+  );
+  if (!shared) return city.name;
+  const where = city.region ?? (city.country === "" ? undefined : city.country);
+  return where === undefined ? city.name : `${city.name}, ${where}`;
 }
 
 /**
@@ -169,16 +260,20 @@ interface SearchDoc {
   id: number;
   name: string;
   kind: string;
+  /** Words for the kind of place that its label does not say: "coffee" for a cafe. */
+  terms: string;
   cuisine: string;
   locality: string;
   keywords: string;
 }
 
 function searchDoc(place: Place, id: number): SearchDoc {
+  const kind = kindOf(place.category);
   return {
     id,
     name: place.name,
-    kind: kindOf(place.category).label,
+    kind: kind.label,
+    terms: FAMILY_SEARCH_TERMS[kind.family] ?? "",
     cuisine: place.cuisine === undefined ? "" : cuisineLabel(place.cuisine),
     locality: place.locality ?? "",
     keywords: place.keywords.join(" "),
@@ -186,22 +281,22 @@ function searchDoc(place: Place, id: number): SearchDoc {
 }
 
 /**
- * Scores are rounded to a tenth of the best score, and matches in the same tenth are put in
- * order of distance: a match within about 10% of the best is as good as the best.
+ * Scores are put in this many bands, each a part of the best score, and matches in the same
+ * band are put in order of distance: a match that is almost as good as the best is as good.
  */
-const SCORE_BANDS = 10;
+const SCORE_BANDS = 4;
 
 /** Everything the screens look places up by, built once for a list of places. */
-export function buildIndexes(places: Place[]): Indexes {
+export function buildIndexes(places: readonly Place[]): Indexes {
   const tree = new KDBush(places.length);
   for (const place of places) tree.add(place.lon, place.lat);
   tree.finish();
 
   const finder = new MiniSearch<SearchDoc>({
-    fields: ["name", "kind", "cuisine", "locality", "keywords"],
+    fields: ["name", "kind", "terms", "cuisine", "locality", "keywords"],
     storeFields: [],
     processTerm: searchTerm,
-    searchOptions: { prefix: true, fuzzy: 0.2, combineWith: "AND", boost: { name: 3 } },
+    searchOptions: { prefix: true, fuzzy: 0.2, combineWith: "AND", boost: { name: 3, cuisine: 2 } },
   });
   finder.addAll(places.map(searchDoc));
 
@@ -210,10 +305,14 @@ export function buildIndexes(places: Place[]): Indexes {
 
   const chains = buildChains(places);
 
+  const isLocation = (lat: number, lon: number) => Number.isFinite(lat) && Number.isFinite(lon);
+
   function near(lat: number, lon: number, radiusKm: number, limit?: number): PlaceDistance[] {
     // The tree reads a negative radius as its size, and a limit of zero as no limit.
-    if (!(radiusKm >= 0) || (limit !== undefined && !(limit > 0))) return [];
-    return around(tree, lon, lat, limit, radiusKm)
+    if (!isLocation(lat, lon) || !(radiusKm >= 0) || (limit !== undefined && !(limit > 0))) return [];
+    // A distance with no end, or past the other side of the Earth, reaches every place.
+    const reach = radiusKm >= HALF_EARTH_KM ? undefined : radiusKm;
+    return around(tree, lon, lat, limit, reach)
       .map((id) => {
         const place = places[id]!;
         return { place, km: distanceKm(lat, lon, place.lat, place.lon) };
@@ -223,6 +322,7 @@ export function buildIndexes(places: Place[]): Indexes {
   }
 
   function search(q: string, { lat, lon, radiusKm }: { lat: number; lon: number; radiusKm?: number }): PlaceDistance[] {
+    if (!isLocation(lat, lon)) return [];
     if (q.trim() === "") return near(lat, lon, radiusKm ?? config.defaultCity.radiusKm);
 
     const found: { place: Place; km: number; score: number }[] = [];
@@ -233,7 +333,7 @@ export function buildIndexes(places: Place[]): Indexes {
     }
     // The hits come best first. Band the scores against the best one that is still in range.
     const top = found[0]?.score ?? 0;
-    const band = (score: number) => (top > 0 ? Math.round((score / top) * SCORE_BANDS) : 0);
+    const band = (score: number) => (top > 0 ? Math.ceil((score / top) * SCORE_BANDS) : 0);
     return found
       .map(({ place, km, score }) => ({ place, km, band: band(score) }))
       .sort((a, b) => b.band - a.band || a.km - b.km)
@@ -241,24 +341,23 @@ export function buildIndexes(places: Place[]): Indexes {
   }
 
   function chainBySlug(slug: string): Chain | undefined {
-    const decoded = chains.get(slug);
+    const colon = slug.indexOf(":");
+    if (colon < 0) return undefined;
+    const lookup = (country: string, key: string) => chains.get(chainId(key, country.trim().toUpperCase()));
+    // As a router gives it back, decoded. The key may hold colons of its own, but not the country.
+    const decoded = lookup(slug.slice(0, colon), slug.slice(colon + 1));
     if (decoded !== undefined) return decoded;
+    // As `chainSlug` made it, with both parts encoded.
     try {
-      return chains.get(decodeURIComponent(slug));
+      return lookup(decodeURIComponent(slug.slice(0, colon)), decodeURIComponent(slug.slice(colon + 1)));
     } catch {
       return undefined;
     }
   }
 
-  return {
-    near,
-    search,
-    chainOf: (place) => chains.get(chainKey(place.name)),
-    chainBySlug,
-    chains,
-    cities: buildCities(places),
-    byD,
-  };
+  const chainOf = (place: Place) => chains.get(chainId(chainKey(place.name), countryOf(place)));
+
+  return { near, search, chainOf, chainBySlug, chains, cities: buildCities(places), byD };
 }
 
 /**

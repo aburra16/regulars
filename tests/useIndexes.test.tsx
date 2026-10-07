@@ -1,15 +1,22 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { set } from "idb-keyval";
-import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { type ReactNode, StrictMode, useState } from "react";
+import { describe, expect, it, vi } from "vitest";
 
 import { CACHE_KEY } from "../src/places/cache";
+import { buildIndexes, type Indexes } from "../src/places/indexes";
 import type { RelayReader } from "../src/places/load";
 import { PlacesProvider, usePlaces } from "../src/places/store";
 import { useIndexes } from "../src/places/useIndexes";
 import raw from "./fixtures/funchal-items.json";
 import { createMemoryReader } from "./support/memoryReader";
+
+// The real `buildIndexes`, counted.
+vi.mock("../src/places/indexes", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/places/indexes")>();
+  return { ...actual, buildIndexes: vi.fn(actual.buildIndexes) };
+});
 
 const fixtures: NostrEvent[] = raw;
 
@@ -73,5 +80,54 @@ describe("useIndexes", () => {
     release();
     await waitFor(() => expect(result.current.indexes?.byD.size).toBe(43));
     expect(result.current.indexes).not.toBe(fromDevice);
+  });
+
+  it("builds once for a list of places, however many components ask, and not again when one mounts later or remounts", async () => {
+    vi.mocked(buildIndexes).mockClear();
+    const seen = new Map<string, Indexes | undefined>();
+    const saved: { at?: number } = {};
+    const controls: { remount?: () => void } = {};
+
+    function Probe({ name }: { name: string }) {
+      seen.set(name, useIndexes());
+      return null;
+    }
+    // Shows its probe once the places are in, so it mounts after the others have built.
+    function Late() {
+      const { status, savedAt } = usePlaces();
+      saved.at = savedAt;
+      return status === "ready" ? <Probe name="late" /> : null;
+    }
+    function Harness() {
+      const [round, setRound] = useState(0);
+      controls.remount = () => setRound((n) => n + 1);
+      return (
+        <PlacesProvider reader={createMemoryReader(fixtures, { delayMs: 10 })}>
+          <Probe name="first" />
+          <Probe key={round} name="second" />
+          <Late />
+        </PlacesProvider>
+      );
+    }
+
+    render(
+      <StrictMode>
+        <Harness />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(["first", "second", "late"].map((name) => seen.get(name))).not.toContain(undefined));
+    expect(vi.mocked(buildIndexes)).toHaveBeenCalledTimes(1);
+    const indexes = seen.get("first");
+    expect(seen.get("second")).toBe(indexes);
+    expect(seen.get("late")).toBe(indexes);
+
+    // The places are saved on the device a moment later: the state changes, the places do not.
+    await waitFor(() => expect(saved.at).toBeDefined());
+    // A consumer that mounts again finds the indexes that are there.
+    seen.delete("second");
+    act(() => controls.remount?.());
+    await waitFor(() => expect(seen.get("second")).toBeDefined());
+    expect(seen.get("second")).toBe(indexes);
+    expect(vi.mocked(buildIndexes)).toHaveBeenCalledTimes(1);
   });
 });
