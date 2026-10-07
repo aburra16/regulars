@@ -19,6 +19,7 @@ interface Chunk {
   code: string;
   imports: string[];
   isEntry: boolean;
+  moduleIds: string[];
 }
 
 function chunksOf(result: Output): Chunk[] {
@@ -26,7 +27,7 @@ function chunksOf(result: Output): Chunk[] {
   return results
     .flatMap((r) => ("output" in r ? r.output : []))
     .filter((file) => file.type === "chunk")
-    .map(({ fileName, code, imports, isEntry }) => ({ fileName, code, imports, isEntry }));
+    .map(({ fileName, code, imports, isEntry, moduleIds }) => ({ fileName, code, imports, isEntry, moduleIds }));
 }
 
 describe("the opening_hours chunk", () => {
@@ -43,10 +44,17 @@ describe("the opening_hours chunk", () => {
     const library = chunks.filter((chunk) => chunk.fileName.includes("opening-hours"));
     expect(library.map((chunk) => chunk.fileName)).toHaveLength(1);
     expect(library[0]?.code).toContain(LIBRARY_MARKER);
+    // The library and the one package it imports, and nothing of ours.
+    const PACKAGE = /[\\/]node_modules[\\/](opening_hours|suncalc)[\\/]/;
+    const packages = (chunk: Chunk | undefined) =>
+      (chunk?.moduleIds ?? []).flatMap((id) => PACKAGE.exec(id)?.[1] ?? []);
+    expect(new Set(packages(library[0]))).toEqual(new Set(["opening_hours", "suncalc"]));
+    expect(library[0]?.moduleIds.filter((id) => !id.includes("node_modules"))).toEqual([]);
 
     const rest = chunks.filter((chunk) => !chunk.fileName.includes("opening-hours"));
     expect(rest.length).toBeGreaterThan(0);
     expect(rest.filter((chunk) => chunk.code.includes(LIBRARY_MARKER))).toEqual([]);
+    expect(rest.flatMap(packages)).toEqual([]);
 
     // The app's own code is in an entry chunk that loads the library chunk.
     const entry = rest.find((chunk) => chunk.isEntry);

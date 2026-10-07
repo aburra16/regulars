@@ -13,8 +13,12 @@ export const ALLOWED_PROTOCOL_STRINGS = {
   bitcoinChip: "Bitcoin accepted",
 } as const;
 
-/** A leaf is a string, or a template function that returns one. Groups nest freely. */
-type CopyNode = string | ((...args: never[]) => string) | { readonly [key: string]: CopyNode };
+/** A leaf is a string, or a template function that returns one. Groups nest freely; a list is strings. */
+type CopyNode =
+  | string
+  | ((...args: never[]) => string)
+  | readonly string[]
+  | { readonly [key: string]: CopyNode };
 
 export const copy = {
   app: {
@@ -40,5 +44,7 @@ export const copy = {
     /** The two halves of the day on a 12-hour clock. */
     am: "am",
     pm: "pm",
+    /** Monday first. The weekday before a time that is more than a day away: "Closed · opens Mon 9 am". */
+    weekdaysShort: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
   },
 } satisfies { readonly [key: string]: CopyNode };

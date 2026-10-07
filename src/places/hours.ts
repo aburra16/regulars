@@ -1,5 +1,5 @@
 import tzLookup from "@photostructure/tz-lookup";
-import OpeningHours from "opening_hours";
+import OpeningHours, { type nominatim_object } from "opening_hours";
 
 import { copy } from "../copy/en.ts";
 import type { Place } from "./place.ts";
@@ -78,8 +78,12 @@ export function timeZoneOf(lat: number, lon: number): string {
 
 const clockReaders = new Map<string, Intl.DateTimeFormat>();
 
-/** A wall-clock Date: the reading of the clock in `timeZone` at `instant`, as local fields. */
-function wallClock(instant: Date, timeZone: string): Date {
+/**
+ * A wall-clock Date: the reading of the clock in `timeZone` at `instant`, as local fields. When
+ * the runtime's own zone skipped that reading (its clocks went forward over it), `new Date`
+ * quietly moves it an hour on, and the answer would be an hour off; that gives undefined.
+ */
+function wallClock(instant: Date, timeZone: string): Date | undefined {
   let reader = clockReaders.get(timeZone);
   if (reader === undefined) {
     reader = new Intl.DateTimeFormat("en-US", {
@@ -100,8 +104,33 @@ function wallClock(instant: Date, timeZone: string): Date {
     if (!Number.isFinite(value)) throw new RangeError(`No ${type} in the clock reading for ${timeZone}`);
     return value;
   };
-  // % 24 guards engines that write midnight as 24.
-  return new Date(read("year"), read("month") - 1, read("day"), read("hour") % 24, read("minute"), read("second"));
+  const year = read("year");
+  const month = read("month") - 1;
+  const day = read("day");
+  const hour = read("hour") % 24; // % 24 guards engines that write midnight as 24
+  const minute = read("minute");
+  const second = read("second");
+  const wall = new Date(year, month, day, hour, minute, second);
+  const kept =
+    wall.getFullYear() === year &&
+    wall.getMonth() === month &&
+    wall.getDate() === day &&
+    wall.getHours() === hour &&
+    wall.getMinutes() === minute &&
+    wall.getSeconds() === second;
+  return kept ? wall : undefined;
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Whether a Date the parser handed back may have been moved by the runtime's zone: it falls in
+ * the hour after the runtime's clocks went forward, where a skipped reading ends up. The parser
+ * builds its Dates from local fields and there is no telling a moved 02:30 from a true 03:30, so
+ * both count.
+ */
+function maybeMoved(date: Date): boolean {
+  return new Date(date.getTime() - HOUR_MS).getTimezoneOffset() > date.getTimezoneOffset();
 }
 
 /** Milliseconds on the wall clock, so that the difference of two wall Dates ignores the runtime's DST. */
@@ -129,26 +158,80 @@ function addDays(date: Date, days: number): Date {
 }
 
 /**
- * The parser needs the country to know the public holidays. It also takes the place's
- * coordinates, but only to work out sunrise and sunset, which are not evaluated (see SOLAR).
+ * What the parser needs to know the public holidays: the country. (It also takes the place's
+ * coordinates, but only to work out sunrise and sunset, which are not evaluated here, and its
+ * type declarations wrongly ask for numbers where it reads strings. They are left out.)
  */
-function holidayContext(place: HoursPlace) {
-  if (place.country === undefined) return undefined;
-  return { lat: place.lat, lon: place.lon, address: { country_code: place.country.toLowerCase(), state: "" } };
+function holidayContext(country: string | undefined): nominatim_object | undefined {
+  if (country === undefined) return undefined;
+  return { address: { country_code: country, state: "" } } as nominatim_object;
+}
+
+/** How many parsed hours to remember. A list of places shows far fewer than this at once. */
+export const PARSE_CACHE_LIMIT = 2000;
+
+/** Parsed hours by country and text, oldest use first. `null` is hours that cannot be used. */
+const parsed = new Map<string, OpeningHours | null>();
+
+/**
+ * The parser for these hours in this country, or null when they do not parse or the parser had to
+ * guess at them. Parsing is the slow part of a card, so a list that redraws does not repeat it.
+ */
+function parse(raw: string, country: string | undefined): OpeningHours | null {
+  const key = JSON.stringify([country, raw]);
+  const known = parsed.get(key);
+  if (known !== undefined) {
+    parsed.delete(key);
+    parsed.set(key, known);
+    return known;
+  }
+  let hours: OpeningHours | null;
+  try {
+    const candidate = new OpeningHours(raw, holidayContext(country));
+    hours = candidate.getStructuredWarnings().some((warning) => GUESSED.has(warning.type)) ? null : candidate;
+  } catch {
+    hours = null;
+  }
+  parsed.set(key, hours);
+  if (parsed.size > PARSE_CACHE_LIMIT) {
+    const oldest = parsed.keys().next().value;
+    if (oldest !== undefined) parsed.delete(oldest);
+  }
+  return hours;
+}
+
+/**
+ * The parser writes to the console as well as throwing: for a country it has no holidays for, and
+ * for some of its own bugs. It does it synchronously, so silence the console around it.
+ */
+function quietly<T>(run: () => T): T {
+  const { error, warn } = console;
+  console.error = console.warn = () => {};
+  try {
+    return run();
+  } finally {
+    console.error = error;
+    console.warn = warn;
+  }
 }
 
 function evaluate(raw: string, place: HoursPlace, now: Date): OpenState {
   const unparsed: OpenState = { kind: "unparsed", raw };
   if (raw.length > MAX_HOURS_LENGTH || SOLAR.test(raw)) return unparsed;
 
-  const hours = new OpeningHours(raw, holidayContext(place));
-  if (hours.getStructuredWarnings().some((warning) => GUESSED.has(warning.type))) return unparsed;
+  const hours = parse(raw, place.country?.toLowerCase());
+  if (hours === null) return unparsed;
 
   const here = wallClock(now, timeZoneOf(place.lat, place.lon));
+  if (here === undefined) return unparsed;
   // Unknown covers hours with no closing time ("Sa 09:00+") and rules marked unknown.
   if (hours.getUnknown(here)) return unparsed;
 
   const next = hours.getNextChange(here, addDays(here, LOOKAHEAD_DAYS));
+  // A change into "unknown" (a comment-only rule, "unknown", an open end) is not an opening or a
+  // closing time. Nor is one the runtime's zone may have moved.
+  if (next !== undefined && (hours.getUnknown(next) || maybeMoved(next))) return unparsed;
+
   const afterADay = next !== undefined && wallMs(next) - wallMs(here) > DAY_MS;
   if (hours.getState(here)) {
     // No change within a week of an open place: for a diner, open all the time.
@@ -174,7 +257,7 @@ export function openState(place: HoursPlace, now: Date): OpenState {
   const raw = place.openingHours;
   if (raw === undefined || raw.trim() === "") return { kind: "unknown" };
   try {
-    return evaluate(raw, place, now);
+    return quietly(() => evaluate(raw, place, now));
   } catch {
     return { kind: "unparsed", raw };
   }
@@ -182,60 +265,54 @@ export function openState(place: HoursPlace, now: Date): OpenState {
 
 const FALLBACK_LOCALE = "en-US";
 
-interface LocaleClock {
-  twelveHour: boolean;
-  /** The locale's short weekday: "Tue". */
-  weekday: Intl.DateTimeFormat;
-}
+const twelveHourLocales = new Map<string, boolean>();
 
-const localeClocks = new Map<string, LocaleClock>();
-
-function buildClock(locale: string): LocaleClock {
-  const cycle = new Intl.DateTimeFormat(locale, { hour: "numeric" }).resolvedOptions().hourCycle;
-  return {
-    twelveHour: cycle === "h11" || cycle === "h12",
-    weekday: new Intl.DateTimeFormat(locale, { weekday: "short" }),
-  };
-}
-
-function localeClock(locale: string): LocaleClock {
-  let clock = localeClocks.get(locale);
-  if (clock === undefined) {
+/** Whether the locale writes the time on a 12-hour clock ("11 pm") and not a 24-hour one ("23:00"). */
+function usesTwelveHour(locale: string): boolean {
+  let twelve = twelveHourLocales.get(locale);
+  if (twelve === undefined) {
+    const cycleOf = (tag: string) => new Intl.DateTimeFormat(tag, { hour: "numeric" }).resolvedOptions().hourCycle;
+    let cycle: string | undefined;
     try {
-      clock = buildClock(locale);
+      cycle = cycleOf(locale);
     } catch {
       // A malformed locale tag reads the clock the way English does.
-      clock = buildClock(FALLBACK_LOCALE);
+      cycle = cycleOf(FALLBACK_LOCALE);
     }
-    localeClocks.set(locale, clock);
+    twelve = cycle === "h11" || cycle === "h12";
+    twelveHourLocales.set(locale, twelve);
   }
-  return clock;
+  return twelve;
 }
 
 const twoDigits = (n: number) => String(n).padStart(2, "0");
 
 /**
  * "11 pm", "10:30 pm" or "23:00" from the wall-clock fields of `at`, with the weekday before it
- * when asked: "Tue 11 pm".
+ * when asked: "Tue 11 pm". Only the 12- or 24-hour choice follows the locale; the words are the
+ * copy module's.
  */
-function formatTime(at: Date, clock: LocaleClock, withWeekday: boolean): string {
+function formatTime(at: Date, twelveHour: boolean, withWeekday: boolean): string {
   const hours = at.getHours();
   const minutes = at.getMinutes();
   let time: string;
-  if (clock.twelveHour) {
+  if (twelveHour) {
     const hour = hours % 12 === 0 ? 12 : hours % 12;
     const period = hours < 12 ? copy.hours.am : copy.hours.pm;
     time = minutes === 0 ? `${hour} ${period}` : `${hour}:${twoDigits(minutes)} ${period}`;
   } else {
     time = `${twoDigits(hours)}:${twoDigits(minutes)}`;
   }
-  return withWeekday ? `${clock.weekday.format(at)} ${time}` : time;
+  // getDay() counts from Sunday, the copy list from Monday.
+  const weekday = withWeekday ? copy.hours.weekdaysShort[(at.getDay() + 6) % 7] : undefined;
+  return weekday === undefined ? time : `${weekday} ${time}`;
 }
 
 /**
  * The line a card or the place page shows for a state: "Open until 11 pm", "Closed · opens 7 am",
- * "Hours not listed", or the hours as written when they cannot be read. Times follow the locale's
- * 12- or 24-hour clock. `where` only matters for an open place: the page says "Open now · closes 11 pm".
+ * "Hours not listed", or the hours as written when they cannot be read. The time follows the
+ * locale's 12- or 24-hour clock. `where` only matters for an open place: the page says "Open now ·
+ * closes 11 pm".
  */
 export function openLine(state: OpenState, locale: string, where: "card" | "place"): string {
   switch (state.kind) {
@@ -245,12 +322,12 @@ export function openLine(state: OpenState, locale: string, where: "card" | "plac
       return state.raw;
     case "open": {
       if (state.closesAt === undefined) return copy.hours.open24;
-      const time = formatTime(state.closesAt, localeClock(locale), state.closesAfterADay === true);
+      const time = formatTime(state.closesAt, usesTwelveHour(locale), state.closesAfterADay === true);
       return where === "card" ? copy.hours.openUntil(time) : copy.hours.openNowCloses(time);
     }
     case "closed": {
       if (state.opensAt === undefined) return copy.hours.closed;
-      return copy.hours.closedOpens(formatTime(state.opensAt, localeClock(locale), state.opensAfterADay === true));
+      return copy.hours.closedOpens(formatTime(state.opensAt, usesTwelveHour(locale), state.opensAfterADay === true));
     }
   }
 }

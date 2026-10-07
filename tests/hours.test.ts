@@ -1,11 +1,26 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { describe, expect, it } from "vitest";
+import OpeningHours from "opening_hours";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
-import { type OpenState, openLine, openState, timeZoneOf } from "../src/places/hours";
+import { type OpenState, PARSE_CACHE_LIMIT, openLine, openState, timeZoneOf } from "../src/places/hours";
 import { parsePlace } from "../src/places/place";
 import raw from "./fixtures/funchal-items.json";
+
+// The real parser, wrapped so the tests can count how often it is built and with what.
+vi.mock("opening_hours", async (importOriginal) => {
+  const original = await importOriginal<typeof import("opening_hours")>();
+  const Spied = vi.fn(function (...args: ConstructorParameters<typeof original.default>) {
+    return new original.default(...args);
+  });
+  return { ...original, default: Spied };
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 // Funchal is on Atlantic/Madeira: UTC+1 in summer (until 25 Oct 2026), UTC+0 in winter.
 // vitest.config.ts runs the tests with TZ=UTC, so a result that leaks the runtime's zone shows up.
@@ -270,6 +285,46 @@ describe("openState", () => {
       });
     });
 
+    describe("when the next change leads into an unknown state", () => {
+      // "Opens at 12 am" would be a claim the hours do not make: the change is into "unknown".
+      it("does not call a comment-only rule an opening", () => {
+        const hours = 'Mo-Fr 09:00-17:00; Sa,Su "appointment only"';
+        expect(stateOf(hours, "2026-10-09T18:00:00Z")).toEqual({ kind: "unparsed", raw: hours });
+      });
+
+      it("does not call an unknown rule an opening", () => {
+        const hours = "Mo-Fr 08:00-17:00; Sa 09:00-12:00 unknown";
+        expect(stateOf(hours, "2026-10-09T18:00:00Z")).toEqual({ kind: "unparsed", raw: hours });
+      });
+
+      it("does not call the end of an open-ended range an opening", () => {
+        const hours = "Th-Su 11:00-21:00+";
+        // Thu 8 Oct 22:00 Madeira.
+        expect(stateOf(hours, "2026-10-08T21:00:00Z")).toEqual({ kind: "unparsed", raw: hours });
+      });
+
+      it("does not call a commented opening an opening", () => {
+        const hours = 'Mo-Fr 08:00-17:00 "by appointment only"';
+        // Wed 7 Oct 20:00 Madeira; and Sat 10 Oct, when the next change is Monday morning.
+        expect(stateOf(hours, "2026-10-07T19:00:00Z")).toEqual({ kind: "unparsed", raw: hours });
+        expect(stateOf(hours, "2026-10-10T09:00:00Z")).toEqual({ kind: "unparsed", raw: hours });
+      });
+
+      it("does not call an open place's change into unknown a closing time", () => {
+        const hours = "Mo-Fr 09:00-17:00+";
+        // Wed 7 Oct 10:00 Madeira: open, and at 17:00 it goes to "unknown".
+        expect(stateOf(hours, "2026-10-07T09:00:00Z")).toEqual({ kind: "unparsed", raw: hours });
+      });
+
+      it("still reads a plain opening that comes before an unknown one", () => {
+        const hours = "Mo-Fr 09:00-17:00; Sa 09:00-12:00 unknown";
+        // Fri 9 Oct 10:00 Madeira: it closes at 17:00 and the next change is a plain closing.
+        expect(stateOf(hours, "2026-10-09T09:00:00Z")).toEqual({ kind: "open", closesAt: new Date(2026, 9, 9, 17, 0) });
+        // Sat 10 Oct 13:00: Monday 09:00 is a plain opening.
+        expect(stateOf(hours, "2026-10-10T12:00:00Z").kind).toBe("closed");
+      });
+    });
+
     it("still reads the weekdays of hours with an open-ended Saturday", () => {
       const hours = "Mo-Fr 08:00-12:00,13:00-17:00; Sa 09:00+";
       expect(stateOf(hours, WED_15_00)).toEqual({ kind: "open", closesAt: new Date(2026, 9, 7, 17, 0) });
@@ -350,6 +405,38 @@ describe("openState", () => {
       expect(unread).toEqual([]);
     });
 
+    it("reports an opensAt that is open and a closesAt that is closed, as the parser itself says", () => {
+      const oracle = (hours: string) =>
+        new OpeningHours(hours, { lat: FUNCHAL.lat, lon: FUNCHAL.lon, address: { country_code: "pt", state: "" } });
+      // The fixtures have no unknown states, so add hours that do: comments, "unknown", open ends.
+      const awkward = [
+        'Mo-Fr 09:00-17:00; Sa,Su "appointment only"',
+        "Mo-Fr 08:00-17:00; Sa 09:00-12:00 unknown",
+        "Th-Su 11:00-21:00+",
+        'Mo-Fr 08:00-17:00 "by appointment only"',
+        "Mo-Fr 09:00-17:00+",
+        "Mo-Fr 08:00-12:00,13:00-17:00; Sa 09:00+",
+      ].map((openingHours) => ({ ...FUNCHAL, openingHours }));
+      const week = Array.from({ length: 7 * 24 }, (_, i) => new Date(Date.UTC(2026, 9, 5) + i * 3_600_000));
+      const wrong = [...places, ...awkward].flatMap((place) =>
+        week.flatMap((instant) => {
+          const state = openState(place, instant);
+          const hours = oracle(place.openingHours ?? "");
+          const where = `${place.openingHours} at ${instant.toISOString()}`;
+          if (state.kind === "closed" && state.opensAt !== undefined) {
+            const opens = hours.getState(state.opensAt) && !hours.getUnknown(state.opensAt);
+            return opens ? [] : [`${where}: opensAt ${state.opensAt.toString()} is not open`];
+          }
+          if (state.kind === "open" && state.closesAt !== undefined) {
+            const closes = !hours.getState(state.closesAt) && !hours.getUnknown(state.closesAt);
+            return closes ? [] : [`${where}: closesAt ${state.closesAt.toString()} is not closed`];
+          }
+          return [];
+        }),
+      );
+      expect(wrong).toEqual([]);
+    });
+
     it("tells open from closed for hours with ';' and ','", () => {
       // "Mo-Fr 10:30-19:30, Sa 10:00-14:00": Sat 10 Oct 12:00 Madeira (11:00Z) it is open until 14:00.
       const hours = "Mo-Fr 10:30-19:30, Sa 10:00-14:00";
@@ -398,10 +485,25 @@ describe("openLine", () => {
       const friday = "2026-10-09T17:00:00Z";
       expect(lineOf("Mo-Fr 09:00-17:00", friday, "en-US")).toBe("Closed · opens Mon 9 am");
       expect(lineOf("Mo-Fr 09:00-17:00", friday, "en-GB")).toBe("Closed · opens Mon 09:00");
-      // The weekday is the locale's own.
-      const weekday = new Intl.DateTimeFormat("pt-PT", { weekday: "short" }).format(new Date(2026, 9, 12));
-      expect(weekday).not.toBe("Mon");
-      expect(lineOf("Mo-Fr 09:00-17:00", friday, "pt-PT")).toBe(`Closed · opens ${weekday} 09:00`);
+      // The words are English whatever the locale; only the clock follows the locale.
+      expect(lineOf("Mo-Fr 09:00-17:00", friday, "pt-PT")).toBe("Closed · opens Mon 09:00");
+      expect(lineOf("Mo-Fr 09:00-17:00", friday, "ja-JP")).toBe("Closed · opens Mon 09:00");
+      expect(lineOf("Mo-Fr 09:00-17:00", friday, "de-DE", "place")).toBe("Closed · opens Mon 09:00");
+    });
+
+    it("names every weekday from the copy module, Monday first", () => {
+      expect(copy.hours.weekdaysShort).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+      // 2026-10-12 is a Monday. Each place below opens on its day, a few days after Friday evening.
+      const friday = "2026-10-09T17:00:00Z";
+      const opensOn = (days: string) => lineOf(`${days} 09:00-17:00`, friday, "pt-PT");
+      expect(opensOn("Mo")).toBe("Closed · opens Mon 09:00");
+      expect(opensOn("Tu")).toBe("Closed · opens Tue 09:00");
+      expect(opensOn("We")).toBe("Closed · opens Wed 09:00");
+      expect(opensOn("Th")).toBe("Closed · opens Thu 09:00");
+      expect(lineOf("Fr 09:00-17:00", "2026-10-10T17:00:00Z", "pt-PT")).toBe("Closed · opens Fri 09:00");
+      // Sun 11 Oct 18:00 Madeira: the next Saturday is five days off.
+      expect(lineOf("Sa 09:00-17:00", "2026-10-11T17:00:00Z", "pt-PT")).toBe("Closed · opens Sat 09:00");
+      expect(lineOf("Su 09:00-17:00", friday, "pt-PT")).toBe("Closed · opens Sun 09:00");
     });
 
     it("adds the weekday when the place stays open more than a day", () => {
@@ -504,5 +606,193 @@ describe("openLine", () => {
       expect(copy.hours.notListed).toBe("Hours not listed");
       expect(copy.hours.closed).toBe("Closed");
     });
+  });
+});
+
+describe("a viewer whose clock skipped the place's time", () => {
+  // The place's clock reading is built as a local Date. When the viewer's own zone skipped that
+  // reading (clocks went forward), the Date lands an hour later, so the result would be an hour
+  // off. Better to show the hours as written for that evaluation.
+  const ROME = "Europe/Rome"; // 2027-03-28 02:00 -> 03:00 local
+  const LISBON = "Europe/Lisbon"; // 2027-03-28 01:00 -> 02:00 local
+
+  it("gives the hours as written when the place's current time does not exist for the viewer", () => {
+    // Funchal reads 02:30 (summer time began there at 01:00Z): it exists there, not in Rome.
+    const hours = "Mo-Su 02:00-03:00";
+    const now = "2027-03-28T01:30:00Z";
+    expect(stateOf(hours, now)).toEqual({ kind: "open", closesAt: new Date(2027, 2, 28, 3, 0) });
+
+    vi.stubEnv("TZ", ROME);
+    expect(stateOf(hours, now)).toEqual({ kind: "unparsed", raw: hours });
+  });
+
+  it("does the same in Lisbon, for a place whose clock reads 01:30", () => {
+    // Tokyo reads 01:30 on 28 March at 16:30Z the day before.
+    const hours = "Mo-Su 00:00-04:00";
+    const now = "2027-03-27T16:30:00Z";
+    expect(stateOf(hours, now, TOKYO)).toEqual({ kind: "open", closesAt: new Date(2027, 2, 28, 4, 0) });
+
+    vi.stubEnv("TZ", LISBON);
+    expect(stateOf(hours, now, TOKYO)).toEqual({ kind: "unparsed", raw: hours });
+  });
+
+  it("gives the hours as written when a closing time falls in the skipped hour", () => {
+    // Funchal 00:30 on 28 March, open until 02:30; Rome has no 02:30 that morning.
+    const hours = "Mo-Su 00:00-02:30";
+    const now = "2027-03-28T00:30:00Z";
+    expect(stateOf(hours, now)).toEqual({ kind: "open", closesAt: new Date(2027, 2, 28, 2, 30) });
+
+    vi.stubEnv("TZ", ROME);
+    expect(stateOf(hours, now)).toEqual({ kind: "unparsed", raw: hours });
+  });
+
+  it("gives the hours as written when an opening time falls in the skipped hour", () => {
+    // Funchal 23:00 the night before, opens at 02:30.
+    const hours = "Mo-Su 02:30-04:00";
+    const now = "2027-03-27T23:00:00Z";
+    expect(stateOf(hours, now)).toEqual({ kind: "closed", opensAt: new Date(2027, 2, 28, 2, 30) });
+
+    vi.stubEnv("TZ", ROME);
+    expect(stateOf(hours, now)).toEqual({ kind: "unparsed", raw: hours });
+  });
+
+  it("reads ordinary times as usual in those zones, on that day and any other", () => {
+    vi.stubEnv("TZ", ROME);
+    expect(lineOf("Mo-Su 11:00-23:00", "2027-03-28T11:00:00Z")).toBe("Open until 11 pm");
+    expect(lineOf("Mo-Su 11:00-23:00", "2027-03-27T11:00:00Z")).toBe("Open until 11 pm");
+    expect(lineOf("Mo-Su 11:00-23:00", WED_23_30)).toBe("Closed · opens 11 am");
+    vi.stubEnv("TZ", LISBON);
+    expect(lineOf("Mo-Su 11:00-23:00", "2027-03-28T11:00:00Z")).toBe("Open until 11 pm");
+  });
+
+  it("is fine on the day the clocks go back, when an hour happens twice", () => {
+    vi.stubEnv("TZ", ROME);
+    // 2026-10-25: Rome goes 03:00 -> 02:00, so its 02:00-03:00 happens twice. Funchal reads 02:30 at 02:30Z.
+    expect(stateOf("Mo-Su 00:00-03:00", "2026-10-25T02:30:00Z")).toEqual({
+      kind: "open",
+      closesAt: new Date(2026, 9, 25, 3, 0),
+    });
+  });
+});
+
+describe("the parsed hours are remembered", () => {
+  const built = () => vi.mocked(OpeningHours).mock.calls.length;
+  /** `n` different valid hours strings, none used elsewhere in this file. */
+  const distinct = (n: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const hour = String(Math.floor(i / 120)).padStart(2, "0");
+      const minute = String(Math.floor(i / 2) % 60).padStart(2, "0");
+      return `${i % 2 === 0 ? "Mo-Fr" : "Sa-Su"} ${hour}:${minute}-23:59`;
+    });
+  const NOW = at(WED_15_00);
+
+  it("parses once for the same hours and country, however often it is asked", () => {
+    const before = built();
+    const place = { ...FUNCHAL, openingHours: "Mo-Su 06:07-08:09" };
+    const first = openState(place, NOW);
+    for (let i = 0; i < 5; i++) expect(openState(place, new Date(NOW.getTime() + i * 60_000))).toBeDefined();
+    expect(built() - before).toBe(1);
+    expect(first.kind).toBe("closed");
+  });
+
+  it("parses the same hours again for another country, since the holidays differ", () => {
+    const before = built();
+    const hours = "Mo-Su 06:08-08:10; PH off";
+    openState({ ...FUNCHAL, openingHours: hours }, NOW);
+    openState({ ...FUNCHAL, country: "ES", openingHours: hours }, NOW);
+    openState({ ...FUNCHAL, openingHours: hours }, NOW);
+    openState({ ...FUNCHAL, country: "ES", openingHours: hours }, NOW);
+    expect(built() - before).toBe(2);
+  });
+
+  it("remembers hours that do not parse or that the parser had to guess at", () => {
+    const before = built();
+    for (const hours of ["no such hours at all", "16:00 as 23:07"]) {
+      const place = { ...FUNCHAL, openingHours: hours };
+      expect(openState(place, NOW).kind).toBe("unparsed");
+      expect(openState(place, NOW).kind).toBe("unparsed");
+    }
+    expect(built() - before).toBe(2);
+  });
+
+  it("does not parse hours it will not read, or no hours", () => {
+    const before = built();
+    openState({ ...FUNCHAL, openingHours: undefined }, NOW);
+    openState({ ...FUNCHAL, openingHours: "  " }, NOW);
+    openState({ ...FUNCHAL, openingHours: "sunrise-sunset" }, NOW);
+    openState({ ...FUNCHAL, openingHours: "x".repeat(300) }, NOW);
+    expect(built() - before).toBe(0);
+  });
+
+  it("gives the parser the country's holidays and nothing else", () => {
+    openState({ ...FUNCHAL, openingHours: "Mo-Su 06:09-08:11; PH off" }, NOW);
+    expect(OpeningHours).toHaveBeenLastCalledWith("Mo-Su 06:09-08:11; PH off", {
+      address: { country_code: "pt", state: "" },
+    });
+    openState({ lat: FUNCHAL.lat, lon: FUNCHAL.lon, openingHours: "Mo-Su 06:10-08:12" }, NOW);
+    expect(OpeningHours).toHaveBeenLastCalledWith("Mo-Su 06:10-08:12", undefined);
+  });
+
+  it("keeps a bounded number of them, dropping the one used longest ago", () => {
+    const before = built();
+    const all = distinct(PARSE_CACHE_LIMIT);
+    const parse = (hours: string) => openState({ ...FUNCHAL, openingHours: hours }, NOW);
+
+    all.forEach(parse); // fills the memory with exactly these
+    expect(built() - before).toBe(PARSE_CACHE_LIMIT);
+
+    parse(all[0] as string); // used again: no new parse, and now the newest
+    expect(built() - before).toBe(PARSE_CACHE_LIMIT);
+
+    parse("Mo-Su 05:55-23:58"); // one more: the oldest (all[1]) goes, all[0] stays
+    expect(built() - before).toBe(PARSE_CACHE_LIMIT + 1);
+
+    parse(all[0] as string);
+    expect(built() - before).toBe(PARSE_CACHE_LIMIT + 1);
+    parse(all[1] as string);
+    expect(built() - before).toBe(PARSE_CACHE_LIMIT + 2);
+  });
+});
+
+describe("the parser's own noise", () => {
+  // The parser writes to the console when it meets a country it has no holidays for, and for
+  // some of its own bugs, as well as throwing. A card must not litter the console.
+  const GB = { lat: 51.5074, lon: -0.1278, country: "GB" };
+  const quiet = () => ({
+    error: vi.spyOn(console, "error").mockImplementation(() => {}),
+    warn: vi.spyOn(console, "warn").mockImplementation(() => {}),
+    log: vi.spyOn(console, "log").mockImplementation(() => {}),
+  });
+
+  it("writes nothing to the console for a holiday rule in a country with no usable holiday data", () => {
+    const spies = quiet();
+    const hours = "Mo-Su 11:00-23:00; PH off";
+    // Great Britain has holidays per nation only, and a place does not say which.
+    expect(stateOf(hours, WED_15_00, GB)).toEqual({ kind: "unparsed", raw: hours });
+    expect(stateOf("Mo-Su 11:00-23:00; SH off", WED_15_00, GB).kind).toBe("unparsed");
+    expect(stateOf(hours, WED_15_00, { ...FUNCHAL, country: "ZZ" }).kind).toBe("unparsed");
+    expect(spies.error).not.toHaveBeenCalled();
+    expect(spies.warn).not.toHaveBeenCalled();
+    expect(spies.log).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing to the console for the odd strings, either", () => {
+    const spies = quiet();
+    const odd = ["PH off", "hello world", "Mo-Su 25:00-26:00", "; ; ;", "Dec 25 off", "Mo-Su 11:00-23:00 ".repeat(14)];
+    for (const hours of odd) {
+      stateOf(hours, WED_15_00);
+      stateOf(hours, WED_15_00, GB);
+    }
+    expect(spies.error).not.toHaveBeenCalled();
+    expect(spies.warn).not.toHaveBeenCalled();
+    expect(spies.log).not.toHaveBeenCalled();
+  });
+
+  it("puts the console back as it found it", () => {
+    const error = console.error;
+    const warn = console.warn;
+    stateOf("Mo-Su 11:00-23:00; PH off", WED_15_00, GB);
+    expect(console.error).toBe(error);
+    expect(console.warn).toBe(warn);
   });
 });
