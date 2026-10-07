@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Write a review</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#16202E}a:hover{color:#C93A22}
+</style>
+</helmet>
+<div style="width: 390px; height: 980px; box-sizing: border-box; background: #FFFFFF; color: #16202E; font-family: 'Figtree', 'Noto Sans', system-ui, sans-serif; display: flex; flex-direction: column">
+
+  <div style="padding: 14px 12px 0; display: flex; align-items: center; justify-content: space-between">
+    <a href="Place.dc.html" aria-label="Close and go back" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #16202E">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+    </a>
+    <div style="font-size: 14px; color: #5A6675; padding-right: 12px">Reviewing as Sam</div>
+  </div>
+
+  <section style="padding: 10px 20px 0; display: flex; flex-direction: column; gap: 6px">
+    <div style="font-size: 15px; color: #5A6675">Your review of</div>
+    <h1 style="margin: 0; font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 800; font-size: 30px; line-height: 1.1; letter-spacing: -0.02em">Low Tide Oyster Bar</h1>
+  </section>
+
+  <section style="padding: 26px 20px 0; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-weight: 700; font-size: 17px">How was it?</div>
+    <div style="display: flex; gap: 6px">
+      <button type="button" onClick="{{ pick1 }}" aria-label="1 star" aria-pressed="{{ on1 }}" style="width: 56px; height: 56px; border: 0; border-radius: 16px; background: #F3F5F7; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="30" height="30" viewBox="0 0 16 16" fill="{{ f1 }}" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg></button>
+      <button type="button" onClick="{{ pick2 }}" aria-label="2 stars" aria-pressed="{{ on2 }}" style="width: 56px; height: 56px; border: 0; border-radius: 16px; background: #F3F5F7; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="30" height="30" viewBox="0 0 16 16" fill="{{ f2 }}" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg></button>
+      <button type="button" onClick="{{ pick3 }}" aria-label="3 stars" aria-pressed="{{ on3 }}" style="width: 56px; height: 56px; border: 0; border-radius: 16px; background: #F3F5F7; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="30" height="30" viewBox="0 0 16 16" fill="{{ f3 }}" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg></button>
+      <button type="button" onClick="{{ pick4 }}" aria-label="4 stars" aria-pressed="{{ on4 }}" style="width: 56px; height: 56px; border: 0; border-radius: 16px; background: #F3F5F7; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="30" height="30" viewBox="0 0 16 16" fill="{{ f4 }}" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg></button>
+      <button type="button" onClick="{{ pick5 }}" aria-label="5 stars" aria-pressed="{{ on5 }}" style="width: 56px; height: 56px; border: 0; border-radius: 16px; background: #F3F5F7; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="30" height="30" viewBox="0 0 16 16" fill="{{ f5 }}" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg></button>
+    </div>
+    <div style="font-size: 15px; font-weight: 600; color: #C93A22; min-height: 22px">{{ word }}</div>
+  </section>
+
+  <section style="padding: 16px 20px 0; display: flex; flex-direction: column; gap: 10px">
+    <div style="font-weight: 700; font-size: 17px">Anything worth flagging?</div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap">
+      <button type="button" aria-pressed="true" style="height: 44px; padding: 0 14px; border: 1.5px solid #0B6E69; border-radius: 22px; background: #E3F1EF; color: #084F4B; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">Sit at the bar</button>
+      <button type="button" aria-pressed="false" style="height: 44px; padding: 0 14px; border: 1.5px solid #D5DAE0; border-radius: 22px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">Good for groups</button>
+      <button type="button" aria-pressed="true" style="height: 44px; padding: 0 14px; border: 1.5px solid #0B6E69; border-radius: 22px; background: #E3F1EF; color: #084F4B; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">Book ahead</button>
+      <button type="button" aria-pressed="false" style="height: 44px; padding: 0 14px; border: 1.5px solid #D5DAE0; border-radius: 22px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">Loud on weekends</button>
+      <button type="button" style="height: 44px; padding: 0 14px; border: 1.5px dashed #C3CAD3; border-radius: 22px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">Add your own</button>
+    </div>
+  </section>
+
+  <section style="padding: 20px 20px 0; display: flex; flex-direction: column; gap: 10px">
+    <label for="body" style="font-weight: 700; font-size: 17px">What should a friend know?</label>
+    <textarea id="body" rows="5" placeholder="What to order, when to go, what to skip." style="box-sizing: border-box; width: 100%; padding: 14px 16px; border: 1.5px solid #8A95A3; border-radius: 16px; font: inherit; font-size: 16px; line-height: 1.5; color: #16202E; resize: none; outline: none"></textarea>
+    <div style="font-size: 13px; color: #5A6675">Optional. A rating on its own still counts.</div>
+  </section>
+
+  <section style="margin-top: auto; padding: 0 20px 26px; display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 13px; line-height: 1.45; color: #5A6675">Reviews are public and carry your name. One review per place: posting again replaces this one. You can remove it later.</div>
+    <a href="Place.dc.html" style="height: 56px; display: flex; align-items: center; justify-content: center; border-radius: 18px; background: #C93A22; color: #FFFFFF; font-weight: 700; font-size: 17px; text-decoration: none">Post review</a>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":980}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { stars: 4 };
+  }
+  renderVals() {
+    const n = this.state.stars;
+    const words = ['', 'Would not go back', 'Below average', 'Fine', 'Good', 'One of the best'];
+    const fill = (i) => (i <= n ? '#C93A22' : '#C3CAD3');
+    return {
+      word: words[n],
+      f1: fill(1), f2: fill(2), f3: fill(3), f4: fill(4), f5: fill(5),
+      on1: n === 1, on2: n === 2, on3: n === 3, on4: n === 4, on5: n === 5,
+      pick1: () => this.setState({ stars: 1 }),
+      pick2: () => this.setState({ stars: 2 }),
+      pick3: () => this.setState({ stars: 3 }),
+      pick4: () => this.setState({ stars: 4 }),
+      pick5: () => this.setState({ stars: 5 })
+    };
+  }
+}
+</script>
+</body>
+</html>

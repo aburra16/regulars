@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Explore places</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#16202E}a:hover{color:#C93A22}
+</style>
+</helmet>
+<div style="width: 390px; height: 1400px; box-sizing: border-box; background: #FFFFFF; color: #16202E; font-family: 'Figtree', 'Noto Sans', system-ui, sans-serif; display: flex; flex-direction: column">
+
+  <header style="padding: 22px 20px 0; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <div style="font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 28px; letter-spacing: -0.02em">Regulars</div>
+      <a href="Trust.dc.html" aria-label="Your account and your circle" style="width: 44px; height: 44px; border-radius: 50%; background: #16202E; color: #FFFFFF; font-weight: 700; font-size: 16px; text-decoration: none; display: flex; align-items: center; justify-content: center">S</a>
+    </div>
+
+    <button type="button" style="display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; height: 44px; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; font-size: 16px; color: #16202E; cursor: pointer">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C93A22" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"></path><circle cx="12" cy="9.5" r="2.4"></circle></svg>
+      Near Nashville
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+    </button>
+
+    <a href="Search.dc.html" style="display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 16px; background: #F3F5F7; border-radius: 16px; text-decoration: none; color: #5A6675; font-size: 16px">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5A6675" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      Tacos, coffee, a place name
+    </a>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; gap: 4px; padding: 4px; background: #F3F5F7; border-radius: 16px">
+        <button type="button" onClick="{{ setHouse }}" aria-pressed="{{ isHouse }}" style="flex: 1; height: 44px; border: 0; border-radius: 12px; font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; background: {{houseBg}}; color: {{houseFg}}">House picks</button>
+        <button type="button" onClick="{{ setCircle }}" aria-pressed="{{ isCircle }}" style="flex: 1; height: 44px; border: 0; border-radius: 12px; font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; background: {{circleBg}}; color: {{circleFg}}">My circle</button>
+      </div>
+      <div style="font-size: 14px; line-height: 1.4; color: #5A6675">{{povLine}} <a href="Trust.dc.html" style="font-weight: 600; color: #16202E">How this works</a></div>
+    </div>
+
+    <div style="display: flex; gap: 8px; flex-wrap: wrap">
+      <button type="button" aria-pressed="true" style="height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: #16202E; color: #FFFFFF; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer">All</button>
+      <button type="button" aria-pressed="false" style="height: 44px; padding: 0 16px; border: 1.5px solid #D5DAE0; border-radius: 22px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer">Open now</button>
+      <button type="button" aria-pressed="false" style="height: 44px; padding: 0 16px; border: 1.5px solid #D5DAE0; border-radius: 22px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer">Restaurants</button>
+      <button type="button" aria-pressed="false" style="height: 44px; padding: 0 16px; border: 1.5px solid #D5DAE0; border-radius: 22px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer">Cafes</button>
+      <a href="Filters.dc.html" style="height: 44px; box-sizing: border-box; padding: 0 16px; border: 1.5px solid #D5DAE0; border-radius: 22px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; color: #16202E; font-weight: 600; font-size: 15px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"></path></svg>More
+      </a>
+    </div>
+  </header>
+
+  <sc-if value="{{ isHouse }}" hint-placeholder-val="{{ true }}">
+  <main style="padding: 18px 20px 0; display: flex; flex-direction: column; gap: 12px">
+
+    <a href="Place.dc.html" style="display: flex; gap: 14px; padding: 14px; border: 1.5px solid #E2E6EB; border-radius: 20px; text-decoration: none; color: #16202E">
+      <div style="width: 52px; height: 52px; flex: none; border-radius: 14px; background: #F3F5F7; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v6a2 2 0 0 0 4 0V3M8 3v18M17 21V3c-2 1.5-3 4-3 7v3h3"></path></svg></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px">
+          <div style="font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 700; font-size: 19px; line-height: 1.2">Hermanas Taquería</div>
+          <div style="display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-size: 17px"><svg width="16" height="16" viewBox="0 0 16 16" fill="#C93A22" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg>4.7</div>
+        </div>
+        <div style="font-size: 14px; color: #5A6675">Mexican restaurant · 1.1 mi</div>
+        <div style="font-size: 14px"><span style="font-weight: 700">Open</span> <span style="color: #5A6675">until 9 pm</span></div>
+        <div style="font-size: 14px; font-weight: 600; color: #0B6E69">Rated by 14 people the house trusts</div>
+        <div style="font-size: 15px; line-height: 1.4; color: #2B3644">“Al pastor off the spit, and the salsa bar is not for show.”</div>
+      </div>
+    </a>
+
+    <a href="Place.dc.html" style="display: flex; gap: 14px; padding: 14px; border: 1.5px solid #E2E6EB; border-radius: 20px; text-decoration: none; color: #16202E">
+      <div style="width: 52px; height: 52px; flex: none; border-radius: 14px; background: #F3F5F7; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v6a2 2 0 0 0 4 0V3M8 3v18M17 21V3c-2 1.5-3 4-3 7v3h3"></path></svg></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px">
+          <div style="font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 700; font-size: 19px; line-height: 1.2">Low Tide Oyster Bar</div>
+          <div style="display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-size: 17px"><svg width="16" height="16" viewBox="0 0 16 16" fill="#C93A22" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg>4.5</div>
+        </div>
+        <div style="font-size: 14px; color: #5A6675">Seafood restaurant · 0.4 mi</div>
+        <div style="font-size: 14px"><span style="font-weight: 700">Open</span> <span style="color: #5A6675">until 10 pm</span></div>
+        <div style="font-size: 14px; font-weight: 600; color: #0B6E69">Rated by 9 people the house trusts</div>
+        <div style="font-size: 15px; line-height: 1.4; color: #2B3644">“Get the grilled oysters and sit at the bar.”</div>
+      </div>
+    </a>
+
+    <a href="Chain.dc.html" style="display: flex; gap: 14px; padding: 14px; border: 1.5px solid #E2E6EB; border-radius: 20px; background: #F3F5F7; text-decoration: none; color: #16202E">
+      <div style="width: 52px; height: 52px; flex: none; border-radius: 14px; background: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM16 10h2a2 2 0 0 1 0 5h-2M8 3v2M12 3v2"></path></svg></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px">
+          <div style="font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 700; font-size: 19px; line-height: 1.2">Copper Kettle Coffee</div>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 2px"><path d="M9 5l7 7-7 7"></path></svg>
+        </div>
+        <div style="font-size: 14px; color: #5A6675">Coffee shop · 74 locations</div>
+        <div style="font-size: 14px; font-weight: 700">3 near you, the closest 0.6 mi</div>
+      </div>
+    </a>
+
+    <a href="Place.dc.html" style="display: flex; gap: 14px; padding: 14px; border: 1.5px solid #E2E6EB; border-radius: 20px; text-decoration: none; color: #16202E">
+      <div style="width: 52px; height: 52px; flex: none; border-radius: 14px; background: #F3F5F7; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM16 10h2a2 2 0 0 1 0 5h-2M8 3v2M12 3v2"></path></svg></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px">
+          <div style="font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 700; font-size: 19px; line-height: 1.2">Paper Crane Coffee</div>
+          <div style="display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-size: 17px"><svg width="16" height="16" viewBox="0 0 16 16" fill="#C93A22" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg>4.4</div>
+        </div>
+        <div style="font-size: 14px; color: #5A6675">Cafe · 2.3 mi</div>
+        <div style="font-size: 14px; color: #5A6675"><span style="font-weight: 700; color: #16202E">Closed</span> · opens 7 am</div>
+        <div style="font-size: 14px; font-weight: 600; color: #0B6E69">Rated by 11 people the house trusts</div>
+        <div style="font-size: 15px; line-height: 1.4; color: #2B3644">“Quiet before nine. The cardamom bun sells out.”</div>
+      </div>
+    </a>
+
+    <a href="Place.dc.html" style="display: flex; gap: 14px; padding: 14px; border: 1.5px solid #E2E6EB; border-radius: 20px; text-decoration: none; color: #16202E">
+      <div style="width: 52px; height: 52px; flex: none; border-radius: 14px; background: #F3F5F7; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v1a2 2 0 0 1-1 1.7V18a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-4.3A2 2 0 0 1 4 12zM9 7v3M12 7v3M15 7v3"></path></svg></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px">
+          <div style="font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 700; font-size: 19px; line-height: 1.2">Fennel &amp; Rye</div>
+          <div style="display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-size: 17px"><svg width="16" height="16" viewBox="0 0 16 16" fill="#C93A22" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg>4.2</div>
+        </div>
+        <div style="font-size: 14px; color: #5A6675">Bakery · 0.9 mi</div>
+        <div style="font-size: 14px; color: #5A6675">Hours not listed</div>
+        <div style="font-size: 14px; font-weight: 600; color: #0B6E69">Rated by 6 people the house trusts</div>
+        <div style="font-size: 15px; line-height: 1.4; color: #2B3644">“Seeded rye worth the queue.”</div>
+      </div>
+    </a>
+
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ isCircle }}" hint-placeholder-val="{{ false }}">
+  <main style="padding: 18px 20px 0; display: flex; flex-direction: column; gap: 12px">
+
+    <a href="Place.dc.html" style="display: flex; gap: 14px; padding: 14px; border: 1.5px solid #E2E6EB; border-radius: 20px; text-decoration: none; color: #16202E">
+      <div style="width: 52px; height: 52px; flex: none; border-radius: 14px; background: #F3F5F7; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v6a2 2 0 0 0 4 0V3M8 3v18M17 21V3c-2 1.5-3 4-3 7v3h3"></path></svg></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px">
+          <div style="font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 700; font-size: 19px; line-height: 1.2">Low Tide Oyster Bar</div>
+          <div style="display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-size: 17px"><svg width="16" height="16" viewBox="0 0 16 16" fill="#C93A22" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg>4.8</div>
+        </div>
+        <div style="font-size: 14px; color: #5A6675">Seafood restaurant · 0.4 mi</div>
+        <div style="font-size: 14px"><span style="font-weight: 700">Open</span> <span style="color: #5A6675">until 10 pm</span></div>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <div style="display: flex; flex: none">
+            <div style="width: 26px; height: 26px; border-radius: 50%; background: #0B6E69; color: #FFFFFF; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF">M</div>
+            <div style="width: 26px; height: 26px; border-radius: 50%; background: #16202E; color: #FFFFFF; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF; margin-left: -8px">J</div>
+          </div>
+          <div style="font-size: 14px; font-weight: 600; color: #0B6E69">Maya, Jon and 5 others in your circle</div>
+        </div>
+        <div style="font-size: 15px; line-height: 1.4; color: #2B3644">“Get the grilled oysters and sit at the bar.” <span style="color: #5A6675">Maya R.</span></div>
+      </div>
+    </a>
+
+    <a href="Place.dc.html" style="display: flex; gap: 14px; padding: 14px; border: 1.5px solid #E2E6EB; border-radius: 20px; text-decoration: none; color: #16202E">
+      <div style="width: 52px; height: 52px; flex: none; border-radius: 14px; background: #F3F5F7; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v1a2 2 0 0 1-1 1.7V18a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-4.3A2 2 0 0 1 4 12zM9 7v3M12 7v3M15 7v3"></path></svg></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px">
+          <div style="font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 700; font-size: 19px; line-height: 1.2">Fennel &amp; Rye</div>
+          <div style="display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-size: 17px"><svg width="16" height="16" viewBox="0 0 16 16" fill="#C93A22" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg>4.6</div>
+        </div>
+        <div style="font-size: 14px; color: #5A6675">Bakery · 0.9 mi</div>
+        <div style="font-size: 14px; color: #5A6675">Hours not listed</div>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <div style="display: flex; flex: none">
+            <div style="width: 26px; height: 26px; border-radius: 50%; background: #0B6E69; color: #FFFFFF; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF">D</div>
+          </div>
+          <div style="font-size: 14px; font-weight: 600; color: #0B6E69">Dele and 2 others in your circle</div>
+        </div>
+        <div style="font-size: 15px; line-height: 1.4; color: #2B3644">“Seeded rye worth the queue.” <span style="color: #5A6675">Dele A.</span></div>
+      </div>
+    </a>
+
+    <a href="Place.dc.html" style="display: flex; gap: 14px; padding: 14px; border: 1.5px solid #E2E6EB; border-radius: 20px; text-decoration: none; color: #16202E">
+      <div style="width: 52px; height: 52px; flex: none; border-radius: 14px; background: #F3F5F7; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v6a2 2 0 0 0 4 0V3M8 3v18M17 21V3c-2 1.5-3 4-3 7v3h3"></path></svg></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px">
+          <div style="font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 700; font-size: 19px; line-height: 1.2">Hermanas Taquería</div>
+          <div style="display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-size: 17px"><svg width="16" height="16" viewBox="0 0 16 16" fill="#C93A22" aria-hidden="true"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7z"></path></svg>3.9</div>
+        </div>
+        <div style="font-size: 14px; color: #5A6675">Mexican restaurant · 1.1 mi</div>
+        <div style="font-size: 14px"><span style="font-weight: 700">Open</span> <span style="color: #5A6675">until 9 pm</span></div>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <div style="display: flex; flex: none">
+            <div style="width: 26px; height: 26px; border-radius: 50%; background: #0B6E69; color: #FFFFFF; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF">S</div>
+          </div>
+          <div style="font-size: 14px; font-weight: 600; color: #0B6E69">Sofia and 1 other in your circle</div>
+        </div>
+        <div style="font-size: 15px; line-height: 1.4; color: #2B3644">“Great tacos, long wait on weekends.” <span style="color: #5A6675">Sofia K.</span></div>
+      </div>
+    </a>
+
+    <a href="Chain.dc.html" style="display: flex; gap: 14px; padding: 14px; border: 1.5px solid #E2E6EB; border-radius: 20px; background: #F3F5F7; text-decoration: none; color: #16202E">
+      <div style="width: 52px; height: 52px; flex: none; border-radius: 14px; background: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM16 10h2a2 2 0 0 1 0 5h-2M8 3v2M12 3v2"></path></svg></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px">
+          <div style="font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 700; font-size: 19px; line-height: 1.2">Copper Kettle Coffee</div>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 2px"><path d="M9 5l7 7-7 7"></path></svg>
+        </div>
+        <div style="font-size: 14px; color: #5A6675">Coffee shop · 74 locations</div>
+        <div style="font-size: 14px; font-weight: 700">3 near you, the closest 0.6 mi</div>
+      </div>
+    </a>
+
+    <a href="Place.dc.html" style="display: flex; gap: 14px; padding: 14px; border: 1.5px dashed #C3CAD3; border-radius: 20px; text-decoration: none; color: #16202E">
+      <div style="width: 52px; height: 52px; flex: none; border-radius: 14px; background: #F3F5F7; display: flex; align-items: center; justify-content: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16202E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM16 10h2a2 2 0 0 1 0 5h-2M8 3v2M12 3v2"></path></svg></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px">
+          <div style="font-family: 'Bricolage Grotesque', 'Noto Sans', sans-serif; font-weight: 700; font-size: 19px; line-height: 1.2">Paper Crane Coffee</div>
+          <div style="font-size: 13px; font-weight: 600; color: #5A6675; white-space: nowrap; padding-top: 4px">No score yet</div>
+        </div>
+        <div style="font-size: 14px; color: #5A6675">Cafe · 2.3 mi</div>
+        <div style="font-size: 15px; line-height: 1.4; color: #2B3644">Nobody in your circle has been here yet. 11 other people have rated it.</div>
+      </div>
+    </a>
+
+  </main>
+  </sc-if>
+
+  <nav aria-label="Main" style="margin-top: auto; display: flex; border-top: 1.5px solid #E2E6EB; padding: 6px 8px 14px">
+    <a href="Main.dc.html" aria-current="page" style="flex: 1; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: #C93A22; font-size: 12px; font-weight: 700">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>Explore
+    </a>
+    <a href="Map.dc.html" style="flex: 1; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: #5A6675; font-size: 12px; font-weight: 600">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4L3 6.5v13.5L9 17.5l6 2.5 6-2.5V4l-6 2.5z"></path><path d="M9 4v13.5M15 6.5V20"></path></svg>Map
+    </a>
+    <a href="Saved.dc.html" style="flex: 1; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: #5A6675; font-size: 12px; font-weight: 600">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h12v16l-6-4-6 4z"></path></svg>Saved
+    </a>
+    <a href="Trust.dc.html" style="flex: 1; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: #5A6675; font-size: 12px; font-weight: 600">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"></path></svg>You
+    </a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1400}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { pov: 'house' };
+  }
+  renderVals() {
+    const house = this.state.pov === 'house';
+    const on = { bg: '#16202E', fg: '#FFFFFF' };
+    const off = { bg: 'transparent', fg: '#16202E' };
+    return {
+      isHouse: house,
+      isCircle: !house,
+      setHouse: () => this.setState({ pov: 'house' }),
+      setCircle: () => this.setState({ pov: 'circle' }),
+      houseBg: house ? on.bg : off.bg,
+      houseFg: house ? on.fg : off.fg,
+      circleBg: house ? off.bg : on.bg,
+      circleFg: house ? off.fg : on.fg,
+      povLine: house
+        ? 'Scores from the reviewers that Mise en Place, our house curator, trusts.'
+        : 'Scores from the people you trust, and the people they trust.'
+    };
+  }
+}
+</script>
+</body>
+</html>

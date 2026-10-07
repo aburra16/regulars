@@ -1,0 +1,318 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "About.dc.html": {
+      "h": 1720,
+      "radius": 28,
+      "title": "15 · About and data",
+      "w": 390,
+      "x": 2350,
+      "y": 4420
+    },
+    "AddFix.dc.html": {
+      "h": 1640,
+      "radius": 28,
+      "title": "14 · Add or fix a place",
+      "w": 390,
+      "x": 1880,
+      "y": 4420
+    },
+    "Chain.dc.html": {
+      "h": 1040,
+      "radius": 28,
+      "title": "5 · Chain",
+      "w": 390,
+      "x": 1880,
+      "y": 0
+    },
+    "DeskExplore.dc.html": {
+      "expand": "fill",
+      "h": 980,
+      "is_interactive": true,
+      "page": "desktop",
+      "radius": 12,
+      "title": "D1 · Explore: list beside map (toggle works)",
+      "w": 1360,
+      "x": 0,
+      "y": 0
+    },
+    "DeskPlace.dc.html": {
+      "expand": "fill",
+      "h": 1680,
+      "page": "desktop",
+      "radius": 12,
+      "title": "D2 · Place",
+      "w": 1360,
+      "x": 1440,
+      "y": 0
+    },
+    "DeskReview.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "page": "desktop",
+      "radius": 12,
+      "title": "D3 · Write a review (dialog)",
+      "w": 1360,
+      "x": 2880,
+      "y": 0
+    },
+    "DeskSaved.dc.html": {
+      "expand": "fill",
+      "h": 680,
+      "page": "desktop",
+      "radius": 12,
+      "title": "D5 · Saved and lists",
+      "w": 1360,
+      "x": 1440,
+      "y": 1800
+    },
+    "DeskSignIn.dc.html": {
+      "expand": "fill",
+      "h": 820,
+      "page": "desktop",
+      "radius": 12,
+      "title": "D6 · Sign in",
+      "w": 1360,
+      "x": 2880,
+      "y": 1800
+    },
+    "DeskTrust.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "page": "desktop",
+      "radius": 12,
+      "title": "D4 · Why you see what you see",
+      "w": 1360,
+      "x": 0,
+      "y": 1800
+    },
+    "Filters.dc.html": {
+      "h": 1020,
+      "radius": 28,
+      "title": "4 · Filters",
+      "w": 390,
+      "x": 1410,
+      "y": 0
+    },
+    "Main.dc.html": {
+      "h": 1400,
+      "is_interactive": true,
+      "radius": 28,
+      "title": "1 · Explore, list (tap the toggle)",
+      "w": 390,
+      "x": 0,
+      "y": 0
+    },
+    "Map.dc.html": {
+      "h": 844,
+      "radius": 28,
+      "title": "2 · Explore, map",
+      "w": 390,
+      "x": 470,
+      "y": 0
+    },
+    "Person.dc.html": {
+      "h": 1500,
+      "radius": 28,
+      "title": "9 · Person",
+      "w": 390,
+      "x": 1410,
+      "y": 1840
+    },
+    "Place.dc.html": {
+      "h": 2140,
+      "radius": 28,
+      "title": "6 · Place",
+      "w": 390,
+      "x": 0,
+      "y": 1840
+    },
+    "PlaceNew.dc.html": {
+      "h": 1360,
+      "radius": 28,
+      "title": "7 · Place, no reviews yet",
+      "w": 390,
+      "x": 470,
+      "y": 1840
+    },
+    "Review.dc.html": {
+      "h": 980,
+      "is_interactive": true,
+      "radius": 28,
+      "title": "8 · Write a review",
+      "w": 390,
+      "x": 940,
+      "y": 1840
+    },
+    "Saved.dc.html": {
+      "h": 1240,
+      "radius": 28,
+      "title": "13 · Saved and lists",
+      "w": 390,
+      "x": 1410,
+      "y": 4420
+    },
+    "Search.dc.html": {
+      "h": 1100,
+      "radius": 28,
+      "title": "3 · Search results",
+      "w": 390,
+      "x": 940,
+      "y": 0
+    },
+    "SignIn.dc.html": {
+      "h": 844,
+      "radius": 28,
+      "title": "10 · Sign in",
+      "w": 390,
+      "x": 0,
+      "y": 4420
+    },
+    "Trust.dc.html": {
+      "h": 1900,
+      "radius": 28,
+      "title": "12 · Why you see what you see",
+      "w": 390,
+      "x": 940,
+      "y": 4420
+    },
+    "Tuning.dc.html": {
+      "h": 980,
+      "radius": 28,
+      "title": "11 · Getting your circle ready",
+      "w": 390,
+      "x": 470,
+      "y": 4420
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-07T15:50:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "deskheading": {
+      "kind": "title1",
+      "maxW": 4240,
+      "page": "desktop",
+      "text": "Desktop",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "deskhow": {
+      "fill": "teal",
+      "page": "desktop",
+      "text": "Same app, wider shell. One top bar holds search, the House picks / My circle toggle, Saved and the account. Explore puts the list beside the map and turns the filter sheet into a row of menus. A place page gets a side rail for actions, map and facts. Writing a review is a dialog. Chain, Person, Add or fix, and About follow the Place layout: a content column and a side rail.",
+      "w": 320,
+      "x": 4320,
+      "y": 0
+    },
+    "desksample": {
+      "fill": "orange",
+      "page": "desktop",
+      "text": "Sample content, as on the Phone page. These pages are fluid: open one full-window and narrow the window to see it stack.",
+      "w": 320,
+      "x": 4320,
+      "y": 520
+    },
+    "heading": {
+      "kind": "title1",
+      "maxW": 2270,
+      "page": "phone",
+      "text": "Find a place",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "reviews": {
+      "fill": "blue",
+      "page": "phone",
+      "text": "Reviews are 1 to 5 stars, with optional words and tags. One per person per place; posting again replaces it. Scores always show who they come from. The tags row depends on a fix the team still has open.",
+      "w": 300,
+      "x": 1880,
+      "y": 1840
+    },
+    "row2": {
+      "kind": "title1",
+      "maxW": 1800,
+      "page": "phone",
+      "text": "Decide, and say what you think",
+      "w": 240,
+      "x": 0,
+      "y": 1540
+    },
+    "row3": {
+      "kind": "title1",
+      "maxW": 2740,
+      "page": "phone",
+      "text": "You and your circle",
+      "w": 240,
+      "x": 0,
+      "y": 4120
+    },
+    "sample": {
+      "fill": "orange",
+      "page": "phone",
+      "text": "Sample content. Every place, person, rating, tag and review on these screens is invented to show the layout. Only the figures on the About screen are real. The real list has 7,954 places and no reviews yet.",
+      "w": 300,
+      "x": 2350,
+      "y": 0
+    },
+    "states": {
+      "fill": "gray",
+      "page": "phone",
+      "text": "States not drawn yet: location denied, offline, no search results, a review that failed to post, the signed-out version of screen 12, a person outside your circle, and an empty Saved.",
+      "w": 300,
+      "x": 1880,
+      "y": 2300
+    },
+    "wording": {
+      "fill": "teal",
+      "page": "phone",
+      "text": "Wording rule: \"House picks\" is the Mise en Place view; \"My circle\" is the signed-in person's own view. The sign-in button is the only place the network is named. The payment chip sits on the place page only.",
+      "w": 300,
+      "x": 2350,
+      "y": 440
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Map.dc.html",
+    "Search.dc.html",
+    "Filters.dc.html",
+    "Chain.dc.html",
+    "Place.dc.html",
+    "PlaceNew.dc.html",
+    "Review.dc.html",
+    "Person.dc.html",
+    "SignIn.dc.html",
+    "Tuning.dc.html",
+    "Trust.dc.html",
+    "Saved.dc.html",
+    "AddFix.dc.html",
+    "About.dc.html",
+    "DeskExplore.dc.html",
+    "DeskPlace.dc.html",
+    "DeskReview.dc.html",
+    "DeskTrust.dc.html",
+    "DeskSaved.dc.html",
+    "DeskSignIn.dc.html"
+  ],
+  "pages": [
+    {
+      "id": "phone",
+      "name": "Phone"
+    },
+    {
+      "id": "desktop",
+      "name": "Desktop"
+    }
+  ],
+  "title": "Regulars — food app screens"
+}

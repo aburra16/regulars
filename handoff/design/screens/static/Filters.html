@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Filters</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#16202E}a:hover{color:#C93A22}
+</style>
+<style>body{background:#DDE1E6;display:flex;justify-content:center}</style>
+</head>
+<body>
+<div style="width: 390px; height: 1020px; box-sizing: border-box; background: #FFFFFF; color: #16202E; font-family: 'Figtree', 'Noto Sans', system-ui, sans-serif; display: flex; flex-direction: column">
+
+  <div style="padding: 14px 12px 0 20px; display: flex; align-items: center; justify-content: space-between">
+    <h1 style="margin: 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 26px; letter-spacing: -0.02em">Filters</h1>
+    <a href="Search.html" aria-label="Close filters" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #16202E">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+    </a>
+  </div>
+
+  <section style="padding: 18px 20px 0; display: flex; flex-direction: column; gap: 10px">
+    <div style="font-weight: 700; font-size: 16px">Sort by</div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap">
+      <button type="button" aria-pressed="true" style="height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: #16202E; color: #FFFFFF; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer">My circle's score</button>
+      <button type="button" aria-pressed="false" style="height: 44px; padding: 0 16px; border: 1.5px solid #D5DAE0; border-radius: 22px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer">Distance</button>
+      <button type="button" aria-pressed="false" style="height: 44px; padding: 0 16px; border: 1.5px solid #D5DAE0; border-radius: 22px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer">Name</button>
+    </div>
+  </section>
+
+  <section style="margin: 20px 20px 0; padding: 4px 0; border-top: 1.5px solid #E2E6EB; border-bottom: 1.5px solid #E2E6EB; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 10px 0">
+      <div style="font-weight: 700; font-size: 16px">Open now</div>
+      <div style="font-size: 13px; color: #5A6675">Keeps places with no hours listed.</div>
+    </div>
+    <button type="button" role="switch" aria-checked="true" aria-label="Open now" style="width: 56px; height: 44px; flex: none; padding: 6px 0; border: 0; background: none; cursor: pointer"><span style="display: block; width: 56px; height: 32px; border-radius: 16px; background: #16202E; position: relative"><span style="position: absolute; right: 4px; top: 4px; width: 24px; height: 24px; border-radius: 50%; background: #FFFFFF"></span></span></button>
+  </section>
+
+  <section style="padding: 20px 20px 0; display: flex; flex-direction: column; gap: 10px">
+    <div style="font-weight: 700; font-size: 16px">Distance</div>
+    <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px">
+      <button type="button" aria-pressed="false" style="height: 44px; border: 1.5px solid #D5DAE0; border-radius: 14px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">½ mi</button>
+      <button type="button" aria-pressed="false" style="height: 44px; border: 1.5px solid #D5DAE0; border-radius: 14px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">1 mi</button>
+      <button type="button" aria-pressed="true" style="height: 44px; border: 0; border-radius: 14px; background: #16202E; color: #FFFFFF; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">2 mi</button>
+      <button type="button" aria-pressed="false" style="height: 44px; border: 1.5px solid #D5DAE0; border-radius: 14px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">5 mi</button>
+      <button type="button" aria-pressed="false" style="height: 44px; border: 1.5px solid #D5DAE0; border-radius: 14px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer">Any</button>
+    </div>
+  </section>
+
+  <section style="padding: 22px 20px 0; display: flex; flex-direction: column; gap: 10px">
+    <div style="font-weight: 700; font-size: 16px">Kind of place</div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <button type="button" aria-pressed="false" style="height: 56px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1.5px solid #D5DAE0; border-radius: 16px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; text-align: left; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M6 3v6a2 2 0 0 0 4 0V3M8 3v18M17 21V3c-2 1.5-3 4-3 7v3h3"></path></svg>Restaurants</button>
+      <button type="button" aria-pressed="true" style="height: 56px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1.5px solid #16202E; border-radius: 16px; background: #16202E; color: #FFFFFF; font: inherit; font-weight: 600; font-size: 14px; text-align: left; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM16 10h2a2 2 0 0 1 0 5h-2M8 3v2M12 3v2"></path></svg>Cafes</button>
+      <button type="button" aria-pressed="false" style="height: 56px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1.5px solid #D5DAE0; border-radius: 16px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; text-align: left; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 10c0-3.3 3.6-6 8-6s8 2.7 8 6zM3 14h18M4 17h16v1a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"></path></svg>Fast food</button>
+      <button type="button" aria-pressed="false" style="height: 56px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1.5px solid #D5DAE0; border-radius: 16px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; text-align: left; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M5 4h14l-7 8zM12 12v8M8 20h8"></path></svg>Bars and pubs</button>
+      <button type="button" aria-pressed="true" style="height: 56px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1.5px solid #16202E; border-radius: 16px; background: #16202E; color: #FFFFFF; font: inherit; font-weight: 600; font-size: 14px; text-align: left; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 11a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v1a2 2 0 0 1-1 1.7V18a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-4.3A2 2 0 0 1 4 12zM9 7v3M12 7v3M15 7v3"></path></svg>Bakeries and sweets</button>
+      <button type="button" aria-pressed="false" style="height: 56px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1.5px solid #D5DAE0; border-radius: 16px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; text-align: left; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M7 10a5 5 0 0 1 10 0zM7 10l5 11 5-11"></path></svg>Ice cream</button>
+      <button type="button" aria-pressed="false" style="height: 56px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1.5px solid #D5DAE0; border-radius: 16px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; text-align: left; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M12 21v-9M12 12c0-4 3-7 8-7 0 5-3 8-8 7zM12 15c0-3-2-5-6-5 0 4 2 6 6 5z"></path></svg>Farm shops</button>
+      <button type="button" aria-pressed="false" style="height: 56px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1.5px solid #D5DAE0; border-radius: 16px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; text-align: left; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 10h16l-1.5 9a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1zM8 10l4-6 4 6"></path></svg>Food shops</button>
+      <button type="button" aria-pressed="false" style="height: 56px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1.5px solid #D5DAE0; border-radius: 16px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; text-align: left; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M10 3h4v4l2 3v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10l2-3zM8 14h8"></path></svg>Drink shops</button>
+      <button type="button" aria-pressed="false" style="height: 56px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 1.5px solid #D5DAE0; border-radius: 16px; background: #FFFFFF; color: #16202E; font: inherit; font-weight: 600; font-size: 14px; text-align: left; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M5 7h10v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1zM15 10h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2M8 11v5M12 11v5"></path></svg>Breweries and wineries</button>
+    </div>
+  </section>
+
+  <section style="margin-top: auto; padding: 16px 20px 26px; display: flex; align-items: center; gap: 12px; border-top: 1.5px solid #E2E6EB">
+    <button type="button" style="height: 56px; padding: 0 18px; border: 0; background: none; font: inherit; font-weight: 700; font-size: 16px; color: #16202E; cursor: pointer">Clear all</button>
+    <a href="Search.html" style="flex: 1; height: 56px; display: flex; align-items: center; justify-content: center; border-radius: 18px; background: #C93A22; color: #FFFFFF; font-weight: 700; font-size: 17px; text-decoration: none">Show 5 places</a>
+  </section>
+</div>
+</body>
+</html>
