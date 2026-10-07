@@ -353,7 +353,7 @@ describe("search", () => {
       ["bar", "drinks"],
       ["pub", "beer"],
       ["bakery", "bread"],
-      ["pastry", "cake"],
+      ["pastry", "pastry"],
       ["ice_cream", "gelato"],
       ["fast_food", "takeaway"],
       ["fast_food", "burger"],
@@ -366,9 +366,190 @@ describe("search", () => {
 
     it("does not find a restaurant by them", () => {
       const idx = buildIndexes([make("Zed", { category: "restaurant" })]);
-      for (const word of ["coffee", "drinks", "beer", "bread", "cake", "gelato", "takeaway", "burger", "wine"]) {
+      for (const word of ["coffee", "drinks", "beer", "bread", "pastry", "gelato", "takeaway", "burger", "wine"]) {
         expect(search(idx, word)).toEqual([]);
       }
+    });
+
+    it("do not bring bakeries into a search for cafes, unless their name or cuisine says cafe", () => {
+      // "cafe" is one letter from "cake", which the bakery words used to hold.
+      const idx = buildIndexes([
+        make("Pao", { category: "bakery", ...north(0.2) }),
+        make("Doce", { category: "pastry", ...north(0.3) }),
+        make("Cafe Bolo", { category: "bakery", ...north(1) }),
+        make("Forno", { category: "bakery", cuisine: "cafe", ...north(2) }),
+        make("Quux", { category: "cafe", ...north(3) }),
+      ]);
+      expect(namesOf(search(idx, "cafe"))).toEqual(["Cafe Bolo", "Forno", "Quux"]);
+    });
+  });
+
+  describe("isKindQuery", () => {
+    const kinds = buildIndexes(places);
+    it.each([
+      // A kind label, a family label, and the words for a family.
+      "cafe", "restaurant", "fast food", "ice cream", "beer garden", "pastry shop", "bakery", "bakeries", "sweets",
+      "restaurants", "cafes", "bars", "pubs", "wineries", "bars and pubs", "bakeries and sweets", "farm shops",
+      "coffee", "drinks", "beer", "bread", "pastry", "gelato", "takeaway", "burger", "wine",
+      // A cuisine in the data, as a word and as two.
+      "pizza", "japanese", "coffee shop", "steak house",
+      // Case, accents, spaces and punctuation do not matter.
+      "Coffee", "CAFÉ", "  cafe ", "Fast   Food", "fast-food", "ice cream!", "Pizza,",
+      // Every word is a term.
+      "pizza restaurant", "japanese restaurant", "fast food burger",
+    ])("is true for %j", (q) => {
+      expect(kinds.isKindQuery(q)).toBe(true);
+    });
+
+    it.each([
+      "", "   ", "maia", "funchal", "piza", "pizzas", "cafee", "food", "shops", "and", "fast", "ice", "sushi",
+      "cafe maia", "pizza xyz", "maia pizza", "loft brunch", "ペーパー",
+    ])("is false for %j", (q) => {
+      expect(kinds.isKindQuery(q)).toBe(false);
+    });
+
+    it("knows a cuisine only when a place in the data has it", () => {
+      expect(buildIndexes(places).isKindQuery("sushi")).toBe(false);
+      expect(buildIndexes([...places, make("Zed", { cuisine: "sushi" })]).isKindQuery("sushi")).toBe(true);
+      expect(buildIndexes([make("Zed", { cuisine: "sushi" })]).isKindQuery("Sushi")).toBe(true);
+      expect(buildIndexes([make("Zed", { cuisine: "sushi" })]).isKindQuery("pizza")).toBe(false);
+    });
+
+    it("reads a cuisine as it is labelled", () => {
+      const idx = buildIndexes([make("Zed", { cuisine: "bubble_tea" })]);
+      expect(idx.isKindQuery("bubble tea")).toBe(true);
+      expect(idx.isKindQuery("Bubble Tea")).toBe(true);
+      expect(idx.isKindQuery("bubble")).toBe(false);
+    });
+
+    it("knows the kinds when there are no places, but no cuisines", () => {
+      expect(buildIndexes([]).isKindQuery("cafe")).toBe(true);
+      expect(buildIndexes([]).isKindQuery("pizza")).toBe(false);
+    });
+  });
+
+  describe("a kind or cuisine query", () => {
+    const pool = buildIndexes([
+      make("Zed", { category: "cafe", ...north(5) }),
+      make("Quux", { category: "cafe", ...north(1) }),
+      make("Mu", { category: "cafe", cuisine: "coffee_shop", ...north(3) }),
+      make("Pizzaria Nova", { cuisine: "pizza", ...north(2) }),
+      make("Casa", { cuisine: "pizza", ...north(0.5) }),
+      make("Pizza Palace", { cuisine: "italian", ...north(8) }),
+      make("Pizza Roma", { cuisine: "pizza", ...north(12) }),
+      make("Pao", { category: "bakery", ...north(0.2) }),
+      make("Other", { cuisine: "mexican", ...north(0.1) }),
+    ]);
+    const kms = (rows: { km: number }[]) => rows.map((row) => row.km);
+    const ascending = (values: number[]) => values.every((value, i) => i === 0 || values[i - 1]! <= value);
+
+    it("lists the places of that kind, nearest first", () => {
+      expect(namesOf(search(pool, "cafe"))).toEqual(["Quux", "Mu", "Zed"]);
+      expect(ascending(kms(search(pool, "cafe")))).toBe(true);
+    });
+
+    it("lists the places of that cuisine, nearest first, and the places with the word in their name", () => {
+      // Pizza Palace is Italian, not pizza; it is found by its name.
+      expect(namesOf(search(pool, "pizza"))).toEqual(["Casa", "Pizzaria Nova", "Pizza Palace", "Pizza Roma"]);
+    });
+
+    it("lists a place once when it matches in its cuisine and in its name", () => {
+      const names = namesOf(search(pool, "pizza"));
+      expect(new Set(names).size).toBe(names.length);
+      expect(names.filter((name) => name === "Pizza Roma")).toHaveLength(1);
+    });
+
+    it("treats Coffee and coffee, and café and cafe, alike", () => {
+      expect(search(pool, "Coffee")).toEqual(search(pool, "coffee"));
+      expect(search(pool, "café")).toEqual(search(pool, "cafe"));
+      expect(search(pool, "  CAFÉ ")).toEqual(search(pool, "cafe"));
+      expect(namesOf(search(pool, "Coffee"))).toEqual(["Quux", "Mu", "Zed"]);
+    });
+
+    it("keeps to the radius", () => {
+      expect(namesOf(search(pool, "pizza", 3))).toEqual(["Casa", "Pizzaria Nova"]);
+      expect(namesOf(search(pool, "cafe", 0.5))).toEqual([]);
+    });
+
+    it("needs every word of the query to be matched", () => {
+      const both = buildIndexes([
+        make("Roma", { category: "restaurant", cuisine: "pizza", ...north(3) }),
+        make("Luigi", { category: "cafe", cuisine: "pizza", ...north(1) }),
+        make("Nova", { category: "restaurant", cuisine: "mexican", ...north(2) }),
+        make("Bolo", { category: "cafe", ...north(0.5) }),
+      ]);
+      expect(namesOf(search(both, "pizza restaurant"))).toEqual(["Roma"]);
+      expect(namesOf(search(both, "pizza cafe"))).toEqual(["Luigi"]);
+      expect(namesOf(search(both, "mexican restaurant"))).toEqual(["Nova"]);
+      expect(namesOf(search(both, "mexican cafe"))).toEqual([]);
+    });
+
+    it("reads a label of several words as one", () => {
+      const idx = buildIndexes([
+        make("Quick", { category: "fast_food", ...north(2) }),
+        make("Gelato", { category: "ice_cream", ...north(1) }),
+        make("Pinguim", { category: "ice_cream", ...north(3) }),
+        make("Tasca", { category: "restaurant", ...north(0.5) }),
+        make("Torre", { category: "pastry", ...north(0.4) }),
+        make("Doce", { category: "bakery", ...north(0.3) }),
+        make("Steak", { cuisine: "steak_house", ...north(4) }),
+      ]);
+      expect(namesOf(search(idx, "fast food"))).toEqual(["Quick"]);
+      expect(namesOf(search(idx, "ice cream"))).toEqual(["Gelato", "Pinguim"]);
+      expect(namesOf(search(idx, "pastry shop"))).toEqual(["Torre"]);
+      expect(namesOf(search(idx, "steak house"))).toEqual(["Steak"]);
+    });
+
+    it("reads a family label, and the parts of one that joins two", () => {
+      const idx = buildIndexes([
+        make("Pub", { category: "pub", ...north(1) }),
+        make("Bar", { category: "bar", ...north(2) }),
+        make("Garden", { category: "biergarten", ...north(3) }),
+        make("Pao", { category: "bakery", ...north(0.2) }),
+        make("Doce", { category: "confectionery", ...north(0.3) }),
+        make("Tasca", { category: "restaurant", ...north(0.5) }),
+      ]);
+      expect(namesOf(search(idx, "pubs"))).toEqual(["Pub", "Bar", "Garden"]);
+      expect(namesOf(search(idx, "bars and pubs"))).toEqual(["Pub", "Bar", "Garden"]);
+      expect(namesOf(search(idx, "bakeries"))).toEqual(["Pao", "Doce"]);
+      expect(namesOf(search(idx, "sweets"))).toEqual(["Pao", "Doce"]);
+      expect(namesOf(search(idx, "restaurants"))).toEqual(["Tasca"]);
+    });
+
+    it("finds a kind by a label, a word, or a cuisine of the same name", () => {
+      const idx = buildIndexes([
+        make("Quux", { category: "cafe", ...north(2) }),
+        make("Luigi", { category: "bar", cuisine: "cafe", ...north(1) }),
+      ]);
+      expect(namesOf(search(idx, "cafe"))).toEqual(["Luigi", "Quux"]);
+    });
+
+    it("does not list a place just for being near", () => {
+      expect(namesOf(search(pool, "mexican"))).toEqual(["Other"]);
+      expect(namesOf(search(pool, "bakery"))).toEqual(["Pao"]);
+    });
+
+    it("lists places from every distance with no radius, in order of distance", () => {
+      expect(ascending(kms(search(pool, "pizza")))).toBe(true);
+      expect(search(pool, "pizza")).toHaveLength(4);
+    });
+
+    it("leaves a query that has a word that is not one of those to relevance", () => {
+      expect(pool.isKindQuery("cafe maia")).toBe(false);
+      expect(pool.isKindQuery("pizza roma")).toBe(false);
+      // Only Pizza Roma has both words, and the nearer pizza places are not listed for the one.
+      expect(namesOf(search(pool, "pizza roma"))).toEqual(["Pizza Roma"]);
+    });
+
+    it("leaves a name to relevance", () => {
+      // A place named Maia is found by "Maia" first, and a nearer place that only has the word in its keywords comes after.
+      const idx = buildIndexes([...places, make("Zed", { keywords: ["maia"], ...CENTER })]);
+      expect(idx.isKindQuery("Maia")).toBe(false);
+      const rows = search(idx, "Maia");
+      expect(rows[0]!.place.name).toBe("Maia");
+      expect(namesOf(rows)).toContain("Zed");
+      expect(rows.findIndex((row) => row.place.name === "Zed")).toBeGreaterThan(0);
+      expect(rows.find((row) => row.place.name === "Zed")!.km).toBeLessThan(rows[0]!.km);
     });
   });
 
@@ -394,42 +575,48 @@ describe("search", () => {
     });
     const idx = buildIndexes([...places, bolo, ribeira]);
     const rowsOf = (q: string) => search(idx, q, 25);
-    const addressesOf = (q: string) => rowsOf(q).map((row) => row.place.address);
     const addressOf = (name: string) => places.find((place) => place.name === name)!.address;
 
-    it("puts the pizzerias near the centre ahead of a place 19 km out with Pizza in its name", () => {
+    const ascending = (rows: { km: number }[]) => rows.every((row, i) => i === 0 || rows[i - 1]!.km <= row.km);
+
+    it("lists the pizza places nearest first, the one 19 km out with Pizza in its name last", () => {
       expect(Math.round(kmFromCenter(bolo))).toBe(19);
-      const found = addressesOf("pizza");
-      const far = found.indexOf(bolo.address);
-      expect(far).toBeGreaterThanOrEqual(0);
-      for (const name of ["Ciao Pizzeria", "Xarambinha Pizzeria Expresso"]) {
-        const near = found.indexOf(addressOf(name));
-        expect(near).toBeGreaterThanOrEqual(0);
-        expect(near).toBeLessThan(far);
-      }
+      const rows = rowsOf("pizza");
+      expect(ascending(rows)).toBe(true);
+      const found = rows.map((row) => row.place.address);
+      const near = ["Ciao Pizzeria", "Xarambinha Pizzeria Expresso"].map((name) => found.indexOf(addressOf(name)));
+      expect(near[0]).toBe(0);
+      expect(near[1]).toBe(1);
+      expect(found.indexOf(bolo.address)).toBe(2);
+      expect(found).toHaveLength(3);
     });
 
-    it("finds cafes by coffee, including those with no cuisine", () => {
-      const found = addressesOf("coffee");
+    it("finds cafes by coffee, including those with no cuisine, nearest first", () => {
+      const rows = rowsOf("coffee");
+      expect(ascending(rows)).toBe(true);
+      const found = rows.map((row) => row.place.address);
       const plain = places.filter((place) => place.category === "cafe" && place.cuisine === undefined);
       expect(plain.map((place) => place.name)).toContain("Maia");
       for (const place of plain) expect(found).toContain(place.address);
     });
 
-    it("puts cafes under a kilometre ahead of a cafe 14 km out whose name starts with the word", () => {
+    it("lists every cafe in range nearest first, so the cafes under a kilometre come before the one 14 km out", () => {
       expect(Math.round(kmFromCenter(ribeira))).toBe(14);
       const rows = rowsOf("cafe");
+      expect(ascending(rows)).toBe(true);
       const found = rows.map((row) => row.place.address);
+      for (const place of [...places, ribeira].filter((p) => p.category === "cafe")) expect(found).toContain(place.address);
       const far = found.indexOf(ribeira.address);
-      expect(far).toBeGreaterThanOrEqual(0);
-      // The first result is a cafe under a kilometre away, and it is not the far one.
+      const maia = found.indexOf(addressOf("Maia"));
+      expect(maia).toBeGreaterThanOrEqual(0);
+      expect(maia).toBeLessThan(far);
       expect(rows[0]!.place.category).toBe("cafe");
-      expect(rows[0]!.km).toBeLessThan(1);
-      // So are the cafes that have the word in their name.
-      for (const name of ["Museu Café", "Between Cafe & Healthy Food"]) {
-        expect(found.indexOf(addressOf(name))).toBeGreaterThanOrEqual(0);
-        expect(found.indexOf(addressOf(name))).toBeLessThan(far);
-      }
+      expect(rows.filter((row) => row.km < 1).every((row) => found.indexOf(row.place.address) < far)).toBe(true);
+    });
+
+    it("is the same for Coffee and café as for coffee and cafe", () => {
+      expect(rowsOf("Coffee")).toEqual(rowsOf("coffee"));
+      expect(rowsOf("café")).toEqual(rowsOf("cafe"));
     });
   });
 
@@ -460,14 +647,17 @@ describe("search", () => {
     });
 
     it("puts a match in the cuisine ahead of one in the keywords, however far it is", () => {
+      // "Grande" is in the keywords of both places. Pizza is the cuisine of one and a keyword of
+      // the other. "Grande" is not a kind or a cuisine, so the query goes by relevance.
       const idx = buildIndexes([
-        make("Zed", { ...north(0.5), keywords: ["pizza"] }),
-        make("Zee", { ...north(9), cuisine: "pizza" }),
+        make("Zed", { ...north(0.5), keywords: ["pizza", "grande"] }),
+        make("Zee", { ...north(9), cuisine: "pizza", keywords: ["grande"] }),
         make("Other One"),
         make("Other Two"),
         make("Other Three"),
       ]);
-      expect(namesOf(search(idx, "pizza"))).toEqual(["Zee", "Zed"]);
+      expect(idx.isKindQuery("pizza grande")).toBe(false);
+      expect(namesOf(search(idx, "pizza grande"))).toEqual(["Zee", "Zed"]);
     });
 
     it("puts the nearer place first among matches that score nearly the same", () => {

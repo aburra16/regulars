@@ -108,7 +108,7 @@ describe("FAMILY_SEARCH_TERMS", () => {
     expect(FAMILY_SEARCH_TERMS).toEqual({
       cafes: "coffee café",
       bars: "drinks beer",
-      bakeries: "bread pastry cake",
+      bakeries: "bread pastry",
       "ice-cream": "gelato",
       "fast-food": "takeaway burger",
       breweries: "beer wine",

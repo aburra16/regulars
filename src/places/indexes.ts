@@ -3,7 +3,9 @@ import MiniSearch from "minisearch";
 
 import { config } from "../config.ts";
 import { distanceKm } from "./distance.ts";
+import { foldText } from "./fold.ts";
 import { around, HALF_EARTH_KM, withinCounter } from "./geo.ts";
+import { KIND_VOCABULARY, kindQueryReader, termOfCuisine, termsOfCategory } from "./kindQuery.ts";
 import { cuisineLabel, FAMILY_SEARCH_TERMS, kindOf } from "./kinds.ts";
 import type { Place } from "./place.ts";
 
@@ -53,8 +55,18 @@ export interface Indexes {
    * The places that match every word of `q`, best match first and, among matches that are
    * about as good, nearest first. With `radiusKm`, only those within it. An empty query lists
    * the places near the point, as `near` does. Nothing for a point that is not a place on Earth.
+   *
+   * A kind query (see `isKindQuery`) lists every place of that kind, family or cuisine, and any
+   * place with the words in its name, once each, purely by distance.
    */
   search(q: string, opts: { lat: number; lon: number; radiusKm?: number }): PlaceDistance[];
+  /**
+   * Whether every word of `q` names a kind of place ("cafe", "bakeries", "pastry shop"), words
+   * for one ("coffee", "beer"), or a cuisine that a place in the list has ("pizza", "coffee
+   * shop"), ignoring case and accents. A label of several words is one term. For these `search`
+   * goes by distance, since people who search so mean the places near them.
+   */
+  isKindQuery(q: string): boolean;
   /** The chain a place belongs to; undefined unless two or more places in its country share its name. */
   chainOf(place: Place): Chain | undefined;
   /**
@@ -242,19 +254,6 @@ export function cityLabel(city: City, all: readonly City[]): string {
   return where === undefined ? city.name : `${city.name}, ${where}`;
 }
 
-/**
- * A word as the search sees it: lower case, with the accents of Latin letters taken off, so
- * "Sao" finds "São". Only the marks in the Combining Diacritical Marks block go. The marks
- * of other scripts stay: taking them off would make ペ the same as ヘ. Words are searched for
- * in this form on both sides, so nobody sees it.
- */
-function searchTerm(term: string): string {
-  return term
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
-
 /** What a place is found by. The `id` is its position in the list of places. */
 interface SearchDoc {
   id: number;
@@ -295,7 +294,7 @@ export function buildIndexes(places: readonly Place[]): Indexes {
   const finder = new MiniSearch<SearchDoc>({
     fields: ["name", "kind", "terms", "cuisine", "locality", "keywords"],
     storeFields: [],
-    processTerm: searchTerm,
+    processTerm: foldText,
     searchOptions: { prefix: true, fuzzy: 0.2, combineWith: "AND", boost: { name: 3, cuisine: 2 } },
   });
   finder.addAll(places.map(searchDoc));
@@ -304,6 +303,20 @@ export function buildIndexes(places: readonly Place[]): Indexes {
   for (const place of places) if (!byD.has(place.d)) byD.set(place.d, place);
 
   const chains = buildChains(places);
+
+  // The places that answer to each term of a kind query, by their position in the list.
+  const placesByTerm = new Map<string, number[]>();
+  const vocabulary = new Set(KIND_VOCABULARY);
+  places.forEach((place, id) => {
+    const terms = new Set(termsOfCategory(place.category));
+    const cuisine = place.cuisine === undefined ? "" : termOfCuisine(place.cuisine);
+    if (cuisine !== "") {
+      terms.add(cuisine);
+      vocabulary.add(cuisine);
+    }
+    for (const term of terms) push(placesByTerm, term, id);
+  });
+  const readKindQuery = kindQueryReader(vocabulary);
 
   const isLocation = (lat: number, lon: number) => Number.isFinite(lat) && Number.isFinite(lon);
 
@@ -321,9 +334,32 @@ export function buildIndexes(places: readonly Place[]): Indexes {
       .sort((a, b) => a.km - b.km);
   }
 
+  /** The places that answer to every term, and those with the query's words in their name, nearest first. */
+  function searchKind(terms: string[], q: string, lat: number, lon: number, radiusKm: number | undefined): PlaceDistance[] {
+    const [first = [], ...rest] = terms.map((term) => placesByTerm.get(term) ?? []);
+    let ids = first;
+    for (const list of rest) {
+      const listed = new Set(list);
+      ids = ids.filter((id) => listed.has(id));
+    }
+    const found = new Set(ids);
+    for (const hit of finder.search(q, { fields: ["name"] })) found.add(hit.id);
+
+    const rows: PlaceDistance[] = [];
+    for (const id of [...found].sort((a, b) => a - b)) {
+      const place = places[id]!;
+      const km = distanceKm(lat, lon, place.lat, place.lon);
+      if (radiusKm === undefined || km <= radiusKm) rows.push({ place, km });
+    }
+    return rows.sort((a, b) => a.km - b.km);
+  }
+
   function search(q: string, { lat, lon, radiusKm }: { lat: number; lon: number; radiusKm?: number }): PlaceDistance[] {
     if (!isLocation(lat, lon)) return [];
     if (q.trim() === "") return near(lat, lon, radiusKm ?? config.defaultCity.radiusKm);
+
+    const kindTerms = readKindQuery(q);
+    if (kindTerms !== undefined) return searchKind(kindTerms, q, lat, lon, radiusKm);
 
     const found: { place: Place; km: number; score: number }[] = [];
     for (const hit of finder.search(q)) {
@@ -357,7 +393,9 @@ export function buildIndexes(places: readonly Place[]): Indexes {
 
   const chainOf = (place: Place) => chains.get(chainId(chainKey(place.name), countryOf(place)));
 
-  return { near, search, chainOf, chainBySlug, chains, cities: buildCities(places), byD };
+  const isKindQuery = (q: string) => readKindQuery(q) !== undefined;
+
+  return { near, search, isKindQuery, chainOf, chainBySlug, chains, cities: buildCities(places), byD };
 }
 
 /**

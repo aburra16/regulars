@@ -94,6 +94,11 @@ export function cuisineLabel(cuisine: string): string {
   return sentenceCase(cuisine);
 }
 
+/** Every kind that kinds.json lists, with the family it belongs to. */
+export const KINDS: readonly { category: string; label: string; family: FamilyId }[] = [...kindByCategory].map(
+  ([category, info]) => ({ category, label: info.label, family: info.family }),
+);
+
 /**
  * Words people use for a kind of place that its label does not say, found by search and shown
  * nowhere. They are by family; the bars family holds pubs too, so it has the word for both.
@@ -101,7 +106,7 @@ export function cuisineLabel(cuisine: string): string {
 export const FAMILY_SEARCH_TERMS: Partial<Record<FamilyId, string>> = {
   cafes: "coffee café",
   bars: "drinks beer",
-  bakeries: "bread pastry cake",
+  bakeries: "bread pastry",
   "ice-cream": "gelato",
   "fast-food": "takeaway burger",
   breweries: "beer wine",
