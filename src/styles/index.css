@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+/* ---- Design tokens: copied verbatim from handoff/design/tokens.css. Do not edit here;
+   change the handoff and copy it across. tests/styles.test.ts checks they match. ---- */
+/* Regulars design tokens. Values are the ones used on the 21 screens. */
+:root {
+  /* Colour */
+  --ground: #FFFFFF;
+  --ink: #16202E;            /* text, dark buttons, selected chips */
+  --ink-soft: #2B3644;       /* body copy in reviews and explanations */
+  --muted: #5A6675;          /* secondary text; passes 4.5:1 on white */
+  --surface: #F3F5F7;        /* panels, icon tiles, search field */
+  --line: #E2E6EB;           /* card borders, dividers */
+  --line-strong: #D5DAE0;    /* chip and outline-button borders; empty stars */
+  --line-dashed: #C3CAD3;    /* dashed "nothing here yet" borders */
+  --field-border: #8A95A3;   /* text inputs */
+
+  --accent: #C93A22;         /* stars, primary button, active tab, selected pin */
+  --on-accent: #FFFFFF;
+
+  --trust: #0B6E69;          /* anything about who you trust, and nothing else */
+  --trust-ink: #084F4B;      /* text on the trust tint */
+  --trust-tint: #E3F1EF;     /* tag chips, the circle panel, the progress banner */
+  --trust-track: #BFDFDB;    /* progress bar track */
+
+  --map-land: #E4EAEE;       /* placeholder map only; the real map comes from the tile provider */
+  --map-park: #CFE3DA;
+  --map-water: #CBDDEA;
+  --you-are-here: #2B6CD9;
+
+  --night: #16202E;          /* sign-in page ground */
+  --on-night-soft: #D5DAE0;
+  --wordmark-on-night: #F3B8AC;
+
+  /* Type */
+  --font-display: 'Bricolage Grotesque', 'Noto Sans', sans-serif;   /* weights 700, 800 */
+  --font-text: 'Figtree', 'Noto Sans', system-ui, sans-serif;       /* weights 400, 600, 700 */
+  /* Both faces are Latin only. Place names in other scripts fall back to the
+     matching Noto Sans family (the Saved screen shows Noto Sans JP). */
+
+  --size-display-desktop: 44px;   /* place name, desktop; 48px page titles; 68px sign-in headline */
+  --size-display-phone: 34px;     /* place name and page titles, phone */
+  --size-score: 54px;             /* the big score; 64px on desktop */
+  --size-h2: 22px;                /* 26px on desktop */
+  --size-card-title: 19px;        /* 18px in compact rows */
+  --size-body: 16px;              /* 17px for review text on desktop */
+  --size-secondary: 14px;
+  --size-caption: 13px;
+  --size-tab: 12px;
+  --tracking-display: -0.02em;
+
+  /* Shape */
+  --radius-chip: 22px;       /* pills */
+  --radius-card: 20px;
+  --radius-panel: 22px;      /* 24px on desktop */
+  --radius-button: 16px;     /* 18px for the main button on a screen */
+  --radius-tile: 14px;       /* kind icon tile; 12px in compact rows */
+  --radius-dialog: 26px;
+  --border: 1.5px;
+
+  /* Size */
+  --touch: 44px;             /* minimum height of anything tappable */
+  --gutter-phone: 20px;
+  --gutter-desktop: 32px;
+  --content-max: 1180px;     /* desktop content width */
+  --list-width: 520px;       /* the list beside the map on desktop */
+  --rail-width: 320px;       /* the side rail on desktop */
+  --measure: 68ch;           /* longest line of review text */
+
+  /* Shadow: used only on things that float over the map */
+  --shadow-float: 0 2px 10px rgba(22, 32, 46, 0.14);
+  --shadow-card-over-map: 0 4px 18px rgba(22, 32, 46, 0.18);
+  --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+/* ---- Additions to the tokens (not part of the handoff file) ----
+   The token comments say place names in other scripts fall back to the matching Noto Sans
+   family, and the Saved screen shows Noto Sans JP. The Japanese face has to sit before the
+   generic fallbacks for that to happen. Noto Sans JP's files declare unicode-range, so they
+   download only when Japanese text is on the page. */
+:root {
+  --font-display: 'Bricolage Grotesque', 'Noto Sans', 'Noto Sans JP', sans-serif;
+  --font-text: 'Figtree', 'Noto Sans', 'Noto Sans JP', system-ui, sans-serif;
+}
+
+/* ---- Tailwind names for the tokens. `inline` makes each utility read the token variable
+   directly (bg-ink is background-color: var(--ink)). ---- */
+@theme inline {
+  --color-ground: var(--ground);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-muted: var(--muted);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-line-dashed: var(--line-dashed);
+  --color-field-border: var(--field-border);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-trust: var(--trust);
+  --color-trust-ink: var(--trust-ink);
+  --color-trust-tint: var(--trust-tint);
+  --color-trust-track: var(--trust-track);
+  --color-map-land: var(--map-land);
+  --color-map-park: var(--map-park);
+  --color-map-water: var(--map-water);
+  --color-you-are-here: var(--you-are-here);
+  --color-night: var(--night);
+  --color-on-night-soft: var(--on-night-soft);
+  --color-wordmark-on-night: var(--wordmark-on-night);
+
+  --text-display-desktop: var(--size-display-desktop);
+  --text-display-phone: var(--size-display-phone);
+  --text-score: var(--size-score);
+  --text-h2: var(--size-h2);
+  --text-card-title: var(--size-card-title);
+  --text-body: var(--size-body);
+  --text-secondary: var(--size-secondary);
+  --text-caption: var(--size-caption);
+  --text-tab: var(--size-tab);
+}
+
+/* Fonts, tracking, radii and shadows are named the same in the tokens as in Tailwind's theme
+   (--font-display, --radius-card ...). Registering them with @theme would make each variable
+   refer to itself, so they are plain utilities that read the token. */
+@utility font-display {
+  font-family: var(--font-display);
+}
+@utility font-text {
+  font-family: var(--font-text);
+}
+@utility tracking-display {
+  letter-spacing: var(--tracking-display);
+}
+@utility rounded-chip {
+  border-radius: var(--radius-chip);
+}
+@utility rounded-card {
+  border-radius: var(--radius-card);
+}
+@utility rounded-panel {
+  border-radius: var(--radius-panel);
+}
+@utility rounded-button {
+  border-radius: var(--radius-button);
+}
+@utility rounded-tile {
+  border-radius: var(--radius-tile);
+}
+@utility rounded-dialog {
+  border-radius: var(--radius-dialog);
+}
+@utility shadow-float {
+  box-shadow: var(--shadow-float);
+}
+@utility shadow-card-over-map {
+  box-shadow: var(--shadow-card-over-map);
+}
+@utility shadow-dialog {
+  box-shadow: var(--shadow-dialog);
+}
+
+@layer base {
+  body {
+    margin: 0;
+    font-family: var(--font-text);
+    color: var(--ink);
+    background: var(--ground);
+  }
+}

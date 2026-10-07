@@ -1,0 +1,54 @@
+{
+  "note": "The 29 values of the `category` field on the live list, in the ten families from Avi's design brief. `osm` is the raw value as it arrives. Labels are suggestions for Avi to reword. An unknown value falls back to its own text, title-cased, with the food-shop icon.",
+  "families": [
+    { "id": "restaurants", "label": "Restaurants", "icon": "restaurant.svg", "values": [
+      { "osm": "restaurant", "label": "Restaurant" }
+    ] },
+    { "id": "cafes", "label": "Cafes", "icon": "cafe.svg", "values": [
+      { "osm": "cafe", "label": "Cafe" }
+    ] },
+    { "id": "fast-food", "label": "Fast food", "icon": "fast-food.svg", "values": [
+      { "osm": "fast_food", "label": "Fast food" }
+    ] },
+    { "id": "bars", "label": "Bars and pubs", "icon": "bar.svg", "values": [
+      { "osm": "bar", "label": "Bar" },
+      { "osm": "pub", "label": "Pub" },
+      { "osm": "biergarten", "label": "Beer garden" }
+    ] },
+    { "id": "bakeries", "label": "Bakeries and sweets", "icon": "bakery.svg", "values": [
+      { "osm": "bakery", "label": "Bakery" },
+      { "osm": "pastry", "label": "Pastry shop" },
+      { "osm": "chocolate", "label": "Chocolate shop" },
+      { "osm": "confectionery", "label": "Sweet shop" }
+    ] },
+    { "id": "ice-cream", "label": "Ice cream", "icon": "ice-cream.svg", "values": [
+      { "osm": "ice_cream", "label": "Ice cream" }
+    ] },
+    { "id": "farm-shops", "label": "Farm shops", "icon": "farm-shop.svg", "values": [
+      { "osm": "farm", "label": "Farm shop" }
+    ] },
+    { "id": "food-shops", "label": "Food shops", "icon": "food-shop.svg", "values": [
+      { "osm": "butcher", "label": "Butcher" },
+      { "osm": "health_food", "label": "Health food shop" },
+      { "osm": "deli", "label": "Deli" },
+      { "osm": "coffee", "label": "Coffee seller" },
+      { "osm": "greengrocer", "label": "Greengrocer" },
+      { "osm": "seafood", "label": "Fishmonger" },
+      { "osm": "cheese", "label": "Cheese shop" },
+      { "osm": "tea", "label": "Tea shop" },
+      { "osm": "dairy", "label": "Dairy shop" },
+      { "osm": "spices", "label": "Spice shop" },
+      { "osm": "food_court", "label": "Food court" }
+    ] },
+    { "id": "drink-shops", "label": "Drink shops", "icon": "drink-shop.svg", "values": [
+      { "osm": "alcohol", "label": "Liquor store" },
+      { "osm": "wine", "label": "Wine shop" },
+      { "osm": "beverages", "label": "Drinks shop" }
+    ] },
+    { "id": "breweries", "label": "Breweries and wineries", "icon": "brewery.svg", "values": [
+      { "osm": "brewery", "label": "Brewery" },
+      { "osm": "winery", "label": "Winery" },
+      { "osm": "distillery", "label": "Distillery" }
+    ] }
+  ]
+}
