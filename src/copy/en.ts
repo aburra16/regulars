@@ -29,4 +29,16 @@ export const copy = {
   place: {
     bitcoinChip: ALLOWED_PROTOCOL_STRINGS.bitcoinChip,
   },
+  hours: {
+    /** A time of day goes in `time`: "11 pm" or "23:00", and "Tue 11 am" when it is more than a day away. */
+    openUntil: (time: string) => `Open until ${time}`,
+    openNowCloses: (time: string) => `Open now · closes ${time}`,
+    closedOpens: (time: string) => `Closed · opens ${time}`,
+    open24: "Open 24 hours",
+    closed: "Closed",
+    notListed: "Hours not listed",
+    /** The two halves of the day on a 12-hour clock. */
+    am: "am",
+    pm: "pm",
+  },
 } satisfies { readonly [key: string]: CopyNode };

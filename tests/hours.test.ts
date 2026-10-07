@@ -1,0 +1,508 @@
+import type { NostrEvent } from "@nostrify/nostrify";
+import { describe, expect, it } from "vitest";
+
+import { config } from "../src/config";
+import { copy } from "../src/copy/en";
+import { type OpenState, openLine, openState, timeZoneOf } from "../src/places/hours";
+import { parsePlace } from "../src/places/place";
+import raw from "./fixtures/funchal-items.json";
+
+// Funchal is on Atlantic/Madeira: UTC+1 in summer (until 25 Oct 2026), UTC+0 in winter.
+// vitest.config.ts runs the tests with TZ=UTC, so a result that leaks the runtime's zone shows up.
+// `now` is always a real instant (an ISO string with Z). `closesAt` and `opensAt` are wall-clock
+// Dates, so they are compared with `new Date(y, m, d, h, min)`, which uses the same fields.
+interface Where {
+  lat: number;
+  lon: number;
+  country?: string;
+}
+const FUNCHAL: Where = { lat: 32.6507, lon: -16.9084, country: "PT" };
+const TOKYO: Where = { lat: 35.6762, lon: 139.6503, country: "JP" };
+
+const at = (iso: string) => new Date(iso);
+const stateOf = (openingHours: string | undefined, iso: string, where: Where = FUNCHAL) =>
+  openState({ ...where, openingHours }, at(iso));
+const lineOf = (openingHours: string | undefined, iso: string, locale = "en-US", form: "card" | "place" = "card") =>
+  openLine(stateOf(openingHours, iso), locale, form);
+
+// Wed 7 Oct 2026, Madeira on summer time: 14:00Z is 15:00 there, 22:30Z is 23:30.
+const WED_15_00 = "2026-10-07T14:00:00Z";
+const WED_23_30 = "2026-10-07T22:30:00Z";
+
+describe("timeZoneOf", () => {
+  it("names the IANA zone of a coordinate", () => {
+    expect(timeZoneOf(FUNCHAL.lat, FUNCHAL.lon)).toBe("Atlantic/Madeira");
+    expect(timeZoneOf(38.7223, -9.1393)).toBe("Europe/Lisbon");
+    expect(timeZoneOf(TOKYO.lat, TOKYO.lon)).toBe("Asia/Tokyo");
+  });
+});
+
+describe("openState", () => {
+  it("runs the tests in UTC, so the runtime zone is not the place's zone", () => {
+    expect(new Date(2026, 9, 7, 12).getTimezoneOffset()).toBe(0);
+  });
+
+  describe("open", () => {
+    it("is open with the closing time on the place's clock", () => {
+      expect(stateOf("Mo-Su 11:00-23:00", WED_15_00)).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 7, 23, 0),
+      });
+    });
+
+    it("has no closing time for 24/7 or all-day hours", () => {
+      expect(stateOf("24/7", WED_15_00)).toEqual({ kind: "open" });
+      expect(stateOf("Mo-Su 00:00-24:00", WED_15_00)).toEqual({ kind: "open" });
+    });
+
+    it("has no closing time when nothing closes it this week", () => {
+      // Closed on 25 December, which is not this week.
+      expect(stateOf("24/7; Dec 25 off", WED_15_00)).toEqual({ kind: "open" });
+      // ...while a closure this week is a closing time.
+      expect(stateOf("Mo-Su 11:00-23:00; Dec 25 off", WED_15_00)).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 7, 23, 0),
+      });
+    });
+
+    it("closes after midnight when the hours run past it", () => {
+      // Fri 9 Oct, 23:30 Madeira: the Friday and Saturday rule runs to 02:00.
+      expect(stateOf("Mo-Sa 11:00-24:00, Fr-Sa 11:00-02:00", "2026-10-09T22:30:00Z")).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 10, 2, 0),
+      });
+    });
+
+    it("marks a closing more than 24 hours away, and only then", () => {
+      // Wed 7 Oct 15:00 Madeira, open round the clock Monday to Friday: closes Sat 00:00.
+      expect(stateOf("Mo-Fr 00:00-24:00", WED_15_00)).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 10, 0, 0),
+        closesAfterADay: true,
+      });
+      // Fri 9 Oct 15:00, the same hours: closes in 9 hours.
+      expect(stateOf("Mo-Fr 00:00-24:00", "2026-10-09T14:00:00Z")).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 10, 0, 0),
+      });
+    });
+
+    it("closes at midnight for hours that end at 24:00", () => {
+      expect(stateOf("Mo-Su 09:30-24:00", WED_23_30)).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 8, 0, 0),
+      });
+    });
+  });
+
+  describe("closed", () => {
+    it("is closed with the next opening on the place's clock", () => {
+      expect(stateOf("Mo-Su 11:00-23:00", WED_23_30)).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 9, 8, 11, 0),
+      });
+    });
+
+    it("is closed with no next opening when the hours say it is shut for good", () => {
+      expect(stateOf("off", WED_15_00)).toEqual({ kind: "closed" });
+      expect(stateOf(" Closed ", WED_15_00)).toEqual({ kind: "closed" });
+    });
+
+    it("is closed with no weekday when it does not open for more than a week", () => {
+      // A season starting in April: "opens Thu" would mislead.
+      expect(stateOf("Apr-Sep Mo-Su 11:00-23:00", WED_15_00)).toEqual({ kind: "closed" });
+    });
+
+    it("names the weekday of an opening up to a week away", () => {
+      // Sat 10 Oct 13:00 Madeira, the one weekly slot ended an hour ago: next Saturday, 6 days 21 hours.
+      expect(stateOf("Sa 10:00-12:00", "2026-10-10T12:00:00Z")).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 9, 17, 10, 0),
+        opensAfterADay: true,
+      });
+    });
+
+    it("marks an opening more than 24 hours away, and only then", () => {
+      // Fri 9 Oct 18:00 Madeira, opens Mon 12 Oct 09:00.
+      expect(stateOf("Mo-Fr 09:00-17:00", "2026-10-09T17:00:00Z")).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 9, 12, 9, 0),
+        opensAfterADay: true,
+      });
+      // Tue 6 Oct 12:00:00 Madeira, opens Wed 12:00: exactly 24 hours is not more than 24 hours.
+      expect(stateOf("We 12:00-13:00", "2026-10-06T11:00:00Z")).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 9, 7, 12, 0),
+      });
+      // One second earlier, it is.
+      expect(stateOf("We 12:00-13:00", "2026-10-06T10:59:59Z")).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 9, 7, 12, 0),
+        opensAfterADay: true,
+      });
+    });
+  });
+
+  describe("the place's time zone", () => {
+    it("uses the place's clock, not the UTC clock", () => {
+      // 22:30Z reads 22:30 in UTC (open until 23:00) and 23:30 in Funchal (closed).
+      expect(stateOf("Mo-Su 11:00-23:00", WED_23_30).kind).toBe("closed");
+    });
+
+    it("follows summer and winter time", () => {
+      // The same 22:30Z in December: Madeira is on UTC+0, so it reads 22:30 and the place is open.
+      expect(stateOf("Mo-Su 11:00-23:00", "2026-12-07T22:30:00Z")).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 11, 7, 23, 0),
+      });
+    });
+
+    it("works for a place far from the runtime's zone", () => {
+      // Tokyo is UTC+9: 13:59Z is 22:59 there, 14:00Z is 23:00.
+      expect(stateOf("Mo-Su 11:00-23:00", "2026-10-07T13:59:00Z", TOKYO)).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 7, 23, 0),
+      });
+      expect(stateOf("Mo-Su 11:00-23:00", "2026-10-07T14:00:00Z", TOKYO)).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 9, 8, 11, 0),
+      });
+    });
+
+    it("reads the weekday on the place's calendar", () => {
+      // 15:30Z on Tue 6 Oct is already Wed 00:30 in Tokyo (UTC+9), where a Wednesday-only place is
+      // open; in Funchal it is Tue 16:30.
+      expect(stateOf("We 00:00-02:00", "2026-10-06T15:30:00Z", TOKYO).kind).toBe("open");
+      expect(stateOf("We 00:00-02:00", "2026-10-06T15:30:00Z").kind).toBe("closed");
+    });
+  });
+
+  describe("public holidays", () => {
+    it("uses the place's country", () => {
+      // Fri 25 Dec 2026, Christmas Day in Portugal. Madeira is UTC+0 in winter.
+      expect(stateOf("Mo-Su 11:00-23:00; PH off", "2026-12-25T15:00:00Z")).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 11, 26, 11, 0),
+      });
+      expect(stateOf("Mo-Su 11:00-23:00; PH off", "2026-12-24T15:00:00Z")).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 11, 24, 23, 0),
+      });
+    });
+
+    it("accepts a country in any letter case", () => {
+      expect(stateOf("Mo-Su 11:00-23:00; PH off", "2026-12-25T15:00:00Z", { ...FUNCHAL, country: "pt" }).kind).toBe(
+        "closed",
+      );
+    });
+
+    it("cannot judge a holiday rule without a country", () => {
+      const { lat, lon } = FUNCHAL;
+      expect(stateOf("Mo-Su 11:00-23:00; PH off", "2026-12-25T15:00:00Z", { lat, lon })).toEqual({
+        kind: "unparsed",
+        raw: "Mo-Su 11:00-23:00; PH off",
+      });
+    });
+
+    it("needs no country for hours with no holiday rule", () => {
+      const { lat, lon } = FUNCHAL;
+      expect(stateOf("Mo-Su 11:00-23:00", WED_15_00, { lat, lon }).kind).toBe("open");
+    });
+  });
+
+  describe("no hours", () => {
+    it("is unknown when there are no hours", () => {
+      expect(stateOf(undefined, WED_15_00)).toEqual({ kind: "unknown" });
+    });
+
+    it("is unknown for an empty or whitespace-only string", () => {
+      expect(stateOf("", WED_15_00)).toEqual({ kind: "unknown" });
+      expect(stateOf("   \t\n", WED_15_00)).toEqual({ kind: "unknown" });
+    });
+  });
+
+  describe("hours the app cannot read", () => {
+    it("keeps the raw text of hours the parser had to guess at", () => {
+      // The parser quietly repairs "as" into "-"; the app shows what the mapper wrote instead.
+      expect(stateOf("16:00 as 23:00", WED_15_00)).toEqual({ kind: "unparsed", raw: "16:00 as 23:00" });
+      expect(stateOf("Mon-Fri 09:00 to 17:00", WED_15_00)).toEqual({
+        kind: "unparsed",
+        raw: "Mon-Fri 09:00 to 17:00",
+      });
+      expect(stateOf("9-5", WED_15_00).kind).toBe("unparsed");
+    });
+
+    it("keeps the raw text of hours that do not parse", () => {
+      for (const bad of ["hello world", "Mo-Su 25:00-26:00", "; ; ;", "🍝"]) {
+        expect(stateOf(bad, WED_15_00)).toEqual({ kind: "unparsed", raw: bad });
+      }
+    });
+
+    it("keeps the raw text of hours that only list closures, or have run out", () => {
+      for (const odd of ["PH off", "Dec 25 off", "Su off", "2025 Mo-Su 10:00-12:00"]) {
+        expect(stateOf(odd, WED_15_00)).toEqual({ kind: "unparsed", raw: odd });
+      }
+    });
+
+    it("answers at once for hours the parser would grind on", () => {
+      // The parser's default search for the next change takes about 40 seconds on "PH off". The
+      // test timeout (5 s) is the check; so is the length limit on the 20,000-character string.
+      expect(stateOf("PH off", WED_15_00).kind).toBe("unparsed");
+      expect(stateOf("Mo-Su 11:00-23:00 ".repeat(200), WED_15_00).kind).toBe("unparsed");
+      expect(stateOf("x".repeat(20000), WED_15_00).kind).toBe("unparsed");
+    });
+
+    it("reads hours up to the 255 characters OpenStreetMap allows, and no more", () => {
+      const rule = "Mo-Fr 08:00-12:00,13:00-17:00; ";
+      const longest = rule.repeat(8).slice(0, 255).replace(/[; ]+$/, "");
+      expect(longest.length).toBeLessThanOrEqual(255);
+      expect(stateOf(longest, WED_15_00).kind).toBe("open");
+      expect(stateOf(`${longest}; Sa 10:00-12:00${"; Su off".repeat(10)}`, WED_15_00).kind).toBe("unparsed");
+    });
+
+    it("keeps the raw text when the open state is unknown", () => {
+      // "Sa 09:00+" opens at 09:00 and gives no closing time; the parser can only guess one.
+      const hours = "Mo-Fr 08:00-12:00,13:00-17:00; Sa 09:00+";
+      expect(stateOf(hours, "2026-10-10T14:00:00Z")).toEqual({ kind: "unparsed", raw: hours });
+      expect(stateOf("Mo-Su 12:00-22:00 unknown", WED_15_00)).toEqual({
+        kind: "unparsed",
+        raw: "Mo-Su 12:00-22:00 unknown",
+      });
+    });
+
+    it("still reads the weekdays of hours with an open-ended Saturday", () => {
+      const hours = "Mo-Fr 08:00-12:00,13:00-17:00; Sa 09:00+";
+      expect(stateOf(hours, WED_15_00)).toEqual({ kind: "open", closesAt: new Date(2026, 9, 7, 17, 0) });
+      expect(stateOf(hours, "2026-10-07T11:30:00Z")).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 9, 7, 13, 0),
+      });
+    });
+
+    it("does not guess at sunrise and sunset, which the parser works out in the runtime's zone", () => {
+      expect(stateOf("sunrise-sunset", WED_15_00)).toEqual({ kind: "unparsed", raw: "sunrise-sunset" });
+      expect(stateOf("Mo-Su sunrise-sunset", WED_15_00).kind).toBe("unparsed");
+      expect(stateOf("Mo-Su 10:00-dusk", WED_15_00).kind).toBe("unparsed");
+    });
+
+    it("never throws, whatever the hours or the place", () => {
+      const hours = [
+        "PH off",
+        "sunrise-sunset",
+        "Mo-Fr 08:00-12:00,13:00-17:00; Sa 09:00+",
+        "16:00 as 23:00",
+        "",
+        " ",
+        "\u0000",
+        "🍝",
+        "Mo-Su",
+        "24/7; PH off",
+        "Dec 25 off",
+        "week 1-53/2 Mo 10:00-12:00",
+        "Mo-Su 11:00-23:00 ".repeat(200),
+        "x".repeat(20000),
+      ];
+      const places: Where[] = [FUNCHAL, { lat: FUNCHAL.lat, lon: FUNCHAL.lon }, { ...FUNCHAL, country: "ZZ" }];
+      const kinds: ReadonlySet<string> = new Set(["open", "closed", "unknown", "unparsed"]);
+      for (const where of places) {
+        for (const openingHours of hours) {
+          const state = stateOf(openingHours, WED_15_00, where);
+          expect(kinds.has(state.kind)).toBe(true);
+          for (const form of ["card", "place"] as const) {
+            const line = openLine(state, "en-US", form);
+            expect(line.length).toBeGreaterThan(0);
+          }
+        }
+      }
+    });
+
+    it("gives raw text for a place with a country the parser has no holidays for", () => {
+      expect(stateOf("Mo-Su 11:00-23:00; PH off", WED_15_00, { ...FUNCHAL, country: "ZZ" }).kind).toBe("unparsed");
+      expect(stateOf("Mo-Su 11:00-23:00", WED_15_00, { ...FUNCHAL, country: "ZZ" }).kind).toBe("open");
+    });
+
+    it("gives raw text when the coordinates have no time zone", () => {
+      const state = openState({ openingHours: "Mo-Su 11:00-23:00", lat: 999, lon: 0 }, at(WED_15_00));
+      expect(state).toEqual({ kind: "unparsed", raw: "Mo-Su 11:00-23:00" });
+    });
+  });
+
+  describe("the Funchal fixtures", () => {
+    const events: NostrEvent[] = raw;
+    const places = events.flatMap((event) => {
+      const place = parsePlace(event, config.headerCoordinate);
+      return place?.openingHours === undefined ? [] : [place];
+    });
+
+    it("has real hours to read", () => {
+      expect(places.length).toBeGreaterThan(30);
+    });
+
+    it("reads every hours string as open or closed, at any hour of a week", () => {
+      const week = Array.from({ length: 7 * 24 }, (_, i) => new Date(Date.UTC(2026, 9, 5) + i * 3_600_000));
+      const unread = places.flatMap((place) =>
+        week.flatMap((instant) => {
+          const { kind } = openState(place, instant);
+          const where = `${place.openingHours} at ${instant.toISOString()}`;
+          return kind === "open" || kind === "closed" ? [] : [`${where}: ${kind}`];
+        }),
+      );
+      expect(unread).toEqual([]);
+    });
+
+    it("tells open from closed for hours with ';' and ','", () => {
+      // "Mo-Fr 10:30-19:30, Sa 10:00-14:00": Sat 10 Oct 12:00 Madeira (11:00Z) it is open until 14:00.
+      const hours = "Mo-Fr 10:30-19:30, Sa 10:00-14:00";
+      expect(stateOf(hours, "2026-10-10T11:00:00Z")).toEqual({ kind: "open", closesAt: new Date(2026, 9, 10, 14, 0) });
+      // ...and from 15:00 it is shut until Monday.
+      expect(stateOf(hours, "2026-10-10T14:00:00Z")).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 9, 12, 10, 30),
+        opensAfterADay: true,
+      });
+
+      // "Mo-Fr 07:30-20:00; Sa, Su 07:30-19:00": Sunday 11 Oct, 18:30 and 19:30 Madeira.
+      const weekend = "Mo-Fr 07:30-20:00; Sa, Su 07:30-19:00";
+      expect(stateOf(weekend, "2026-10-11T17:30:00Z")).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 11, 19, 0),
+      });
+      expect(stateOf(weekend, "2026-10-11T18:30:00Z")).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 9, 12, 7, 30),
+      });
+
+      // "We-Su 12:00-22:00, Mo-Tu Closed": Tuesday 6 Oct, 15:00 Madeira.
+      expect(stateOf("We-Su 12:00-22:00, Mo-Tu Closed", "2026-10-06T14:00:00Z")).toEqual({
+        kind: "closed",
+        opensAt: new Date(2026, 9, 7, 12, 0),
+      });
+    });
+  });
+});
+
+describe("openLine", () => {
+  describe("card", () => {
+    it("says when an open place closes, in the locale's clock", () => {
+      expect(lineOf("Mo-Su 11:00-23:00", WED_15_00, "en-US")).toBe("Open until 11 pm");
+      expect(lineOf("Mo-Su 11:00-23:00", WED_15_00, "pt-PT")).toBe("Open until 23:00");
+    });
+
+    it("says when a closed place opens", () => {
+      expect(lineOf("Mo-Su 11:00-23:00", WED_23_30, "en-US")).toBe("Closed · opens 11 am");
+      expect(lineOf("Mo-Su 11:00-23:00", WED_23_30, "pt-PT")).toBe("Closed · opens 11:00");
+    });
+
+    it("adds the weekday when the place opens more than a day away", () => {
+      // Fri 9 Oct 18:00 Madeira, opens Mon 12 Oct 09:00.
+      const friday = "2026-10-09T17:00:00Z";
+      expect(lineOf("Mo-Fr 09:00-17:00", friday, "en-US")).toBe("Closed · opens Mon 9 am");
+      expect(lineOf("Mo-Fr 09:00-17:00", friday, "en-GB")).toBe("Closed · opens Mon 09:00");
+      // The weekday is the locale's own.
+      const weekday = new Intl.DateTimeFormat("pt-PT", { weekday: "short" }).format(new Date(2026, 9, 12));
+      expect(weekday).not.toBe("Mon");
+      expect(lineOf("Mo-Fr 09:00-17:00", friday, "pt-PT")).toBe(`Closed · opens ${weekday} 09:00`);
+    });
+
+    it("adds the weekday when the place stays open more than a day", () => {
+      expect(lineOf("Mo-Fr 00:00-24:00", WED_15_00, "en-US")).toBe("Open until Sat 12 am");
+      expect(lineOf("Mo-Fr 00:00-24:00", WED_15_00, "en-GB", "place")).toBe("Open now · closes Sat 00:00");
+      expect(lineOf("Mo-Fr 00:00-24:00", "2026-10-09T14:00:00Z", "en-US")).toBe("Open until 12 am");
+    });
+
+    it("leaves the weekday out when the place opens within a day", () => {
+      expect(lineOf("Mo-Su 11:00-23:00", WED_23_30, "en-US")).not.toMatch(/Wed|Thu/);
+    });
+
+    it("says 24 hours for a place with no closing time", () => {
+      expect(lineOf("24/7", WED_15_00)).toBe("Open 24 hours");
+      expect(lineOf("24/7", WED_15_00, "pt-PT")).toBe("Open 24 hours");
+    });
+
+    it("says Closed for a place that does not open again, or not for a week", () => {
+      expect(lineOf("off", WED_15_00)).toBe("Closed");
+      expect(lineOf("Apr-Sep Mo-Su 11:00-23:00", WED_15_00)).toBe("Closed");
+      expect(lineOf("Apr-Sep Mo-Su 11:00-23:00", WED_15_00, "pt-PT")).toBe("Closed");
+    });
+
+    it("says 24 hours for a place nothing closes this week", () => {
+      expect(lineOf("24/7; Dec 25 off", WED_15_00)).toBe("Open 24 hours");
+    });
+
+    it("says the hours are not listed", () => {
+      expect(lineOf(undefined, WED_15_00)).toBe("Hours not listed");
+      expect(lineOf("  ", WED_15_00)).toBe("Hours not listed");
+    });
+
+    it("shows the raw text of hours it cannot read", () => {
+      expect(lineOf("16:00 as 23:00", WED_15_00)).toBe("16:00 as 23:00");
+    });
+  });
+
+  describe("place", () => {
+    it("says Open now, and when it closes", () => {
+      expect(lineOf("Mo-Su 11:00-23:00", WED_15_00, "en-US", "place")).toBe("Open now · closes 11 pm");
+      expect(lineOf("Mo-Su 11:00-23:00", WED_15_00, "pt-PT", "place")).toBe("Open now · closes 23:00");
+    });
+
+    it("reads like the card for every other state", () => {
+      expect(lineOf("Mo-Su 11:00-23:00", WED_23_30, "en-US", "place")).toBe("Closed · opens 11 am");
+      expect(lineOf("Mo-Fr 09:00-17:00", "2026-10-09T17:00:00Z", "en-US", "place")).toBe("Closed · opens Mon 9 am");
+      expect(lineOf("24/7", WED_15_00, "en-US", "place")).toBe("Open 24 hours");
+      expect(lineOf("off", WED_15_00, "en-US", "place")).toBe("Closed");
+      expect(lineOf(undefined, WED_15_00, "en-US", "place")).toBe("Hours not listed");
+      expect(lineOf("16:00 as 23:00", WED_15_00, "en-US", "place")).toBe("16:00 as 23:00");
+    });
+  });
+
+  describe("times", () => {
+    it("shows minutes only when they are not :00", () => {
+      expect(lineOf("Mo-Su 10:30-22:30", WED_15_00, "en-US")).toBe("Open until 10:30 pm");
+      expect(lineOf("Mo-Su 10:30-22:30", WED_15_00, "pt-PT")).toBe("Open until 22:30");
+      expect(lineOf("Mo-Su 10:30-22:05", WED_15_00, "en-US")).toBe("Open until 10:05 pm");
+    });
+
+    it("writes am and pm in lower case, with 12 for noon and midnight", () => {
+      expect(lineOf("Mo-Su 08:00-12:00", "2026-10-07T07:30:00Z", "en-US")).toBe("Open until 12 pm");
+      expect(lineOf("Mo-Su 09:30-24:00", WED_15_00, "en-US")).toBe("Open until 12 am");
+      expect(lineOf("Mo-Su 09:30-24:00", WED_15_00, "pt-PT")).toBe("Open until 00:00");
+      expect(lineOf("Mo-Su 07:00-09:00", "2026-10-07T06:30:00Z", "en-US")).toBe("Open until 9 am");
+      expect(lineOf("Mo-Su 07:00-09:00", "2026-10-06T23:30:00Z", "en-US")).toBe("Closed · opens 7 am");
+      expect(lineOf("Mo-Su 07:00-09:00", "2026-10-06T23:30:00Z", "pt-PT")).toBe("Closed · opens 07:00");
+    });
+
+    it.each([
+      ["en-US", "Open until 11 pm"],
+      ["en-AU", "Open until 11 pm"],
+      ["en-GB", "Open until 23:00"],
+      ["de-DE", "Open until 23:00"],
+      ["ja-JP", "Open until 23:00"],
+      ["pt-BR", "Open until 23:00"],
+      ["en-US-u-hc-h23", "Open until 23:00"],
+      ["pt-PT-u-hc-h12", "Open until 11 pm"],
+    ])("follows the %s clock", (locale, line) => {
+      expect(lineOf("Mo-Su 11:00-23:00", WED_15_00, locale)).toBe(line);
+    });
+
+    it("does not throw on a locale it does not know", () => {
+      expect(lineOf("Mo-Su 11:00-23:00", WED_15_00, "not a locale!")).toBe("Open until 11 pm");
+      expect(lineOf("Mo-Su 11:00-23:00", WED_15_00, "")).toBe("Open until 11 pm");
+    });
+
+    it("formats the wall-clock fields, whatever the runtime's zone", () => {
+      const state: OpenState = { kind: "open", closesAt: new Date(2026, 9, 7, 23, 0) };
+      expect(openLine(state, "en-US", "card")).toBe("Open until 11 pm");
+    });
+  });
+
+  describe("copy", () => {
+    it("takes every line from the copy module", () => {
+      expect(copy.hours.openUntil("5 pm")).toBe("Open until 5 pm");
+      expect(copy.hours.openNowCloses("5 pm")).toBe("Open now · closes 5 pm");
+      expect(copy.hours.closedOpens("Tue 5 pm")).toBe("Closed · opens Tue 5 pm");
+      expect(copy.hours.open24).toBe("Open 24 hours");
+      expect(copy.hours.notListed).toBe("Hours not listed");
+      expect(copy.hours.closed).toBe("Closed");
+    });
+  });
+});
