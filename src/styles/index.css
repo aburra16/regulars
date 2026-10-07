@@ -122,7 +122,9 @@
 
 /* Fonts, tracking, radii and shadows are named the same in the tokens as in Tailwind's theme
    (--font-display, --radius-card ...). Registering them with @theme would make each variable
-   refer to itself, so they are plain utilities that read the token. */
+   refer to itself, so they are plain utilities that read the token. The layout and size
+   tokens (--touch, --gutter-*, --content-max ...) are not in Tailwind's theme at all and
+   get the same treatment. tests/styles.test.ts checks every token has a utility. */
 @utility font-display {
   font-family: var(--font-display);
 }
@@ -158,6 +160,34 @@
 }
 @utility shadow-dialog {
   box-shadow: var(--shadow-dialog);
+}
+
+@utility min-h-touch {
+  min-height: var(--touch);
+}
+@utility min-w-touch {
+  min-width: var(--touch);
+}
+@utility px-gutter-phone {
+  padding-inline: var(--gutter-phone);
+}
+@utility px-gutter-desktop {
+  padding-inline: var(--gutter-desktop);
+}
+@utility max-w-content {
+  max-width: var(--content-max);
+}
+@utility w-list {
+  width: var(--list-width);
+}
+@utility w-rail {
+  width: var(--rail-width);
+}
+@utility max-w-measure {
+  max-width: var(--measure);
+}
+@utility border-token {
+  border-width: var(--border);
 }
 
 @layer base {

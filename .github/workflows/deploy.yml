@@ -5,11 +5,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -17,6 +12,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,7 +28,6 @@ jobs:
           VITE_MAPTILER_KEY: ${{ secrets.VITE_MAPTILER_KEY }}
       # GitHub Pages serves 404.html for unknown paths; a copy of the app shell lets deep links such as /place/abc load.
       - run: cp dist/index.html dist/404.html
-      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
@@ -39,9 +35,15 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # Only this job can write to Pages. The build job, which runs the project's own code, can only read.
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Needs the Pages permission (it calls the Pages API), so it runs here and not in the build job.
+      - uses: actions/configure-pages@v5
       - id: deployment
         uses: actions/deploy-pages@v4

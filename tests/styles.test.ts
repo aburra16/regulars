@@ -1,15 +1,83 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { compile } from "tailwindcss";
+import { beforeAll, describe, expect, it } from "vitest";
 
-const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
+const root = process.cwd();
+const read = (path: string) => readFileSync(resolve(root, path), "utf8");
+
+const indexCss = read("src/styles/index.css");
+const tokensCss = read("handoff/design/tokens.css");
+
+/** Every `--name: value` declaration in tokens.css. */
+const tokens = [...tokensCss.matchAll(/^\s*--([a-z0-9-]+):\s*([^;]+);/gm)].map(([, name, value]) => ({
+  name: name as string,
+  value: (value as string).trim(),
+}));
+
+// Layout and size tokens with no naming pattern of their own.
+const LAYOUT_UTILITIES: Record<string, Array<[className: string, property: string]>> = {
+  touch: [
+    ["min-h-touch", "min-height"],
+    ["min-w-touch", "min-width"],
+  ],
+  "gutter-phone": [["px-gutter-phone", "padding-inline"]],
+  "gutter-desktop": [["px-gutter-desktop", "padding-inline"]],
+  "content-max": [["max-w-content", "max-width"]],
+  "list-width": [["w-list", "width"]],
+  "rail-width": [["w-rail", "width"]],
+  measure: [["max-w-measure", "max-width"]],
+  border: [["border-token", "border-width"]],
+};
+
+/** The utility that reads this token, and the property it sets. */
+function utilitiesFor(name: string, value: string): Array<[className: string, property: string]> {
+  if (value.startsWith("#")) return [[`bg-${name}`, "background-color"]];
+  const layout = LAYOUT_UTILITIES[name];
+  if (layout) return layout;
+  const [, group, rest] = name.match(/^(size|font|tracking|radius|shadow)-(.+)$/) ?? [];
+  switch (group) {
+    case "size":
+      return [[`text-${rest}`, "font-size"]];
+    case "font":
+      return [[`font-${rest}`, "font-family"]];
+    case "tracking":
+      return [[`tracking-${rest}`, "letter-spacing"]];
+    case "radius":
+      return [[`rounded-${rest}`, "border-radius"]];
+    case "shadow":
+      return [[`shadow-${rest}`, "box-shadow"]];
+    default:
+      return [];
+  }
+}
+
+/** Compiles src/styles/index.css with Tailwind itself, so a utility that does not generate fails here. */
+async function compileUtilities(classNames: string[]): Promise<string> {
+  const compiler = await compile(indexCss, {
+    base: root,
+    async loadStylesheet(id, base) {
+      const path = id === "tailwindcss" ? resolve(root, "node_modules/tailwindcss/index.css") : resolve(base, id);
+      return { path, base: dirname(path), content: await readFile(path, "utf8") };
+    },
+  });
+  return compiler.build(classNames);
+}
+
+function declarationsOf(css: string, className: string): string[] {
+  const escaped = className.replace(/[^a-zA-Z0-9_-]/g, "\\\\$&");
+  const rule = new RegExp(`\\.${escaped}\\s*\\{([^}]*)\\}`).exec(css);
+  return (rule?.[1] ?? "")
+    .split(";")
+    .map((declaration) => declaration.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
 
 describe("styles", () => {
-  const indexCss = read("src/styles/index.css");
-
   it("carries handoff/design/tokens.css verbatim", () => {
-    expect(indexCss).toContain(read("handoff/design/tokens.css").trim());
+    expect(indexCss).toContain(tokensCss.trim());
   });
 
   it("puts Noto Sans JP before the generic fallbacks so Japanese place names use it", () => {
@@ -21,5 +89,54 @@ describe("styles", () => {
     expect(indexCss).toMatch(/body\s*\{[^}]*font-family:\s*var\(--font-text\)/);
     expect(indexCss).toMatch(/body\s*\{[^}]*color:\s*var\(--ink\)/);
     expect(indexCss).toMatch(/body\s*\{[^}]*background:\s*var\(--ground\)/);
+  });
+});
+
+describe("Tailwind utilities for the tokens", () => {
+  const expected = tokens.flatMap(({ name, value }) =>
+    utilitiesFor(name, value).map(([className, property]) => ({ token: name, className, property })),
+  );
+  let css = "";
+
+  beforeAll(async () => {
+    css = await compileUtilities(expected.map(({ className }) => className));
+  });
+
+  it("reads every token in tokens.css", () => {
+    expect(tokens.length).toBeGreaterThanOrEqual(50);
+    expect(tokens.map(({ name }) => name)).toEqual(expect.arrayContaining(["touch", "gutter-phone", "border", "ink"]));
+  });
+
+  it("has a utility for every token", () => {
+    const unmapped = tokens.filter(({ name, value }) => utilitiesFor(name, value).length === 0);
+    expect(unmapped).toEqual([]);
+  });
+
+  it("names the layout and size utilities the screens use", () => {
+    const names = expected.map(({ className }) => className);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "min-h-touch",
+        "min-w-touch",
+        "px-gutter-phone",
+        "px-gutter-desktop",
+        "max-w-content",
+        "w-list",
+        "w-rail",
+        "max-w-measure",
+        "border-token",
+      ]),
+    );
+  });
+
+  it.each(tokens.flatMap(({ name, value }) => utilitiesFor(name, value).map(([c, p]) => ({ token: name, c, p }))))(
+    "$c sets $p from --$token",
+    ({ token, c, p }) => {
+      expect(declarationsOf(css, c)).toContain(`${p}: var(--${token})`);
+    },
+  );
+
+  it("declares no variable that refers to itself", () => {
+    expect(css).not.toMatch(/--([a-z0-9-]+):\s*var\(--\1\)/);
   });
 });
