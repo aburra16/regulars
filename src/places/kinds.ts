@@ -100,8 +100,10 @@ export const KINDS: readonly { category: string; label: string; family: FamilyId
 );
 
 /**
- * Words people use for a kind of place that its label does not say, found by search and shown
- * nowhere. They are by family; the bars family holds pubs too, so it has the word for both.
+ * Words people use for a kind of place that its label does not say. Search reads them as part
+ * of a place, like its keywords, and ranks by relevance; they are shown nowhere and they do not
+ * make a query a list of the family (see `KIND_SYNONYMS`). They are by family; the bars family
+ * holds pubs too, so it has the word for both.
  */
 export const FAMILY_SEARCH_TERMS: Partial<Record<FamilyId, string>> = {
   cafes: "coffee café",
@@ -110,6 +112,21 @@ export const FAMILY_SEARCH_TERMS: Partial<Record<FamilyId, string>> = {
   "ice-cream": "gelato",
   "fast-food": "takeaway burger",
   breweries: "beer wine",
+};
+
+/**
+ * Words that mean a whole family when they are the query: "coffee" lists the cafes. These are
+ * the only synonyms that count. A word like "burger" or "wine" is read as a family only if it is
+ * a cuisine or a kind in the places, and otherwise it is searched for like any other word.
+ */
+export const KIND_SYNONYMS: Readonly<Record<string, FamilyId>> = {
+  coffee: "cafes",
+  café: "cafes",
+  cafe: "cafes",
+  gelato: "ice-cream",
+  takeaway: "fast-food",
+  bread: "bakeries",
+  drinks: "bars",
 };
 
 /** These kinds take the cuisine in front: "Mexican restaurant". Every other kind takes it after a dot. */

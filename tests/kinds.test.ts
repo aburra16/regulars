@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import kinds from "../src/data/kinds.json";
-import { cuisineLabel, FAMILIES, FAMILY_SEARCH_TERMS, kindOf, placeKindLabel } from "../src/places/kinds";
+import { cuisineLabel, FAMILIES, FAMILY_SEARCH_TERMS, KIND_SYNONYMS, kindOf, placeKindLabel } from "../src/places/kinds";
 
 describe("kindOf", () => {
   it("labels a known category from kinds.json", () => {
@@ -113,5 +113,24 @@ describe("FAMILY_SEARCH_TERMS", () => {
       "fast-food": "takeaway burger",
       breweries: "beer wine",
     });
+  });
+});
+
+describe("KIND_SYNONYMS", () => {
+  it("are the words that mean a whole family, and no others", () => {
+    expect(KIND_SYNONYMS).toEqual({
+      coffee: "cafes",
+      café: "cafes",
+      cafe: "cafes",
+      gelato: "ice-cream",
+      takeaway: "fast-food",
+      bread: "bakeries",
+      drinks: "bars",
+    });
+  });
+
+  it("name only families that kinds.json has", () => {
+    const ids = FAMILIES.map((family) => family.id) as string[];
+    for (const id of Object.values(KIND_SYNONYMS)) expect(ids).toContain(id);
   });
 });

@@ -5,7 +5,7 @@ import { config } from "../config.ts";
 import { distanceKm } from "./distance.ts";
 import { foldText } from "./fold.ts";
 import { around, HALF_EARTH_KM, withinCounter } from "./geo.ts";
-import { KIND_VOCABULARY, kindQueryReader, termOfCuisine, termsOfCategory } from "./kindQuery.ts";
+import { cuisinesOf, KIND_VOCABULARY, kindQueryReader, termsOfCategory } from "./kindQuery.ts";
 import { cuisineLabel, FAMILY_SEARCH_TERMS, kindOf } from "./kinds.ts";
 import type { Place } from "./place.ts";
 
@@ -309,8 +309,7 @@ export function buildIndexes(places: readonly Place[]): Indexes {
   const vocabulary = new Set(KIND_VOCABULARY);
   places.forEach((place, id) => {
     const terms = new Set(termsOfCategory(place.category));
-    const cuisine = place.cuisine === undefined ? "" : termOfCuisine(place.cuisine);
-    if (cuisine !== "") {
+    for (const cuisine of cuisinesOf(place)) {
       terms.add(cuisine);
       vocabulary.add(cuisine);
     }
@@ -343,7 +342,8 @@ export function buildIndexes(places: readonly Place[]): Indexes {
       ids = ids.filter((id) => listed.has(id));
     }
     const found = new Set(ids);
-    for (const hit of finder.search(q, { fields: ["name"] })) found.add(hit.id);
+    // A name counts when a word of it starts with the word asked for; a word a letter away does not.
+    for (const hit of finder.search(q, { fields: ["name"], fuzzy: false })) found.add(hit.id);
 
     const rows: PlaceDistance[] = [];
     for (const id of [...found].sort((a, b) => a - b)) {

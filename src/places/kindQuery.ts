@@ -1,11 +1,12 @@
 import { foldText } from "./fold.ts";
-import { cuisineLabel, FAMILIES, FAMILY_SEARCH_TERMS, type FamilyId, KINDS, kindOf } from "./kinds.ts";
+import type { Place } from "./place.ts";
+import { cuisineLabel, FAMILIES, type FamilyId, KIND_SYNONYMS, KINDS, kindOf } from "./kinds.ts";
 
 /**
- * A kind query is one whose every word names a kind of place, a family of them or a cuisine: "cafe",
- * "coffee", "pizza", "fast food", "italian restaurant". People who search that way mean the ones
- * near them, so the search lists them by distance. This is the vocabulary of such queries, and
- * what a place answers to.
+ * A kind query is one whose every word names a family of places, a kind, a word that means a
+ * family (`KIND_SYNONYMS`) or a cuisine that a place has: "cafe", "coffee", "pizza", "fast
+ * food", "italian restaurant". People who search that way mean the ones near them, so the search
+ * lists them by distance. This is the vocabulary of such queries, and what a place answers to.
  */
 
 /** Text as a term of a kind query: folded, with its words, and only its words, a space apart. */
@@ -22,11 +23,11 @@ function familyNames(label: string): string[] {
   return [whole, ...whole.split(" and ")];
 }
 
-/** The terms a place of a family answers to: its names, and the words people use for it. */
+/** The terms a place of a family answers to: its names, and the words that mean the family. */
 const FAMILY_TERMS: ReadonlyMap<FamilyId, readonly string[]> = new Map(
   FAMILIES.map((family) => {
-    const words = (FAMILY_SEARCH_TERMS[family.id] ?? "").split(/\s+/).map(termOf);
-    return [family.id, [...new Set([...familyNames(family.label), ...words])].filter((term) => term !== "")];
+    const synonyms = Object.entries(KIND_SYNONYMS).flatMap(([word, of]) => (of === family.id ? [termOf(word)] : []));
+    return [family.id, [...new Set([...familyNames(family.label), ...synonyms])].filter((term) => term !== "")];
   }),
 );
 
@@ -43,9 +44,31 @@ export function termsOfCategory(category: string): readonly string[] {
   return terms;
 }
 
-/** The term for a cuisine: its label. Empty when there is none. */
-export function termOfCuisine(cuisine: string): string {
-  return termOf(cuisineLabel(cuisine));
+const termsByCuisine = new Map<string, string>();
+
+/** The term for a cuisine: its label, so "coffee_shop" is "coffee shop". Empty when there is none. */
+function termOfCuisine(cuisine: string): string {
+  let term = termsByCuisine.get(cuisine);
+  if (term === undefined) {
+    term = termOf(cuisineLabel(cuisine));
+    termsByCuisine.set(cuisine, term);
+  }
+  return term;
+}
+
+/**
+ * The cuisines of a place, as terms: its keywords (the tags of the data, which hold every cuisine
+ * as well as its kind and its town), less the kind and the town, and its first cuisine. A word
+ * of the town is never a cuisine, and neither is the place's own kind.
+ */
+export function cuisinesOf(place: Pick<Place, "category" | "cuisine" | "locality" | "keywords">): string[] {
+  const own = new Set([termOfCuisine(place.category), place.locality === undefined ? "" : termOf(place.locality)]);
+  const cuisines = new Set<string>();
+  for (const value of place.cuisine === undefined ? place.keywords : [place.cuisine, ...place.keywords]) {
+    const term = termOfCuisine(value);
+    if (term !== "" && !own.has(term)) cuisines.add(term);
+  }
+  return [...cuisines];
 }
 
 /** Every term that is a kind of place or a family, before any cuisine of the data is added. */
