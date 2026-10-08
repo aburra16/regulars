@@ -50,6 +50,11 @@ export const copy = {
   meta: {
     description: "Restaurant ratings from people you'd actually ask.",
   },
+  /** Words shared by more than one screen. */
+  common: {
+    /** After a link's own words, for a screen reader only: the link leaves the app. */
+    newTab: "(opens in a new tab)",
+  },
   /** The tabs on a phone, and the links in the desktop top bar. */
   nav: {
     /** The name of the tab bar, for a screen reader. */
@@ -80,6 +85,8 @@ export const copy = {
       score: "Best in My circle first",
       distance: "Nearest first",
       name: "A to Z",
+      // DRAFT for Avi: words that are not a kind of place are listed best match first.
+      relevance: "Best match first",
     },
     /** A chain in the results, in place of a score (Search.dc.html): "3 near you, 2 open now". */
     chainNearbyOpen: (near: number, open: number) =>
@@ -118,6 +125,9 @@ export const copy = {
     clearAll: "Clear all",
     /** The button that applies them (Filters.dc.html): "Show 5 places". */
     show: (n: number) => (n === 0 ? "No places match" : `Show ${places(n)}`),
+    // DRAFT for Avi
+    /** Said aloud, politely, when a filter changes how many places there are: "12 places match". */
+    countStatus: (n: number) => (n === 0 ? "No places match" : n === 1 ? "1 place matches" : `${places(n)} match`),
   },
   /** The House picks / My circle toggle. */
   view: {

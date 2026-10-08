@@ -1,10 +1,9 @@
-import { type JSX, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useNavigationType, useSearchParams } from "react-router-dom";
+import { type JSX, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
 import { osmNoteUrl } from "../place/osmLinks.ts";
-import { formatRadius } from "../places/distance.ts";
 import { familyLabel } from "../places/kinds.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
@@ -15,8 +14,16 @@ import { ChainCard } from "../ui/ChainCard.tsx";
 import { BackIcon, FilterIcon } from "../ui/icons.tsx";
 import { PlaceRow } from "../ui/PlaceRow.tsx";
 import { type ShownPage, shownMemory, shownPageOf, useShownCount } from "../ui/shown.ts";
-import { type Filters, filterCount, filtersFromParams, sortInUse, WIDEST_KM, withFilters } from "./filters.ts";
-import { QueryField } from "./QueryField.tsx";
+import {
+  cameFromFilters,
+  type Filters,
+  filterCount,
+  filtersFromParams,
+  widestKm,
+  withFilters,
+  withinLabel,
+} from "./filters.ts";
+import { QueryField, type QueryFieldHandle } from "./QueryField.tsx";
 import { type Entry, isChain, useResults } from "./useResults.ts";
 
 /** How many rows the results show at first, and how many more each time "Show more" is pressed. */
@@ -25,15 +32,38 @@ const PAGE_SIZE = 50;
 /** Where each page of the results keeps how many rows it has shown. */
 const shown = shownMemory("regulars.search.shown", PAGE_SIZE);
 
+/** How much of a search a sentence says back: a search that is a paragraph, or one long word, would fill the page. */
+const ECHO_MAX = 80;
+
+/** The words searched for as a sentence says them: the first eighty characters, then an ellipsis. Cut between characters, not through one. */
+function echo(query: string): string {
+  const characters = [...query];
+  return characters.length > ECHO_MAX ? `${characters.slice(0, ECHO_MAX).join("")}…` : query;
+}
+
+/** An address with the words searched for set, or taken out when there are none; the rest of it is as it was. */
+function withQuery(params: URLSearchParams, words: string): URLSearchParams {
+  const next = new URLSearchParams(params);
+  if (words === "") next.delete("q");
+  else next.set("q", words);
+  return next;
+}
+
+const filtersPath = (params: URLSearchParams) => (params.toString() === "" ? "/filters" : `/filters?${params}`);
+
+/** A click that is the link's own to handle: a new tab or window is the browser's, with the link's address as it is. */
+const isPlainClick = (event: MouseEvent<HTMLElement>) =>
+  event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+
 /** Each active filter as the chip that takes it off: Open now, the distance, then each kind. */
 function activeChips(filters: Filters, locale: string): { id: string; label: string; off: Filters }[] {
   const chips: { id: string; label: string; off: Filters }[] = [];
   if (filters.open) chips.push({ id: "open", label: copy.explore.chips.open, off: { ...filters, open: false } });
-  if (filters.withinKm !== WIDEST_KM) {
+  if (filters.withinKm !== widestKm(locale)) {
     chips.push({
       id: "within",
-      label: copy.search.within(formatRadius(filters.withinKm, locale)),
-      off: { ...filters, withinKm: WIDEST_KM },
+      label: copy.search.within(withinLabel(filters.withinKm, locale)),
+      off: { ...filters, withinKm: widestKm(locale) },
     });
   }
   for (const family of filters.families) {
@@ -101,8 +131,11 @@ function Rows({
   );
 }
 
-/** What the page says in place of the rows. Nothing here went wrong, so it is a status and not an alert. */
-function NoResults({
+/**
+ * What the page says in place of the rows, and a hint under it. Nothing here went wrong, so none
+ * of it is an alert. `openLeftNone`: Open now is what left none, closed places match.
+ */
+function emptyMessage({
   query,
   near,
   filtersOn,
@@ -111,31 +144,18 @@ function NoResults({
   query: string;
   near: string;
   filtersOn: boolean;
-  /** Open now is what left none: closed places match. */
   openLeftNone: boolean;
-}): JSX.Element {
-  let text: string;
-  let hint: string | undefined;
+}): { sentence: string; hint?: string } {
   if (openLeftNone) {
-    text = query === "" ? copy.search.noResultsFiltered(near) : copy.search.noResultsOpen(query, near);
-  } else if (query !== "") {
-    text = copy.search.noResults(query, near);
-    hint = copy.search.noResultsHint;
-  } else if (filtersOn) {
-    text = copy.search.noResultsFiltered(near);
-    hint = copy.search.noResultsFilteredHint;
-  } else {
-    text = copy.explore.noneNearby(near);
+    return { sentence: query === "" ? copy.search.noResultsFiltered(near) : copy.search.noResultsOpen(echo(query), near) };
   }
-  return (
-    <div className="flex flex-col items-center gap-2 px-gutter-phone py-12 text-center">
-      <p role="status" className="m-0 max-w-[36ch] text-body leading-[1.5] text-ink-soft">
-        {text}
-      </p>
-      {hint !== undefined && <p className="m-0 max-w-[36ch] text-secondary leading-[1.4] text-muted">{hint}</p>}
-    </div>
-  );
+  if (query !== "") return { sentence: copy.search.noResults(echo(query), near), hint: copy.search.noResultsHint };
+  if (filtersOn) return { sentence: copy.search.noResultsFiltered(near), hint: copy.search.noResultsFilteredHint };
+  return { sentence: copy.explore.noneNearby(near) };
 }
+
+/** A place rounded to four decimals, about eleven metres: as exact as a note about a missing place needs, and no more of where a person is. */
+const round4 = (degrees: number) => Math.round(degrees * 1e4) / 1e4;
 
 /**
  * The search results (Search.dc.html; screen 3). On a phone it has the way back, the search field,
@@ -143,6 +163,9 @@ function NoResults({
  * the rows (a chain as one), a note on the closed places Open now left out, and, at the foot, a link
  * to add a place that is missing and where the details come from. Everything the page is showing is
  * in the address (`?q=&open=&kinds=&within=&sort=`), so a link to it, and Back, show the same.
+ *
+ * The line, or the sentence that says there is nothing, is in one live region that is always on the
+ * page, so a screen reader announces each change to it.
  *
  * On a desktop the top bar has the search field, so the page is the chips, the line and the rows in a column.
  */
@@ -152,36 +175,57 @@ export function SearchPage(): JSX.Element {
   const here = useHere();
   const now = useNow();
   const locale = useLocale();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { key: historyKey } = useLocation();
+  const { key: historyKey, state } = useLocation();
   const navigationType = useNavigationType();
 
   const query = (params.get("q") ?? "").trim();
-  const filters = useMemo(() => filtersFromParams(params), [params]);
-  const sort = sortInUse(filters);
-  const { entries, hiddenClosed } = useResults(query, filters);
+  const filters = useMemo(() => filtersFromParams(params, locale), [params, locale]);
+  const { entries, hiddenClosed, order } = useResults(query, filters);
   const chips = activeChips(filters, locale);
 
   // The cursor goes to the field when the person arrives to search, or to an address typed in. Not when
-  // they come Back to the results: the keyboard would cover them.
-  const [focusField] = useState(() => !wide && !(navigationType === "POP" && historyKey !== "default"));
+  // they come Back to the results, or from the filters page: the keyboard would cover the results.
+  const [focusField] = useState(
+    () => !wide && !cameFromFilters(state) && !(navigationType === "POP" && historyKey !== "default"),
+  );
+  // Whether there is a step of the app behind this page, which the arrow goes back to. The key of an
+  // address that was typed in is "default", until the field replaces it with a search of its own.
+  const [cameFromApp] = useState(() => historyKey !== "default");
+
+  const field = useRef<QueryFieldHandle>(null);
+  const chipGroup = useRef<HTMLDivElement>(null);
+  // The chip that took its filter off, as its place among the chips: the one that is there now is the next.
+  const focusChipAt = useRef<number | null>(null);
 
   // A filter is a step the Back button undoes; the words are not: each letter that is searched for would be one.
-  const setFilters = (next: Filters) => setParams((current) => withFilters(current, next));
-  const setQuery = (words: string) =>
-    setParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        if (words === "") next.delete("q");
-        else next.set("q", words);
-        return next;
-      },
-      { replace: true },
-    );
+  const setFilters = (next: Filters) => setParams((current) => withFilters(current, next, locale));
+  const takeOff = (index: number, next: Filters) => {
+    focusChipAt.current = index;
+    setFilters(next);
+  };
+  const setQuery = (words: string) => navigate({ search: withQuery(params, words).toString() }, { replace: true });
+
+  // A chip that took its filter off is not there to hold the focus. Give it to the chip in its place, or to the Filters chip.
+  useEffect(() => {
+    const index = focusChipAt.current;
+    if (index === null) return;
+    focusChipAt.current = null;
+    const group = chipGroup.current;
+    const toggles = group?.querySelectorAll<HTMLElement>("button[aria-pressed]");
+    (toggles?.[index] ?? group?.querySelector<HTMLElement>("a"))?.focus();
+  }, [filters]);
 
   const search = params.toString();
   const list = `${query}|${search}|${here.lat}|${here.lon}`;
   const page = shownPageOf(historyKey, list);
+  const empty =
+    entries.length === 0
+      ? emptyMessage({ query, near: here.label, filtersOn: filterCount(filters, locale) > 0, openLeftNone: hiddenClosed > 0 })
+      : undefined;
+  const noteUrl =
+    here.source === "device" ? osmNoteUrl(round4(here.lat), round4(here.lon)) : osmNoteUrl(here.lat, here.lon);
 
   return (
     <div className="mx-auto flex w-full max-w-content flex-1 flex-col wide:px-gutter-desktop">
@@ -194,32 +238,48 @@ export function SearchPage(): JSX.Element {
               <Link
                 to="/"
                 aria-label={copy.search.back}
+                onClick={(event) => {
+                  if (!isPlainClick(event)) return;
+                  event.preventDefault();
+                  // Words that were typed a moment ago are kept in the page this one leaves.
+                  const go = () => void (cameFromApp ? navigate(-1) : navigate("/"));
+                  const typed = field.current?.flush();
+                  if (typed === undefined) go();
+                  else void typed.then(go);
+                }}
                 className="flex size-11 shrink-0 items-center justify-center text-ink"
               >
                 <BackIcon size={22} />
               </Link>
-              <QueryField value={query} onSearch={setQuery} autoFocus={focusField} />
+              <QueryField ref={field} value={query} onSearch={setQuery} autoFocus={focusField} />
             </div>
           )}
 
           <div
+            ref={chipGroup}
             role="group"
             aria-label={copy.explore.filtersLabel}
             className="flex flex-wrap gap-2 pl-3 wide:pl-0"
           >
             <Link
-              to={search === "" ? "/filters" : `/filters?${search}`}
+              to={filtersPath(params)}
+              onClick={(event) => {
+                // With nothing typed and waiting, the link goes by itself.
+                if (!isPlainClick(event) || field.current?.pending() !== true) return;
+                event.preventDefault();
+                void field.current.flush().then((words) => navigate(filtersPath(withQuery(params, words))));
+              }}
               className="inline-flex h-11 items-center gap-1.5 rounded-chip border-token border-ink px-3.5 text-secondary font-bold text-ink no-underline"
             >
               <FilterIcon size={16} />
-              {copy.search.filters(filterCount(filters))}
+              {copy.search.filters(filterCount(filters, locale))}
             </Link>
-            {chips.map((chip) => (
+            {chips.map((chip, index) => (
               <button
                 key={chip.id}
                 type="button"
                 aria-pressed="true"
-                onClick={() => setFilters(chip.off)}
+                onClick={() => takeOff(index, chip.off)}
                 className="h-11 cursor-pointer rounded-chip border-0 bg-ink px-3.5 font-text text-secondary font-semibold text-ground"
               >
                 {chip.label}
@@ -227,23 +287,22 @@ export function SearchPage(): JSX.Element {
             ))}
           </div>
 
-          {entries.length > 0 && (
-            <p role="status" className="m-0 pl-3 text-secondary leading-[1.4] text-muted wide:pl-0">
-              {copy.search.summary(entries.length, here.label, copy.search.sortedBy[sort])}
-            </p>
-          )}
+          <div role="status" className="pl-3 wide:pl-0">
+            {empty === undefined ? (
+              <p className="m-0 text-secondary leading-[1.4] text-muted">
+                {copy.search.summary(entries.length, here.label, copy.search.sortedBy[order])}
+              </p>
+            ) : (
+              <p className="m-0 min-w-0 text-body leading-[1.5] wrap-break-word text-ink-soft">{empty.sentence}</p>
+            )}
+          </div>
         </header>
 
         <div className="px-gutter-phone pt-2 wide:px-0">
-          {entries.length > 0 ? (
+          {empty === undefined ? (
             <Rows key={`${historyKey}|${list}`} page={page} entries={entries} locale={locale} now={now} />
           ) : (
-            <NoResults
-              query={query}
-              near={here.label}
-              filtersOn={filterCount(filters) > 0}
-              openLeftNone={hiddenClosed > 0}
-            />
+            empty.hint !== undefined && <p className="m-0 text-secondary leading-[1.4] text-muted">{empty.hint}</p>
           )}
         </div>
 
@@ -254,7 +313,7 @@ export function SearchPage(): JSX.Element {
               <div className="text-secondary leading-[1.45] text-muted">{copy.search.hoursNote}</div>
               <button
                 type="button"
-                onClick={() => setFilters({ ...filters, open: false })}
+                onClick={() => takeOff(0, { ...filters, open: false })}
                 className="h-11 cursor-pointer self-start border-0 bg-transparent p-0 font-text text-secondary font-bold text-accent"
               >
                 {copy.search.showClosed}
@@ -264,14 +323,17 @@ export function SearchPage(): JSX.Element {
         )}
 
         <footer className="mt-auto flex flex-col gap-0.5 px-gutter-phone pt-[18px] pb-[22px] wide:px-0">
-          <a
-            href={osmNoteUrl(here.lat, here.lon)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex min-h-touch items-center self-start text-caption font-semibold text-ink underline hover:text-accent"
-          >
-            {copy.search.addMissing}
-          </a>
+          {noteUrl !== "" && (
+            <a
+              href={noteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-touch items-center self-start text-caption font-semibold text-ink underline hover:text-accent"
+            >
+              {copy.search.addMissing}{" "}
+              <span className="sr-only">{copy.common.newTab}</span>
+            </a>
+          )}
           <Attribution kind="details" />
         </footer>
       </div>

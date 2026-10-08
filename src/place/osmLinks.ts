@@ -17,13 +17,19 @@ export function osmUrl(osmId: string): string | undefined {
 
 /**
  * OpenStreetMap's form for a note on the map at a point, zoomed in: where a person says a place
- * is missing or wrong. The coordinates are to six decimals, about ten centimetres.
+ * is missing or wrong. The coordinates are to six decimals, about ten centimetres. Empty for a
+ * point that is not a point (a coordinate that is not a finite number): the caller leaves the link out.
  */
 export function osmNoteUrl(lat: number, lon: number): string {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
   return `${OSM}/note/new#map=19/${lat.toFixed(6)}/${lon.toFixed(6)}`;
 }
 
-/** Directions to a place, from wherever the person is, in the map app they have. */
+/**
+ * Directions to a place, from wherever the person is, in the map app they have. The coordinates
+ * are to six decimals. Empty for a place that is not a point: the caller leaves the link out.
+ */
 export function goUrl(place: Pick<Place, "lat" | "lon">): string {
-  return `https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lon}`;
+  if (!Number.isFinite(place.lat) || !Number.isFinite(place.lon)) return "";
+  return `https://www.google.com/maps/dir/?api=1&destination=${place.lat.toFixed(6)},${place.lon.toFixed(6)}`;
 }

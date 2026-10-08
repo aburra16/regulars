@@ -1,4 +1,4 @@
-import { type FormEvent, type JSX, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, type JSX, type Ref, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 
 import { copy } from "../copy/en.ts";
 import { CloseIcon } from "../ui/icons.tsx";
@@ -6,21 +6,33 @@ import { CloseIcon } from "../ui/icons.tsx";
 /** How long after the last letter the field searches by itself. */
 export const SEARCH_DELAY_MS = 250;
 
+/** What the page can ask of the field: whether words are waiting to be searched for, and to search for them now. */
+export interface QueryFieldHandle {
+  /** Whether the person has typed words that the field has not searched for yet. */
+  pending(): boolean;
+  /** Searches for the words typed now, without waiting; resolves, with those words, once the address has them. */
+  flush(): Promise<string>;
+}
+
 /**
  * The search field of the results on a phone (Search.dc.html): 52 px tall on the surface colour,
  * with a cross at its end that clears it. `value` is the words the address has. The field tells
  * its page what to search for when the person submits, and a quarter of a second after they stop
  * typing, as `query` without the spaces around it; it says nothing for a search the address has
  * already. When the address changes some other way (Back, the top bar's search), the field shows it.
+ * A page that is about to leave can `flush` the field, so words that were typed a moment ago are kept.
  */
 export function QueryField({
   value,
   onSearch,
   autoFocus,
+  ref,
 }: {
   value: string;
-  onSearch(query: string): void;
+  /** Called with the words to search for. It may return the navigation it makes, so a caller can wait for it. */
+  onSearch(query: string): void | Promise<void>;
   autoFocus: boolean;
+  ref?: Ref<QueryFieldHandle>;
 }): JSX.Element {
   const inputId = useId();
   const input = useRef<HTMLInputElement>(null);
@@ -34,11 +46,20 @@ export function QueryField({
   useEffect(() => {
     onSearchNow.current = onSearch;
   });
-  const search = (query: string) => {
+  const search = (query: string): void | Promise<void> => {
     if (query === known.current) return;
     known.current = query;
-    onSearchNow.current(query);
+    return onSearchNow.current(query);
   };
+
+  useImperativeHandle(ref, () => ({
+    pending: () => text.trim() !== known.current,
+    flush: async () => {
+      const query = text.trim();
+      await search(query);
+      return query;
+    },
+  }));
 
   useEffect(() => {
     if (value === known.current) return;

@@ -7,8 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { HereProvider } from "../src/location/HereProvider";
+import { HereContext, type HereValue } from "../src/location/useLocation";
 import { osmNoteUrl } from "../src/place/osmLinks";
-import { distanceKm, formatDistance, formatRadius } from "../src/places/distance";
+import { distanceKm, formatDistance } from "../src/places/distance";
 import { openState } from "../src/places/hours";
 import { buildIndexes, type Chain, chainSlug, groupForList, type PlaceDistance } from "../src/places/indexes";
 import { FAMILIES, type FamilyId, kindOf, placeKindLabel } from "../src/places/kinds";
@@ -16,6 +17,7 @@ import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
 import { routes } from "../src/routes";
+import { SearchPage } from "../src/search/SearchPage";
 import {
   applyFilters,
   type Filters,
@@ -23,7 +25,11 @@ import {
   filtersFromParams,
   filtersToParams,
   noFilters,
+  snapWithin,
+  widestKm,
   withFilters,
+  withinChoices,
+  withinLabel,
 } from "../src/search/filters";
 import { ChainCard } from "../src/ui/ChainCard";
 import { PlaceRow } from "../src/ui/PlaceRow";
@@ -46,7 +52,11 @@ const place = (name: string): Place => {
 };
 
 const row = (name: string, km = 1): PlaceDistance => ({ place: place(name), km });
-const filters = (over: Partial<Filters> = {}): Filters => ({ ...noFilters(), ...over });
+
+/** The browser's language in the tests (jsdom's own): it reads miles. */
+const US = "en-US";
+const PT = "pt-PT";
+const filters = (over: Partial<Filters> = {}, locale = US): Filters => ({ ...noFilters(locale), ...over });
 
 // ---- Events made from the fixtures ----
 
@@ -117,6 +127,9 @@ const rows = () => within(screen.getByRole("list")).getAllByRole("link");
 const names = () => rows().map(nameOf);
 const rowFor = (name: string) => screen.getByRole("link", { name });
 const field = () => screen.getByRole("searchbox", { name: copy.search.label });
+/** The link to add a place: its name has a word for a screen reader that it opens a new tab. */
+const addMissingName = `${copy.search.addMissing} ${copy.common.newTab}`;
+const addMissing = () => screen.getByRole("link", { name: addMissingName });
 const chipsGroup = () => screen.getByRole("group", { name: copy.explore.filtersLabel });
 const chip = (name: string | RegExp) => within(chipsGroup()).getByRole("button", { name });
 
@@ -145,79 +158,149 @@ afterEach(() => {
 // =====================================================================================
 
 describe("filters in the address", () => {
-  it("are none at all for an address that says nothing", () => {
-    expect(filtersFromParams(new URLSearchParams())).toEqual({
-      open: false,
-      families: [],
-      withinKm: 25,
-      sort: "distance",
+  const read = (query: string, locale = US) => filtersFromParams(new URLSearchParams(query), locale);
+
+  it("are none at all for an address that says nothing, with the sort left to the page and the widest distance", () => {
+    expect(read("")).toEqual({ open: false, families: [], withinKm: 24 });
+    expect(read("", PT)).toEqual({ open: false, families: [], withinKm: 25 });
+    expect(read("").sort).toBeUndefined();
+    expect(noFilters(US)).toEqual(read(""));
+    expect(noFilters(PT)).toEqual(read("", PT));
+    expect(filtersToParams(noFilters(US), US).toString()).toBe("");
+    expect(filtersToParams(noFilters(PT), PT).toString()).toBe("");
+  });
+
+  describe.each([US, PT])("in %s", (locale) => {
+    it.each<[string, Partial<Filters>]>([
+      ["the defaults", {}],
+      ["open now", { open: true }],
+      ["one kind", { families: ["cafes"] }],
+      ["several kinds", { families: ["restaurants", "bakeries", "breweries"] }],
+      ["every kind", { families: FAMILIES.map((family) => family.id) }],
+      ["sorted by distance", { sort: "distance" }],
+      ["sorted by name", { sort: "name" }],
+      ["sorted by score", { sort: "score" }],
+    ])("make the same filters back from the address: %s", (_what, over) => {
+      const original = filters(over, locale);
+      expect(filtersFromParams(filtersToParams(original, locale), locale)).toEqual(original);
+      // Through the text of an address as well.
+      expect(filtersFromParams(new URLSearchParams(filtersToParams(original, locale).toString()), locale)).toEqual(original);
     });
-    expect(noFilters()).toEqual(filtersFromParams(new URLSearchParams()));
-    expect(filtersToParams(noFilters()).toString()).toBe("");
-  });
 
-  it.each<[string, Filters]>([
-    ["the defaults", filters()],
-    ["open now", filters({ open: true })],
-    ["one kind", filters({ families: ["cafes"] })],
-    ["several kinds", filters({ families: ["restaurants", "bakeries", "breweries"] })],
-    ["every kind", filters({ families: FAMILIES.map((family) => family.id) })],
-    ["each distance", filters({ withinKm: 1 })],
-    ["each distance", filters({ withinKm: 2 })],
-    ["each distance", filters({ withinKm: 5 })],
-    ["each distance", filters({ withinKm: 10 })],
-    ["sorted by name", filters({ sort: "name" })],
-    ["sorted by score", filters({ sort: "score" })],
-    ["all of it", { open: true, families: ["bars", "ice-cream"], withinKm: 5, sort: "name" }],
-  ])("make the same filters back from the address: %s", (_what, original) => {
-    expect(filtersFromParams(filtersToParams(original))).toEqual(original);
-    // Through the text of an address as well.
-    expect(filtersFromParams(new URLSearchParams(filtersToParams(original).toString()))).toEqual(original);
-  });
-
-  it("write only what is not the default, in short names", () => {
-    expect(filtersToParams(filters({ open: true })).toString()).toBe("open=1");
-    expect(filtersToParams(filters({ families: ["restaurants", "cafes"] })).toString()).toBe("kinds=restaurants%2Ccafes");
-    expect(filtersToParams(filters({ withinKm: 2 })).toString()).toBe("within=2");
-    expect(filtersToParams(filters({ sort: "name" })).toString()).toBe("sort=name");
-    expect(filtersToParams({ open: true, families: ["cafes"], withinKm: 5, sort: "name" }).toString()).toBe(
-      "open=1&kinds=cafes&within=5&sort=name",
+    it.each(withinChoices(locale).map((choice) => [choice.label, choice.km] as const))(
+      "make the same distance back from the address: %s",
+      (_label, km) => {
+        const original = filters({ withinKm: km, open: true, sort: "name" }, locale);
+        expect(filtersFromParams(filtersToParams(original, locale), locale)).toEqual(original);
+      },
     );
   });
 
+  it("write only what is not the default, in short names, with the distance in kilometres", () => {
+    expect(filtersToParams(filters({ open: true }), US).toString()).toBe("open=1");
+    expect(filtersToParams(filters({ families: ["restaurants", "cafes"] }), US).toString()).toBe("kinds=restaurants%2Ccafes");
+    expect(filtersToParams(filters({ withinKm: 1.6 }), US).toString()).toBe("within=1.6");
+    expect(filtersToParams(filters({ withinKm: 2 }, PT), PT).toString()).toBe("within=2");
+    expect(filtersToParams(filters({ sort: "name" }), US).toString()).toBe("sort=name");
+    expect(filtersToParams(filters({ sort: "distance" }), US).toString()).toBe("sort=distance");
+    expect(filtersToParams({ open: true, families: ["cafes"], withinKm: 8, sort: "name" }, US).toString()).toBe(
+      "open=1&kinds=cafes&within=8&sort=name",
+    );
+    // The widest is the default for the language, and not written; another language's widest is not.
+    expect(filtersToParams(filters({ withinKm: 24 }), US).toString()).toBe("");
+    expect(filtersToParams(filters({ withinKm: 25 }, PT), PT).toString()).toBe("");
+    expect(filtersToParams(filters({ withinKm: 25 }), US).toString()).toBe("within=25");
+  });
+
   it("read what the address says and leave out what it gets wrong", () => {
-    const read = (query: string) => filtersFromParams(new URLSearchParams(query));
     expect(read("open=1")).toEqual(filters({ open: true }));
     expect(read("open=yes")).toEqual(filters());
     expect(read("open=0")).toEqual(filters());
-    expect(read("within=3")).toEqual(filters());
     expect(read("within=banana")).toEqual(filters());
+    expect(read("within=")).toEqual(filters());
     expect(read("within=0")).toEqual(filters());
-    expect(read("within=10")).toEqual(filters({ withinKm: 10 }));
+    expect(read("within=-3")).toEqual(filters());
+    expect(read("within=Infinity")).toEqual(filters());
     expect(read("sort=newest")).toEqual(filters());
+    expect(read("sort=newest").sort).toBeUndefined();
     expect(read("sort=name")).toEqual(filters({ sort: "name" }));
+    expect(read("sort=distance")).toEqual(filters({ sort: "distance" }));
     // A kind that is not one of the ten is dropped, and one that is named twice counts once.
     expect(read("kinds=cafes,spaceports,cafes,bars")).toEqual(filters({ families: ["cafes", "bars"] }));
     expect(read("kinds=")).toEqual(filters());
     expect(read("kinds=constructor,__proto__")).toEqual(filters());
   });
 
+  describe("a distance that is not one of the person's choices", () => {
+    it("snaps to the nearest choice that is at least that far, so a shared link never shows fewer places than it meant", () => {
+      // A reader in kilometres: 1, 2, 5, 10, 25.
+      expect(read("within=3", PT).withinKm).toBe(5);
+      expect(read("within=1.5", PT).withinKm).toBe(2);
+      expect(read("within=5", PT).withinKm).toBe(5);
+      expect(read("within=0.1", PT).withinKm).toBe(1);
+      expect(read("within=10.5", PT).withinKm).toBe(25);
+      // A reader in miles: 0.8, 1.6, 4.8, 8, 24 kilometres.
+      expect(read("within=0.5").withinKm).toBe(0.8);
+      expect(read("within=0.9").withinKm).toBe(1.6);
+      expect(read("within=2").withinKm).toBe(4.8);
+      expect(read("within=4.8").withinKm).toBe(4.8);
+      expect(read("within=6").withinKm).toBe(8);
+    });
+
+    it("is the widest when it is wider than every choice", () => {
+      expect(read("within=26", PT).withinKm).toBe(25);
+      expect(read("within=1000").withinKm).toBe(24);
+      expect(read("within=1e3", PT).withinKm).toBe(25);
+    });
+
+    it("moves a link from a reader in kilometres to a reader in miles, and back", () => {
+      // 5 km is not a choice in miles: the next one up is 5 mi (8 km).
+      const shared = filtersToParams(filters({ withinKm: 5 }, PT), PT).toString();
+      expect(shared).toBe("within=5");
+      const asRead = read(shared, US);
+      expect(asRead.withinKm).toBe(8);
+      expect(withinLabel(asRead.withinKm, US)).toBe("5 mi");
+      // And 3 mi (4.8 km) is not a choice in kilometres: the next one up is 5 km.
+      const back = read(filtersToParams(filters({ withinKm: 4.8 }, US), US).toString(), PT);
+      expect(back.withinKm).toBe(5);
+      expect(withinLabel(back.withinKm, PT)).toBe("5 km");
+    });
+
+    it("is what snapWithin says, and nothing it is not", () => {
+      expect(snapWithin(3, PT)).toBe(5);
+      expect(snapWithin(Number.NaN, PT)).toBe(25);
+      expect(snapWithin(0, US)).toBe(24);
+    });
+  });
+
   it("count the filters that are on: Open now, each kind and a distance, not the sort", () => {
-    expect(filterCount(filters())).toBe(0);
-    expect(filterCount(filters({ sort: "name" }))).toBe(0);
-    expect(filterCount(filters({ open: true }))).toBe(1);
-    expect(filterCount(filters({ withinKm: 5 }))).toBe(1);
-    expect(filterCount(filters({ families: ["cafes", "bars"] }))).toBe(2);
-    expect(filterCount({ open: true, families: ["cafes", "bars"], withinKm: 2, sort: "name" })).toBe(4);
+    expect(filterCount(filters(), US)).toBe(0);
+    expect(filterCount(filters({ sort: "name" }), US)).toBe(0);
+    expect(filterCount(filters({ open: true }), US)).toBe(1);
+    expect(filterCount(filters({ withinKm: 8 }), US)).toBe(1);
+    expect(filterCount(filters({ families: ["cafes", "bars"] }), US)).toBe(2);
+    expect(filterCount({ open: true, families: ["cafes", "bars"], withinKm: 4.8, sort: "name" }, US)).toBe(4);
+  });
+
+  it("count the widest distance of the person's own language as no filter", () => {
+    expect(filterCount(filters({ withinKm: 25 }, PT), PT)).toBe(0);
+    expect(filterCount(filters({ withinKm: 24 }, US), US)).toBe(0);
+    // 25 km is a filter to a reader in miles, whose widest is 24.
+    expect(filterCount(filters({ withinKm: 25 }, US), US)).toBe(1);
   });
 
   it("go into an address that has other things in it without touching them", () => {
-    const params = new URLSearchParams("q=pizza&from=share&open=1&within=2");
-    const next = withFilters(params, filters({ families: ["cafes"], sort: "name" }));
+    const params = new URLSearchParams("q=pizza&from=share&open=1&within=1.6");
+    const next = withFilters(params, filters({ families: ["cafes"], sort: "name" }), US);
     expect(next.toString()).toBe("q=pizza&from=share&kinds=cafes&sort=name");
     // The address it was given is as it was.
-    expect(params.toString()).toBe("q=pizza&from=share&open=1&within=2");
-    expect(withFilters(new URLSearchParams("q=a&open=1"), filters()).toString()).toBe("q=a");
+    expect(params.toString()).toBe("q=pizza&from=share&open=1&within=1.6");
+    expect(withFilters(new URLSearchParams("q=a&open=1"), filters(), US).toString()).toBe("q=a");
+  });
+
+  it("let a filter that is in the address keep its place in it", () => {
+    const next = withFilters(new URLSearchParams("open=1&q=a&within=8"), filters({ open: true, withinKm: 1.6, sort: "name" }), US);
+    expect(next.toString()).toBe("open=1&q=a&within=1.6&sort=name");
   });
 });
 
@@ -225,7 +308,7 @@ describe("applyFilters", () => {
   const NOW = MORNING;
   const everyone = idx.near(HERE.lat, HERE.lon, 25);
 
-  it("keeps every row when there is nothing to filter, in the order it was given", () => {
+  it("keeps every row when there is nothing to filter, in the order it was given, for a sort left to the page", () => {
     const result = applyFilters(everyone, filters(), NOW);
     expect(result.rows).toEqual(everyone);
     expect(result.hiddenClosed).toBe(0);
@@ -297,11 +380,17 @@ describe("applyFilters", () => {
     it("keeps the places within the distance, the edge included", () => {
       const edge = [row("Jacafé", 1), row("Novo Tahiti", 1.0001), row("Maia", 0.2)];
       const result = applyFilters(edge, filters({ withinKm: 1 }), NOW);
-      expect(result.rows.map((each) => each.place.name)).toEqual(["Maia", "Jacafé"]);
+      expect(result.rows.map((each) => each.place.name)).toEqual(["Jacafé", "Maia"]);
     });
 
-    it("keeps everything the search found when it is 25 km, the widest", () => {
-      expect(applyFilters(everyone, filters({ withinKm: 25 }), NOW).rows).toHaveLength(everyone.length);
+    it("keeps everything the search found when it is the widest, in kilometres or in miles", () => {
+      expect(applyFilters(everyone, filters({ withinKm: 25 }, PT), NOW).rows).toHaveLength(everyone.length);
+      expect(applyFilters(everyone, filters({ withinKm: widestKm(US) }), NOW).rows).toHaveLength(everyone.length);
+    });
+
+    it("takes a distance in kilometres that is not a whole number", () => {
+      const edge = [row("Jacafé", 1.6), row("Novo Tahiti", 1.61), row("Maia", 0.2)];
+      expect(applyFilters(edge, filters({ withinKm: 1.6 }), NOW).rows.map((each) => each.place.name)).toEqual(["Jacafé", "Maia"]);
     });
   });
 
@@ -315,9 +404,9 @@ describe("applyFilters", () => {
       ]);
     });
 
-    it("keeps the order it was given for places the same distance away", () => {
+    it("keeps the order it was given for places the same distance away, under Distance", () => {
       const tied = [row("Maia", 1), row("Jacafé", 1), row("Novo Tahiti", 1), row("Joker", 0.5)];
-      expect(applyFilters(tied, filters(), NOW).rows.map((each) => each.place.name)).toEqual([
+      expect(applyFilters(tied, filters({ sort: "distance" }), NOW).rows.map((each) => each.place.name)).toEqual([
         "Joker",
         "Maia",
         "Jacafé",
@@ -349,32 +438,62 @@ describe("applyFilters", () => {
       ]);
     });
 
-    it("is nearest first for My circle's score too, in M1, when nobody has a score", () => {
-      const jumbled = [row("Novo Tahiti", 3), row("Jacafé", 1), row("Maia", 2)];
-      expect(applyFilters(jumbled, filters({ sort: "score" }), NOW).rows.map((each) => each.place.name)).toEqual([
+    it("is the order it was given when the sort is left to the page, whatever that order is", () => {
+      // The page's own order: nearest first for a kind of place, best match first for words.
+      const asGiven = [row("Novo Tahiti", 3), row("Jacafé", 1), row("Maia", 2)];
+      expect(applyFilters(asGiven, filters(), NOW).rows.map((each) => each.place.name)).toEqual([
+        "Novo Tahiti",
         "Jacafé",
         "Maia",
+      ]);
+      expect(filters().sort).toBeUndefined();
+    });
+
+    it("is the order it was given for My circle's score too, in M1, when nobody has a score", () => {
+      const asGiven = [row("Novo Tahiti", 3), row("Jacafé", 1), row("Maia", 2)];
+      expect(applyFilters(asGiven, filters({ sort: "score" }), NOW).rows.map((each) => each.place.name)).toEqual([
         "Novo Tahiti",
+        "Jacafé",
+        "Maia",
       ]);
     });
   });
 });
 
-describe("formatRadius", () => {
-  it.each<[number, string, string]>([
-    [1, "pt-PT", "1 km"],
-    [2, "en-GB", "2 km"],
-    [5, "de", "5 km"],
-    [10, "pt-PT", "10 km"],
-    [25, "pt-PT", "25 km"],
-    [1, "en-US", "0.6 mi"],
-    [2, "en-US", "1.2 mi"],
-    [5, "en-US", "3.1 mi"],
-    [10, "en-US", "6.2 mi"],
-    [25, "en-US", "16 mi"],
-    [5, "en-LR", "3.1 mi"],
-  ])("writes %s km for %s as %s", (km, locale, shown) => {
-    expect(formatRadius(km, locale)).toBe(shown);
+describe("withinChoices", () => {
+  it("are 1, 2, 5, 10 and 25 kilometres for a reader in kilometres", () => {
+    for (const locale of [PT, "en-GB", "de", "fr-CA", "ja"]) {
+      const choices = withinChoices(locale);
+      expect(choices.map((choice) => choice.km)).toEqual([1, 2, 5, 10, 25]);
+      expect(choices.map((choice) => choice.label)).toEqual(["1 km", "2 km", "5 km", "10 km", "25 km"]);
+    }
+  });
+
+  it("are half a mile, 1, 3, 5 and 15 miles for a reader in miles, kept as the kilometres they come to", () => {
+    for (const locale of [US, "en-LR", "my-MM", "en", "es-US"]) {
+      const choices = withinChoices(locale);
+      expect(choices.map((choice) => choice.km)).toEqual([0.8, 1.6, 4.8, 8, 24]);
+      expect(choices.map((choice) => choice.label)).toEqual(["0.5 mi", "1 mi", "3 mi", "5 mi", "15 mi"]);
+    }
+  });
+
+  it("end at the widest, which is the default for the language", () => {
+    expect(widestKm(PT)).toBe(25);
+    expect(widestKm(US)).toBe(24);
+    expect(noFilters(PT).withinKm).toBe(25);
+    expect(noFilters(US).withinKm).toBe(24);
+  });
+
+  it("are the same choices on every call for a language", () => {
+    expect(withinChoices(US)).toEqual(withinChoices(US));
+    expect(withinChoices(PT)).toBe(withinChoices("de"));
+  });
+
+  it("name a distance as its own choice does, and a distance that is no choice as the choice it snaps to", () => {
+    expect(withinLabel(8, US)).toBe("5 mi");
+    expect(withinLabel(25, PT)).toBe("25 km");
+    expect(withinLabel(5, US)).toBe("5 mi");
+    expect(withinLabel(3, PT)).toBe("5 km");
   });
 });
 
@@ -561,15 +680,103 @@ describe("Search on a phone: the top of the page", () => {
   });
 });
 
+describe("Search: the way back", () => {
+  const back = () => screen.getByRole("link", { name: copy.search.back });
+
+  it("goes to Explore for an address that was typed in, which has no step in the app to go back to", async () => {
+    const user = userEvent.setup();
+    const { router } = await openSearch("/search?q=pizza");
+    expect(back()).toHaveAttribute("href", "/");
+    await user.click(back());
+    expect(router.state.location.pathname).toBe("/");
+    expect(router.state.historyAction).toBe("PUSH");
+  });
+
+  it("goes back a step when the person came from inside the app, to whatever page that was", async () => {
+    const user = userEvent.setup();
+    const { router } = open(["/about", "/search?q=pizza"], fixtures, 1);
+    await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+    await user.click(back());
+    expect(router.state.location.pathname).toBe("/about");
+    expect(router.state.historyAction).toBe("POP");
+  });
+
+  it("goes back a step after Explore's search field, to Explore", async () => {
+    const user = userEvent.setup();
+    const { router } = open(["/"], fixtures);
+    await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a place name/ }));
+    await user.type(field(), "novo{Enter}");
+    await user.click(back());
+    expect(router.state.location.pathname).toBe("/");
+    expect(router.state.historyAction).toBe("POP");
+    await waitFor(() => expect(screen.queryByRole("searchbox")).not.toBeInTheDocument());
+  });
+
+  it("still goes to Explore, not out of the app, when the words of a typed-in address were changed in the field", async () => {
+    const user = userEvent.setup();
+    const { router } = await openSearch("/search?q=pizza");
+    await user.clear(field());
+    await user.type(field(), "novo{Enter}");
+    // The entry was replaced and has a key of its own now, but the person did not come from a page of the app.
+    expect(router.state.location.key).not.toBe("default");
+    await user.click(back());
+    expect(router.state.location.pathname).toBe("/");
+    expect(router.state.historyAction).toBe("PUSH");
+  });
+
+  it("keeps words that were typed and not yet searched for when the person leaves by it", async () => {
+    const user = userEvent.setup();
+    const { router } = await openSearch("/search");
+    fireEvent.change(field(), { target: { value: "casa velha" } });
+    // No time has passed: the field has not searched yet.
+    expect(router.state.location.search).toBe("");
+    await user.click(back());
+    expect(router.state.location.pathname).toBe("/");
+
+    await act(() => router.navigate(-1));
+    expect(router.state.location.pathname).toBe("/search");
+    expect(router.state.location.search).toBe("?q=casa+velha");
+    expect(field()).toHaveValue("casa velha");
+  });
+
+  it("keeps them when the person leaves by the Filters chip, to the filters and back", async () => {
+    const user = userEvent.setup();
+    const { router } = await openSearch("/search?open=1");
+    fireEvent.change(field(), { target: { value: "casa" } });
+    expect(router.state.location.search).toBe("?open=1");
+
+    await user.click(within(chipsGroup()).getByRole("link", { name: copy.search.filters(1) }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/filters"));
+    // The filters page has the words, so Show places and the cross keep them.
+    expect(new URLSearchParams(router.state.location.search).get("q")).toBe("casa");
+    expect(new URLSearchParams(router.state.location.search).get("open")).toBe("1");
+
+    await act(() => router.navigate(-1));
+    expect(router.state.location.pathname).toBe("/search");
+    expect(new URLSearchParams(router.state.location.search).get("q")).toBe("casa");
+    expect(field()).toHaveValue("casa");
+  });
+
+  it("leaves the chip's own link alone when nothing is waiting", async () => {
+    const user = userEvent.setup();
+    const { router } = await openSearch("/search?q=pizza");
+    await user.click(within(chipsGroup()).getByRole("link", { name: copy.search.filters(0) }));
+    expect(router.state.location.pathname).toBe("/filters");
+    expect(router.state.location.search).toBe("?q=pizza");
+    expect(router.state.historyAction).toBe("PUSH");
+  });
+});
+
 describe("Search: the results", () => {
   it("lists the places that match, with the line of how many, where, and in what order", async () => {
     await openSearch("/search?q=pizza");
     expect(names()).toEqual(["Ciao Pizzeria", "Xarambinha Pizzeria Expresso"]);
     expect(names()).toEqual(listed("pizza"));
-    const summary = copy.search.summary(2, "Funchal", copy.search.sortedBy.distance);
-    expect(summary).toBe("2 places near Funchal. Nearest first.");
+    // Words that are not a kind of place: best match first.
+    const summary = copy.search.summary(2, "Funchal", copy.search.sortedBy.relevance);
+    expect(summary).toBe("2 places near Funchal. Best match first.");
     // A screen reader announces it when the results change.
-    expect(screen.getByText(summary)).toHaveAttribute("role", "status");
+    expect(screen.getByText(summary).closest('[role="status"]')).not.toBeNull();
   });
 
   it("is a list of links, one to a place", async () => {
@@ -595,7 +802,7 @@ describe("Search: the results", () => {
     expect(link).toHaveAttribute("href", `/chain/${chainSlug(idx.chainOf(place("Loft Brunch & Cocktails"))!)}`);
     expect(link).toHaveTextContent("2 locations");
     // One entry, one place in the line: the chain.
-    expect(screen.getByText(copy.search.summary(1, "Funchal", copy.search.sortedBy.distance))).toBeInTheDocument();
+    expect(screen.getByText(copy.search.summary(1, "Funchal", copy.search.sortedBy.relevance))).toBeInTheDocument();
     expect(copy.search.summary(1, "Funchal", "Nearest first")).toBe("1 place near Funchal. Nearest first.");
   });
 
@@ -627,7 +834,7 @@ describe("Search: the results", () => {
     await screen.findByRole("button", { name: `Near ${copy.location.you}` });
 
     await act(() => router.navigate("/search?q=pizza"));
-    expect(screen.getByText("2 places near you. Nearest first.")).toBeInTheDocument();
+    expect(screen.getByText("2 places near you. Best match first.")).toBeInTheDocument();
     Reflect.deleteProperty(navigator, "geolocation");
   });
 
@@ -646,36 +853,91 @@ describe("Search: the results", () => {
 });
 
 describe("Search: the order", () => {
-  it("is A to Z with ?sort=name, and the line says so", async () => {
-    await openSearch("/search?q=cafe&sort=name");
-    const collator = new Intl.Collator("en");
-    expect(names()).toEqual([...listed("cafe")].sort(collator.compare));
-    expect(screen.getByText(copy.search.summary(listed("cafe").length, "Funchal", copy.search.sortedBy.name))).toBeInTheDocument();
-    expect(copy.search.sortedBy.name).toBe("A to Z");
+  /** Where a place is in a list of rows, by its name. */
+  const kmOf = (name: string) => {
+    const found = place(name);
+    return distanceKm(HERE.lat, HERE.lon, found.lat, found.lon);
+  };
+  const byDistance = (list: string[]) => list.every((name, i) => i === 0 || kmOf(list[i - 1]!) <= kmOf(name));
+
+  describe("left to the page", () => {
+    it("is nearest first for a kind of place, and the line says so", async () => {
+      await openSearch("/search?q=cafe");
+      expect(idx.isKindQuery("cafe")).toBe(true);
+      expect(names()).toEqual(listed("cafe"));
+      expect(byDistance(names())).toBe(true);
+      expect(screen.getByText(copy.search.summary(listed("cafe").length, "Funchal", "Nearest first"))).toBeInTheDocument();
+    });
+
+    it("is nearest first when nothing was typed, and the line says so", async () => {
+      await openSearch("/search");
+      expect(byDistance(names())).toBe(true);
+      expect(screen.getByText(copy.search.summary(listed("").length, "Funchal", "Nearest first"))).toBeInTheDocument();
+    });
+
+    it("is the index's own order, best match first, for words, and the line says so", async () => {
+      // "restaurante" is not a kind, and its best matches are not its nearest: a name with the word first beats a nearer one.
+      expect(idx.isKindQuery("restaurante")).toBe(false);
+      const found = listed("restaurante");
+      expect(byDistance(found)).toBe(false);
+
+      await openSearch("/search?q=restaurante");
+      expect(names()).toEqual(found);
+      expect(screen.getByText(copy.search.summary(found.length, "Funchal", copy.search.sortedBy.relevance))).toBeInTheDocument();
+      expect(copy.search.sortedBy.relevance).toBe("Best match first");
+      expect(screen.queryByText(/Nearest first/)).not.toBeInTheDocument();
+    });
+
+    it("is not in the address, so the address stays short, and the filters page starts with no sort pressed", async () => {
+      const { router } = await openSearch("/search?q=restaurante&open=1");
+      expect(new URLSearchParams(router.state.location.search).has("sort")).toBe(false);
+    });
   });
 
-  it("is nearest first when the address asks for My circle's score, which nobody has yet", async () => {
-    await openSearch("/search?q=cafe&sort=score");
-    expect(names()).toEqual(listed("cafe"));
-    expect(screen.getByText(copy.search.summary(listed("cafe").length, "Funchal", copy.search.sortedBy.distance))).toBeInTheDocument();
+  describe("asked for", () => {
+    it("is nearest first for Distance, for words as well, and the line says so", async () => {
+      await openSearch("/search?q=restaurante&sort=distance");
+      const found = names();
+      expect(found).toHaveLength(listed("restaurante").length);
+      expect(byDistance(found)).toBe(true);
+      expect(found).not.toEqual(listed("restaurante"));
+      expect(screen.getByText(copy.search.summary(found.length, "Funchal", copy.search.sortedBy.distance))).toBeInTheDocument();
+    });
+
+    it("is A to Z for Name, and the line says so", async () => {
+      await openSearch("/search?q=cafe&sort=name");
+      const collator = new Intl.Collator("en");
+      expect(names()).toEqual([...listed("cafe")].sort(collator.compare));
+      expect(screen.getByText(copy.search.summary(listed("cafe").length, "Funchal", copy.search.sortedBy.name))).toBeInTheDocument();
+      expect(copy.search.sortedBy.name).toBe("A to Z");
+    });
+
+    it("is the page's own order when the address asks for My circle's score, which nobody has yet", async () => {
+      await openSearch("/search?q=restaurante&sort=score");
+      expect(names()).toEqual(listed("restaurante"));
+      expect(
+        screen.getByText(copy.search.summary(listed("restaurante").length, "Funchal", copy.search.sortedBy.relevance)),
+      ).toBeInTheDocument();
+    });
   });
 });
 
 describe("Search: the filters that are on", () => {
   it("shows each as a chip that is pressed, and counts them in the Filters chip", async () => {
-    await openSearch("/search?q=cafe&open=1&within=5&kinds=cafes,bars");
+    await openSearch("/search?q=cafe&open=1&within=8&kinds=cafes,bars");
     const group = chipsGroup();
     const filtersLink = within(group).getByRole("link", { name: copy.search.filters(4) });
-    expect(filtersLink).toHaveAttribute("href", "/filters?q=cafe&open=1&within=5&kinds=cafes%2Cbars");
+    expect(filtersLink).toHaveAttribute("href", "/filters?q=cafe&open=1&within=8&kinds=cafes%2Cbars");
     expect(copy.search.filters(4)).toBe("Filters · 4");
 
     const pressed = within(group).getAllByRole("button");
     expect(pressed.map((button) => button.textContent)).toEqual([
       "Open now",
-      copy.search.within(formatRadius(5, "en-US")),
+      "Within 5 mi",
       "Cafes",
       "Bars and pubs",
     ]);
+    expect(copy.search.within("5 mi")).toBe("Within 5 mi");
     for (const button of pressed) {
       expect(button).toHaveAttribute("aria-pressed", "true");
       expect(button).toHaveAttribute("type", "button");
@@ -691,17 +953,58 @@ describe("Search: the filters that are on", () => {
 
   it("takes one off when its chip is pressed, as a step the Back button undoes, and keeps the rest", async () => {
     const user = userEvent.setup();
-    const { router } = await openSearch("/search?q=cafe&open=1&within=5&from=share");
+    const { router } = await openSearch("/search?q=cafe&open=1&within=8&from=share");
     await user.click(chip("Open now"));
-    expect(router.state.location.search).toBe("?q=cafe&within=5&from=share");
+    expect(router.state.location.search).toBe("?q=cafe&within=8&from=share");
     expect(router.state.historyAction).toBe("PUSH");
     expect(screen.queryByRole("button", { name: "Open now" })).not.toBeInTheDocument();
 
-    await user.click(chip(copy.search.within(formatRadius(5, "en-US"))));
+    await user.click(chip("Within 5 mi"));
     expect(router.state.location.search).toBe("?q=cafe&from=share");
 
     await act(() => router.navigate(-1));
-    expect(chip(copy.search.within(formatRadius(5, "en-US")))).toHaveAttribute("aria-pressed", "true");
+    expect(chip("Within 5 mi")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  describe("focus when a chip takes its filter off", () => {
+    it("goes to the next chip, since the one that was pressed is gone", async () => {
+      const user = userEvent.setup();
+      await openSearch("/search?q=cafe&open=1&within=8&kinds=cafes");
+      await user.click(chip("Open now"));
+      await waitFor(() => expect(chip("Within 5 mi")).toHaveFocus());
+      await user.click(chip("Within 5 mi"));
+      await waitFor(() => expect(chip("Cafes")).toHaveFocus());
+    });
+
+    it("goes to the Filters chip when no chip is next", async () => {
+      const user = userEvent.setup();
+      await openSearch("/search?q=cafe&open=1&kinds=cafes");
+      await user.click(chip("Cafes"));
+      await waitFor(() => expect(within(chipsGroup()).getByRole("link")).toHaveFocus());
+      await user.click(chip("Open now"));
+      await waitFor(() => expect(within(chipsGroup()).getByRole("link")).toHaveFocus());
+    });
+
+    it("goes to the next chip, or the Filters chip, when 'Show closed places too' takes Open now off", async () => {
+      const user = userEvent.setup();
+      await openSearch("/search?q=pizza&open=1&within=8");
+      await user.click(screen.getByRole("button", { name: copy.search.showClosed }));
+      await waitFor(() => expect(chip("Within 5 mi")).toHaveFocus());
+    });
+
+    it("goes to the Filters chip when 'Show closed places too' leaves no chip", async () => {
+      const user = userEvent.setup();
+      await openSearch("/search?q=pizza&open=1");
+      await user.click(screen.getByRole("button", { name: copy.search.showClosed }));
+      await waitFor(() => expect(within(chipsGroup()).getByRole("link")).toHaveFocus());
+    });
+
+    it("does not take the focus when the filters change some other way", async () => {
+      const { router } = await openSearch("/search?q=cafe&open=1");
+      field().blur();
+      await act(() => router.navigate("/search?q=cafe"));
+      expect(within(chipsGroup()).getByRole("link")).not.toHaveFocus();
+    });
   });
 
   it("takes one kind off and leaves the others", async () => {
@@ -728,17 +1031,17 @@ describe("Search: the filters that are on", () => {
 
   it("has the note about the places left out in a box under the results, with a way to bring them back", async () => {
     const user = userEvent.setup();
-    const { router } = await openSearch("/search?q=cafe&open=1&within=5");
-    const left = idx.search("cafe", { lat: HERE.lat, lon: HERE.lon, radiusKm: 5 }).filter((each) => isClosed(each.place)).length;
+    const { router } = await openSearch("/search?q=cafe&open=1&within=8");
+    const left = idx.search("cafe", { lat: HERE.lat, lon: HERE.lon, radiusKm: 8 }).filter((each) => isClosed(each.place)).length;
     const note = screen.getByText(copy.search.hiddenClosed(left)).parentElement!;
     expect(note).toHaveClass("bg-surface", "rounded-card");
     expect(within(note).getByText(copy.search.hoursNote)).toBeInTheDocument();
     expect(screen.getByRole("list").compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await user.click(within(note).getByRole("button", { name: copy.search.showClosed }));
-    expect(router.state.location.search).toBe("?q=cafe&within=5");
+    expect(router.state.location.search).toBe("?q=cafe&within=8");
     expect(screen.queryByText(copy.search.hoursNote)).not.toBeInTheDocument();
-    expect(names()).toEqual(listed("cafe", () => true, 5));
+    expect(names()).toEqual(listed("cafe", () => true, 8));
   });
 
   it("says nothing about closed places when Open now is off, or when none was left out", async () => {
@@ -758,14 +1061,29 @@ describe("Search: the filters that are on", () => {
   });
 
   it("keeps only the places within the distance", async () => {
-    await openSearch("/search?within=1");
-    const expected = listed("", () => true, 1);
+    // 1 mile, which is 1.6 kilometres.
+    await openSearch("/search?within=1.6");
+    const expected = listed("", () => true, 1.6);
     expect(expected.length).toBeLessThan(listed("").length);
     expect(names()).toEqual(expected);
     for (const link of rows().filter((each) => each.getAttribute("href")?.startsWith("/place/"))) {
       const found = [...idx.byD.values()].find((each) => `/place/${encodeURIComponent(each.d)}` === link.getAttribute("href"))!;
-      expect(distanceKm(HERE.lat, HERE.lon, found.lat, found.lon)).toBeLessThanOrEqual(1);
+      expect(distanceKm(HERE.lat, HERE.lon, found.lat, found.lon)).toBeLessThanOrEqual(1.6);
     }
+  });
+
+  it("reads the distance in the person's own unit: a link in kilometres lands on the next choice in miles", async () => {
+    // 5 km is not a choice in miles; the next one up is 5 mi (8 km), so no place the link meant is lost.
+    await openSearch("/search?within=5");
+    expect(chip("Within 5 mi")).toHaveAttribute("aria-pressed", "true");
+    expect(names()).toEqual(listed("", () => true, 8));
+  });
+
+  it("names the distance in kilometres where the browser's language does", async () => {
+    vi.spyOn(navigator, "language", "get").mockReturnValue("pt-PT");
+    await openSearch("/search?within=5&kinds=cafes");
+    expect(chip("Within 5 km")).toBeInTheDocument();
+    expect(names()).toEqual(listed("", (each) => kindOf(each.category).family === "cafes", 5));
   });
 
   it("counts a chain only for the locations that pass", async () => {
@@ -887,7 +1205,82 @@ describe("Search: nothing matches", () => {
     expect(screen.getByText(copy.search.noResultsHint)).toBeInTheDocument();
     // No count of nothing.
     expect(screen.queryByText(/0 places near/)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: copy.search.addMissing })).toBeInTheDocument();
+    expect(addMissing()).toBeInTheDocument();
+  });
+
+  describe("a long search", () => {
+    const long = "x".repeat(200);
+
+    it("is shown as its first eighty letters and an ellipsis, so one sentence cannot fill the page", async () => {
+      await openSearch(`/search?q=${long}`);
+      const sentence = copy.search.noResults(`${"x".repeat(80)}…`, "Funchal");
+      expect(screen.getByText(sentence)).toBeInTheDocument();
+      expect(document.body).not.toHaveTextContent("x".repeat(81));
+      // The field still has all of it.
+      expect(field()).toHaveValue(long);
+    });
+
+    it("is cut between characters, not through one", async () => {
+      const faces = "😀".repeat(100);
+      await openSearch(`/search?q=${encodeURIComponent(faces)}`);
+      expect(screen.getByText(copy.search.noResults(`${"😀".repeat(80)}…`, "Funchal"))).toBeInTheDocument();
+    });
+
+    it("is shown whole when it is eighty letters or fewer", async () => {
+      const eighty = "y".repeat(80);
+      await openSearch(`/search?q=${eighty}`);
+      expect(screen.getByText(copy.search.noResults(eighty, "Funchal"))).toBeInTheDocument();
+    });
+
+    it("wraps inside a word, so a search with no spaces does not push the page wider than the screen", async () => {
+      await openSearch(`/search?q=${long}`);
+      const sentence = screen.getByText(copy.search.noResults(`${"x".repeat(80)}…`, "Funchal"));
+      expect(sentence).toHaveClass("wrap-break-word", "min-w-0");
+    });
+  });
+
+  describe("the live region", () => {
+    const status = (text: string) => screen.getByText(text).closest<HTMLElement>('[role="status"]')!;
+
+    it("is one container that is always there, holding the line when there are results and the sentence when there are none, never both", async () => {
+      const { router } = await openSearch("/search?q=pizza");
+      const sentence = copy.search.noResults("zzzz", "Funchal");
+      const region = status(copy.search.summary(2, "Funchal", "Best match first"));
+      expect(region).toBeInTheDocument();
+
+      // To no results and back: the same element, with the words changing in it.
+      await act(() => router.navigate("/search?q=zzzz", { replace: true }));
+      await waitFor(() => expect(screen.getByText(sentence)).toBeInTheDocument());
+      expect(status(sentence)).toBe(region);
+      expect(region).toHaveTextContent(sentence);
+      expect(region).not.toHaveTextContent("places near");
+      expect(screen.getAllByText(/Funchal/)).toHaveLength(1);
+
+      await act(() => router.navigate("/search?q=pizza", { replace: true }));
+      await waitFor(() => expect(screen.getByText(copy.search.summary(2, "Funchal", "Best match first"))).toBeInTheDocument());
+      expect(status(copy.search.summary(2, "Funchal", "Best match first"))).toBe(region);
+      expect(region).not.toHaveTextContent("No places match");
+      expect(region).toBeInTheDocument();
+    });
+
+    it("holds the sentence for every kind of empty result, and the hint stays outside it", async () => {
+      const { router } = await openSearch("/search?q=pizza&open=1");
+      const region = status(copy.search.noResultsOpen("pizza", "Funchal"));
+      await act(() => router.navigate("/search?q=zzzz", { replace: true }));
+      await waitFor(() => expect(screen.getByText(copy.search.noResults("zzzz", "Funchal"))).toBeInTheDocument());
+      expect(status(copy.search.noResults("zzzz", "Funchal"))).toBe(region);
+      expect(region).not.toContainElement(screen.getByText(copy.search.noResultsHint));
+
+      await act(() => router.navigate("/search?kinds=ice-cream", { replace: true }));
+      await waitFor(() => expect(screen.getByText(copy.search.noResultsFiltered("Funchal"))).toBeInTheDocument());
+      expect(status(copy.search.noResultsFiltered("Funchal"))).toBe(region);
+    });
+
+    it("is not an alert, and nothing else on the page says the same words as a status", async () => {
+      await openSearch("/search?q=zzzz");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getAllByText(copy.search.noResults("zzzz", "Funchal"))).toHaveLength(1);
+    });
   });
 
   it("is not an alert: nothing went wrong", async () => {
@@ -930,7 +1323,7 @@ describe("Search: nothing matches", () => {
 describe("Search: the link to add a place", () => {
   it("opens OpenStreetMap's note form at the place the list is near, in a new tab", async () => {
     await openSearch("/search?q=pizza");
-    const link = screen.getByRole("link", { name: copy.search.addMissing });
+    const link = addMissing();
     expect(link).toHaveAttribute("href", osmNoteUrl(HERE.lat, HERE.lon));
     expect(link).toHaveAttribute("href", "https://www.openstreetmap.org/note/new#map=19/32.650700/-16.908400");
     expect(link).toHaveAttribute("target", "_blank");
@@ -938,22 +1331,74 @@ describe("Search: the link to add a place", () => {
     expect(copy.search.addMissing).toBe("Can't find it? Add a missing place");
   });
 
+  it("tells a screen reader that it opens a new tab, in words that are not drawn", async () => {
+    await openSearch("/search?q=pizza");
+    expect(copy.common.newTab).toBe("(opens in a new tab)");
+    const link = addMissing();
+    expect(link).toHaveAccessibleName(`${copy.search.addMissing} ${copy.common.newTab}`);
+    const hidden = within(link).getByText(copy.common.newTab);
+    expect(hidden).toHaveClass("sr-only");
+    // What is drawn is the design's words alone.
+    expect(link.textContent).toBe(`${copy.search.addMissing} ${copy.common.newTab}`);
+  });
+
   it("is at the foot of the page, above the attribution and below the results", async () => {
     await openSearch("/search?q=pizza");
-    const link = screen.getByRole("link", { name: copy.search.addMissing });
+    const link = addMissing();
     const attribution = screen.getByText(/Place details/);
     expect(screen.getByRole("list").compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(link.compareDocumentPosition(attribution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(link).toHaveClass("min-h-touch");
   });
 
-  it("follows the person to the city they picked", async () => {
-    window.localStorage.setItem("regulars.here", JSON.stringify({ name: "Monte", country: "PT", lat: 32.66, lon: -16.9 }));
+  it("follows the person to the city they picked, with the city's own coordinates", async () => {
+    window.localStorage.setItem("regulars.here", JSON.stringify({ name: "Monte", country: "PT", lat: 32.123456, lon: -16.987654 }));
     await openSearch("/search?q=pizza");
-    expect(screen.getByRole("link", { name: copy.search.addMissing })).toHaveAttribute(
-      "href",
-      "https://www.openstreetmap.org/note/new#map=19/32.660000/-16.900000",
+    expect(addMissing()).toHaveAttribute("href", "https://www.openstreetmap.org/note/new#map=19/32.123456/-16.987654");
+  });
+
+  it("is rounded to four decimals, about eleven metres, when the places are near the person's own device", async () => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      get: () => ({
+        getCurrentPosition: (ok: PositionCallback) =>
+          ok({ coords: { latitude: 32.123456, longitude: -16.987654, accuracy: 20 }, timestamp: 0 } as unknown as GeolocationPosition),
+      }),
+    });
+    const user = userEvent.setup();
+    const { router } = open(["/"], fixtures);
+    await user.click(await screen.findByRole("button", { name: "Near Funchal" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: copy.location.useMine }));
+    await screen.findByRole("button", { name: `Near ${copy.location.you}` });
+
+    await act(() => router.navigate("/search?q=pizza"));
+    expect(addMissing()).toHaveAttribute("href", "https://www.openstreetmap.org/note/new#map=19/32.123500/-16.987700");
+    Reflect.deleteProperty(navigator, "geolocation");
+  });
+
+  it("is left out when the place the list is near is not a point", async () => {
+    const here: HereValue = {
+      label: "Funchal",
+      lat: Number.NaN,
+      lon: Number.NaN,
+      source: "default",
+      pending: false,
+      useDevice: () => {},
+      pickCity: () => {},
+    };
+    const router = createMemoryRouter([{ path: "/search", element: <SearchPage /> }], { initialEntries: ["/search?q=pizza"] });
+    render(
+      <PlacesProvider reader={createMemoryReader(fixtures)}>
+        <HereContext.Provider value={here}>
+          <RouterProvider router={router} />
+        </HereContext.Provider>
+      </PlacesProvider>,
     );
+    await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+    await waitFor(() => expect(screen.getByText(copy.search.noResults("pizza", "Funchal"))).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: /Add a missing place/ })).not.toBeInTheDocument();
+    // The attribution is still there.
+    expect(screen.getByText(/Place details/)).toBeInTheDocument();
   });
 });
 
@@ -967,7 +1412,7 @@ describe("Search: a long list", () => {
     expect(names()[0]).toBe("Line place 001");
     expect(names()[PAGE - 1]).toBe("Line place 050");
     // The count is of all of them, not of those drawn.
-    expect(screen.getByText(copy.search.summary(120, "Funchal", "Nearest first"))).toBeInTheDocument();
+    expect(screen.getByText(copy.search.summary(120, "Funchal", "Best match first"))).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: copy.search.showMore }));
     expect(rows()).toHaveLength(100);
@@ -1024,7 +1469,7 @@ describe("Search on a desktop", () => {
     expect(screen.getByRole("searchbox")).toHaveValue("pizza");
     expect(screen.queryByRole("link", { name: copy.search.back })).not.toBeInTheDocument();
     expect(names()).toEqual(listed("pizza"));
-    expect(screen.getByText(copy.search.summary(2, "Funchal", "Nearest first"))).toBeInTheDocument();
+    expect(screen.getByText(copy.search.summary(2, "Funchal", "Best match first"))).toBeInTheDocument();
     expect(within(chipsGroup()).getByRole("link", { name: copy.search.filters(0) })).toBeInTheDocument();
   });
 
@@ -1094,15 +1539,13 @@ describe("Filters", () => {
       expect(copy.filters.sortScoreSignedOut).toBe("Sign in to sort by your circle's scores");
     });
 
-    it("has Distance pressed to begin with", async () => {
+    it("has none pressed to begin with: the sort is left to the page, which picks it from what was searched for", async () => {
       await openFilters();
       const sort = groupNamed(copy.filters.sortBy);
-      expect(within(sort).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "true");
-      expect(within(sort).getByRole("button", { name: "Name" })).toHaveAttribute("aria-pressed", "false");
-      expect(within(sort).getByRole("button", { name: "My circle's score" })).toHaveAttribute("aria-pressed", "false");
+      for (const button of within(sort).getAllByRole("button")) expect(button).toHaveAttribute("aria-pressed", "false");
     });
 
-    it("presses Name when the person does, and goes back to Distance when Name is pressed again", async () => {
+    it("presses Name when the person does, and goes back to none when Name is pressed again", async () => {
       const user = userEvent.setup();
       await openFilters();
       const sort = groupNamed(copy.filters.sortBy);
@@ -1110,26 +1553,52 @@ describe("Filters", () => {
       expect(within(sort).getByRole("button", { name: "Name" })).toHaveAttribute("aria-pressed", "true");
       expect(within(sort).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "false");
       await user.click(within(sort).getByRole("button", { name: "Name" }));
-      expect(within(sort).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "true");
+      for (const button of within(sort).getAllByRole("button")) expect(button).toHaveAttribute("aria-pressed", "false");
     });
 
-    it("does nothing when Distance is pressed on Distance", async () => {
+    it("presses Distance, and goes back to none when Distance is pressed again", async () => {
       const user = userEvent.setup();
       await openFilters();
-      await user.click(within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Distance" }));
+      const sort = groupNamed(copy.filters.sortBy);
+      await user.click(within(sort).getByRole("button", { name: "Distance" }));
+      expect(within(sort).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "true");
+      await user.click(within(sort).getByRole("button", { name: "Distance" }));
+      expect(within(sort).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "false");
+    });
+
+    it("has the one the address asks for pressed", async () => {
+      await openFilters("/filters?sort=distance");
       expect(within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "true");
     });
 
-    it("reads Distance for an address that asks for the score, which cannot be had", async () => {
+    it("has none pressed for an address that asks for the score, which cannot be had", async () => {
       await openFilters("/filters?sort=score");
-      expect(within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "true");
+      for (const button of within(groupNamed(copy.filters.sortBy)).getAllByRole("button")) {
+        expect(button).toHaveAttribute("aria-pressed", "false");
+      }
+    });
+
+    it("goes to the results with no sort in the address when none is pressed, and with the one that is", async () => {
+      const user = userEvent.setup();
+      const { router } = await openFilters("/filters?q=cafe");
+      await user.click(within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Distance" }));
+      await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
+      expect(new URLSearchParams(router.state.location.search).get("sort")).toBe("distance");
+    });
+
+    it("applies none: the address has no sort, so the page picks it", async () => {
+      const user = userEvent.setup();
+      const { router } = await openFilters("/filters?q=cafe&sort=name");
+      await user.click(within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Name" }));
+      await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
+      expect(new URLSearchParams(router.state.location.search).has("sort")).toBe(false);
     });
 
     it("draws the chips as the design does: pressed is filled with no edge, the rest have one", async () => {
-      await openFilters();
-      const sort = groupNamed(copy.filters.sortBy);
-      expect(within(sort).getByRole("button", { name: "Distance" })).toHaveClass("bg-ink", "text-ground", "h-11", "rounded-chip");
-      expect(within(sort).getByRole("button", { name: "Name" })).toHaveClass("border-token", "border-line-strong", "bg-ground");
+      await openFilters("/filters?sort=distance");
+      const pressed = within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Distance" });
+      expect(pressed).toHaveClass("bg-ink", "text-ground", "h-11", "rounded-chip");
+      expect(within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Name" })).toHaveClass("border-token", "border-line-strong", "bg-ground");
     });
   });
 
@@ -1160,43 +1629,68 @@ describe("Filters", () => {
   });
 
   describe("distance", () => {
-    it("offers 1, 2, 5, 10 and 25 kilometres, in the unit the person's language reads, with the widest to begin with", async () => {
+    it("offers half a mile, 1, 3, 5 and 15 miles to a reader in miles, with the widest pressed to begin with", async () => {
       await openFilters();
       const group = groupNamed(copy.filters.distance);
       const buttons = within(group).getAllByRole("button");
-      expect(buttons.map((button) => button.textContent)).toEqual([1, 2, 5, 10, 25].map((km) => formatRadius(km, "en-US")));
+      expect(buttons.map((button) => button.textContent)).toEqual(["0.5 mi", "1 mi", "3 mi", "5 mi", "15 mi"]);
       expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "false", "true"]);
       expect(group).toHaveClass("grid-cols-5");
     });
 
-    it("says kilometres where the browser's language does", async () => {
+    it("offers 1, 2, 5, 10 and 25 kilometres where the browser's language reads kilometres", async () => {
       vi.spyOn(navigator, "language", "get").mockReturnValue("pt-PT");
       await openFilters();
-      expect(within(groupNamed(copy.filters.distance)).getAllByRole("button").map((button) => button.textContent)).toEqual([
-        "1 km",
-        "2 km",
-        "5 km",
-        "10 km",
-        "25 km",
-      ]);
+      const buttons = within(groupNamed(copy.filters.distance)).getAllByRole("button");
+      expect(buttons.map((button) => button.textContent)).toEqual(["1 km", "2 km", "5 km", "10 km", "25 km"]);
+      expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "false", "true"]);
     });
 
     it("presses the one the person taps, and the address's own when it has one", async () => {
       const user = userEvent.setup();
-      await openFilters("/filters?within=10");
+      await openFilters("/filters?within=8");
       const group = groupNamed(copy.filters.distance);
-      expect(within(group).getByRole("button", { name: formatRadius(10, "en-US") })).toHaveAttribute("aria-pressed", "true");
-      await user.click(within(group).getByRole("button", { name: formatRadius(2, "en-US") }));
-      expect(within(group).getByRole("button", { name: formatRadius(2, "en-US") })).toHaveAttribute("aria-pressed", "true");
-      expect(within(group).getByRole("button", { name: formatRadius(10, "en-US") })).toHaveAttribute("aria-pressed", "false");
+      expect(within(group).getByRole("button", { name: "5 mi" })).toHaveAttribute("aria-pressed", "true");
+      await user.click(within(group).getByRole("button", { name: "1 mi" }));
+      expect(within(group).getByRole("button", { name: "1 mi" })).toHaveAttribute("aria-pressed", "true");
+      expect(within(group).getByRole("button", { name: "5 mi" })).toHaveAttribute("aria-pressed", "false");
+    });
+
+    it("presses the choice a link from the other unit snaps to", async () => {
+      await openFilters("/filters?within=5");
+      expect(within(groupNamed(copy.filters.distance)).getByRole("button", { name: "5 mi" })).toHaveAttribute("aria-pressed", "true");
     });
 
     it("goes back to the widest when the one that is pressed is pressed again", async () => {
       const user = userEvent.setup();
-      await openFilters("/filters?within=2");
+      await openFilters("/filters?within=1.6");
       const group = groupNamed(copy.filters.distance);
-      await user.click(within(group).getByRole("button", { name: formatRadius(2, "en-US") }));
-      expect(within(group).getByRole("button", { name: formatRadius(25, "en-US") })).toHaveAttribute("aria-pressed", "true");
+      await user.click(within(group).getByRole("button", { name: "1 mi" }));
+      expect(within(group).getByRole("button", { name: "15 mi" })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("does nothing when the widest is pressed on the widest", async () => {
+      const user = userEvent.setup();
+      await openFilters();
+      const group = groupNamed(copy.filters.distance);
+      await user.click(within(group).getByRole("button", { name: "15 mi" }));
+      expect(within(group).getByRole("button", { name: "15 mi" })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("goes to the results with the distance in kilometres in the address", async () => {
+      const user = userEvent.setup();
+      const { router } = await openFilters("/filters?q=cafe");
+      await user.click(within(groupNamed(copy.filters.distance)).getByRole("button", { name: "3 mi" }));
+      await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
+      expect(new URLSearchParams(router.state.location.search).get("within")).toBe("4.8");
+    });
+
+    it("writes no distance for the widest", async () => {
+      const user = userEvent.setup();
+      const { router } = await openFilters("/filters?q=cafe&within=1.6");
+      await user.click(within(groupNamed(copy.filters.distance)).getByRole("button", { name: "1 mi" }));
+      await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
+      expect(new URLSearchParams(router.state.location.search).has("within")).toBe(false);
     });
   });
 
@@ -1272,7 +1766,7 @@ describe("Filters", () => {
       const user = userEvent.setup();
       const { router } = await openFilters("/filters?q=cafe&from=share");
       await user.click(screen.getByRole("switch", { name: "Open now" }));
-      await user.click(within(groupNamed(copy.filters.distance)).getByRole("button", { name: formatRadius(5, "en-US") }));
+      await user.click(within(groupNamed(copy.filters.distance)).getByRole("button", { name: "5 mi" }));
       await user.click(within(groupNamed(copy.filters.kinds)).getByRole("button", { name: "Cafes" }));
       await user.click(within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Name" }));
       await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
@@ -1285,7 +1779,7 @@ describe("Filters", () => {
         from: "share",
         open: "1",
         kinds: "cafes",
-        within: "5",
+        within: "8",
         sort: "name",
       });
       await screen.findByRole("heading", { level: 1, name: copy.pages.search });
@@ -1310,7 +1804,7 @@ describe("Filters", () => {
 
     it("clears every filter at once, the sort too, and keeps the words searched for", async () => {
       const user = userEvent.setup();
-      await openFilters("/filters?q=cafe&open=1&kinds=cafes,bars&within=2&sort=name");
+      await openFilters("/filters?q=cafe&open=1&kinds=cafes,bars&within=1.6&sort=name");
       expect(screen.getByRole("switch", { name: "Open now" })).toHaveAttribute("aria-checked", "true");
       await user.click(screen.getByRole("button", { name: copy.filters.clearAll }));
 
@@ -1318,8 +1812,10 @@ describe("Filters", () => {
       for (const button of within(groupNamed(copy.filters.kinds)).getAllByRole("button")) {
         expect(button).toHaveAttribute("aria-pressed", "false");
       }
-      expect(within(groupNamed(copy.filters.distance)).getByRole("button", { name: formatRadius(25, "en-US") })).toHaveAttribute("aria-pressed", "true");
-      expect(within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "true");
+      expect(within(groupNamed(copy.filters.distance)).getByRole("button", { name: "15 mi" })).toHaveAttribute("aria-pressed", "true");
+      for (const button of within(groupNamed(copy.filters.sortBy)).getAllByRole("button")) {
+        expect(button).toHaveAttribute("aria-pressed", "false");
+      }
       expect(screen.getByRole("button", { name: copy.filters.show(listed("cafe").length) })).toBeInTheDocument();
       expect(copy.filters.clearAll).toBe("Clear all");
     });
@@ -1345,6 +1841,88 @@ describe("Filters", () => {
     await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
     await screen.findByRole("heading", { level: 1, name: copy.pages.search });
     expect(field()).toHaveValue("cafe");
+  });
+
+  describe("coming back to the results", () => {
+    it("does not put the cursor in the search field after Show places, so the keyboard stays down", async () => {
+      const user = userEvent.setup();
+      const { router } = await openFilters("/filters?q=cafe");
+      await user.click(screen.getByRole("switch", { name: "Open now" }));
+      await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      expect(router.state.location.state).toEqual({ from: "filters" });
+      expect(field()).toHaveValue("cafe");
+      expect(field()).not.toHaveFocus();
+      expect(document.body).toHaveFocus();
+    });
+
+    it("does not put it there after the cross either", async () => {
+      const user = userEvent.setup();
+      const { router } = await openFilters("/filters?q=cafe&open=1");
+      await user.click(screen.getByRole("link", { name: copy.filters.close }));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      expect(router.state.location.state).toEqual({ from: "filters" });
+      expect(field()).not.toHaveFocus();
+    });
+
+    it("does put it there when the person comes to search from Explore, as before", async () => {
+      const user = userEvent.setup();
+      open(["/"], fixtures);
+      await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a place name/ }));
+      expect(field()).toHaveFocus();
+    });
+
+    it("does not carry that to the next page: the state is gone after the person goes on", async () => {
+      const user = userEvent.setup();
+      const { router } = await openFilters("/filters?q=cafe");
+      await user.click(screen.getByRole("switch", { name: "Open now" }));
+      await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      await user.click(chip("Open now"));
+      expect(router.state.location.state).toBeNull();
+    });
+  });
+
+  describe("for a screen reader", () => {
+    const heading = (name: string) => screen.getByRole("heading", { level: 2, name });
+
+    it("names each group by the heading above it, which is the one that is drawn, not by a second copy of its words", async () => {
+      await openFilters();
+      for (const name of [copy.filters.sortBy, copy.filters.distance, copy.filters.kinds]) {
+        const group = groupNamed(name);
+        expect(group).not.toHaveAttribute("aria-label");
+        expect(group).toHaveAttribute("aria-labelledby", heading(name).id);
+      }
+    });
+
+    it("names the switch by its own words, and describes it by the note under them", async () => {
+      await openFilters();
+      const toggle = screen.getByRole("switch", { name: "Open now" });
+      expect(toggle).not.toHaveAttribute("aria-label");
+      expect(toggle).toHaveAccessibleDescription(copy.filters.openNowNote);
+    });
+
+    it("announces how many places the filters leave, politely, in a region that is always there", async () => {
+      const user = userEvent.setup();
+      await openFilters("/filters?q=cafe");
+      const count = listed("cafe").length;
+      const region = screen.getByText(copy.filters.countStatus(count));
+      expect(region).toHaveAttribute("role", "status");
+      expect(region).toHaveClass("sr-only");
+
+      await user.click(screen.getByRole("switch", { name: "Open now" }));
+      const open = listed("cafe", (each) => !isClosed(each)).length;
+      expect(open).not.toBe(count);
+      // The same element says the new count.
+      expect(region).toHaveTextContent(copy.filters.countStatus(open));
+      expect(region).toBeInTheDocument();
+
+      await user.click(within(groupNamed(copy.filters.kinds)).getByRole("button", { name: "Ice cream" }));
+      expect(region).toHaveTextContent(copy.filters.countStatus(0));
+      expect(copy.filters.countStatus(0)).toBe("No places match");
+      expect(copy.filters.countStatus(1)).toBe("1 place matches");
+      expect(copy.filters.countStatus(12)).toBe("12 places match");
+    });
   });
 
   it("shows the same controls on a desktop, in a column", async () => {

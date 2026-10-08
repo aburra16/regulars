@@ -38,6 +38,7 @@ export function shownPageOf(historyKey: string, list: string): ShownPage {
 export interface ShownMemory {
   /** How many items this page showed last time, never more than it has and at least the first ones. */
   read(page: ShownPage, length: number): number;
+  /** Keeps the depth of a page, when it is deeper than the first ones. */
   write(page: ShownPage, count: number): void;
 }
 
@@ -57,6 +58,8 @@ export function shownMemory(namespace: string, first: number): ShownMemory {
       }
     },
     write(page, count) {
+      // Every list starts from its first ones, so a depth that is no more than that is not worth keeping.
+      if (count <= first) return;
       if (page.scope === "tab") {
         inMemory.set(keyOf(page), count);
         return;

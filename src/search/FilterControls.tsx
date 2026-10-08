@@ -1,37 +1,49 @@
 import { type JSX, useId } from "react";
 
 import { copy } from "../copy/en.ts";
-import { formatRadius } from "../places/distance.ts";
 import { FAMILIES, type FamilyId } from "../places/kinds.ts";
 import { Chips } from "../ui/Chips.tsx";
 import { FamilyIcon } from "../ui/KindTile.tsx";
-import { type Sort, WIDEST_KM, WITHIN_KM, type WithinKm } from "./filters.ts";
+import { type Sort, widestKm, withinChoices } from "./filters.ts";
 
 /*
  * The controls of Filters.dc.html, one for each filter, without the headings: the filters page
  * puts them in a column with its own, and the desktop's Explore (which shows them as menus) gives
- * them theirs. Each is controlled: it shows `value` and says what the person chose.
+ * them theirs. Each is controlled: it shows `value` and says what the person chose. Each group is
+ * named by the heading that is drawn above it, `labelledBy` being that heading's id.
  */
+
+/** What is pressed when no sort is: none of the three, and not a sort that can be asked for. */
+const AUTO = "auto";
 
 /**
  * How to sort: My circle's score, which cannot be chosen before sign in and says why, Distance and
- * Name. Pressing the one that is on goes back to Distance, the sort a page starts from.
+ * Name. With no sort chosen (`value` is undefined) none is pressed, and the page picks. Pressing the
+ * one that is on goes back to no sort.
  */
-export function SortOptions({ value, onChange }: { value: Sort; onChange(sort: Sort): void }): JSX.Element {
+export function SortOptions({
+  value,
+  onChange,
+  labelledBy,
+}: {
+  value: Sort | undefined;
+  onChange(sort: Sort | undefined): void;
+  labelledBy: string;
+}): JSX.Element {
   const whyNot = useId();
   return (
     <div className="flex flex-col gap-2">
-      <Chips
-        label={copy.filters.sortBy}
+      <Chips<Sort | typeof AUTO>
+        labelledBy={labelledBy}
         options={[
           { id: "score", label: copy.filters.sort.score, disabled: true, describedBy: whyNot },
           { id: "distance", label: copy.filters.sort.distance },
           { id: "name", label: copy.filters.sort.name },
         ]}
-        // The score is not on offer: a sort asked for by an address that cannot have it reads as the nearest.
-        value={value === "score" ? "distance" : value}
-        resting="distance"
-        onChange={onChange}
+        // The score is not on offer: a sort asked for by an address that cannot have it is no sort.
+        value={value === undefined || value === "score" ? AUTO : value}
+        resting={AUTO}
+        onChange={(chosen) => onChange(chosen === AUTO ? undefined : chosen)}
       />
       <p id={whyNot} className="m-0 text-caption text-muted">
         {copy.filters.sortScoreSignedOut}
@@ -75,22 +87,25 @@ const OPTION_ON = "border-0 bg-ink text-ground";
 const OPTION_OFF = "border-token border-line-strong bg-ground text-ink";
 
 /**
- * How far to look: five distances in a row. Pressing the one that is on goes back to the widest,
- * which is no limit short of the city. They are in kilometres; where a person reads miles they are
- * written as the miles they come to.
+ * How far to look: five distances in a row, in the unit the person reads: half a mile to 15 miles,
+ * or 1 to 25 kilometres. `value` and what is chosen are kilometres. Pressing the one that is on
+ * goes back to the widest, which is no limit short of the city.
  */
 export function WithinOptions({
   value,
   onChange,
   locale,
+  labelledBy,
 }: {
-  value: WithinKm;
-  onChange(km: WithinKm): void;
+  value: number;
+  onChange(km: number): void;
   locale: string;
+  labelledBy: string;
 }): JSX.Element {
+  const widest = widestKm(locale);
   return (
-    <div role="group" aria-label={copy.filters.distance} className="grid grid-cols-5 gap-2">
-      {WITHIN_KM.map((km) => {
+    <div role="group" aria-labelledby={labelledBy} className="grid grid-cols-5 gap-2">
+      {withinChoices(locale).map(({ km, label }) => {
         const chosen = km === value;
         return (
           <button
@@ -98,12 +113,12 @@ export function WithinOptions({
             type="button"
             aria-pressed={chosen}
             onClick={() => {
-              if (chosen && km === WIDEST_KM) return;
-              onChange(chosen ? WIDEST_KM : km);
+              if (chosen && km === widest) return;
+              onChange(chosen ? widest : km);
             }}
             className={`h-11 cursor-pointer rounded-tile font-text text-secondary font-semibold ${chosen ? OPTION_ON : OPTION_OFF}`}
           >
-            {formatRadius(km, locale)}
+            {label}
           </button>
         );
       })}
@@ -112,9 +127,17 @@ export function WithinOptions({
 }
 
 /** The ten families of places, two to a row, each with its icon. Any number can be on; none is every kind. */
-export function KindOptions({ value, onChange }: { value: FamilyId[]; onChange(families: FamilyId[]): void }): JSX.Element {
+export function KindOptions({
+  value,
+  onChange,
+  labelledBy,
+}: {
+  value: FamilyId[];
+  onChange(families: FamilyId[]): void;
+  labelledBy: string;
+}): JSX.Element {
   return (
-    <div role="group" aria-label={copy.filters.kinds} className="grid grid-cols-2 gap-2">
+    <div role="group" aria-labelledby={labelledBy} className="grid grid-cols-2 gap-2">
       {FAMILIES.map(({ id, label }) => {
         const chosen = value.includes(id);
         return (

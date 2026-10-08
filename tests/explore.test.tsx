@@ -408,6 +408,18 @@ describe("Explore on a phone: the list", () => {
     expect(shownKeys().map((key) => window.sessionStorage.getItem(key))).toEqual(["75"]);
   });
 
+  it("writes nothing for a list that has not been made longer than its first thirty, since that is where every list starts", async () => {
+    const user = userEvent.setup();
+    await openExplore("/", line(75));
+    // A page of the history with a key of its own.
+    await user.click(chip("Restaurants"));
+    expect(cards()).toHaveLength(30);
+    expect(shownKeys()).toEqual([]);
+
+    await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+    expect(shownKeys().map((key) => window.sessionStorage.getItem(key))).toEqual(["60"]);
+  });
+
   it("lists on without that memory when the browser will not keep it", async () => {
     const user = userEvent.setup();
     const { getItem, setItem } = Storage.prototype;

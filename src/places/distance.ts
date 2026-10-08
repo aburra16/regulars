@@ -17,7 +17,7 @@ const usesMilesByLocale = new Map<string, boolean>();
  * Whether a locale reads distance in miles: its region is the US, Liberia or Myanmar. A locale
  * with no region is read as its language's usual one, so "en" is the US and "pt" is Brazil.
  */
-function usesMiles(locale: string): boolean {
+export function usesMiles(locale: string): boolean {
   const known = usesMilesByLocale.get(locale);
   if (known !== undefined) return known;
   let miles = false;
@@ -52,13 +52,4 @@ export function formatDistance(km: number, locale: string): string {
     if (metres < 1000) return `${metres} ${copy.units.m}`;
   }
   return tenths(km, copy.units.km);
-}
-
-/**
- * A search distance as a chip says it, from kilometres: "5 km", or, where distance is read in
- * miles, the same distance as `formatDistance` writes it: "3.1 mi". The kilometres are what the
- * filter keeps, so the miles are what they come to, not a rounder number that would be less.
- */
-export function formatRadius(km: number, locale: string): string {
-  return usesMiles(locale) ? formatDistance(km, locale) : `${km} ${copy.units.km}`;
 }

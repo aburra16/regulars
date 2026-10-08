@@ -29,14 +29,17 @@ export interface ChipOption<T extends string> {
  */
 export function Chips<T extends string>({
   label,
+  labelledBy,
   options,
   value,
   resting,
   onChange,
   children,
 }: {
-  /** The row's name, for a screen reader. */
-  label: string;
+  /** The row's name, for a screen reader, in its own words... */
+  label?: string;
+  /** ... or the id of the heading drawn above it, which is the name without a second copy of the words. One of the two. */
+  labelledBy?: string;
   options: readonly ChipOption<T>[];
   value: T;
   resting: T;
@@ -44,7 +47,7 @@ export function Chips<T extends string>({
   children?: ReactNode;
 }): JSX.Element {
   return (
-    <div role="group" aria-label={label} className="flex flex-wrap gap-2">
+    <div role="group" aria-label={label} aria-labelledby={labelledBy} className="flex flex-wrap gap-2">
       {options.map((option) => {
         const chosen = option.id === value;
         return (
