@@ -26,7 +26,6 @@ import { PlacesProvider, usePlaces } from "../src/places/store";
 import { routes } from "../src/routes";
 import raw from "./fixtures/funchal-items.json";
 import { FakeMap, FakeMarker } from "./support/fakeMaplibre";
-import { unbrokenPostcodes } from "../src/ui/address";
 import { createMemoryReader } from "./support/memoryReader";
 
 const fixtures: NostrEvent[] = raw;
@@ -416,8 +415,11 @@ describe("the place page: facts", () => {
       copy.place.facts.phone,
       copy.place.facts.payment,
     ]);
-    // The postcode's hyphen is one the line does not break at (U+2011): "9000-|082" never splits.
-    expect(factValue(copy.place.facts.address)).toHaveTextContent("138 Rua dos Ferreiros Funchal 9000\u2011082");
+    // The postcode keeps its plain hyphen, and sits in one element that does not wrap: "9000-|082" never splits.
+    const address = factValue(copy.place.facts.address);
+    expect(address).toHaveTextContent("138 Rua dos Ferreiros Funchal 9000-082");
+    expect(address.textContent).not.toContain("\u2011");
+    expect(within(address).getByText("9000-082")).toHaveClass("whitespace-nowrap");
 
     const table = within(factValue(copy.place.facts.hours)).getByRole("table");
     const rows = within(table).getAllByRole("row").map((row) => row.textContent);
@@ -471,15 +473,14 @@ describe("the place page: facts", () => {
   it("adds the town and the postcode to a street address that lacks them, and only then", async () => {
     const { events, path } = withPlace({ address: "12 Rua Nova", locality: "Funchal", "postal-code": "9000-001" });
     await openPlace(path, { events });
-    expect(factValue(copy.place.facts.address)).toHaveTextContent(/^12 Rua Nova Funchal 9000\u2011001$/);
+    expect(factValue(copy.place.facts.address)).toHaveTextContent(/^12 Rua Nova Funchal 9000-001$/);
   });
 
-  it("keeps a postcode whole: a hyphen between digits does not break, and other hyphens do", () => {
-    expect(unbrokenPostcodes("Funchal 9000-082")).toBe("Funchal 9000\u2011082");
-    expect(unbrokenPostcodes("1-2-3")).toBe("1\u20112\u20113");
-    expect(unbrokenPostcodes("Rua Dr. Fernão de Ornelas 56-A, Funchal")).toBe("Rua Dr. Fernão de Ornelas 56-A, Funchal");
-    expect(unbrokenPostcodes("Santa-Cruz 9100 - 024")).toBe("Santa-Cruz 9100 - 024");
-    expect(addressOf({ street: "1 Rua Nova", locality: "Funchal", postalCode: "9000-001" })).toBe("1 Rua Nova Funchal 9000\u2011001");
+  it("gives the address as one line of plain text, with the postcode's hyphen as written", () => {
+    expect(addressOf({ street: "1 Rua Nova", locality: "Funchal", postalCode: "9000-001" })).toBe("1 Rua Nova Funchal 9000-001");
+    expect(addressOf({ street: "138 Rua dos Ferreiros Funchal 9000-082", locality: "Funchal", postalCode: "9000-082" })).toBe(
+      "138 Rua dos Ferreiros Funchal 9000-082",
+    );
   });
 
   it("gives the town alone as the address when there is no street", async () => {
