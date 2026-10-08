@@ -1850,7 +1850,8 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
         await openApp("/", { px: DESKTOP });
         const chainCard = within(list()).getByRole("link", { name: "A Confeitaria Coffee & Bakery" });
         expect(chainCard.getAttribute("href")).toMatch(/^\/chain\//);
-        const [first] = screen.getAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ });
+        // Once the map has drawn its pins.
+        const [first] = await screen.findAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ });
         await user.click(first!);
         const item = within(list().firstElementChild as HTMLElement);
         const top = item.getByRole("link", { name: "A Confeitaria Coffee & Bakery" });
