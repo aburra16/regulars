@@ -46,6 +46,12 @@ const kindOfPlace = "Kind of place";
 /** A page's title in the browser's tab: "Search · Regulars". */
 const pageTitle = (page: string) => `${page} · ${config.appName}`;
 
+/** What joins the parts of a line: "Cafe · 0.3 mi", "Closed · opens 7 am". */
+const dot = " · ";
+
+/** What joins the two parts of the hours inside a line that dots join already (DeskPlace.dc.html): "Open now, closes 10 pm". */
+const comma = ", ";
+
 /** The link beside where the details come from, to the page that says more. */
 const aboutData = "About this data";
 
@@ -67,6 +73,8 @@ export const copy = {
   common: {
     /** After a link's own words, for a screen reader only: the link leaves the app. */
     newTab: "(opens in a new tab)",
+    /** What joins the parts of a line: "Cafe · 0.3 mi". */
+    joiner: dot,
   },
   /** The tabs on a phone, and the links in the desktop top bar. */
   nav: {
@@ -236,7 +244,7 @@ export const copy = {
     /** The same, in words, among the desktop's buttons (DeskPlace.dc.html). */
     saveShort: "Save",
     /** Under the name: what it is and how far: "Coffee shop · 0.4 mi away". */
-    kindAway: (kind: string, distance: string) => (distance === "" ? kind : `${kind} · ${distance} away`),
+    kindAway: (kind: string, distance: string) => (distance === "" ? kind : `${kind}${dot}${distance} away`),
     /** The dashed panel where the score goes, before anyone has reviewed the place (PlaceNew.dc.html). */
     beFirst: "Be the first in your circle",
     nobodyYet: (name: string) => `Nobody has reviewed ${name} yet. Yours is the one the people who trust you will see.`,
@@ -267,6 +275,12 @@ export const copy = {
     /** At the foot of the page, a link to the place's own record. */
     viewOnOsm: "View on OpenStreetMap",
     aboutData,
+    // DRAFT for Avi
+    /** The map of the place, which does not move, as one picture for a screen reader. */
+    mapLabel: (name: string) => `Map showing where ${name} is`,
+    // DRAFT for Avi
+    /** The desktop's side rail (DeskPlace.dc.html), for a screen reader. */
+    railLabel: "Details and directions",
     /** The places closest to this one. Before sign in nothing is rated, so not "Nearby, rated by your circle". */
     nearby: "Nearby",
     /** How far a place nearby is from this one: "0.3 mi from here". */
@@ -280,8 +294,12 @@ export const copy = {
   hours: {
     /** A time of day goes in `time`: "11 pm" or "23:00", and "Tue 11 am" when it is more than a day away. */
     openUntil: (time: string) => `Open until ${time}`,
-    openNowCloses: (time: string) => `Open now · closes ${time}`,
-    closedOpens: (time: string) => `Closed · opens ${time}`,
+    openNowCloses: (time: string) => `Open now${dot}closes ${time}`,
+    closedOpens: (time: string) => `Closed${dot}opens ${time}`,
+    /** The same two inside a line that dots join already, on the desktop's place page (DeskPlace.dc.html). */
+    inlineJoiner: comma,
+    openNowClosesInline: (time: string) => `Open now${comma}closes ${time}`,
+    closedOpensInline: (time: string) => `Closed${comma}opens ${time}`,
     open24: "Open 24 hours",
     closed: "Closed",
     notListed: "Hours not listed",
@@ -307,7 +325,7 @@ export const copy = {
     /** The chips. Restaurants and Cafes are the kind families' own names. */
     chips: { all: "All", open: "Open now", more: "More" },
     /** What a place is and how far it is: "Mexican restaurant · 1.1 mi". */
-    kindLine: (kind: string, distance: string) => (distance === "" ? kind : `${kind} · ${distance}`),
+    kindLine: (kind: string, distance: string) => (distance === "" ? kind : `${kind}${dot}${distance}`),
     /** A chain's kind and size (Main.dc.html): "Coffee shop · 74 locations". */
     chainKind: (kind: string, n: number) => `${kind} · ${locations(n)}`,
     /** How many of a chain are around: "3 near you, the closest 0.6 mi". */

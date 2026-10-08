@@ -211,11 +211,14 @@ export class FakeMap {
 export class FakeMarker {
   static instances: FakeMarker[] = [];
   readonly element: HTMLElement;
+  /** Which part of the element sits on the point: `center`, `bottom` ... */
+  readonly anchor: string | undefined;
   lngLat: [number, number] | undefined;
   map: FakeMap | undefined;
 
   constructor(options: { element: HTMLElement; anchor?: string }) {
     this.element = options.element;
+    this.anchor = options.anchor;
     FakeMarker.instances.push(this);
   }
   setLngLat(lngLat: [number, number]) {

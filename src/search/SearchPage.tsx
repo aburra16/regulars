@@ -13,6 +13,7 @@ import { useWide } from "../shell/useWide.ts";
 import { Attribution } from "../ui/Attribution.tsx";
 import { ChainCard } from "../ui/ChainCard.tsx";
 import { BackIcon, FilterIcon } from "../ui/icons.tsx";
+import { NewTabHint } from "../ui/NewTab.tsx";
 import { PlaceRow } from "../ui/PlaceRow.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
 import { type ShownPage, shownMemory, shownPageOf, useShownCount } from "../ui/shown.ts";
@@ -331,8 +332,8 @@ export function SearchPage(): JSX.Element {
               rel="noopener noreferrer"
               className="inline-flex min-h-touch items-center self-start text-caption font-semibold text-ink underline hover:text-accent"
             >
-              {copy.search.addMissing}{" "}
-              <span className="sr-only">{copy.common.newTab}</span>
+              {copy.search.addMissing}
+              <NewTabHint />
             </a>
           )}
           <Attribution kind="details" />

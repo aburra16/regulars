@@ -35,7 +35,7 @@ export function ScorePanel({ name, wide }: { name: string; wide: boolean }): JSX
   return (
     <section
       className={`flex flex-col gap-3 border-token border-dashed border-field-border ${
-        wide ? "rounded-[24px] p-[22px]" : "rounded-panel px-[18px] py-5"
+        wide ? "rounded-panel-desktop p-panel-desktop" : "rounded-panel px-[18px] py-5"
       }`}
     >
       <h2 className="m-0 font-display text-[26px] leading-[1.1] font-extrabold tracking-display">{copy.place.beFirst}</h2>

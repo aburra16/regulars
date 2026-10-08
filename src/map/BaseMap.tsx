@@ -34,6 +34,11 @@ export interface BaseMapProps {
   zoom: number;
   /** Whether the person can move the map and tap its pins. A map that is not is a picture of where a place is. */
   interactive: boolean;
+  /**
+   * A map that does not move, to a screen reader: one picture with this name ("Map showing where
+   * Jacafé is"), in place of the map's own region, which it hides. Its attribution stays reachable.
+   */
+  label?: string;
   pins?: readonly Pin[];
   /** The address of the chosen pin: drawn in the accent colour, and pressed. */
   selected?: string;
@@ -169,7 +174,20 @@ function PinMark({
 }): JSX.Element {
   let look: JSX.Element;
   let box: string;
-  if (pin.chainCount !== undefined) {
+  let align = "items-center";
+  if (pin.look === "drop") {
+    // Its marker is anchored at the bottom, and the drop stands on the foot of its 44 px box. The tip
+    // is at 22 of the drawing's 24 units: moved down by the other two, a twelfth of its height, the
+    // tip is on the place.
+    box = "min-h-11 min-w-11 justify-center";
+    align = "items-end";
+    look = (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="block size-[34px] translate-y-[calc(100%/12)] wide:size-[38px]">
+        <path className="fill-accent" d="M12 22s7-6.4 7-12A7 7 0 0 0 5 10c0 5.6 7 12 7 12z" />
+        <circle className="fill-on-accent" cx="12" cy="10" r="2.6" />
+      </svg>
+    );
+  } else if (pin.chainCount !== undefined) {
     box = "h-11 py-1.5";
     look = (
       <span
@@ -205,7 +223,7 @@ function PinMark({
       />
     );
   }
-  const className = `flex items-center border-0 bg-transparent p-0 ${box}`;
+  const className = `flex ${align} border-0 bg-transparent p-0 ${box}`;
   if (onSelect === undefined) {
     return (
       <span aria-hidden="true" className={className}>
@@ -258,6 +276,7 @@ export function BaseMap({
   center,
   zoom,
   interactive,
+  label,
   pins = NO_PINS,
   selected,
   highlighted,
@@ -545,7 +564,9 @@ export function BaseMap({
       const element = elementFor(item.key);
       const marker = markers.current.get(item.key);
       if (marker === undefined) {
-        markers.current.set(item.key, new library.Marker({ element, anchor: "center" }).setLngLat(item.lngLat).addTo(map));
+        // A drop's tip is at its foot; everything else is centred on its point.
+        const anchor = item.kind === "pin" && item.pin.look === "drop" ? "bottom" : "center";
+        markers.current.set(item.key, new library.Marker({ element, anchor }).setLngLat(item.lngLat).addTo(map));
       } else {
         marker.setLngLat(item.lngLat);
       }
@@ -603,9 +624,14 @@ export function BaseMap({
         {below !== undefined && <div className="self-stretch">{below}</div>}
       </div>
       {/* MapLibre's styles make its container `position: relative`, and they win over a class here: its
-          box fills one that is placed. */}
-      <div className="absolute inset-0 z-0">
-        <div ref={container} className="size-full" />
+          box fills one that is placed. A map that does not move is a picture: the map's own region,
+          its canvas and its markers are hidden from a screen reader, which hears the picture's name. */}
+      <div
+        className="absolute inset-0 z-0"
+        role={!interactive && label !== undefined ? "img" : undefined}
+        aria-label={!interactive ? label : undefined}
+      >
+        <div ref={container} aria-hidden={interactive ? undefined : true} className="size-full" />
       </div>
       {items.map((item) => {
         let mark: JSX.Element;

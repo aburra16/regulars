@@ -37,7 +37,7 @@ const TOKYO: Where = { lat: 35.6762, lon: 139.6503, country: "JP" };
 const at = (iso: string) => new Date(iso);
 const stateOf = (openingHours: string | undefined, iso: string, where: Where = FUNCHAL) =>
   openState({ ...where, openingHours }, at(iso));
-const lineOf = (openingHours: string | undefined, iso: string, locale = "en-US", form: "card" | "place" = "card") =>
+const lineOf = (openingHours: string | undefined, iso: string, locale = "en-US", form: Parameters<typeof openLine>[2] = "card") =>
   openLine(stateOf(openingHours, iso), locale, form);
 
 // Wed 7 Oct 2026, Madeira on summer time: 14:00Z is 15:00 there, 22:30Z is 23:30.
@@ -555,6 +555,20 @@ describe("openLine", () => {
       expect(lineOf(undefined, WED_15_00, "en-US", "place")).toBe("Hours not listed");
       expect(lineOf("16:00 as 23:00", WED_15_00, "en-US", "place")).toBe("16:00 as 23:00");
     });
+
+    it("joins with a comma inside the desktop's line, which the dots already join (DeskPlace.dc.html)", () => {
+      expect(lineOf("Mo-Su 11:00-23:00", WED_15_00, "en-US", "placeInline")).toBe("Open now, closes 11 pm");
+      expect(lineOf("Mo-Su 11:00-23:00", WED_23_30, "en-US", "placeInline")).toBe("Closed, opens 11 am");
+      expect(lineOf("24/7", WED_15_00, "en-US", "placeInline")).toBe("Open 24 hours");
+      expect(lineOf(undefined, WED_15_00, "en-US", "placeInline")).toBe("Hours not listed");
+    });
+
+    it("takes its joiners from the copy module", () => {
+      expect(copy.common.joiner).toBe(" · ");
+      expect(copy.hours.inlineJoiner).toBe(", ");
+      expect(copy.hours.openNowCloses("5 pm")).toBe(`Open now${copy.common.joiner}closes 5 pm`);
+      expect(copy.hours.openNowClosesInline("5 pm")).toBe(`Open now${copy.hours.inlineJoiner}closes 5 pm`);
+    });
   });
 
   describe("times", () => {
@@ -868,6 +882,37 @@ describe("weekTable", () => {
     ]);
   });
 
+  it("keeps an opening that starts at midnight unless the night before ran into it", () => {
+    // Saturday is open all day, which carries nothing over: Sunday opens at midnight.
+    const sundays = tableOf("Mo-Sa 00:00-24:00; Su 00:00-20:00");
+    expect(sundays?.[6]).toEqual({ day: "Sun", ranges: ["12 am to 8 pm"] });
+    expect(sundays?.[5]).toEqual({ day: "Sat", ranges: [copy.hours.open24] });
+
+    const saturdays = tableOf("Mo-Fr 00:00-24:00; Sa 00:00-14:00");
+    expect(saturdays?.[5]).toEqual({ day: "Sat", ranges: ["12 am to 2 pm"] });
+    expect(saturdays?.[6]).toEqual({ day: "Sun", ranges: [] });
+
+    // Closed for two hours on Wednesday, open round the clock otherwise.
+    const wednesday = tableOf("24/7; We 10:00-12:00 off");
+    expect(wednesday?.[2]).toEqual({ day: "Wed", ranges: ["12 am to 10 am", `12 pm to ${copy.hours.midnight}`] });
+    expect(wednesday?.[1]).toEqual({ day: "Tue", ranges: [copy.hours.open24] });
+    expect(wednesday?.[3]).toEqual({ day: "Thu", ranges: [copy.hours.open24] });
+  });
+
+  it("shows the regular week, leaving out the public holidays in it", () => {
+    // Monday 30 November 2026 in Funchal; Tuesday 1 December is a public holiday in Portugal.
+    const hours = "Mo-Fr 09:00-17:00; PH off";
+    const monday = "2026-11-30T12:00:00Z";
+    const table = tableOf(hours, "en-US", monday);
+    expect(table?.[1]).toEqual({ day: "Tue", ranges: ["9 am to 5 pm"] });
+    expect(table?.slice(0, 5).every(({ ranges }) => ranges[0] === "9 am to 5 pm")).toBe(true);
+    expect(table?.slice(5).every(({ ranges }) => ranges.length === 0)).toBe(true);
+    // Whether it is open now still keeps the holiday.
+    expect(stateOf(hours, "2026-12-01T12:00:00Z").kind).toBe("closed");
+    // A week with no holiday in it is the week ahead, dated closures and all.
+    expect(tableOf("Mo-Fr 09:00-17:00; PH off; Oct 09 off")?.[4]).toEqual({ day: "Fri", ranges: [] });
+  });
+
   it("says when it closes at midnight", () => {
     expect(tableOf("Mo-Su 09:30-24:00")?.[0]).toEqual({ day: "Mon", ranges: [`9:30 am to ${copy.hours.midnight}`] });
   });
@@ -906,6 +951,16 @@ describe("weekTable", () => {
     expect(tableOf(hours, "en-US", "2027-03-25T12:00:00Z")?.[6]).toEqual({ day: "Sun", ranges: ["2:30 am to 4 am"] });
     vi.stubEnv("TZ", "Europe/Rome");
     expect(tableOf(hours, "en-US", "2027-03-25T12:00:00Z")).toBeNull();
+  });
+
+  it("is null rather than wrong when a closing time falls in the hour the runtime's clock skips", () => {
+    // Viewed on Sunday 21 March 2027: Saturday the 27th's night ends at 02:00 on the 28th, the
+    // morning London's clocks go forward, where a 02:00 cannot be told from a moved 01:00.
+    const hours = "Mo-Su 11:00-02:00";
+    const sunday = "2027-03-21T12:00:00Z";
+    expect(tableOf(hours, "en-US", sunday)?.[5]).toEqual({ day: "Sat", ranges: ["11 am to 2 am"] });
+    vi.stubEnv("TZ", "Europe/London");
+    expect(tableOf(hours, "en-US", sunday)).toBeNull();
   });
 
   it("never throws, and writes nothing to the console", () => {

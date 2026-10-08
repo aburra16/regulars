@@ -19,6 +19,11 @@ export interface Pin {
   name: string;
   /** The place's category, for the icon on a chain's pin. */
   category?: string;
+  /**
+   * `drop`: the design's marker for the one place a map is about (Place.dc.html, DeskPlace.dc.html),
+   * an accent drop with a white dot whose tip is on the place. Absent: a ring, a score pill or a chain's pill.
+   */
+  look?: "drop";
 }
 
 /** The map's source of pins. */

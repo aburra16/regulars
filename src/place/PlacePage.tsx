@@ -1,4 +1,4 @@
-import { type JSX, useMemo, useState } from "react";
+import { type JSX, useMemo } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { config } from "../config.ts";
@@ -21,6 +21,7 @@ import { Attribution } from "../ui/Attribution.tsx";
 import { PageMessage, primaryButton } from "../ui/Banner.tsx";
 import { BackIcon, SavedIcon } from "../ui/icons.tsx";
 import { KindTile } from "../ui/KindTile.tsx";
+import { NewTabHint } from "../ui/NewTab.tsx";
 import { PlaceRow } from "../ui/PlaceRow.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
 import { scriptLang } from "../ui/scriptLang.ts";
@@ -35,20 +36,12 @@ const MAP_ZOOM = 16;
 /** How many places "Nearby" lists. */
 const NEARBY_COUNT = 3;
 
-/** What a screen reader hears after a link's words when the link opens a new tab. */
-const NewTab = () => (
-  <>
-    {" "}
-    <span className="sr-only">{copy.common.newTab}</span>
-  </>
-);
-
 /** A link that leaves the app, to OpenStreetMap: a new tab, telling it nothing of where it came from. */
 function OutLink({ href, className, children }: { href: string; className: string; children: string }): JSX.Element {
   return (
     <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
       {children}
-      <NewTab />
+      <NewTabHint />
     </a>
   );
 }
@@ -96,11 +89,11 @@ function SaveLink(): JSX.Element {
 
 /**
  * Whether the place is open, as the page says it (Place.dc.html): "Open now" or "Closed" in bold,
- * then the rest in grey ("· closes 10 pm"); "Hours not listed" in grey. Hours the app cannot read
- * are the text as written, which can be any length: one line here, cut off, and the whole of it in
- * the facts.
+ * then the rest in grey (" · closes 10 pm", or ", closes 10 pm" on a desktop, after `joiner`);
+ * "Hours not listed" in grey. Hours the app cannot read are the text as written, which can be any
+ * length: one line here, cut off, and the whole of it in the facts.
  */
-function OpenLine({ state, line }: { state: OpenState; line: string }): JSX.Element {
+function OpenLine({ state, line, joiner }: { state: OpenState; line: string; joiner: string }): JSX.Element {
   if (state.kind === "unknown") return <span className="text-muted">{line}</span>;
   if (state.kind === "unparsed") {
     return (
@@ -109,7 +102,7 @@ function OpenLine({ state, line }: { state: OpenState; line: string }): JSX.Elem
       </span>
     );
   }
-  const split = line.indexOf(" · ");
+  const split = line.indexOf(joiner);
   const lead = split === -1 ? line : line.slice(0, split);
   return (
     <>
@@ -144,7 +137,7 @@ function PhoneHeader({ place, kindAway, state, line }: HeaderProps): JSX.Element
       <Name name={place.name} className="text-display-phone leading-[1.08] tracking-display" />
       <div className="text-[15px] leading-[normal] text-muted">{kindAway}</div>
       <div className="min-w-0 text-[15px] leading-[normal]">
-        <OpenLine state={state} line={line} />
+        <OpenLine state={state} line={line} joiner={copy.common.joiner} />
       </div>
     </section>
   );
@@ -162,14 +155,14 @@ function DeskHeader({ place, kindAway, state, line }: HeaderProps): JSX.Element 
           {kindAway}
           {!unread && (
             <>
-              {" · "}
-              <OpenLine state={state} line={line} />
+              {copy.common.joiner}
+              <OpenLine state={state} line={line} joiner={copy.hours.inlineJoiner} />
             </>
           )}
         </div>
         {unread && (
           <div className="min-w-0 text-body leading-[normal]">
-            <OpenLine state={state} line={line} />
+            <OpenLine state={state} line={line} joiner={copy.hours.inlineJoiner} />
           </div>
         )}
       </div>
@@ -205,37 +198,21 @@ function MissingDetails({ place, actions, state }: { place: Place; actions: Plac
 function PlaceMap({ place, className }: { place: Place; className: string }): JSX.Element {
   const center = useMemo<LngLat>(() => [place.lon, place.lat], [place.lon, place.lat]);
   const pins = useMemo<Pin[]>(
-    () => [{ address: place.address, lat: place.lat, lon: place.lon, name: place.name, category: place.category }],
+    () => [{ address: place.address, lat: place.lat, lon: place.lon, name: place.name, category: place.category, look: "drop" }],
     [place],
   );
-  return <BaseMap center={center} zoom={MAP_ZOOM} interactive={false} pins={pins} selected={place.address} className={className} />;
-}
-
-/**
- * The place's own picture, when the details have one at an https address. It is decoration (the
- * name is the heading), loaded only as it nears the screen, and the server it comes from is not
- * told which page asked for it. A picture that does not load leaves no gap.
- */
-function Picture({ src, frame, height }: { src: string; frame?: string; height: string }): JSX.Element | null {
-  const [failed, setFailed] = useState(false);
-  if (failed) return null;
   return (
-    <div className={frame}>
-      <img
-        src={src}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        referrerPolicy="no-referrer"
-        onError={() => setFailed(true)}
-        className={`block w-full rounded-panel object-cover ${height}`}
-      />
-    </div>
+    <BaseMap
+      center={center}
+      zoom={MAP_ZOOM}
+      interactive={false}
+      label={copy.place.mapLabel(place.name)}
+      pins={pins}
+      selected={place.address}
+      className={className}
+    />
   );
 }
-
-/** The place's picture, when it has one at an https address: nothing at any other. */
-const pictureOf = (place: Place): string | undefined => (place.image?.startsWith("https://") ? place.image : undefined);
 
 /** The places closest to this one, as compact rows, each with how far it is from here. Nothing when there are none. */
 function Nearby({
@@ -312,7 +289,6 @@ interface View {
 /** The phone's page (PlaceNew.dc.html; the shared parts as Place.dc.html draws them). */
 function PhonePlace({ view }: { view: View }): JSX.Element {
   const { place, actions, state, nearby, locale, now } = view;
-  const picture = pictureOf(place);
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex items-center justify-between px-3 pt-3.5">
@@ -327,7 +303,6 @@ function PhonePlace({ view }: { view: View }): JSX.Element {
         <PhoneActions actions={actions} />
         <MissingDetails place={place} actions={actions} state={state} />
       </div>
-      {picture !== undefined && <Picture src={picture} frame="px-gutter-phone pt-4" height="h-[150px]" />}
       <div className="px-gutter-phone pt-4">
         <PlaceMap place={place} className="h-[150px] rounded-panel" />
       </div>
@@ -349,7 +324,6 @@ function PhonePlace({ view }: { view: View }): JSX.Element {
  */
 function DeskPlace({ view }: { view: View }): JSX.Element {
   const { place, actions, state, nearby, locale, now } = view;
-  const picture = pictureOf(place);
   return (
     <div className="mx-auto flex w-full max-w-content flex-col gap-4 px-gutter-desktop pt-4 pb-12">
       <BackLink wide />
@@ -359,11 +333,10 @@ function DeskPlace({ view }: { view: View }): JSX.Element {
           <ScorePanel name={place.name} wide />
           <Nearby rows={nearby} locale={locale} now={now} wide />
         </div>
-        <aside className="flex w-rail min-w-0 shrink-0 flex-col gap-4">
+        <aside aria-label={copy.place.railLabel} className="flex w-rail min-w-0 shrink-0 flex-col gap-4">
           <RateButton />
           <RailActions actions={actions} />
           <MissingDetails place={place} actions={actions} state={state} />
-          {picture !== undefined && <Picture src={picture} height="h-[220px]" />}
           <PlaceMap place={place} className="h-[220px] rounded-panel" />
           <Facts place={place} now={now} locale={locale} />
           <div className="flex flex-col gap-0.5 border-t-token border-line pt-2 text-caption text-muted">
@@ -398,7 +371,8 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
     place,
     kindAway: copy.place.kindAway(placeKindLabel(place.category, place.cuisine), away),
     state,
-    line: openLine(state, locale, "place"),
+    // The phone's line is its own; the desktop's sits inside one that dots join (DeskPlace.dc.html).
+    line: openLine(state, locale, wide ? "placeInline" : "place"),
     actions,
     nearby,
     locale,

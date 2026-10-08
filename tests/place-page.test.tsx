@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+
 import type { NostrEvent } from "@nostrify/nostrify";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -20,7 +23,7 @@ import { writeSaved } from "../src/places/cache";
 import { PlacesProvider, usePlaces } from "../src/places/store";
 import { routes } from "../src/routes";
 import raw from "./fixtures/funchal-items.json";
-import { FakeMap } from "./support/fakeMaplibre";
+import { FakeMap, FakeMarker } from "./support/fakeMaplibre";
 import { createMemoryReader } from "./support/memoryReader";
 
 const fixtures: NostrEvent[] = raw;
@@ -296,19 +299,58 @@ describe("the place page: actions", () => {
       expect(of({ phone: "+351 291 640 513;+351 912 000 000" }).call).toBe("tel:+351291640513");
       expect(of({ phone: "+351 291 640 513 / +351 912 000 000" }).call).toBe("tel:+351291640513");
       expect(of({ phone: "+351 291 640 513, +351 912 000 000" }).call).toBe("tel:+351291640513");
-      expect(of({ phone: " +1 (615) 555-0142 " }).call).toBe("tel:+1(615)555-0142");
+      expect(of({ phone: " +1 (615) 555-0142 " }).call).toBe("tel:+16155550142");
       expect(of({ phone: "ask at the bar" }).call).toBeUndefined();
       expect(of({ phone: "javascript:alert(1)" }).call).toBeUndefined();
+    });
+
+    it("reads the numbers people write: a + in brackets, an extension, full-width digits, direction marks", () => {
+      expect(of({ phone: "(+258) 87 022 7777" }).call).toBe("tel:+258870227777");
+      expect(of({ phone: "+350 200 43461 x203" }).call).toBe("tel:+35020043461");
+      expect(of({ phone: "+44 20 7946 0958 ext. 12" }).call).toBe("tel:+442079460958");
+      expect(of({ phone: "＋81 76 255 1122" }).call).toBe("tel:+81762551122");
+      expect(of({ phone: "+351 291 640 513\u202C" }).call).toBe("tel:+351291640513");
+      expect(of({ phone: "\u202A+351 291 640 513\u202C" }).call).toBe("tel:+351291640513");
+      expect(of({ phone: "\u200E+971 4 123 4567\u200F" }).call).toBe("tel:+97141234567");
+      // A slash inside one number, as some countries write the area code, is not two numbers.
+      expect(of({ phone: "0761 / 12345" }).call).toBe("tel:076112345");
+      // A + anywhere else is not a number.
+      expect(of({ phone: "291 + 640 513" }).call).toBeUndefined();
+    });
+
+    it("shows the number as it was written, whatever the link dials", async () => {
+      const written = "(+258) 87 022 7777";
+      const { events, path } = withPlace({ phone: written });
+      await openPlace(path, { events });
+      const phone = within(factValue(copy.place.facts.phone)).getByRole("link");
+      expect(phone).toHaveTextContent(written);
+      expect(phone).toHaveAttribute("href", "tel:+258870227777");
+      expect(link(copy.place.call)).toHaveAttribute("href", "tel:+258870227777");
     });
 
     it("links a website only over http or https, with its host to name it", () => {
       expect(of({ website: "https://motya.pt" }).site).toEqual({ href: "https://motya.pt", host: "motya.pt" });
       expect(of({ website: "http://example.com/menu?a=1" }).site).toEqual({ href: "http://example.com/menu?a=1", host: "example.com" });
       expect(of({ website: "HTTPS://Example.com" }).site?.host).toBe("example.com");
-      expect(of({ website: "www.example.com" }).site).toBeUndefined();
+      expect(of({ website: "www.example.com" }).site).toEqual({ href: "https://www.example.com", host: "www.example.com" });
       expect(of({ website: "javascript:alert(1)" }).site).toBeUndefined();
       expect(of({ website: "ftp://example.com" }).site).toBeUndefined();
       expect(of({ website: "https://" }).site).toBeUndefined();
+    });
+
+    it("takes a bare host name as a website over https, and nothing that is not one", () => {
+      expect(of({ website: "www.catchtwentyseven.com" }).site).toEqual({
+        href: "https://www.catchtwentyseven.com",
+        host: "www.catchtwentyseven.com",
+      });
+      expect(of({ website: "jhcoffee.co.za" }).site).toEqual({ href: "https://jhcoffee.co.za", host: "jhcoffee.co.za" });
+      expect(of({ website: "instagram.com/lamenaga" }).site).toEqual({
+        href: "https://instagram.com/lamenaga",
+        host: "instagram.com",
+      });
+      for (const website of ["@lamenaga", "a@b.com", "lamenaga", "mailto:a@b.com", "javascript:alert(1.2)", "two words.com", "/menu.html", ".com"]) {
+        expect(of({ website }).site, website).toBeUndefined();
+      }
     });
 
     it("cuts a long host short", () => {
@@ -461,30 +503,55 @@ describe("the place page: map", () => {
     expect(map.options).toMatchObject({ interactive: false, center: [JACAFE.lon, JACAFE.lat], zoom: 16 });
     const features = map.sources.get(PIN_SOURCE)!.data.features;
     expect(features.map((feature) => feature.properties)).toEqual([{ address: JACAFE.address }]);
-    // The pin is drawn in the accent colour, and is not a button.
-    await waitFor(() => expect(map.container.querySelector(".border-accent")).not.toBeNull());
+    // The pin is the design's drop (Place.dc.html): 34 px, in the accent colour with a white dot, its tip on the place.
+    const drop = await waitFor(() => {
+      const found = [...map.container.querySelectorAll("svg")].find((svg) => svg.classList.contains("size-[34px]"));
+      if (found === undefined) throw new Error("No drop yet");
+      return found;
+    });
+    expect(drop).toHaveClass("wide:size-[38px]");
+    expect(drop).toHaveAttribute("viewBox", "0 0 24 24");
+    expect(drop.querySelector("path")).toHaveAttribute("d", "M12 22s7-6.4 7-12A7 7 0 0 0 5 10c0 5.6 7 12 7 12z");
+    expect(drop.querySelector("path")).toHaveClass("fill-accent");
+    expect(drop.querySelector("circle")).toHaveAttribute("r", "2.6");
+    expect(drop.querySelector("circle")).toHaveClass("fill-on-accent");
+    const marker = FakeMarker.instances.find((each) => each.element.contains(drop))!;
+    expect(marker.anchor).toBe("bottom");
+    expect(map.container.querySelector(".border-accent")).toBeNull();
     expect(screen.queryByRole("button", { name: new RegExp(JACAFE.name) })).not.toBeInTheDocument();
     // The map says whose it is.
     const attribution = screen.getByText((_, element) => element?.tagName === "P" && element.textContent === copy.attribution.map);
     expect(attribution).toBeVisible();
   });
 
-  it("shows the place's picture, when it has one over https, as decoration that tells nobody where it was seen", async () => {
-    const { events, path } = withPlace({ image: "https://images.example.com/front.jpg" });
-    const { container } = await openPlace(path, { events });
-    const image = container.querySelector("img")!;
-    expect(image).toHaveAttribute("src", "https://images.example.com/front.jpg");
-    expect(image).toHaveAttribute("alt", "");
-    expect(image).toHaveAttribute("loading", "lazy");
-    expect(image).toHaveAttribute("referrerpolicy", "no-referrer");
+  it("is one picture to a screen reader, named for the place, with its attribution still reachable", async () => {
+    await openPlace(`/place/${JACAFE.d}`);
+    const picture = screen.getByRole("img", { name: copy.place.mapLabel(JACAFE.name) });
+    expect(copy.place.mapLabel(JACAFE.name)).toContain(JACAFE.name);
+    const canvas = await waitFor(() => {
+      const found = picture.querySelector("canvas");
+      if (found === null) throw new Error("No canvas yet");
+      return found;
+    });
+    expect(canvas.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(screen.queryByRole("region", { name: copy.map.label })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: copy.attribution.mapTiler })).toBeInTheDocument();
+    expect(picture).not.toContainElement(screen.getByRole("link", { name: copy.attribution.mapTiler }));
   });
 
-  it("shows no picture over plain http, or of any other kind", async () => {
-    for (const [i, image] of ["http://images.example.com/front.jpg", "data:image/png;base64,AAAA", "javascript:x", "//cdn.example.com/a.png"].entries()) {
-      const { events, path } = withPlace({ image }, `image-${i}`);
-      const { container, unmount } = await openPlace(path, { events });
-      expect(container.querySelector("img")).toBeNull();
-      unmount();
+  it("shows no photograph, and loads nothing from the place's picture address, on a phone or a desktop", async () => {
+    // No photographs anywhere (the brief, section 10), and no network call but the relay's and the map's.
+    const images = ["https://images.example.com/front.jpg", "http://images.example.com/front.jpg", "//cdn.example.com/a.png"];
+    for (const px of [PHONE, DESKTOP]) {
+      for (const [i, image] of images.entries()) {
+        const { events, path } = withPlace({ image }, `image-${px}-${i}`);
+        const { container, unmount } = await openPlace(path, { events, px });
+        const remote = [...container.querySelectorAll("img")].filter((img) => /^(?:[a-z]+:)?\/\//i.test(img.getAttribute("src") ?? ""));
+        expect(remote).toEqual([]);
+        expect(container.innerHTML).not.toContain("images.example.com");
+        expect(container.innerHTML).not.toContain("cdn.example.com");
+        unmount();
+      }
     }
   });
 });
@@ -542,6 +609,20 @@ describe("the place page: footer", () => {
       expect(anchor).toHaveAttribute("target", "_blank");
       expect(anchor.rel.split(" ")).toEqual(expect.arrayContaining(["noopener", "noreferrer"]));
     }
+  });
+});
+
+describe("the place page: one helper says a link opens a new tab", () => {
+  it("is the only place in the app that reads the words", () => {
+    const files = (function walk(dir: string): string[] {
+      return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)],
+      );
+    })(resolve(process.cwd(), "src"));
+    const readers = files
+      .filter((file) => /\.tsx?$/.test(file) && readFileSync(file, "utf8").includes("copy.common.newTab"))
+      .map((file) => relative(process.cwd(), file));
+    expect(readers).toEqual([join("src", "ui", "NewTab.tsx")]);
   });
 });
 
@@ -626,7 +707,7 @@ describe("the place page at 1360 px (D2)", () => {
     expect(link(copy.place.back)).toHaveTextContent(copy.place.back);
     expect(copy.place.back).toBe("Back to results");
 
-    const rail = screen.getByRole("complementary");
+    const rail = screen.getByRole("complementary", { name: copy.place.railLabel });
     expect(rail).toHaveClass("w-rail", "shrink-0");
     const column = heading().closest("section")!.parentElement!;
     expect(column).toHaveClass("min-w-0", "flex-1");
@@ -638,6 +719,10 @@ describe("the place page at 1360 px (D2)", () => {
     expect(within(column).queryByRole("link", { name: "Rate this place" })).not.toBeInTheDocument();
     // Prose in the column is held to the measure of review text.
     expect(within(column).getByText(/Yours is the one/)).toHaveClass("max-w-measure");
+    // The desktop's panel: 24 px corners and 22 px inside (DeskPlace.dc.html), from tokens.
+    const panel = within(column).getByText("Be the first in your circle").closest("section")!;
+    expect(panel).toHaveClass("rounded-panel-desktop", "p-panel-desktop");
+    expect(panel.className).not.toMatch(/\[/);
   });
 
   it("puts Rate this place, Go, Call, Site and Save, the map, the facts with the chip, Suggest a fix and the attribution in the rail", async () => {
@@ -666,7 +751,11 @@ describe("the place page at 1360 px (D2)", () => {
     await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP });
     const header = heading().closest("section")!;
     const kind = placeKindLabel(JACAFE.category, JACAFE.cuisine);
-    expect(header).toHaveTextContent(new RegExp(`${kind} · .+ away · Open now · closes 5:30 pm`));
+    // DeskPlace.dc.html: "Seafood restaurant · 0.4 mi away · Open now, closes 10 pm".
+    expect(header).toHaveTextContent(new RegExp(`${kind} · .+ away · Open now, closes 5:30 pm`));
+    expect(within(header).getByText("Open now")).toHaveClass("font-bold");
+    expect(copy.hours.openNowClosesInline("10 pm")).toBe("Open now, closes 10 pm");
+    expect(copy.hours.closedOpensInline("7 am")).toBe("Closed, opens 7 am");
   });
 });
 

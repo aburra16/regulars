@@ -132,6 +132,14 @@ describe("focus and scrolling", () => {
     expect(css).toMatch(/\.px-\\\[calc\\\(1rem\\\+var\\\(--border\\\)\\\)\\\]\s*\{\s*padding-inline:\s*calc\(1rem \+ var\(--border\)\);/);
   });
 
+  it("has the desktop's panel corners and padding as tokens (DeskPlace.dc.html: 24 px and 22 px)", async () => {
+    expect(indexCss).toMatch(/--radius-panel-desktop:\s*24px;/);
+    expect(indexCss).toMatch(/--space-panel-desktop:\s*22px;/);
+    const css = await compileUtilities(["rounded-panel-desktop", "p-panel-desktop"]);
+    expect(declarationsOf(css, "rounded-panel-desktop")).toEqual(["border-radius: var(--radius-panel-desktop)"]);
+    expect(declarationsOf(css, "p-panel-desktop")).toEqual(["padding: var(--space-panel-desktop)"]);
+  });
+
   it("gives the tab bar the height the page scrolls past", () => {
     // At least that tall: a bar that grows with a larger text size still clears the page's padding.
     expect(read("src/shell/TabBar.tsx")).toMatch(/(?<![\w-])min-h-\(--tab-bar-height\)/);

@@ -317,10 +317,11 @@ function formatTime(at: Date, twelveHour: boolean, withWeekday: boolean): string
 /**
  * The line a card or the place page shows for a state: "Open until 11 pm", "Closed · opens 7 am",
  * "Hours not listed", or the hours as written when they cannot be read. The time follows the
- * locale's 12- or 24-hour clock. `where` only matters for an open place: the page says "Open now ·
- * closes 11 pm".
+ * locale's 12- or 24-hour clock. `where` matters for an open place, and on the desktop's place page
+ * for a closed one: the page says "Open now · closes 11 pm"; `placeInline`, inside the desktop's
+ * line that dots join already, says "Open now, closes 11 pm" and "Closed, opens 7 am".
  */
-export function openLine(state: OpenState, locale: string, where: "card" | "place"): string {
+export function openLine(state: OpenState, locale: string, where: "card" | "place" | "placeInline"): string {
   switch (state.kind) {
     case "unknown":
       return copy.hours.notListed;
@@ -329,11 +330,13 @@ export function openLine(state: OpenState, locale: string, where: "card" | "plac
     case "open": {
       if (state.closesAt === undefined) return copy.hours.open24;
       const time = formatTime(state.closesAt, usesTwelveHour(locale), state.closesAfterADay === true);
-      return where === "card" ? copy.hours.openUntil(time) : copy.hours.openNowCloses(time);
+      if (where === "card") return copy.hours.openUntil(time);
+      return where === "place" ? copy.hours.openNowCloses(time) : copy.hours.openNowClosesInline(time);
     }
     case "closed": {
       if (state.opensAt === undefined) return copy.hours.closed;
-      return copy.hours.closedOpens(formatTime(state.opensAt, usesTwelveHour(locale), state.opensAfterADay === true));
+      const time = formatTime(state.opensAt, usesTwelveHour(locale), state.opensAfterADay === true);
+      return where === "placeInline" ? copy.hours.closedOpensInline(time) : copy.hours.closedOpens(time);
     }
   }
 }
@@ -344,7 +347,25 @@ export interface WeekDay {
   ranges: string[];
 }
 
-/** The days of the week ahead, with the parser that read the hours, on the place's calendar. */
+/** Hours that name public or school holidays: the week ahead may not be their regular week. */
+const NAMES_HOLIDAYS = /\b(?:PH|SH)\b/;
+
+/** How many weeks ahead to look for a week with no public holiday in it, or near it. */
+const REGULAR_WEEK_SEARCH = 8;
+
+/** A day of the table, as worked out: its weekday (Monday 0), its openings, and whether its last runs past midnight. */
+interface Row {
+  weekday: number;
+  ranges: string[];
+  carriesOver: boolean;
+}
+
+/**
+ * The days of the place's regular week, with the parser that read the hours, on the place's
+ * calendar: the week ahead, or, for hours that name holidays, the first week from it with no public
+ * holiday in it or on either side of it. The table is the regular week; whether the place is open
+ * now (`openState`) keeps the holidays.
+ */
 function buildWeek(raw: string, place: HoursPlace, now: Date, locale: string): WeekDay[] | null {
   const hours = parse(raw, place.country?.toLowerCase());
   if (hours === null) return null;
@@ -354,9 +375,20 @@ function buildWeek(raw: string, place: HoursPlace, now: Date, locale: string): W
   const time = (at: Date) => formatTime(at, twelveHour, false);
   /** Midnight at the start of the day `offset` days from today, on the place's clock. */
   const midnight = (offset: number) => new Date(here.getFullYear(), here.getMonth(), here.getDate() + offset);
+  const holiday = (offset: number) =>
+    hours.getPublicHolidayContext(new Date(here.getFullYear(), here.getMonth(), here.getDate() + offset, 12)).isHoliday;
 
-  const week: { weekday: number; ranges: string[] }[] = [];
-  for (let offset = 0; offset < 7; offset += 1) {
+  let first = 0;
+  if (NAMES_HOLIDAYS.test(raw)) {
+    // The day before and the day after count too: "PH -1 day" and "PH +1 day" are rules of their own.
+    const weeks = Array.from({ length: REGULAR_WEEK_SEARCH }, (_, week) => week * 7);
+    const regular = weeks.find((from) => !Array.from({ length: 9 }, (_, day) => from - 1 + day).some(holiday));
+    if (regular === undefined) return null;
+    first = regular;
+  }
+
+  /** The day at `offset`. `carriedIn`: the day before ran past midnight into it, and says so. Null: it cannot be stated. */
+  const rowOf = (offset: number, carriedIn: boolean): Row | null => {
     const start = midnight(offset);
     const end = midnight(offset + 1);
     if (maybeMoved(start) || maybeMoved(end)) return null;
@@ -365,26 +397,45 @@ function buildWeek(raw: string, place: HoursPlace, now: Date, locale: string): W
     if (intervals.some(([from, to, unknown, comment]) => unknown || comment !== undefined || maybeMoved(from) || maybeMoved(to))) {
       return null;
     }
-    const ranges: string[] = [];
-    const [first] = intervals;
-    if (intervals.length === 1 && first !== undefined && first[0] <= start && first[1] >= end) {
-      ranges.push(copy.hours.open24);
-    } else {
-      for (const [from, to] of intervals) {
-        // The end of the night before, which that day's opening says.
-        if (from.getTime() === start.getTime() && hours.getState(new Date(start.getTime() - 60_000))) continue;
-        let until = time(to);
-        if (to.getTime() === end.getTime()) {
-          // Open as the day ends: until it closes in the small hours, or until midnight.
-          const closes = hours.getState(end) ? hours.getNextChange(end, midnight(offset + 2)) : undefined;
-          if (closes !== undefined && closes < midnight(offset + 2) && !maybeMoved(closes)) until = time(closes);
-          else until = copy.hours.midnight;
-        }
-        ranges.push(copy.hours.range(time(from), until));
-      }
-    }
     // getDay() counts from Sunday, the copy list from Monday.
-    week.push({ weekday: (start.getDay() + 6) % 7, ranges });
+    const weekday = (start.getDay() + 6) % 7;
+    const [only] = intervals;
+    if (intervals.length === 1 && only !== undefined && only[0] <= start && only[1] >= end) {
+      return { weekday, ranges: [copy.hours.open24], carriesOver: false };
+    }
+    const ranges: string[] = [];
+    let carriesOver = false;
+    for (const [from, to] of intervals) {
+      // The end of the night before, which the day before's row says already ("11 am to 2 am").
+      if (carriedIn && from.getTime() === start.getTime()) continue;
+      let until = time(to);
+      if (to.getTime() === end.getTime()) {
+        // Open as the day ends: until it closes the next day, or until midnight when it does not close then.
+        const limit = midnight(offset + 2);
+        const closes = hours.getState(end) ? hours.getNextChange(end, limit) : undefined;
+        if (closes !== undefined && closes < limit) {
+          // A closing the runtime's zone may have moved is not a time to state, as in `openState`.
+          if (maybeMoved(closes)) return null;
+          until = time(closes);
+          carriesOver = true;
+        } else {
+          until = copy.hours.midnight;
+        }
+      }
+      ranges.push(copy.hours.range(time(from), until));
+    }
+    return { weekday, ranges, carriesOver };
+  };
+
+  const before = rowOf(first - 1, false);
+  if (before === null) return null;
+  const week: Row[] = [];
+  let carried = before.carriesOver;
+  for (let day = 0; day < 7; day += 1) {
+    const row = rowOf(first + day, carried);
+    if (row === null) return null;
+    week.push(row);
+    carried = row.carriesOver;
   }
   // Closed all week and not for good: a season that is over for now. The hours as written say when it opens.
   if (week.every(({ ranges }) => ranges.length === 0) && !SHUT.test(raw)) return null;
@@ -397,7 +448,8 @@ function buildWeek(raw: string, place: HoursPlace, now: Date, locale: string): W
  * A place's hours for the seven days from `now`, Monday first, as a table for the place page: each
  * day's openings in the locale's clock ("9:30 am to 5:30 pm", "11 am to 2 am" for a night that runs
  * past midnight, put on the day it starts), "Open 24 hours" for a day that never closes, and none for
- * a day it is closed. The days are the place's own, on its clock and calendar, with its holidays.
+ * a day it is closed. The days are the place's own, on its clock and calendar. It is the regular
+ * week: a week ahead with a public holiday in it gives way to the next one without (see `buildWeek`).
  *
  * Null when the app cannot state the hours as a table: when there are none, or when `openState`
  * would show them as written, or when a table would leave out what they say (a note on a rule, an
