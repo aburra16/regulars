@@ -418,10 +418,11 @@ describe("openState", () => {
         "Mo-Fr 08:00-12:00,13:00-17:00; Sa 09:00+",
       ].map((openingHours) => ({ ...FUNCHAL, openingHours }));
       const week = Array.from({ length: 7 * 24 }, (_, i) => new Date(Date.UTC(2026, 9, 5) + i * 3_600_000));
-      const wrong = [...places, ...awkward].flatMap((place) =>
-        week.flatMap((instant) => {
+      const wrong = [...places, ...awkward].flatMap((place) => {
+        // Parsed once a place: parsing it again at each of the week's hours made this test outlast CI's 5 s.
+        const hours = oracle(place.openingHours ?? "");
+        return week.flatMap((instant) => {
           const state = openState(place, instant);
-          const hours = oracle(place.openingHours ?? "");
           const where = `${place.openingHours} at ${instant.toISOString()}`;
           if (state.kind === "closed" && state.opensAt !== undefined) {
             const opens = hours.getState(state.opensAt) && !hours.getUnknown(state.opensAt);
@@ -432,8 +433,8 @@ describe("openState", () => {
             return closes ? [] : [`${where}: closesAt ${state.closesAt.toString()} is not closed`];
           }
           return [];
-        }),
-      );
+        });
+      });
       expect(wrong).toEqual([]);
     });
 
