@@ -4,6 +4,7 @@ import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-
 import { copy } from "../copy/en.ts";
 import { NearButton } from "../location/CityPicker.tsx";
 import { LocationNotice } from "../location/LocationNotice.tsx";
+import { ThemeToggle } from "../theme/ThemeToggle.tsx";
 import { PersonIcon, SearchIcon } from "../ui/icons.tsx";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
 
@@ -85,8 +86,8 @@ function SearchField(): JSX.Element {
 
 /**
  * The desktop's one top bar (DeskExplore.dc.html): the wordmark, the search field with the
- * location inside it, the House picks / My circle toggle, Saved and the account button. Under it,
- * the region that says when the person's location could not be used.
+ * location inside it, the House picks / My circle toggle, the dark mode switch, Saved and the
+ * account button. Under it, the region that says when the person's location could not be used.
  */
 export function TopBar(): JSX.Element {
   return (
@@ -98,6 +99,7 @@ export function TopBar(): JSX.Element {
         <SearchField />
         <div className="ml-auto flex flex-wrap items-center gap-x-[18px] gap-y-3">
           <ViewSwitch variant="compact" />
+          <ThemeToggle />
           <NavLink
             to="/saved"
             className={({ isActive }) =>

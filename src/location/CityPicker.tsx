@@ -162,7 +162,7 @@ export function CityPicker({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex bg-ground wide:items-center wide:justify-center wide:bg-ink/60 wide:p-4"
+      className="fixed inset-0 z-50 flex bg-ground wide:items-center wide:justify-center wide:bg-shade/60 wide:p-4"
       onPointerDown={notePress}
       onClick={closeOnBackdrop}
     >

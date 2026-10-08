@@ -5,11 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Regulars</title>
     <meta name="description" content="Restaurant ratings from people you'd actually ask." />
-    <!-- The house's logo, from the site itself (tools/house-icons.sh). The theme colour is the page's ground. -->
+    <!-- The house's logo, from the site itself (tools/house-icons.sh). The theme colour is the page's ground, in each theme. -->
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
-    <meta name="theme-color" content="#FFFFFF" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#10161F" media="(prefers-color-scheme: dark)" />
+    <!-- The theme, before the page is first drawn: the person's choice on this device, or else the
+         device's setting. A choice gives the browser's bar its colour too. src/theme/theme.ts takes
+         over from here; tests/theme.test.tsx runs this and checks the two agree. -->
+    <script>
+      (function () {
+        var theme;
+        try {
+          theme = localStorage.getItem("regulars.theme");
+        } catch (e) {}
+        var chosen = theme === "light" || theme === "dark";
+        if (!chosen) theme = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", theme);
+        if (chosen) {
+          var metas = document.querySelectorAll('meta[name="theme-color"]');
+          for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", theme === "dark" ? "#10161F" : "#FFFFFF");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

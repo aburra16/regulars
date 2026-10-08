@@ -65,10 +65,12 @@ describe("the site's icons", () => {
     expect(links.map((link) => link.getAttribute("href"))).toEqual(["/site.webmanifest"]);
   });
 
-  it("index.html gives the browser the page's ground as its theme colour", () => {
+  it("index.html gives the browser the page's ground as its theme colour, on a device in the light", () => {
     expect(ground).toBe("#FFFFFF");
     const metas = [...indexHtml.querySelectorAll('meta[name="theme-color"]')];
-    expect(metas.map((meta) => meta.getAttribute("content"))).toEqual([ground]);
+    const light = metas.filter((meta) => meta.getAttribute("media") === "(prefers-color-scheme: light)");
+    expect(light.map((meta) => meta.getAttribute("content"))).toEqual([ground]);
+    // The dark theme's, and the colour of a theme the person chose: tests/theme.test.tsx.
   });
 
   it("index.html links only files of the site itself, each of them in public/", () => {

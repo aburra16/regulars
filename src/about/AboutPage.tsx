@@ -102,10 +102,13 @@ function FinePrint(): JSX.Element {
   );
 }
 
-/** The dark card at the foot of the phone's page, and in the desktop's rail. */
+/**
+ * The dark card at the foot of the phone's page, and in the desktop's rail. Its words are in the
+ * sign-in page's colour on the dark (--on-night-soft), so it keeps the light theme's colours in both.
+ */
 function Yours(): JSX.Element {
   return (
-    <section className="flex flex-col gap-2 rounded-panel bg-ink p-[18px]">
+    <section data-theme="light" className="flex flex-col gap-2 rounded-panel bg-ink p-[18px]">
       <div className="text-[17px] font-bold text-ground">{copy.about.yoursHeading}</div>
       <div className="text-[15px] leading-[1.5] text-on-night-soft">{copy.about.yoursBody}</div>
     </section>

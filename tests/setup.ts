@@ -58,6 +58,8 @@ afterEach(async () => {
   if (typeof window !== "undefined") {
     window.localStorage.clear();
     window.sessionStorage.clear();
+    // The page's theme as before any was set: the next test starts from the device's setting.
+    document.documentElement.removeAttribute("data-theme");
     // The history of the window is the test's own: no entry index from a router that came before.
     window.history.replaceState(null, "", "/");
   }

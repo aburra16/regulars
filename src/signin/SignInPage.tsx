@@ -130,7 +130,7 @@ interface LayoutProps {
 /** The sign-in page on a phone (SignIn.dc.html): the headline and the steps over the dark ground, the buttons at the foot. */
 function PhoneSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
   return (
-    <div className="on-dark flex flex-1 flex-col bg-night text-ground">
+    <div data-theme="light" className="on-dark flex flex-1 flex-col bg-night text-ground">
       <div className="flex justify-end px-3 pt-3.5">
         <LeaveLink to={to} leave={leave} label={copy.signin.close} className="flex size-11 items-center justify-center text-ground">
           <CloseIcon size={22} />
@@ -172,7 +172,7 @@ function PhoneSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
  */
 function DeskSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
   return (
-    <div className="flex flex-1 flex-col bg-night text-ground">
+    <div data-theme="light" className="flex flex-1 flex-col bg-night text-ground">
       <div className="on-dark flex items-center justify-between px-gutter-desktop py-[18px]">
         <Link
           to="/"
@@ -192,7 +192,7 @@ function DeskSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
         <section className="flex min-w-0 flex-[1_1_380px] flex-col gap-[22px] rounded-dialog bg-ground p-7 text-ink">
           <Steps tone="card" gap="gap-4" textClass="pt-1" />
           <div className="flex flex-col gap-2.5">
-            <Continue buttonClass="h-14 bg-accent text-[17px] text-on-accent" noteClass="text-muted" />
+            <Continue buttonClass="h-14 bg-accent-solid text-[17px] text-on-accent" noteClass="text-muted" />
             <LeaveLink
               to={to}
               leave={leave}
@@ -218,6 +218,8 @@ function DeskSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
 
 /**
  * The sign-in page (screens 10 and D6), at `/signin`: a dark page of its own, with no top bar or tabs.
+ * It is the same in both themes: each layout keeps the light theme's colours (`data-theme="light"`),
+ * which on its dark ground are the ones it was drawn in.
  * Before signing in opens (`config.features.signIn`) it is a display: Continue is off and says so, and
  * Keep House picks, the cross and Escape take the person back to where they were. "Sign in" links
  * across the app lead here, each with the page they were on in `state.from`.

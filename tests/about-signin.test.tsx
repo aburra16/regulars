@@ -436,7 +436,7 @@ describe("the sign-in page on a desktop", () => {
     expect(within(card as HTMLElement).getByText(copy.signin.notice)).toBeInTheDocument();
     expect(within(card as HTMLElement).getByRole("link", { name: copy.signin.howItWorks })).toBeInTheDocument();
     // On the white card Continue is the accent colour.
-    expect(button).toHaveClass("bg-accent", "text-on-accent");
+    expect(button).toHaveClass("bg-accent-solid", "text-on-accent");
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAccessibleDescription(copy.signin.comingSoon);
   });
