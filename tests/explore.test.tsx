@@ -5,6 +5,7 @@ import type { ComponentProps } from "react";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AccountProvider } from "../src/account/AccountProvider";
 import houseBadge64 from "../src/assets/house/house-64.png";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
@@ -91,9 +92,11 @@ async function openExplore(path = "/", events: NostrEvent[] = fixtures) {
   const view = render(
     <PlacesProvider reader={createMemoryReader(events)}>
       <ScoresProvider>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <AccountProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </AccountProvider>
       </ScoresProvider>
     </PlacesProvider>,
   );

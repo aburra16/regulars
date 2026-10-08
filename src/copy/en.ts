@@ -426,7 +426,8 @@ export const copy = {
     // DRAFT for Avi: from here to `cancel`, what Continue opens (decision 23).
     /**
      * Under Continue where the browser has an add-on, which Continue asks at once: the phone's way
-     * instead. And beside Try again when the add-on said no.
+     * instead. And beside Try again when the add-on said no, there and where the person signed in
+     * from (Rate this place, the account button).
      */
     phoneInstead: "Use an app on your phone instead",
     /** While the page looks, for a moment, for an add-on that comes late, before Continue goes one way or the other. */
@@ -435,6 +436,8 @@ export const copy = {
     noAddOn: "To sign in with this browser, add a sign-in add-on to it, then reload this page.",
     /** While the browser's add-on asks the person. */
     browserWaiting: `Your browser add-on will ask you to allow ${config.appName}.`,
+    /** The same, in a line under Rate this place or the account button, which sign the person in where they are. */
+    waitingForAddOn: "Waiting for your add-on…",
     /** The add-on said no, or failed: said with Try again, which asks it again, and the phone's way. */
     addOnFailed: "That didn't work. Try again, or use an app on your phone.",
     /** Over the code to scan. */
@@ -457,7 +460,7 @@ export const copy = {
     /** The phone app did not answer in time, said no, or stopped half-way (Review Focus 3); or the phone's way could not be fetched. */
     failed: "That didn't connect. Try again.",
     tryAgain: "Try again",
-    /** Stops waiting, on the add-on or the phone app, and gives Continue back. */
+    /** Stops waiting, on the add-on or the phone app, and gives Continue (or what was pressed) back. */
     cancel: "Cancel",
   },
   /** The pages that need a person (Saved and You). The design draws neither signed out. */

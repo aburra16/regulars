@@ -9,10 +9,10 @@ import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useWide } from "../shell/useWide.ts";
 import { CloseIcon } from "../ui/icons.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
-import { hasAddOn, lookForAddOn } from "./addOn.ts";
+import { ADD_ON_WAIT_MS, hasAddOn, lookForAddOn, msSinceLoad } from "./addOn.ts";
 import { loadPhoneWay } from "./loadPhoneWay.ts";
 import type { PhoneWay as PhoneWayPanel, Tone } from "./PhoneWay.tsx";
-import { addOnRefused, cameFrom, goingTo } from "./returnTo.ts";
+import { cameFrom, goingTo, landingFrom, wantsPhone } from "./returnTo.ts";
 import { useAddOnSignIn } from "./useAddOnSignIn.ts";
 
 /**
@@ -25,8 +25,10 @@ import { useAddOnSignIn } from "./useAddOnSignIn.ts";
  * links go.
  *
  * `signedIn` is how it is left once the person has signed in: on to the page they were on their way
- * to, when the link that sent them here names one (`goingTo`), in place of this page; else as `leave`.
- * The page they came from stays behind it, as the way back from there.
+ * to, when the link that sent them here names one (`goingTo`), in place of this page; else as `leave`,
+ * except from a page that only asked them to sign in (You, Saved: `landingFrom`), which has nothing
+ * more for them, and Explore replaces this page. The page they came from stays behind it, as the way
+ * back from there.
  */
 function useLeave(): { to: To; leave(): void; signedIn(): void } {
   const navigate = useNavigate();
@@ -37,11 +39,13 @@ function useLeave(): { to: To; leave(): void; signedIn(): void } {
     if (from !== undefined && key !== "default") void navigate(-1);
     else void navigate(from ?? "/", { replace: true });
   }, [navigate, from, key]);
+  const landing = useMemo(() => landingFrom(state), [state]);
   const signedIn = useCallback(() => {
+    if (next === undefined && landing === undefined) return void navigate("/", { replace: true });
     if (next === undefined) return leave();
     // The page behind this one, if there is one, is where the next page goes back to.
     void navigate(next, { replace: true, state: from !== undefined && key !== "default" ? { from } : undefined });
-  }, [navigate, leave, next, from, key]);
+  }, [navigate, leave, next, landing, from, key]);
   return { to: from ?? "/", leave, signedIn };
 }
 
@@ -123,17 +127,21 @@ function Failed({
 /**
  * Whether the browser has an add-on to sign in with, as the page has looked since it opened: undefined
  * while it looks (an add-on may put itself on the page a moment after it loads: `lookForAddOn`), then
- * yes or no. `known` gives the answer, once there is one.
+ * yes or no. A page that loaded more than `ADD_ON_WAIT_MS` ago (one reached by a link in the app) has
+ * its answer at once: no look. `known` gives the answer, once there is one; undefined when the page
+ * has gone, and nothing is to be done with it.
  */
-function useAddOn(): { present: boolean | undefined; known(): Promise<boolean> } {
-  const [present, setPresent] = useState<boolean | undefined>(() => (hasAddOn() ? true : undefined));
-  const looking = useRef<Promise<boolean> | null>(null);
+function useAddOn(): { present: boolean | undefined; known(): Promise<boolean | undefined> } {
+  const [present, setPresent] = useState<boolean | undefined>(() =>
+    hasAddOn() ? true : msSinceLoad() >= ADD_ON_WAIT_MS ? false : undefined,
+  );
+  const looking = useRef<Promise<boolean | undefined> | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    const look = lookForAddOn(controller.signal);
+    const look = lookForAddOn(controller.signal).then((found) => (controller.signal.aborted ? undefined : found));
     looking.current = look;
     void look.then((found) => {
-      if (!controller.signal.aborted) setPresent(found);
+      if (found !== undefined) setPresent(found);
     });
     return () => controller.abort();
   }, []);
@@ -162,10 +170,13 @@ type Step =
  * code, the link, and on a phone "Open the app"; on a desktop, with the line on how to get an add-on
  * under it. Pressed before the page has finished looking for an add-on that comes late, it says it is
  * looking, for at most half a second, and then goes one way: the phone's way is never shown and then
- * taken away. When the add-on says no, it says so, with Try again and the phone's way; the person
- * arrives so from Rate this place, which asked the add-on first (`addOnRefused`).
+ * taken away. When the add-on says no, fails or does not answer in a minute, it says so, with Try
+ * again and the phone's way. A link that asks for the phone's way (`wantsPhone`: "Use an app on your
+ * phone instead" where the add-on did not work, on a place's page or at the account button) opens it
+ * at once.
  * While anything is under way the button stays, off and busy, with the focus: drawn in its place,
- * nothing would have it, and a keyboard or a screen reader would be sent back to the page's top.
+ * nothing would have it, and a keyboard or a screen reader would be sent back to the page's top. When
+ * what had the focus has gone (Try again, "Use an app on your phone instead"), the button takes it.
  * A person signed in, or about to be (a session this tab kept being restored), has nothing to
  * continue to, and does not see it: the page takes them on. While signing in is not open
  * (`config.features.signIn`), the button is off, and says why under it, which the button names as its
@@ -189,13 +200,22 @@ function Continue({
   const { state } = useLocation();
   const addOn = useAddOn();
   const asking = useAddOnSignIn();
-  const [step, setStep] = useState<Step>(() => (open && addOnRefused(state) ? { at: "refused" } : { at: "button", focus: false }));
+  const [phoneFirst] = useState(() => open && wantsPhone(state));
+  const [step, setStep] = useState<Step>(() => (phoneFirst ? { at: "fetching" } : { at: "button", focus: false }));
   const button = useRef<HTMLButtonElement>(null);
 
   const giveFocus = step.at === "button" && step.focus;
   useEffect(() => {
     if (giveFocus) button.current?.focus({ preventScroll: true });
   }, [giveFocus]);
+
+  // Busy, the button keeps the focus, or takes it when what had it has gone.
+  const busy = step.at === "looking" || step.at === "asking" || step.at === "fetching";
+  useEffect(() => {
+    if (!busy) return;
+    const active = document.activeElement;
+    if (active === null || active === document.body) button.current?.focus({ preventScroll: true });
+  }, [busy, step.at]);
 
   const askAddOn = () => {
     setStep({ at: "asking" });
@@ -216,8 +236,21 @@ function Continue({
     if (hasAddOn()) return askAddOn();
     if (addOn.present === false) return openPhone();
     setStep({ at: "looking" });
-    void addOn.known().then((found) => (found || hasAddOn() ? askAddOn() : openPhone()));
+    void addOn.known().then((found) => {
+      // The page has gone while it looked: nothing is asked of an add-on that comes after.
+      if (found === undefined) return;
+      if (found || hasAddOn()) askAddOn();
+      else openPhone();
+    });
   };
+
+  // A link that asked for the phone's way: it opens now. Once, though the effect may run twice.
+  const openedFirst = useRef(false);
+  useEffect(() => {
+    if (!phoneFirst || openedFirst.current) return;
+    openedFirst.current = true;
+    openPhone();
+  });
   const cancel = () => {
     asking.stop();
     setStep({ at: "button", focus: true });
@@ -249,7 +282,6 @@ function Continue({
       </Failed>
     );
   }
-  const busy = step.at !== "button";
   const off = !open || busy;
   const said = step.at === "looking" ? copy.signin.lookingForAddOn : step.at === "asking" ? copy.signin.browserWaiting : "";
   return (

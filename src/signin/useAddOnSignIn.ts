@@ -1,23 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useConnectIfAny } from "../account/AccountProvider.tsx";
+import { useConnect } from "../account/AccountProvider.tsx";
 
-/** How asking the add-on ended: the person is signed in, it said no or failed, or it was stopped. */
+/** How asking the add-on ended: the person is signed in, it said no, failed or did not answer in time, or it was stopped. */
 export type Asked = "in" | "failed" | "stopped";
 
 /**
  * Signing in with the browser's add-on (NIP-07), at once: one question to it, who the person is,
- * which it may put to the person first (src/account/connect.ts). For Continue on the sign-in page and
- * for Rate this place, which signs a person in where they are (decision 23). One question at a time:
- * asking again stops the one before. It stops when the component goes. Outside an `AccountProvider`
- * there is nothing to sign in to, and asking fails.
+ * which it may put to the person first, with a minute to answer (src/account/connect.ts). For
+ * Continue on the sign-in page, and for Rate this place and the account button, which sign a person
+ * in where they are (decision 23). One question at a time: asking again stops the one before. It
+ * stops when the component goes, and once it has gone it asks nothing.
  */
 export function useAddOnSignIn(): { asking: boolean; ask(): Promise<Asked>; stop(): void } {
-  const connect = useConnectIfAny();
+  const connect = useConnect();
   const [asking, setAsking] = useState(false);
   const current = useRef<AbortController | null>(null);
+  const gone = useRef(false);
 
-  useEffect(() => () => current.current?.abort(), []);
+  useEffect(() => {
+    gone.current = false;
+    return () => {
+      gone.current = true;
+      current.current?.abort();
+    };
+  }, []);
 
   const stop = useCallback(() => {
     current.current?.abort();
@@ -26,12 +33,12 @@ export function useAddOnSignIn(): { asking: boolean; ask(): Promise<Asked>; stop
   }, []);
 
   const ask = useCallback(async (): Promise<Asked> => {
+    if (gone.current) return "stopped";
     current.current?.abort();
     const controller = new AbortController();
     current.current = controller;
     setAsking(true);
     try {
-      if (connect === undefined) throw new Error("Nothing to sign in to");
       await connect.browser(controller.signal);
       return "in";
     } catch {

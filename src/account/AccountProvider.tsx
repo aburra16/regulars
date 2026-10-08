@@ -171,18 +171,9 @@ export function useAccount(): AccountState {
   return useContext(AccountContext)?.state ?? SIGNED_OUT;
 }
 
-/** The ways to sign in, for the sign-in page. Use it inside an `AccountProvider`. */
+/** The ways to sign in, for the sign-in page and for signing in where the person is. Use it inside an `AccountProvider`. */
 export function useConnect(): Connect {
   const value = useContext(AccountContext);
   if (value === null) throw new Error("useConnect must be used inside <AccountProvider>.");
   return value.connect;
-}
-
-/**
- * The ways to sign in, for a page that may sign the person in where they are (Rate this place, with
- * the browser's add-on). Outside an `AccountProvider`, such as a test of part of the app, nobody is
- * signed in, as `useAccount` says, and there is no way to: undefined.
- */
-export function useConnectIfAny(): Connect | undefined {
-  return useContext(AccountContext)?.connect;
 }

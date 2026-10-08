@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { createBrowserRouter, createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AccountProvider } from "../src/account/AccountProvider";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { forgetExploreIdx, setExploreIdx, stepsBackToExplore } from "../src/explore/returnPoint";
@@ -104,9 +105,11 @@ function open(initialEntries: string[], events: NostrEvent[], initialIndex?: num
   const view = render(
     <PlacesProvider reader={createMemoryReader(events)}>
       <ScoresProvider>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <AccountProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </AccountProvider>
       </ScoresProvider>
     </PlacesProvider>,
   );
@@ -125,9 +128,11 @@ function openInBrowser(path: string, events: NostrEvent[] = fixtures) {
   const view = render(
     <PlacesProvider reader={createMemoryReader(events)}>
       <ScoresProvider>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <AccountProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </AccountProvider>
       </ScoresProvider>
     </PlacesProvider>,
   );
