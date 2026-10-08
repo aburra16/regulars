@@ -1,3 +1,5 @@
+// First: what the browser may lack, in place before any module that uses it is loaded.
+import "./polyfills.ts";
 import "@fontsource/bricolage-grotesque/700.css";
 import "@fontsource/bricolage-grotesque/800.css";
 import "@fontsource/figtree/400.css";
