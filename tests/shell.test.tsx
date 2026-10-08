@@ -19,6 +19,7 @@ import { routes } from "../src/routes";
 import { useDocumentTitle } from "../src/shell/useDocumentTitle";
 import { useWide, WIDE_QUERY } from "../src/shell/useWide";
 import { Attribution } from "../src/ui/Attribution";
+import { HouseName } from "../src/ui/HouseName";
 import { KindTile } from "../src/ui/KindTile";
 import { Stars } from "../src/ui/Stars";
 import { ViewToggle } from "../src/ui/ViewToggle";
@@ -785,7 +786,36 @@ describe("KindTile", () => {
     const ground = render(<KindTile category="cafe" size="card" tone="ground" />);
     expect(ground.container.firstElementChild).toHaveClass("bg-ground", "text-ink");
     const ink = render(<KindTile category="cafe" size="row" tone="ink" />);
-    expect(ink.container.firstElementChild).toHaveClass("bg-ink", "text-ground");
+    expect(ink.container.firstElementChild).toHaveClass("bg-emphasis", "text-on-emphasis");
+  });
+});
+
+describe("HouseName", () => {
+  it("puts the house's badge in front of the house's name, the two on one line, and leaves the words as they are", () => {
+    const { container } = render(<HouseName text={`Ask ${copy.house.name} first.`} size="line" />);
+    expect(container.textContent).toBe(`Ask ${copy.house.name} first.`);
+    const badge = container.querySelector("img")!;
+    expect(badge).toHaveAttribute("alt", "");
+    expect(badge.parentElement).toHaveClass("whitespace-nowrap");
+    expect(badge.parentElement!.textContent).toBe(copy.house.name);
+    expect(badge.parentElement!.firstChild).toBe(badge);
+  });
+
+  it("keeps each line as tall as the lines around it", () => {
+    const { container } = render(
+      <>
+        <HouseName text={copy.house.name} size="line" />
+        <HouseName text={copy.house.name} size="body" />
+      </>,
+    );
+    const [line, body] = container.querySelectorAll("img");
+    expect(line).toHaveClass("size-5", "-my-0.5", "align-text-bottom");
+    expect(body).toHaveClass("size-6", "-my-1", "align-text-bottom");
+  });
+
+  it("draws a text that does not name the house as it is, with no badge", () => {
+    const { container } = render(<HouseName text="Scores from the people you trust." size="body" />);
+    expect(container.innerHTML).toBe("Scores from the people you trust.");
   });
 });
 

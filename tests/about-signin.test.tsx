@@ -5,11 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { aboutFigures, formatRefreshed } from "../src/about/figures";
 import { NOTICES_FILE } from "../src/about/notices";
+import houseBadge96 from "../src/assets/house/house-96.png";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { parsePlaces } from "../src/places/load";
 import raw from "./fixtures/funchal-items.json";
-import { DESKTOP, openApp, resetWidth } from "./support/app";
+import { DESKTOP, openApp, PHONE, resetWidth } from "./support/app";
 
 const fixtures: NostrEvent[] = raw;
 const places = parsePlaces(fixtures);
@@ -35,6 +36,8 @@ const heading = (level = 1) => screen.getByRole("heading", { level });
 const link = (name: string | RegExp) => screen.getByRole("link", { name });
 /** A section by the name of its heading. */
 const section = (name: string) => screen.getByRole("region", { name });
+/** The words of the house's section: its one paragraph. */
+const houseBody = () => section(copy.about.houseHeading).querySelector("p")!;
 /** What a figure of the data says: the row's value, by its label. */
 const figure = (label: string) => screen.getByText(label, { selector: "dt" }).nextElementSibling as HTMLElement;
 const banner = () => screen.queryByRole("banner");
@@ -203,7 +206,27 @@ describe("the about page: what it says", () => {
 
   it("names the house curator", async () => {
     await openApp("/about", { events: fixtures });
-    expect(within(section(copy.about.houseHeading)).getByText(/Mise en Place, our house curator/)).toBeInTheDocument();
+    expect(houseBody()).toHaveTextContent(/^Mise en Place, our house curator/);
+  });
+
+  it.each([
+    ["phone", PHONE],
+    ["desktop", DESKTOP],
+  ])("puts the house's badge beside its name, 24 px and round, as decoration, on a %s", async (_, px) => {
+    await openApp("/about", { events: fixtures, px });
+    const badges = within(section(copy.about.houseHeading)).getAllByRole("presentation");
+    expect(badges).toHaveLength(1);
+    const badge = badges[0]!;
+    // The name is in the text beside it, so the badge says nothing to a screen reader.
+    expect(badge).toHaveAttribute("alt", "");
+    expect(badge.parentElement!.textContent).toBe(copy.house.name);
+    expect(badge.nextSibling?.textContent).toBe(copy.house.name);
+    // The app's own file, four times the size it is drawn at, a little larger than in Explore's line.
+    expect(badge).toHaveAttribute("src", houseBadge96);
+    expect(badge).toHaveAttribute("width", "24");
+    expect(badge).toHaveAttribute("height", "24");
+    expect(badge).toHaveClass("size-6", "rounded-full");
+    expect(houseBody()).toHaveTextContent(copy.about.houseBody);
   });
 
   it("says what House picks are once, and the house section points to it", async () => {
@@ -213,7 +236,8 @@ describe("the about page: what it says", () => {
     expect(definitions).toHaveLength(1);
     expect(section(copy.about.reviewsHeading)).toContainElement(definitions[0]!);
     // The house section names the house and what it does for House picks, in its own words.
-    const house = within(section(copy.about.houseHeading)).getByText(copy.about.houseBody);
+    const house = houseBody();
+    expect(house.textContent).toBe(copy.about.houseBody);
     expect(house).toHaveTextContent("House picks");
     expect(house).toHaveTextContent("keeps the list of places up to date");
   });
@@ -412,7 +436,7 @@ describe("the sign-in page on a desktop", () => {
     expect(within(card as HTMLElement).getByText(copy.signin.notice)).toBeInTheDocument();
     expect(within(card as HTMLElement).getByRole("link", { name: copy.signin.howItWorks })).toBeInTheDocument();
     // On the white card Continue is the accent colour.
-    expect(button).toHaveClass("bg-accent", "text-on-accent");
+    expect(button).toHaveClass("bg-accent-solid", "text-on-accent");
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAccessibleDescription(copy.signin.comingSoon);
   });

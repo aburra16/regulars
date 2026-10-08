@@ -7,6 +7,7 @@ import starSvg from "../assets/icons/star.svg?raw";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { kindOf } from "../places/kinds.ts";
+import { currentTheme, type Theme, useTheme } from "../theme/theme.ts";
 import { Attribution } from "../ui/Attribution.tsx";
 import { BackToPlaceIcon, MinusIcon, PlusIcon } from "../ui/icons.tsx";
 import { FamilyIcon } from "../ui/KindTile.tsx";
@@ -251,7 +252,7 @@ function PinMark({
     look = (
       <span
         className={`inline-flex h-8 items-center gap-[5px] rounded-[16px] px-2.5 font-text text-caption font-bold whitespace-nowrap shadow-pin ${
-          accent ? "bg-accent text-on-accent" : "bg-ground text-ink"
+          accent ? "bg-accent-solid text-on-accent" : "bg-ground text-ink"
         }`}
       >
         {pin.category !== undefined && <FamilyIcon family={kindOf(pin.category).family} className="size-[15px]" />}
@@ -264,7 +265,7 @@ function PinMark({
       <span
         className={`inline-flex items-center font-text whitespace-nowrap ${
           accent
-            ? "h-10 gap-[5px] rounded-[20px] bg-accent px-3.5 text-body font-extrabold text-on-accent shadow-pin-chosen"
+            ? "h-10 gap-[5px] rounded-[20px] bg-accent-solid px-3.5 text-body font-extrabold text-on-accent shadow-pin-chosen"
             : "h-8 gap-1 rounded-[16px] bg-ground px-2.5 text-secondary font-bold text-ink shadow-pin"
         }`}
       >
@@ -351,12 +352,13 @@ function BackButton({ label, onBack }: { label: string; onBack(): void }): JSX.E
 }
 
 /**
- * A map: MapTiler's tiles in the tokens' colours, or a plain ground when there is no key; the pins,
- * gathered into bubbles where they crowd; where the person is; and "© MapTiler © OpenStreetMap
- * contributors" at the bottom right, on every map.
+ * A map: MapTiler's tiles in the tokens' colours, in the page's theme, or a plain ground when there
+ * is no key; the pins, gathered into bubbles where they crowd; where the person is; and "© MapTiler
+ * © OpenStreetMap contributors" at the bottom right, on every map.
  *
  * MapLibre is loaded when the first map is drawn, from a chunk of its own. The map is made once, and
- * removed when this goes; a change of pins changes the map's data, and a change of centre moves it.
+ * removed when this goes; a change of pins changes the map's data, a change of centre moves it, and a
+ * change of theme gives it the other theme's style where it is.
  * Each pin is a button, drawn by React into a marker of the map's own, so it has a name a screen
  * reader can read and a place in the keyboard's order.
  */
@@ -418,6 +420,8 @@ export function BaseMap({
   });
   // Looks again at what the map shows: set once the map is made.
   const lookAgain = useRef<() => void>(() => {});
+  // Gives the map the style of a theme: set once the map is made.
+  const restyle = useRef<(theme: Theme) => void>(() => {});
 
   // How much of the map's top and foot what floats over it covers, in pixels, and how tall the map
   // is: a pin under the search field or the docked card cannot be seen, so the keyboard skips it.
@@ -490,7 +494,9 @@ export function BaseMap({
         const fitted = left === undefined && box !== undefined ? { bounds: box, fitBoundsOptions: FIT_OPTIONS } : {};
         // Right-drag and Ctrl and a drag (which turn, tilt and roll it), and two fingers tilting it.
         const unturned = keptFlat ? { dragRotate: false, touchPitch: false, pitchWithRotate: false } : {};
-        const style = mapStyle(config.mapTilerKey);
+        // The theme the map is drawn in, and its style: both change when the page's theme does.
+        let theme = currentTheme();
+        let style = mapStyle(config.mapTilerKey, theme);
         let map: MapLibreMap;
         try {
           map = new library.Map({
@@ -563,7 +569,7 @@ export function BaseMap({
           // The style itself did not come: the plain ground instead, so the pins still have a map.
           if (!styled && !fellBack && typeof style === "string" && event.sourceId === undefined) {
             fellBack = true;
-            map.setStyle(mapStyle(undefined));
+            map.setStyle(mapStyle(undefined, theme));
           }
         });
 
@@ -572,7 +578,7 @@ export function BaseMap({
         // has neither, so each style gets both.
         const setUp = () => {
           styled = true;
-          recolour(map);
+          recolour(map, theme);
           if (map.getSource(PIN_SOURCE) === undefined) {
             const now = gathered(latest.current.pins, latest.current.selected);
             appliedWithout.current = latest.current.selected;
@@ -596,6 +602,17 @@ export function BaseMap({
         });
         // Each frame, which pins and bubbles are drawn. Nothing changes on screen unless that does.
         map.on("render", look);
+
+        // The page's theme changed: the other theme's style, built afresh, which `setUp` colours and puts
+        // the pins back on once it has loaded. The view stays where it is, and the markers, which are the
+        // page's own, stay on it meanwhile. A map that fell back to the plain ground stays plain.
+        restyle.current = (next) => {
+          if (next === theme) return;
+          theme = next;
+          styled = false;
+          style = fellBack ? mapStyle(undefined, next) : mapStyle(config.mapTilerKey, next);
+          map.setStyle(style, { diff: false });
+        };
 
         let personMoving = false;
         map.on("movestart", (event: { originalEvent?: unknown; byPerson?: unknown }) => {
@@ -632,12 +649,17 @@ export function BaseMap({
       made?.remove();
       mapRef.current = null;
       lookAgain.current = () => {};
+      restyle.current = () => {};
       ownMarkers.clear();
     };
   }, []);
 
   // A pin picked out from outside the map: whether it is in view.
   useEffect(() => lookAgain.current(), [selected, highlighted]);
+
+  // The page's theme: the map takes its style. The map is made in the theme of the moment it is made.
+  const theme = useTheme();
+  useEffect(() => restyle.current(theme), [theme]);
 
   // A new name for the map. MapLibre names its region once, from "Map.Title", when the map is made
   // (which reads the latest label); after that, the region is renamed here.
@@ -825,7 +847,7 @@ export function BaseMap({
           );
         } else if (item.kind === "cluster") {
           const look =
-            "flex h-12 min-w-12 items-center justify-center rounded-full border-[3px] border-ground bg-ink px-1 font-text text-body font-extrabold text-ground shadow-pin";
+            "flex h-12 min-w-12 items-center justify-center rounded-full border-[3px] border-ground bg-emphasis px-1 font-text text-body font-extrabold text-on-emphasis shadow-pin";
           mark = canTap ? (
             <button
               type="button"

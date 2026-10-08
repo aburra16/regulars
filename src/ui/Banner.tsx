@@ -32,7 +32,7 @@ export function PageMessage({
 
 /** The main button on a page: accent, 52 px tall (DeskReview.dc.html, Place.dc.html). */
 export const primaryButton =
-  "inline-flex h-13 cursor-pointer items-center justify-center rounded-button border-0 bg-accent px-7 font-text text-body font-bold text-on-accent no-underline";
+  "inline-flex h-13 cursor-pointer items-center justify-center rounded-button border-0 bg-accent-solid px-7 font-text text-body font-bold text-on-accent no-underline";
 
 /** The places could not be loaded: said as an alert, with Try again. */
 export function LoadFailed({ retry }: { retry(): void }): JSX.Element {

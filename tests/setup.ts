@@ -10,6 +10,7 @@ import { config } from "../src/config";
 import { forgetMapPages } from "../src/explore/mapMemory";
 import { forgetExploreIdx } from "../src/explore/returnPoint";
 import { forgetShownInMemory } from "../src/ui/shown";
+import { forgetThemeInMemory } from "../src/theme/theme";
 import { resetFakeMaplibre } from "./support/fakeMaplibre";
 
 // jsdom has no WebGL, so no map can be drawn. Every test gets the stand-in in place of the map
@@ -65,6 +66,9 @@ afterEach(async () => {
   if (typeof window !== "undefined") {
     window.localStorage.clear();
     window.sessionStorage.clear();
+    // The page's theme as before any was set: the next test starts from the device's setting.
+    document.documentElement.removeAttribute("data-theme");
+    forgetThemeInMemory();
     // The history of the window is the test's own: no entry index from a router that came before.
     window.history.replaceState(null, "", "/");
   }

@@ -32,6 +32,7 @@ import { PlacesProvider } from "./places/store.tsx";
 import { routes } from "./routes.tsx";
 import { ScoresProvider } from "./score/ScoresProvider.tsx";
 import { forgetScrollOfFreshVisit } from "./shell/scrollKey.ts";
+import { followDevice } from "./theme/theme.ts";
 import { APP_ROOT_ID } from "./ui/lockPage.ts";
 
 const root = document.getElementById(APP_ROOT_ID);
@@ -39,6 +40,8 @@ if (!root) throw new Error(`Missing #${APP_ROOT_ID} element in index.html`);
 
 // A page opened afresh opens where its address says, not where an earlier visit in this tab left it.
 forgetScrollOfFreshVisit();
+// The theme index.html set before the first paint follows the device's setting from here, until the person chooses one.
+followDevice();
 const router = createBrowserRouter(routes);
 
 // The places load once for the whole app; the reviews, ranks and names of the places that pages ask

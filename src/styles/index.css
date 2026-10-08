@@ -92,6 +92,128 @@
      ("--radius-panel: 22px; 24px on desktop"); the padding is the design's 22 px. */
   --radius-panel-desktop: 24px;
   --space-panel-desktop: 22px;
+  /* The accent as a solid ground for white words (the accent buttons, the chosen pin), and the colour
+     shadows are cast in. In the light theme they are the accent and the ink; the dark theme lightens
+     the accent for words and stars on its dark ground, keeps this one, and casts shadows in black. */
+  --accent-solid: #C93A22;
+  --shade: #16202E;
+  /* The edge of what floats: the pins and buttons over the map, and the cards, menus and dialog over
+     the page. None in the light theme, where the shadow sets it apart; a quiet line in the dark, where
+     a shadow does not show. */
+  --float-edge: transparent;
+  /* The fill that marks what is chosen or acted on (a chosen chip or toggle, the account button, a
+     bubble of pins, the map's buttons and its note), and the words on it: the ink and the ground in the
+     light theme, as the design draws them; in the dark, a softer slate, so the ink turned light is not
+     the brightest thing on the page. */
+  --emphasis: #16202E;
+  --on-emphasis: #FFFFFF;
+  /* Form controls and scroll bars in the light theme's colours, until the dark theme says otherwise. */
+  color-scheme: light;
+}
+
+/* ---- The dark theme ----
+   The same hues as the tokens, their lightness turned over, and quiet: no colour brighter than it
+   needs to be to read. The page follows the device's setting until the person chooses (the switch in
+   the top bar, src/theme/ThemeToggle.tsx); index.html's head sets `data-theme` on <html> before the
+   first paint, from that choice or the device's setting. Without JavaScript the device's setting
+   decides here. The two blocks are the same: tests/theme.test.tsx checks it, and checks every pair of
+   colours the app puts together against WCAG AA in both themes. The sign-in page's own colours
+   (--night and the two on it) stay as they are. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #10161F;
+    --ink: #E7EBF0;
+    --ink-soft: #C9D0D8;
+    --muted: #8F9AA7;
+    --surface: #18212C;
+    --line: #263140;
+    --line-strong: #5E6D82;
+    --line-dashed: #64738A;
+    --field-border: #6B7889;
+    --accent: #E56A51;
+    --accent-solid: #C93A22;
+    --on-accent: #FFFFFF;
+    --trust: #4FB3AB;
+    --trust-ink: #9ED8D2;
+    --trust-tint: #12302E;
+    --trust-track: #1E4A46;
+    --map-land: #1B2430;
+    --map-park: #1D352F;
+    --map-water: #0C1724;
+    --you-are-here: #5B8FF0;
+    --shade: #000000;
+    --float-edge: #334050;
+    --emphasis: #A3AEBB;
+    --on-emphasis: #10161F;
+    --shadow-float: 0 0 0 1px var(--float-edge), 0 2px 10px rgba(0, 0, 0, 0.4);
+    --shadow-card-over-map: 0 0 0 1px var(--float-edge), 0 4px 18px rgba(0, 0, 0, 0.45);
+    --shadow-dialog: 0 0 0 1px var(--float-edge), 0 24px 60px rgba(0, 0, 0, 0.6);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #10161F;
+  --ink: #E7EBF0;
+  --ink-soft: #C9D0D8;
+  --muted: #8F9AA7;
+  --surface: #18212C;
+  --line: #263140;
+  --line-strong: #5E6D82;
+  --line-dashed: #64738A;
+  --field-border: #6B7889;
+  --accent: #E56A51;
+  --accent-solid: #C93A22;
+  --on-accent: #FFFFFF;
+  --trust: #4FB3AB;
+  --trust-ink: #9ED8D2;
+  --trust-tint: #12302E;
+  --trust-track: #1E4A46;
+  --map-land: #1B2430;
+  --map-park: #1D352F;
+  --map-water: #0C1724;
+  --you-are-here: #5B8FF0;
+  --shade: #000000;
+  --float-edge: #334050;
+  --emphasis: #A3AEBB;
+  --on-emphasis: #10161F;
+  --shadow-float: 0 0 0 1px var(--float-edge), 0 2px 10px rgba(0, 0, 0, 0.4);
+  --shadow-card-over-map: 0 0 0 1px var(--float-edge), 0 4px 18px rgba(0, 0, 0, 0.45);
+  --shadow-dialog: 0 0 0 1px var(--float-edge), 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+
+/* A part of a page that keeps the light theme's colours in both themes: the sign-in page, whose
+   ground is dark already (--night), and whose desktop card is white. Each colour the dark theme
+   changes, as the tokens have it. */
+[data-theme="light"] {
+  color-scheme: light;
+  --ground: #FFFFFF;
+  --ink: #16202E;
+  --ink-soft: #2B3644;
+  --muted: #5A6675;
+  --surface: #F3F5F7;
+  --line: #E2E6EB;
+  --line-strong: #D5DAE0;
+  --line-dashed: #C3CAD3;
+  --field-border: #8A95A3;
+  --accent: #C93A22;
+  --accent-solid: #C93A22;
+  --on-accent: #FFFFFF;
+  --trust: #0B6E69;
+  --trust-ink: #084F4B;
+  --trust-tint: #E3F1EF;
+  --trust-track: #BFDFDB;
+  --map-land: #E4EAEE;
+  --map-park: #CFE3DA;
+  --map-water: #CBDDEA;
+  --you-are-here: #2B6CD9;
+  --shade: #16202E;
+  --float-edge: transparent;
+  --emphasis: #16202E;
+  --on-emphasis: #FFFFFF;
+  --shadow-float: 0 2px 10px rgba(22, 32, 46, 0.14);
+  --shadow-card-over-map: 0 4px 18px rgba(22, 32, 46, 0.18);
+  --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.35);
 }
 
 /* ---- Tailwind names for the tokens. `inline` makes each utility read the token variable
@@ -107,7 +229,11 @@
   --color-line-dashed: var(--line-dashed);
   --color-field-border: var(--field-border);
   --color-accent: var(--accent);
+  --color-accent-solid: var(--accent-solid);
   --color-on-accent: var(--on-accent);
+  --color-shade: var(--shade);
+  --color-emphasis: var(--emphasis);
+  --color-on-emphasis: var(--on-emphasis);
   --color-trust: var(--trust);
   --color-trust-ink: var(--trust-ink);
   --color-trust-tint: var(--trust-tint);
@@ -190,22 +316,24 @@
 
 /* The shadows of the things on the map that the tokens have no shadow for (Map.dc.html,
    DeskExplore.dc.html): a pin, a place's ring, the chosen pin, the dark buttons over the map, the
-   zoom buttons, and the halo of where the person is. Each is the design's, in the ink colour (or
-   the you-are-here blue) at the design's strength. */
+   zoom buttons, and the halo of where the person is. Each is the design's, in the shade (the ink
+   colour in the light theme, black in the dark, where the ink is light) or the you-are-here blue, at
+   the design's strength. The pins and the buttons drawn in the page's ground have the edge of what
+   floats too, which only the dark theme draws. */
 @utility shadow-pin {
-  box-shadow: 0 2px 6px color-mix(in srgb, var(--ink) 22%, transparent);
+  box-shadow: 0 0 0 1px var(--float-edge), 0 2px 6px color-mix(in srgb, var(--shade) 22%, transparent);
 }
 @utility shadow-pin-ring {
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 25%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--shade) 25%, transparent);
 }
 @utility shadow-pin-chosen {
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--ink) 30%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--shade) 30%, transparent);
 }
 @utility shadow-map-button {
-  box-shadow: 0 2px 10px color-mix(in srgb, var(--ink) 20%, transparent);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--shade) 20%, transparent);
 }
 @utility shadow-map-controls {
-  box-shadow: 0 2px 10px color-mix(in srgb, var(--ink) 18%, transparent);
+  box-shadow: 0 0 0 1px var(--float-edge), 0 2px 10px color-mix(in srgb, var(--shade) 18%, transparent);
 }
 @utility shadow-you-are-here {
   box-shadow: 0 0 0 8px color-mix(in srgb, var(--you-are-here) 20%, transparent);
@@ -252,8 +380,8 @@
    layer, so it wins over MapLibre's rule, which the map's chunk loads after this stylesheet. */
 .maplibregl-map .maplibregl-cooperative-gesture-screen {
   padding: 16px calc(var(--touch) + 20px);
-  background: color-mix(in srgb, var(--ink) 70%, transparent);
-  color: var(--ground);
+  background: color-mix(in srgb, var(--emphasis) 80%, transparent);
+  color: var(--on-emphasis);
   font-family: var(--font-text);
   font-size: var(--size-body);
   font-weight: 700;

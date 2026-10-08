@@ -159,6 +159,13 @@ describe("copy", () => {
     ).toEqual([]);
   });
 
+  it("names the house once in each line its badge sits in, by the one name copy has for it", () => {
+    expect(copy.house.name).toBe("Mise en Place");
+    for (const line of [copy.explore.houseLine, copy.about.houseBody]) {
+      expect(line.split(copy.house.name)).toHaveLength(2);
+    }
+  });
+
   it("takes the app name from config.appName, not a second literal", async () => {
     expect(copy.app.name).toBe(config.appName);
 
@@ -240,11 +247,7 @@ describe("index.html", () => {
     );
   });
 
-  it("names an empty icon, so a browser does not ask the site for a /favicon.ico it does not have", () => {
-    // A real icon is a design question for Avi; until then, no request and no 404 on every load.
-    const icons = Array.from(indexHtml.querySelectorAll('link[rel="icon"]'));
-    expect(icons.map((icon) => icon.getAttribute("href"))).toEqual(["data:,"]);
-  });
+  // Its icons, made from the house's logo, are checked in tests/icons.test.ts.
 
   it("no banned word in index.html title or meta", () => {
     const texts = [

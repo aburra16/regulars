@@ -5,6 +5,7 @@ import type { ComponentProps } from "react";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import houseBadge64 from "../src/assets/house/house-64.png";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { HereProvider } from "../src/location/HereProvider";
@@ -176,6 +177,24 @@ describe("Explore on a phone: the top of the page", () => {
     expect(link.parentElement).toHaveTextContent(`${copy.explore.houseLine} How this works`);
   });
 
+  it("puts the house's badge beside its name in that line, 20 px and round, as decoration", async () => {
+    await openExplore();
+    const line = (await screen.findByRole("link", { name: "How this works" })).parentElement!;
+    const badges = line.querySelectorAll("img");
+    expect(badges).toHaveLength(1);
+    const badge = badges[0]!;
+    // The name is in the text beside it, so the badge says nothing to a screen reader.
+    expect(badge).toHaveAttribute("alt", "");
+    expect(badge.parentElement!.textContent).toBe(copy.house.name);
+    expect(badge.nextSibling?.textContent).toBe(copy.house.name);
+    // The app's own file, three times the size it is drawn at.
+    expect(badge).toHaveAttribute("src", houseBadge64);
+    expect(badge).toHaveAttribute("width", "20");
+    expect(badge).toHaveAttribute("height", "20");
+    expect(badge).toHaveClass("size-5", "rounded-full");
+    expect(line).toHaveTextContent(`${copy.explore.houseLine} How this works`);
+  });
+
   it("has the chips All, Open now, Restaurants and Cafes, with All pressed, and More, which goes to the filters", async () => {
     await openExplore();
     const group = screen.getByRole("group", { name: copy.explore.filtersLabel });
@@ -193,7 +212,7 @@ describe("Explore on a phone: the top of the page", () => {
     const user = userEvent.setup();
     await openExplore();
     const pressed = chip("All");
-    expect(pressed).toHaveClass("border-0", "bg-ink", "text-ground", "px-[calc(1rem+var(--border))]");
+    expect(pressed).toHaveClass("border-0", "bg-emphasis", "text-on-emphasis", "px-[calc(1rem+var(--border))]");
     expect(pressed).not.toHaveClass("border-token", "px-4");
 
     const resting = chip("Open now");
