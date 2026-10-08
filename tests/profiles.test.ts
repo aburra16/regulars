@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { nameIn, namesFrom } from "../src/nostr/profiles";
+import { nameIn, pictureIn, profilesFrom } from "../src/nostr/profiles";
 import { hex64, shapedEvent } from "./support/events";
 
 const profile = (fields: Record<string, unknown>) => JSON.stringify(fields);
 const ALICE = hex64("a");
 const BOB = hex64("b");
+const CAROL = hex64("c");
 /** A real public key's code (the house's), as a person might paste it into their name. */
 const NPUB = "npub1f00dy9eqw53patfe8g96ajw9xq3casvjc25umw78w4963se40djqwxgrq8";
 
@@ -82,22 +83,73 @@ describe("nameIn (Review Focus 4)", () => {
   });
 });
 
-describe("namesFrom", () => {
-  it("names each person from their newest profile, even one with no name", () => {
-    const older = shapedEvent({ kind: 0, pubkey: ALICE, created_at: 1_700_000_000, content: profile({ name: "Alice" }) });
+describe("pictureIn", () => {
+  const AT = "https://img.example.test/me.jpg";
+
+  it("keeps an https address, trimmed", () => {
+    expect(pictureIn(profile({ name: "Alice", picture: AT }))).toBe(AT);
+    expect(pictureIn(profile({ picture: ` \n${AT}?size=96\t ` }))).toBe(`${AT}?size=96`);
+  });
+
+  it("drops any other scheme, and an address that is not whole", () => {
+    for (const picture of [
+      "http://img.example.test/me.jpg",
+      "data:image/png;base64,iVBORw0KGgo=",
+      "javascript:alert(1)",
+      " JavaScript:alert(1)",
+      "blob:https://img.example.test/1",
+      "ftp://img.example.test/me.jpg",
+      "//img.example.test/me.jpg",
+      "/me.jpg",
+      "img.example.test/me.jpg",
+      "https://",
+    ]) {
+      expect(pictureIn(profile({ picture })), picture).toBeUndefined();
+    }
+  });
+
+  it("drops an address with a user name or a password in it", () => {
+    expect(pictureIn(profile({ picture: "https://alice:secret@img.example.test/me.jpg" }))).toBeUndefined();
+    expect(pictureIn(profile({ picture: "https://alice@img.example.test/me.jpg" }))).toBeUndefined();
+    expect(pictureIn(profile({ picture: "https://:secret@img.example.test/me.jpg" }))).toBeUndefined();
+  });
+
+  it("drops an address longer than 2,000 characters", () => {
+    const longest = `https://img.example.test/${"a".repeat(2000 - "https://img.example.test/".length)}`;
+    expect(longest).toHaveLength(2000);
+    expect(pictureIn(profile({ picture: `  ${longest}  ` }))).toBe(longest);
+    expect(pictureIn(profile({ picture: `${longest}a` }))).toBeUndefined();
+  });
+
+  it("is undefined with no picture, one that is not text, or content that is not a JSON object", () => {
+    expect(pictureIn(profile({ name: "Alice" }))).toBeUndefined();
+    for (const picture of ["", "   ", 7, [AT], { url: AT }, null]) expect(pictureIn(profile({ picture }))).toBeUndefined();
+    for (const content of ["{not json", "", "null", "[]", `"${AT}"`]) expect(pictureIn(content)).toBeUndefined();
+  });
+});
+
+describe("profilesFrom", () => {
+  const AT = "https://img.example.test/alice.jpg";
+
+  it("reads each person's name and picture from their newest profile, even one with neither", () => {
+    const older = shapedEvent({ kind: 0, pubkey: ALICE, created_at: 1_700_000_000, content: profile({ name: "Alice", picture: AT }) });
     const newer = shapedEvent({ kind: 0, pubkey: ALICE, created_at: 1_700_000_100, content: profile({ about: "hi" }) });
-    const bob = shapedEvent({ kind: 0, pubkey: BOB, content: profile({ name: "Bob" }) });
-    expect(namesFrom([newer, bob, older])).toEqual(new Map([[BOB, "Bob"]]));
-    expect(namesFrom([older, bob])).toEqual(
+    const bob = shapedEvent({ kind: 0, pubkey: BOB, content: profile({ name: "Bob", picture: "http://img.example.test/bob.jpg" }) });
+    const carol = shapedEvent({ kind: 0, pubkey: CAROL, content: profile({ picture: "https://img.example.test/carol.jpg" }) });
+    expect(profilesFrom([newer, bob, older])).toEqual(new Map([[BOB, { name: "Bob" }]]));
+    expect(profilesFrom([older, bob, carol])).toEqual(
       new Map([
-        [ALICE, "Alice"],
-        [BOB, "Bob"],
+        [ALICE, { name: "Alice", picture: AT }],
+        [BOB, { name: "Bob" }],
+        [CAROL, { picture: "https://img.example.test/carol.jpg" }],
       ]),
     );
+    // Nothing is set that a profile does not give.
+    expect(Object.keys(profilesFrom([bob]).get(BOB)!)).toEqual(["name"]);
   });
 
   it("passes over events of other kinds and values that are not events", () => {
-    const note = shapedEvent({ kind: 1, pubkey: ALICE, content: profile({ name: "Alice" }) });
-    expect(namesFrom([note, null, "Alice"])).toEqual(new Map());
+    const note = shapedEvent({ kind: 1, pubkey: ALICE, content: profile({ name: "Alice", picture: AT }) });
+    expect(profilesFrom([note, null, "Alice"])).toEqual(new Map());
   });
 });

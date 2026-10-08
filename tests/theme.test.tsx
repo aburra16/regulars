@@ -649,13 +649,12 @@ describe("the dark mode switch", () => {
     expect(theSwitch()).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("sits in the desktop's top bar, left of Saved, on every page but sign in", async () => {
+  it("sits in the desktop's top bar, just left of the account button, on every page but sign in", async () => {
     for (const path of ["/", "/map", "/search?q=tea", "/about", "/saved", "/you"]) {
       const { unmount } = await openApp(path, { events: fixtures, px: DESKTOP });
       const bar = screen.getByRole("banner");
       const button = within(bar).getByRole("button", { name: copy.nav.darkMode });
-      const saved = within(bar).getByRole("link", { name: copy.nav.saved });
-      expect(button.compareDocumentPosition(saved) & Node.DOCUMENT_POSITION_FOLLOWING, path).toBeTruthy();
+      expect(button.nextElementSibling, path).toBe(within(bar).getByRole("link", { name: copy.nav.signIn }));
       unmount();
     }
   });

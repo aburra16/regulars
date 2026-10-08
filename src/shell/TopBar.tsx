@@ -2,7 +2,8 @@ import { type FormEvent, type JSX, type ReactNode, type RefObject, useEffect, us
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
-import { initialOf, useOwnName } from "../account/useOwnName.ts";
+import { initialOf, useOwnProfile } from "../account/useOwnName.ts";
+import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { NearButton } from "../location/CityPicker.tsx";
 import { LocationNotice } from "../location/LocationNotice.tsx";
@@ -68,13 +69,24 @@ export function AccountSignInLines({ signIn, className = "" }: { signIn: Account
 }
 
 /**
- * The account button of the person signed in as `pubkey`, which goes to the You page: the first letter
- * of their name, as the design draws it (DeskExplore.dc.html, Tuning.dc.html), named "Sofia, your
- * account" for a screen reader. Until the name is known, or when their profile has none, the person
- * icon, named "Your account". `focusNext`: it has just become theirs by a press of it, and takes the focus.
+ * The pictures that would not load this session, by address. Each is asked for once: after that the
+ * initial stands in its place, wherever the button is drawn again (a phone draws it on Explore only).
+ */
+const unloadable = new Set<string>();
+
+/**
+ * The account button of the person signed in as `pubkey`, which goes to the You page: the picture
+ * in their profile, filling the circle, else the first letter of their name, as the design draws it
+ * (DeskExplore.dc.html, Tuning.dc.html), named "Sofia, your account" for a screen reader. Until the
+ * name is known, or when their profile has none, the person icon, named "Your account". A picture
+ * that will not load gives way to the initial. `focusNext`: it has just become theirs by a press of
+ * it, and takes the focus.
  */
 function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: string; focusNext: RefObject<boolean> }): JSX.Element {
-  const name = useOwnName(pubkey);
+  const { name, picture } = useOwnProfile(pubkey);
+  // The picture that has just failed: setting it draws the button again, with the initial.
+  const [, setFailed] = useState<string>();
+  const shown = picture !== undefined && !unloadable.has(picture) ? picture : undefined;
   const button = useRef<HTMLAnchorElement>(null);
   useEffect(() => {
     if (!focusNext.current) return;
@@ -83,7 +95,30 @@ function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: 
   }, [focusNext]);
   return (
     <NavLink ref={button} to="/you" end aria-label={name === undefined ? copy.nav.yourAccount : copy.nav.accountOf(name)} className={ROUND}>
-      <Disc size={size}>{name === undefined ? <PersonIcon size={20} /> : <span lang={scriptLang(name)}>{initialOf(name)}</span>}</Disc>
+      <Disc size={size}>
+        {shown !== undefined ? (
+          // Privacy: the person's own picture only; no one else's is ever loaded. It comes from the
+          // image host their own profile names, which sees no more than that they opened Regulars:
+          // with no referrer, not even which page. Its ground shows while it loads, and the ring
+          // keeps the edge of a light or a dark picture in either theme.
+          <img
+            src={shown}
+            alt=""
+            referrerPolicy="no-referrer"
+            loading="lazy"
+            decoding="async"
+            onError={() => {
+              unloadable.add(shown);
+              setFailed(shown);
+            }}
+            className="size-full rounded-full bg-surface object-cover ring-1 ring-line"
+          />
+        ) : name === undefined ? (
+          <PersonIcon size={20} />
+        ) : (
+          <span lang={scriptLang(name)}>{initialOf(name)}</span>
+        )}
+      </Disc>
     </NavLink>
   );
 }
@@ -173,9 +208,9 @@ function SearchField(): JSX.Element {
 
 /**
  * The desktop's one top bar (DeskExplore.dc.html): the wordmark, the search field with the
- * location inside it, the House picks / My circle toggle, the dark mode switch, Saved and the
- * account button. Under it, the lines of the account button signing the person in, and the region
- * that says when the person's location could not be used.
+ * location inside it, the House picks / My circle toggle, the dark mode switch, Saved once saved
+ * lists open (`config.features.saved`), and the account button. Under it, the lines of the account
+ * button signing the person in, and the region that says when the person's location could not be used.
  */
 export function TopBar(): JSX.Element {
   const signIn = useAccountSignIn();
@@ -189,16 +224,18 @@ export function TopBar(): JSX.Element {
         <div className="ml-auto flex flex-wrap items-center gap-x-[18px] gap-y-3">
           <ViewSwitch variant="compact" />
           <ThemeToggle />
-          <NavLink
-            to="/saved"
-            className={({ isActive }) =>
-              `inline-flex min-h-touch items-center text-[15px] no-underline ${
-                isActive ? "font-bold text-accent" : "font-semibold text-ink hover:text-accent"
-              }`
-            }
-          >
-            {copy.nav.saved}
-          </NavLink>
+          {config.features.saved && (
+            <NavLink
+              to="/saved"
+              className={({ isActive }) =>
+                `inline-flex min-h-touch items-center text-[15px] no-underline ${
+                  isActive ? "font-bold text-accent" : "font-semibold text-ink hover:text-accent"
+                }`
+              }
+            >
+              {copy.nav.saved}
+            </NavLink>
+          )}
           <AccountLink size="desktop" signIn={signIn} />
         </div>
       </header>

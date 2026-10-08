@@ -621,6 +621,19 @@ describe("the place page, scored", () => {
     expect(screen.queryByRole("button", { name: copy.reviews.show })).not.toBeInTheDocument();
   });
 
+  it("draws no reviewer's picture, even one their profile gives: the app shows no one's picture but the person's own", async () => {
+    const pictured = [
+      shapedEvent({ kind: 0, pubkey: ALICE, content: JSON.stringify({ name: "Alice Bento", picture: "https://img.example.test/alice.jpg" }) }),
+      shapedEvent({ kind: 0, pubkey: BOB, content: JSON.stringify({ name: "Bob", picture: "https://img.example.test/bob.jpg" }) }),
+    ];
+    const { readers } = houseNetwork(jacafeScored(), HOUSE_RANKS, { [SEARCH]: createMemoryReader([...jacafeScored(), ...pictured]) });
+    await openApp(placePath(JACAFE), { events: places, readers });
+
+    await screen.findByText("Alice Bento");
+    expect(insideReviews()).toHaveLength(2);
+    expect(document.querySelector('img[src^="https://img.example.test/"]')).toBeNull();
+  });
+
   it("puts every reviewer's name in a <bdi>, kept apart from the text around it", async () => {
     const { readers } = houseNetwork([...jacafeScored(), reviewOf(DAVE, JACAFE, 3, "Fine.", 1)], HOUSE_RANKS);
     await openApp(placePath(JACAFE), { events: places, readers });

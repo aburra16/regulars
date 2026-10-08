@@ -580,7 +580,10 @@ describe.each([
 
   it("has the tabs on a phone, and does not wait for the places", async () => {
     await openApp(path, { events: fixtures });
-    expect(within(tabBar()!).getByRole("link", { name: name })).toHaveAttribute("aria-current", "page");
+    expect(tabBar()).toBeInTheDocument();
+    // Saved is no tab until saved lists open (config.features.saved): on it, no tab is the page that is open.
+    if (path === "/saved") expect(within(tabBar()!).queryByRole("link", { current: "page" })).not.toBeInTheDocument();
+    else expect(within(tabBar()!).getByRole("link", { name: name })).toHaveAttribute("aria-current", "page");
   });
 
   it("is the page of the top bar on a desktop, with no tabs", async () => {

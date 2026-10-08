@@ -945,8 +945,10 @@ describe("ScoresProvider: scores", () => {
     }
     const shown = JSON.stringify(result.current);
     for (const number of ["73.25", "0.7325", "7325"]) expect(shown).not.toContain(number);
+    // The person's own picture is an address, no number: useOwnPicture.
     expect(Object.keys(await import("../src/score/useScore")).sort()).toEqual([
       "useNames",
+      "useOwnPicture",
       "useScore",
       "useScoreActions",
       "useScores",
