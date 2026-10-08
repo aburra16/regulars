@@ -727,6 +727,25 @@ describe("search", () => {
       expect(namesOf(search(idx, "funchal")).sort()).toEqual(funchal.map((place) => place.name).sort());
     });
 
+    it("never include a part of a town named with commas", () => {
+      // Five places in "Sabaneta, Antioquia" and three in "Sabaneta": the parts of the first would
+      // be cuisines of five places each if they were read as cuisines.
+      const compound = [0, 1, 2, 3, 4].map((i) =>
+        make(`Ana ${i}`, { locality: "Sabaneta, Antioquia", keywords: ["restaurant", "pizza", "sabaneta, antioquia"], ...north(i + 1) }),
+      );
+      const plain = [0, 1, 2].map((i) =>
+        make(`Beto ${i}`, { locality: "Sabaneta", keywords: ["restaurant", "pizza", "sabaneta"], ...north(i + 6) }),
+      );
+      const idx = buildIndexes([...compound, ...plain]);
+      expect(idx.isKindQuery("pizza")).toBe(true);
+      for (const word of ["sabaneta", "Antioquia", "sabaneta antioquia", "sabaneta, antioquia"]) {
+        expect(idx.isKindQuery(word)).toBe(false);
+      }
+      // So a search for the town goes by relevance, and finds the places whose locality it is.
+      expect(namesOf(search(idx, "sabaneta", 50)).sort()).toEqual([...compound, ...plain].map((place) => place.name).sort());
+      expect(namesOf(search(idx, "antioquia", 50)).sort()).toEqual(compound.map((place) => place.name).sort());
+    });
+
     it("never include the kind of the place itself", () => {
       const idx = buildIndexes([
         ...fillers(KIND_CUISINE_MIN, { category: "farm", keywords: ["farm"] }),

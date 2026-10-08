@@ -116,8 +116,9 @@ export const FAMILY_SEARCH_TERMS: Partial<Record<FamilyId, string>> = {
 
 /**
  * Words that mean a whole family when they are the query: "coffee" lists the cafes. These are
- * the only synonyms that count. A word like "burger" or "wine" is read as a family only if it is
- * a cuisine or a kind in the places, and otherwise it is searched for like any other word.
+ * the only synonyms that count. Any other word, like "burger" or "wine", makes a kind query only
+ * when it is a kind label, or a cuisine that at least `KIND_CUISINE_MIN` places have (see
+ * indexes.ts). Otherwise it is searched for by relevance, like any other word.
  */
 export const KIND_SYNONYMS: Readonly<Record<string, FamilyId>> = {
   coffee: "cafes",

@@ -63,7 +63,13 @@ function termOfCuisine(cuisine: string): string {
  * never a cuisine, and neither is the place's own kind.
  */
 export function cuisinesOf(place: Pick<Place, "category" | "cuisine" | "locality" | "keywords">): string[] {
-  const own = new Set([termOfCuisine(place.category), place.locality === undefined ? "" : termOf(place.locality)]);
+  // Its kind, its town, and each part of a town named with commas ("Sabaneta, Antioquia"), since
+  // a tag of the town is split at the commas like any other.
+  const own = new Set([termOfCuisine(place.category)]);
+  if (place.locality !== undefined) {
+    own.add(termOf(place.locality));
+    for (const part of place.locality.split(",")) own.add(termOfCuisine(part.trim()));
+  }
   const cuisines = new Set<string>();
   for (const value of place.cuisine === undefined ? place.keywords : [place.cuisine, ...place.keywords]) {
     for (const part of value.split(",")) {
