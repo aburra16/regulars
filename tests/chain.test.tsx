@@ -362,12 +362,26 @@ describe("the chain page: locations", () => {
 // ---- A chain's pin on the map, and a link to it ----
 
 describe("the chain page: reached from the map", () => {
-  it("opens from the chain's pin on the map", async () => {
+  it("opens from the chain's pin on the map, through its place's card", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { router } = await openApp("/map", { events: fixtures });
-    const pin = await screen.findByRole("button", { name: /^A Confeitaria Coffee & Bakery, a chain/ });
-    await user.click(pin);
-    await user.click(screen.getByRole("link", { name: "A Confeitaria Coffee & Bakery" }));
+    // Each of the chain's places is a pin of its own (decision 25).
+    const pins = await screen.findAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ });
+    await user.click(pins[0]!);
+    const docked = screen.getByRole("region", { name: copy.map.selected });
+    await user.click(within(docked).getByRole("link", { name: copy.map.partOfChain(CONFEITARIA.name, CONFEITARIA.places.length) }));
+
+    expect(router.state.location.pathname).toBe(confeitariaPath);
+    expect(heading()).toHaveTextContent("A Confeitaria Coffee & Bakery");
+    expect(rows()).toHaveLength(4);
+  });
+
+  it("opens from the chain's card in the list beside the desktop's map, whose pins are its places", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { router } = await openApp("/", { events: fixtures, px: DESKTOP });
+    // The map has each of the chain's places as a pin of its own (decision 25); the list has the chain as one card.
+    expect(await screen.findAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ })).toHaveLength(4);
+    await user.click(within(screen.getByRole("list")).getByRole("link", { name: "A Confeitaria Coffee & Bakery" }));
 
     expect(router.state.location.pathname).toBe(confeitariaPath);
     expect(heading()).toHaveTextContent("A Confeitaria Coffee & Bakery");
@@ -388,7 +402,7 @@ describe("the chain page on a phone", () => {
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
   });
 
-  it("opens the map at the nearest location, with the chain's pin chosen and its card docked", async () => {
+  it("opens the map at the nearest location, with its pin chosen and its card docked", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { router } = await openApp(confeitariaPath, { events: fixtures });
     await user.click(screen.getByRole("link", { name: copy.chain.seeOnMap }));
@@ -401,12 +415,17 @@ describe("the chain page on a phone", () => {
       return made;
     });
     expect(map.options.center).toEqual([nearest.lon, nearest.lat]);
-    const pin = await screen.findByRole("button", { name: /^A Confeitaria Coffee & Bakery, a chain/ });
-    expect(pin).toHaveAttribute("aria-pressed", "true");
+    // Each of the chain's places is a pin of its own on the map (decision 25): the nearest is the one chosen.
+    const pins = await screen.findAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ });
+    expect(pins.filter((pin) => pin.getAttribute("aria-pressed") === "true")).toHaveLength(1);
     const docked = screen.getByRole("region", { name: copy.map.selected });
     expect(within(docked).getByRole("link", { name: "A Confeitaria Coffee & Bakery" })).toHaveAttribute(
       "href",
-      `/chain/${chainSlug(CONFEITARIA)}`,
+      `/place/${encodeURIComponent(nearest.d)}`,
+    );
+    expect(within(docked).getByRole("link", { name: copy.map.partOfChain(CONFEITARIA.name, CONFEITARIA.places.length) })).toHaveAttribute(
+      "href",
+      confeitariaPath,
     );
   });
 
@@ -425,8 +444,17 @@ describe("the chain page on a phone", () => {
       return made;
     });
     expect(map.options.center).toEqual([nearest.lon, nearest.lat]);
-    const card = within(screen.getByRole("list")).getByRole("link", { name: "A Confeitaria Coffee & Bakery" });
-    expect(card).toHaveClass("border-2", "border-ink");
+    // The nearest location's own card, at the top of the list, picked out; the chain's card stays as it is.
+    const [placeCard, chainCard] = within(screen.getByRole("list")).getAllByRole("link", { name: "A Confeitaria Coffee & Bakery" });
+    expect(placeCard).toHaveAttribute("href", `/place/${encodeURIComponent(nearest.d)}`);
+    expect(placeCard).toHaveClass("border-2", "border-ink");
+    expect(placeCard!.closest("li")).toBe(screen.getByRole("list").firstElementChild);
+    // Under it, the way to its chain.
+    expect(
+      within(placeCard!.closest("li")!).getByRole("link", { name: copy.map.partOfChain(CONFEITARIA.name, CONFEITARIA.places.length) }),
+    ).toHaveAttribute("href", confeitariaPath);
+    expect(chainCard).toHaveAttribute("href", `/chain/${chainSlug(CONFEITARIA)}`);
+    expect(chainCard).not.toHaveClass("border-2");
   });
 
   it("leaves the link out when no location is near", async () => {

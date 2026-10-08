@@ -1,4 +1,4 @@
-import { type JSX, type RefObject, useEffect, useRef } from "react";
+import { type JSX, type ReactNode, type RefObject, useEffect, useRef } from "react";
 
 import { copy } from "../copy/en.ts";
 import { type Entry, entryAddress } from "../map/pins.ts";
@@ -25,9 +25,12 @@ const shown = shownMemory("regulars.explore.shown", PAGE_SIZE);
  *
  * Beside a map (the desktop), `selected` is the address of the chosen pin, whose card gets the dark
  * edge and is brought into view, however far down it is; a new `focusRequest` also moves the focus
- * to it (a pin chosen from the keyboard). `onHighlight` hears which card is pointed at or focused, to
- * pick out its pin. `listId` is the list's id, which the pins name as what they open. `scrollRoot`
- * is the element the list scrolls in, when it is not the page.
+ * to it (a pin chosen from the keyboard). `first` is a card before the list's own, and not one of
+ * them: the place of a pin chosen on a map of every place that the list does not hold; `afterFirst`
+ * goes under its card, in the same item (the way to its chain). `onHighlight`
+ * hears which card is pointed at or focused, to pick out its pin. `listId` is the list's id, which
+ * the pins name as what they open. `scrollRoot` is the element the list scrolls in, when it is not
+ * the page.
  *
  * `scores` are the list's places' scores, asked for by the page for the whole list at once. A place
  * only others have rated is a dashed card in a list where some place has a score (Main.dc.html).
@@ -35,6 +38,8 @@ const shown = shownMemory("regulars.explore.shown", PAGE_SIZE);
 export function Entries({
   page,
   entries,
+  first,
+  afterFirst,
   locale,
   now,
   selected,
@@ -46,6 +51,8 @@ export function Entries({
 }: {
   page: ShownPage;
   entries: Entry[];
+  first?: Entry;
+  afterFirst?: ReactNode;
   locale: string;
   now: Date;
   selected?: string;
@@ -57,6 +64,9 @@ export function Entries({
 }): JSX.Element {
   const [count, setCount] = useShownCount(shown, page, entries.length);
   const more = count < entries.length;
+  // The cards on the page: `first`, if there is one, then as many of the list's as are shown.
+  const before = first === undefined ? 0 : 1;
+  const cards = first === undefined ? entries.slice(0, count) : [first, ...entries.slice(0, count)];
   const list = useRef<HTMLUListElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const focusAt = useRef<number | null>(null);
@@ -83,7 +93,9 @@ export function Entries({
   }, [count]);
 
   // The chosen pin's card: shown, with the cards before it, then brought into view, once for each choice.
-  const selectedAt = selected === undefined ? -1 : entries.findIndex((entry) => entryAddress(entry) === selected);
+  // Its place in `first` and the list together, which is its place among the list's items.
+  const all = first === undefined ? entries : [first, ...entries];
+  const selectedAt = selected === undefined ? -1 : all.findIndex((entry) => entryAddress(entry) === selected);
   const broughtIntoView = useRef<string | undefined>(undefined);
   const focused = useRef(focusRequest);
   useEffect(() => {
@@ -93,8 +105,8 @@ export function Entries({
     }
     const focus = focusRequest !== focused.current;
     if (broughtIntoView.current === selected && !focus) return;
-    if (selectedAt >= count) {
-      setCount(Math.ceil((selectedAt + 1) / PAGE_SIZE) * PAGE_SIZE);
+    if (selectedAt >= before + count) {
+      setCount(Math.ceil((selectedAt - before + 1) / PAGE_SIZE) * PAGE_SIZE);
       return;
     }
     broughtIntoView.current = selected;
@@ -103,14 +115,15 @@ export function Entries({
     // jsdom has no scrolling, and nor may an old browser.
     item?.scrollIntoView?.({ block: "nearest" });
     if (focus) item?.querySelector("a")?.focus({ preventScroll: true });
-  }, [selected, selectedAt, count, setCount, focusRequest]);
+  }, [selected, selectedAt, before, count, setCount, focusRequest]);
 
   return (
     <>
       <ul ref={list} id={listId} role="list" className="m-0 flex list-none flex-col gap-3 p-0">
-        {entries.slice(0, count).map((entry) => {
+        {cards.map((entry, i) => {
           const address = entryAddress(entry);
-          const chosen = address === selected;
+          // One card is the chosen one, even when a chain's nearest place is chosen and is the first card too.
+          const chosen = i === selectedAt;
           const point =
             onHighlight === undefined
               ? {}
@@ -135,6 +148,7 @@ export function Entries({
                 now={now}
                 selected={chosen}
               />
+              {i === 0 && first !== undefined && afterFirst}
             </li>
           );
         })}
@@ -145,7 +159,7 @@ export function Entries({
             ref={button}
             type="button"
             onClick={() => {
-              focusAt.current = count;
+              focusAt.current = before + count;
               setCount(count + PAGE_SIZE);
             }}
             className="inline-flex h-11 cursor-pointer items-center rounded-button border-token border-line-strong bg-ground px-6 font-text text-body font-semibold text-ink"

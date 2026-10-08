@@ -1533,14 +1533,11 @@ describe("the relay code, kept out of the first screen", () => {
     expect(search.requests).toHaveLength(2);
   });
 
-  it.each([
-    ["a phone", PHONE],
-    ["a desktop", DESKTOP],
-  ])("is loaded once Explore's list is on %s, which asks for its places' reviews in one go", async (_, px) => {
+  it("is loaded once Explore's list is on a phone, which asks for its places' reviews in one go", async () => {
     const search = createMemoryReader([]);
     const { loaded, opened } = await withRelayCode({ [SEARCH]: search });
     const { openApp: open } = await import("./support/app");
-    await open("/", { px, events: places });
+    await open("/", { px: PHONE, events: places });
 
     expect((await screen.findAllByText("Jacafé")).length).toBeGreaterThan(0);
     await waitFor(() => expect(byA(search).length).toBeGreaterThan(0));
@@ -1550,6 +1547,41 @@ describe("the relay code, kept out of the first screen", () => {
     // One request by place address for the list: Jacafé among its places.
     expect(batchesOf(search)).toHaveLength(1);
     expect(batchesOf(search)[0]).toContain(JACAFE);
+  });
+
+  it("is loaded once Explore is on a desktop: one request for the list's places, then at most one for the map's own", async () => {
+    const search = createMemoryReader([]);
+    const { loaded, opened } = await withRelayCode({ [SEARCH]: search });
+    const { openApp: open } = await import("./support/app");
+    const { parsePlaces } = await import("../src/places/load");
+    const { buildIndexes, groupForList } = await import("../src/places/indexes");
+    const { config: fresh } = await import("../src/config");
+    await open("/", { px: DESKTOP, events: places });
+
+    expect((await screen.findAllByText("Jacafé")).length).toBeGreaterThan(0);
+    // The list's places (a chain's card is not scored as one), and the map's pins, every place it draws
+    // on its own (here all of them, each of a chain's places too: decision 25), once it has drawn them.
+    const all = parsePlaces(places);
+    const idx = buildIndexes(all);
+    const { lat, lon, radiusKm } = fresh.defaultCity;
+    const listed = new Set(groupForList(idx.near(lat, lon, radiusKm), idx).flatMap((entry) => ("chain" in entry ? [] : [entry.place.address])));
+    const every = all.map((place) => place.address).sort();
+    await waitFor(() => expect(batchesOf(search).flat().sort()).toEqual(every));
+    await settle();
+    expect(loaded).toHaveBeenCalledTimes(1);
+
+    // The list asks as it is drawn; the map's pins are known only once the map has drawn its tiles, which
+    // comes later (its library and its style load over the network), so the store's 50 ms of gathering
+    // seldom has both. Holding the list's reviews back for the map would make the list wait. So: the
+    // first request has every place of the list; a second, when there is one, has only the map's pins
+    // the list did not ask about (a chain's places, places beyond the list), at most MAX_MARKERS. None
+    // is asked twice, and never a card or a pin at a time.
+    const batches = batchesOf(search);
+    expect(batches.length).toBeLessThanOrEqual(2);
+    for (const address of listed) expect(batches[0]).toContain(address);
+    for (const address of batches[1] ?? []) expect(listed.has(address)).toBe(false);
+    expect(batches.flat()).toHaveLength(every.length);
+    expect(opened.mock.calls.map(([url]) => url)).toEqual(batches.flatMap(() => [SEARCH, SEARCH]));
   });
 
   it.each([

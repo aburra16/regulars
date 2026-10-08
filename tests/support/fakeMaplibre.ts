@@ -232,10 +232,14 @@ export class FakeMap {
     this.handlers.clear();
   });
 
-  /** Plays a person dragging the map to `bounds`, and pinching it to `zoom`. */
-  dragTo(bounds: FakeBounds, zoom = this.zoom) {
+  /**
+   * Plays a person dragging the map to `bounds`, and pinching it to `zoom`. The map then looks at
+   * `center`: by default the middle of the box's longitudes and latitudes, which a flat test map has;
+   * MapLibre's is the middle of the box as drawn, a Mercator projection, so a test can give it.
+   */
+  dragTo(bounds: FakeBounds, zoom = this.zoom, center?: [number, number]) {
     this.bounds = bounds;
-    this.center = [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2];
+    this.center = center ?? [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2];
     this.zoom = zoom;
     const originalEvent = new MouseEvent("mouseup");
     this.fire("movestart", { originalEvent }).fire("moveend", { originalEvent });
