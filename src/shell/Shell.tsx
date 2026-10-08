@@ -44,13 +44,15 @@ function useChrome(): Omit<Required<Chrome>, "fill"> & Pick<Chrome, "fill"> {
 /**
  * What the places allow the page to show: the page itself, perhaps under a quiet line, or a
  * message in its place. No places yet: a calm loading line, then the error with Try again if
- * they could not be loaded. A list that may be short says nothing, to keep the page calm.
+ * they could not be loaded; or, when the browser says it has no connection, that it is offline,
+ * at once (the places load again when it is back: see PlacesProvider). A list that may be short
+ * says nothing, to keep the page calm.
  */
 function loadState(
   { status, places, source, error }: PlacesValue,
   online: boolean,
-): { page: "loading" | "failed" } | { page?: undefined; banner?: string } {
-  if (places.length === 0) return { page: status === "error" ? "failed" : "loading" };
+): { page: "loading" | "failed" | "offline" } | { page?: undefined; banner?: string } {
+  if (places.length === 0) return { page: !online ? "offline" : status === "error" ? "failed" : "loading" };
   // Offline with places that came from this device's saved copy: say so. Otherwise the places
   // on screen are fresh, and all there is to say is that the connection is gone.
   if (!online) return { banner: source === "cache" ? copy.offline : copy.offlineNoCache };
@@ -69,6 +71,8 @@ function Frame(): JSX.Element {
   let content: JSX.Element;
   if (state.page === "failed") {
     content = <LoadFailed retry={places.retry} />;
+  } else if (state.page === "offline") {
+    content = <PageMessage>{copy.load.offline}</PageMessage>;
   } else if (state.page === "loading") {
     content = <PageMessage>{copy.load.loading}</PageMessage>;
   } else {

@@ -196,6 +196,9 @@ export const copy = {
     // DRAFT for Avi
     /** The first visit, while the places load. */
     loading: "Finding places…",
+    // DRAFT for Avi
+    /** The browser says it has no connection, and there are no places on this device to show. */
+    offline: "You're offline. Places will load when you're back online.",
   },
   // DRAFT for Avi
   /** The browser says it has no connection, and the places on screen are the ones saved on this device. */

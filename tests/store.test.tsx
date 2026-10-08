@@ -553,6 +553,41 @@ describe("saving places on the device", () => {
   });
 });
 
+describe("coming back on line", () => {
+  const backOnLine = () => act(() => window.dispatchEvent(new Event("online")));
+
+  it("loads the places again when the browser says it is back, after a load that failed", async () => {
+    const reader = failingOnce();
+    const { result } = renderPlaces(reader);
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    expect(reader.calls).toBe(1);
+
+    backOnLine();
+    await waitFor(() => expect(result.current.places).toHaveLength(43));
+    expect(result.current.source).toBe("network");
+    expect(reader.calls).toBe(2);
+  });
+
+  it("starts the load again when it is back before the first load has answered", async () => {
+    const gate = held(createMemoryReader(fixtures));
+    const { result } = renderPlaces(gate.reader);
+    await waitFor(() => expect(gate.waiting).toBe(1));
+    backOnLine();
+    await waitFor(() => expect(gate.waiting).toBe(2));
+    gate.release(1);
+    await waitFor(() => expect(result.current.places).toHaveLength(43));
+  });
+
+  it("does not load again when the latest places are on screen already", async () => {
+    const reader = createMemoryReader(fixtures);
+    const { result } = renderPlaces(reader);
+    await waitFor(() => expect(result.current.places).toHaveLength(43));
+    backOnLine();
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    expect(reader.requests).toHaveLength(1);
+  });
+});
+
 describe("not saving what the device has already", () => {
   /** A copy of `event` written again, at a later time: a new version of the same address. */
   const rewritten = (event: NostrEvent): NostrEvent => ({

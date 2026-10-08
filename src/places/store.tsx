@@ -215,6 +215,21 @@ export function PlacesProvider({ children, reader }: { children: ReactNode; read
     setAttempt((n) => n + 1);
   }, []);
 
+  // Back on line: load again, unless the latest places are on screen already. A load that was
+  // waiting on a connection that had gone is started again, not left to run out its time.
+  const latestState = useRef(state);
+  useEffect(() => {
+    latestState.current = state;
+  }, [state]);
+  useEffect(() => {
+    const onOnline = () => {
+      const { status, source, error } = latestState.current;
+      if (status !== "ready" || source !== "network" || error !== undefined) retry();
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [retry]);
+
   const value = useMemo(() => ({ ...state, retry }), [state, retry]);
   return <PlacesContext value={value}>{children}</PlacesContext>;
 }

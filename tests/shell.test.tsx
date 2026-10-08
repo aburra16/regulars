@@ -585,13 +585,27 @@ describe("the load banners", () => {
     expect(loadRegion()).toBeEmptyDOMElement();
   });
 
-  it("shows the error page, not the offline line, when there are no places at all", () => {
-    online = false;
-    placesOverride.value = placesState({ status: "error", places: [], error: "network" });
-    renderApp("/");
-    expect(screen.getByRole("alert")).toHaveTextContent(copy.load.failed);
-    expect(loadRegion()).toBeEmptyDOMElement();
-  });
+  it.each(["loading", "error"] as const)(
+    "says at once that the device is offline when there are no places at all (%s), not that they are on their way",
+    (status) => {
+      online = false;
+      placesOverride.value = placesState({ status, places: [], source: "network", complete: false });
+      renderApp("/");
+      const message = screen.getByText(copy.load.offline);
+      expect(copy.load.offline).toBe("You're offline. Places will load when you're back online.");
+      expect(message).toHaveAttribute("role", "status");
+      expect(screen.queryByText(copy.load.loading)).not.toBeInTheDocument();
+      expect(screen.queryByText(copy.load.failed)).not.toBeInTheDocument();
+      // One line about it, not two.
+      expect(loadRegion()).toBeEmptyDOMElement();
+      expect(exploreHeading()).not.toBeInTheDocument();
+
+      // Back on line, the page goes back to the places' own state.
+      setOnline(true);
+      expect(screen.queryByText(copy.load.offline)).not.toBeInTheDocument();
+      expect(screen.getByText(status === "loading" ? copy.load.loading : copy.load.failed)).toBeInTheDocument();
+    },
+  );
 
   it("recovers with the real store: an error, then Try again, then the places (Review Focus 1)", async () => {
     placesOverride.value = undefined;
