@@ -1,17 +1,9 @@
 import type { RouteObject } from "react-router-dom";
 
 import { ExploreList } from "./explore/ExploreList.tsx";
-import {
-  AboutPage,
-  ChainPage,
-  FiltersPage,
-  MapPage,
-  PlacePage,
-  SavedPage,
-  SearchPage,
-  SignInPage,
-  YouPage,
-} from "./pages/placeholders.tsx";
+import { AboutPage, ChainPage, MapPage, PlacePage, SavedPage, SignInPage, YouPage } from "./pages/placeholders.tsx";
+import { FiltersPage } from "./search/FiltersPage.tsx";
+import { SearchPage } from "./search/SearchPage.tsx";
 import { NotFound, PageError } from "./shell/PageError.tsx";
 import { type Chrome, Shell } from "./shell/Shell.tsx";
 

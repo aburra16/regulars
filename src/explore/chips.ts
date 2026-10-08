@@ -1,6 +1,6 @@
 import { copy } from "../copy/en.ts";
 import { openState } from "../places/hours.ts";
-import { FAMILIES, type FamilyId, kindOf } from "../places/kinds.ts";
+import { type FamilyId, familyLabel, kindOf } from "../places/kinds.ts";
 import type { Place } from "../places/place.ts";
 
 /** The filter chips on Explore, in order. `all` is the one that is on when none is chosen. */
@@ -9,10 +9,6 @@ export type ExploreChip = (typeof EXPLORE_CHIPS)[number];
 
 /** The chip a kind-of-place chip stands for. */
 const FAMILY_OF: Partial<Record<ExploreChip, FamilyId>> = { restaurants: "restaurants", cafes: "cafes" };
-
-function familyLabel(id: FamilyId): string {
-  return FAMILIES.find((family) => family.id === id)?.label ?? id;
-}
 
 /** What each chip says: the kind chips take the name the kind families already have. */
 export const CHIP_LABELS: Record<ExploreChip, string> = {

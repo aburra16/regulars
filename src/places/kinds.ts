@@ -66,6 +66,11 @@ export const FAMILIES: Family[] = kinds.families.map((family) => {
 
 const familyById = new Map(FAMILIES.map((family) => [family.id, family]));
 
+/** What a family is called: "Bakeries and sweets". */
+export function familyLabel(id: FamilyId): string {
+  return familyById.get(id)?.label ?? id;
+}
+
 // A Map, not an object: a category called "constructor" must not find a property.
 const kindByCategory = new Map<string, KindInfo>(
   kinds.families.flatMap((raw) => {

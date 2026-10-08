@@ -53,3 +53,12 @@ export function formatDistance(km: number, locale: string): string {
   }
   return tenths(km, copy.units.km);
 }
+
+/**
+ * A search distance as a chip says it, from kilometres: "5 km", or, where distance is read in
+ * miles, the same distance as `formatDistance` writes it: "3.1 mi". The kilometres are what the
+ * filter keeps, so the miles are what they come to, not a rounder number that would be less.
+ */
+export function formatRadius(km: number, locale: string): string {
+  return usesMiles(locale) ? formatDistance(km, locale) : `${km} ${copy.units.km}`;
+}

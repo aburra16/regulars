@@ -35,9 +35,25 @@ function edge(variant: PlaceCardProps["variant"], selected: boolean): string {
 }
 
 /**
- * The line about the hours. An open or closed place has that word first, in bold ("Open until
- * 11 pm"). Hours the app could not read are the text as the relay gave it, which can be any length:
- * one line, cut off, with the whole of it in the tooltip.
+ * The words about the hours, as part of a line. An open or closed place has that word first, in
+ * bold ("Open until 11 pm"); the copy puts it first in every line of those two states. Any other
+ * line is as it is.
+ */
+export function HoursText({ state, line }: { state: OpenState; line: string }): JSX.Element {
+  if (state.kind !== "open" && state.kind !== "closed") return <>{line}</>;
+  const space = line.indexOf(" ");
+  const word = space === -1 ? line : line.slice(0, space);
+  return (
+    <>
+      <span className="font-bold text-ink">{word}</span>
+      {space === -1 ? "" : line.slice(space)}
+    </>
+  );
+}
+
+/**
+ * The line about the hours. Hours the app could not read are the text as the relay gave it, which
+ * can be any length: one line, cut off, with the whole of it in the tooltip.
  */
 function HoursLine({ id, state, line }: { id: string; state: OpenState; line: string }): JSX.Element {
   if (state.kind === "unparsed") {
@@ -47,20 +63,9 @@ function HoursLine({ id, state, line }: { id: string; state: OpenState; line: st
       </div>
     );
   }
-  if (state.kind === "open" || state.kind === "closed") {
-    // The copy puts the word first in every line of these two states: "Open until ...", "Closed · opens ...".
-    const space = line.indexOf(" ");
-    const word = space === -1 ? line : line.slice(0, space);
-    return (
-      <div id={id} className="text-secondary text-muted">
-        <span className="font-bold text-ink">{word}</span>
-        {space === -1 ? "" : line.slice(space)}
-      </div>
-    );
-  }
   return (
     <div id={id} className="text-secondary text-muted">
-      {line}
+      <HoursText state={state} line={line} />
     </div>
   );
 }

@@ -37,6 +37,9 @@ const pages = {
 /** How many places a chain has: "74 locations". */
 const locations = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "location" : "locations"}`;
 
+/** How many places: "7 places", "1 place". */
+const places = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "place" : "places"}`;
+
 /** A page's title in the browser's tab: "Search · Regulars". */
 const pageTitle = (page: string) => `${page} · ${config.appName}`;
 
@@ -62,6 +65,59 @@ export const copy = {
     /** The search field's name, for a screen reader. */
     label: "Search places",
     placeholder: "Tacos, coffee, a place name",
+    /** The arrow at the top left of the results, for a screen reader. */
+    back: "Back to Explore",
+    /** The button at the end of the field, for a screen reader. */
+    clear: "Clear search",
+    /** The chip that opens the filters, with how many are on (Search.dc.html): "Filters · 3". */
+    filters: (n: number) => (n === 0 ? "Filters" : `Filters · ${n}`),
+    /** A filter that is on, as its chip says it: "Within 2 mi". */
+    within: (distance: string) => `Within ${distance}`,
+    /** The line under the chips (Search.dc.html): "5 places near Nashville. Nearest first." `sort` is one of the `sortedBy` lines. */
+    summary: (n: number, near: string, sort: string) => `${places(n)} near ${near}. ${sort}.`,
+    /** What order the results are in, as the end of that line. */
+    sortedBy: {
+      score: "Best in My circle first",
+      distance: "Nearest first",
+      name: "A to Z",
+    },
+    /** A chain in the results, in place of a score (Search.dc.html): "3 near you, 2 open now". */
+    chainNearbyOpen: (near: number, open: number) =>
+      `${near.toLocaleString("en")} near you, ${open === 0 ? "none" : open.toLocaleString("en")} open now`,
+    /** The button after the last row shown, when there are more. */
+    showMore: "Show more",
+    /** The box under the results when Open now left some out (Search.dc.html). */
+    hiddenClosed: (n: number) => `${n.toLocaleString("en")} more ${n === 1 ? "is" : "are"} closed right now`,
+    hoursNote: "Places with no hours listed stay in the results, since we can't tell.",
+    showClosed: "Show closed places too",
+    // DRAFT for Avi: the three lines below are the states the design does not draw.
+    /** No place matches the words. `near` is where the search is around: "Funchal", or "you". */
+    noResults: (q: string, near: string) => `No places match "${q}" near ${near}.`,
+    noResultsHint: "Check the spelling, or try fewer words.",
+    /** Places match the words, and all of them are closed, which Open now leaves out. */
+    noResultsOpen: (q: string, near: string) => `No open places match "${q}" near ${near}.`,
+    /** No place passes the filters, and nothing was typed. */
+    noResultsFiltered: (near: string) => `No places near ${near} match those filters.`,
+    noResultsFilteredHint: "Take off a filter to see more.",
+    /** At the foot of the results, a link to add a place that is missing. */
+    addMissing: "Can't find it? Add a missing place",
+  },
+  filters: {
+    /** The cross at the top right, for a screen reader. */
+    close: "Close filters",
+    sortBy: "Sort by",
+    /** The ways to sort. */
+    sort: { score: "My circle's score", distance: "Distance", name: "Name" },
+    // DRAFT for Avi
+    /** Why the first of them cannot be chosen yet. */
+    sortScoreSignedOut: "Sign in to sort by your circle's scores",
+    openNow: "Open now",
+    openNowNote: "Keeps places with no hours listed.",
+    distance: "Distance",
+    kinds: "Kind of place",
+    clearAll: "Clear all",
+    /** The button that applies them (Filters.dc.html): "Show 5 places". */
+    show: (n: number) => (n === 0 ? "No places match" : `Show ${places(n)}`),
   },
   /** The House picks / My circle toggle. */
   view: {

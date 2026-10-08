@@ -14,7 +14,7 @@ const ICONS = new Map<FamilyId, string>(
     const file = kinds.families.find((family) => family.id === id)?.icon;
     const svg = file === undefined ? undefined : svgText[`../assets/icons/${file}`];
     if (svg === undefined) throw new Error(`No icon in src/assets/icons for the ${id} family`);
-    return [id, svg];
+    return [id, svg.trim()];
   }),
 );
 
@@ -31,6 +31,18 @@ const TONE = {
   ground: "bg-ground text-ink",
   ink: "bg-ink text-ground",
 } as const;
+
+/** The icon of a family of kinds, at the size of its box: the filters' kind buttons. It is decoration, and takes the text colour. */
+export function FamilyIcon({ family, className }: { family: FamilyId; className?: string }): JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      className={`block shrink-0 [&>svg]:size-full ${className ?? ""}`}
+      // Safe: the text is one of our own icon files, bundled at build time, never data from outside.
+      dangerouslySetInnerHTML={{ __html: ICONS.get(family) ?? "" }}
+    />
+  );
+}
 
 /** The icon of a place's kind, on a rounded tile. It is decoration: the kind is always in words beside it. */
 export function KindTile({

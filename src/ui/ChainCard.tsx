@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { formatDistance } from "../places/distance.ts";
+import { openState } from "../places/hours.ts";
 import { type Chain, chainSlug, type PlaceDistance } from "../places/indexes.ts";
 import { placeKindLabel } from "../places/kinds.ts";
 import type { Place } from "../places/place.ts";
@@ -37,39 +38,65 @@ function commonKind(chain: Chain, nearby: readonly PlaceDistance[]): { label: st
   return best ?? { label: "", category: "" };
 }
 
-/**
- * Places that share a name, as one card (Main.dc.html): tinted, with what the chain is, how many
- * locations it has and how many of them are near, and a chevron, since it opens a list of them.
- * `nearby` is the chain's places that are in the list, nearest first.
- */
-export function ChainCard({
-  chain,
-  nearby,
-  locale,
-}: {
+/** How the two variants look: the card of Explore (Main.dc.html) and the row of the search results (Search.dc.html). */
+const LOOK = {
+  card: {
+    link: "gap-3.5 rounded-card border-token border-line bg-surface p-3.5",
+    body: "gap-1.5",
+    tile: { size: "card", tone: "ground" },
+    name: "text-card-title",
+  },
+  row: {
+    link: "gap-3 border-b-token border-line py-3.5",
+    body: "gap-1",
+    tile: { size: "row", tone: "ink" },
+    name: "text-[18px]",
+  },
+} as const;
+
+type ChainCardProps = {
   chain: Chain;
+  /** The chain's places that are in the list, nearest first. */
   nearby: PlaceDistance[];
   locale: string;
-}): JSX.Element {
+} & (
+  | { variant?: "card"; now?: undefined }
+  /** The row says how many of the places near are open, so it needs the time. */
+  | { variant: "row"; now: Date }
+);
+
+/**
+ * Places that share a name, as one entry in a list: what the chain is, how many locations it has and
+ * how many of them are near, and a chevron, since it opens a list of them.
+ *
+ * - `card` (Main.dc.html): tinted, with the closest of the places near ("3 near you, the closest 0.6 mi").
+ * - `row` (Search.dc.html): a row of the results, its tile dark, with how many are open ("3 near you, 2 open now").
+ */
+export function ChainCard({ chain, nearby, locale, variant = "card", now }: ChainCardProps): JSX.Element {
   const id = useId();
   const kind = useMemo(() => commonKind(chain, nearby), [chain, nearby]);
   const closest = Math.min(...nearby.map((row) => row.km));
+  const openNow = useMemo(
+    () => (now === undefined ? 0 : nearby.filter((row) => openState(row.place, now).kind === "open").length),
+    [nearby, now],
+  );
+  const look = LOOK[variant];
 
   return (
     <Link
       to={`/chain/${chainSlug(chain)}`}
       aria-labelledby={`${id}-name`}
       aria-describedby={`${id}-kind ${id}-near`}
-      className="flex gap-3.5 rounded-card border-token border-line bg-surface p-3.5 text-ink no-underline"
+      className={`flex text-ink no-underline ${look.link}`}
     >
-      <KindTile category={kind.category} size="card" tone="ground" />
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+      <KindTile category={kind.category} size={look.tile.size} tone={look.tile.tone} />
+      <div className={`flex min-w-0 flex-1 flex-col ${look.body}`}>
         <div className="flex items-start justify-between gap-2.5">
           <span
             id={`${id}-name`}
             lang={scriptLang(chain.name)}
             dir="auto"
-            className="line-clamp-2 min-w-0 font-display text-card-title leading-[1.2] font-bold wrap-break-word"
+            className={`line-clamp-2 min-w-0 font-display leading-[1.2] font-bold wrap-break-word ${look.name}`}
           >
             {chain.name}
           </span>
@@ -79,7 +106,9 @@ export function ChainCard({
           {copy.explore.chainKind(kind.label, chain.places.length)}
         </div>
         <div id={`${id}-near`} className="text-secondary font-bold">
-          {copy.explore.chainNearby(nearby.length, formatDistance(closest, locale))}
+          {variant === "row"
+            ? copy.search.chainNearbyOpen(nearby.length, openNow)
+            : copy.explore.chainNearby(nearby.length, formatDistance(closest, locale))}
         </div>
       </div>
     </Link>

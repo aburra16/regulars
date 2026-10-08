@@ -1,7 +1,17 @@
 import type { JSX } from "react";
 
 /** The line icons of the design: 24-unit, round caps and joins, drawn in the text colour. */
-function Icon({ size, children, className }: { size: number; children: JSX.Element[] | JSX.Element; className?: string }) {
+function Icon({
+  size,
+  children,
+  className,
+  strokeWidth = 2.2,
+}: {
+  size: number;
+  children: JSX.Element[] | JSX.Element;
+  className?: string;
+  strokeWidth?: number;
+}) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -9,7 +19,7 @@ function Icon({ size, children, className }: { size: number; children: JSX.Eleme
       height={size}
       fill="none"
       stroke="currentColor"
-      strokeWidth={2.2}
+      strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -75,6 +85,24 @@ export function FilterIcon(props: IconProps): JSX.Element {
   return (
     <Icon {...props}>
       <path d="M4 7h16M7 12h10M10 17h4" />
+    </Icon>
+  );
+}
+
+/** The chevron pointing left: the way back, at the top left of the search results. */
+export function BackIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props} strokeWidth={2.4}>
+      <path d="M15 5l-7 7 7 7" />
+    </Icon>
+  );
+}
+
+/** The cross: closes the filters, and clears the search field. */
+export function CloseIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props} strokeWidth={2.4}>
+      <path d="M6 6l12 12M18 6L6 18" />
     </Icon>
   );
 }

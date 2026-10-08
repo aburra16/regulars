@@ -11,10 +11,15 @@ import { FilterIcon } from "./icons.tsx";
 const CHIP = "inline-flex h-11 items-center rounded-chip font-text text-[15px] font-semibold";
 const CHIP_ON = "border-0 bg-ink px-[calc(1rem+var(--border))] text-ground";
 const CHIP_OFF = "border-token border-line-strong bg-ground px-4 text-ink";
+/** A chip that cannot be chosen: the lighter edge and the muted words. */
+const CHIP_DISABLED = "cursor-not-allowed border-token border-line bg-ground px-4 text-muted";
 
 export interface ChipOption<T extends string> {
   id: T;
   label: string;
+  /** A chip that cannot be chosen (yet): drawn plainly, not pressable. `describedBy` is the id of the line that says why. */
+  disabled?: boolean;
+  describedBy?: string;
 }
 
 /**
@@ -47,11 +52,13 @@ export function Chips<T extends string>({
             key={option.id}
             type="button"
             aria-pressed={chosen}
+            disabled={option.disabled}
+            aria-describedby={option.describedBy}
             onClick={() => {
               if (chosen && option.id === resting) return;
               onChange(chosen ? resting : option.id);
             }}
-            className={`cursor-pointer ${CHIP} ${chosen ? CHIP_ON : CHIP_OFF}`}
+            className={`${CHIP} ${chosen ? `cursor-pointer ${CHIP_ON}` : option.disabled ? CHIP_DISABLED : `cursor-pointer ${CHIP_OFF}`}`}
           >
             {option.label}
           </button>
