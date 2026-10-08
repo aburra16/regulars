@@ -99,8 +99,14 @@ export const copy = {
     map: "Map",
     saved: "Saved",
     you: "You",
-    /** The round account button, for a screen reader. */
+    /** The round account button, for a screen reader, before sign in. */
     account: "Your account and your circle",
+    // DRAFT for Avi
+    /** The account button after sign in, for a screen reader: "Sofia, your account". */
+    accountOf: (name: string) => `${name}, your account`,
+    // DRAFT for Avi
+    /** The account button after sign in, until the person's name is known. */
+    yourAccount: "Your account",
     // DRAFT for Avi
     /** The moon and sun beside it, for a screen reader (pressed while the page is dark), and the words of its switch on You. */
     darkMode: "Dark mode",
@@ -305,6 +311,8 @@ export const copy = {
     /** The code to scan, for a screen reader. */
     qrLabel: "Code to scan with the app on your phone",
     copyLink: "Copy the link",
+    /** On a phone, beside the code: opens the app on the same phone with the link. */
+    openApp: "Open the app",
     /** Said once the link is copied. */
     copied: "Link copied",
     /** Said when the browser would not copy it. */

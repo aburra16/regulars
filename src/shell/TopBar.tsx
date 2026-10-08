@@ -32,14 +32,14 @@ function AccountButton({ size, label, children }: { size: AccountSize; label: st
 }
 
 /**
- * The account button of the person signed in as `pubkey`: the first letter of their name, and their
- * name for a screen reader (DeskExplore.dc.html, Tuning.dc.html). Until the name is known, or when
- * their profile has none, the person icon, named "You".
+ * The account button of the person signed in as `pubkey`: the first letter of their name, as the
+ * design draws it (DeskExplore.dc.html, Tuning.dc.html), named "Sofia, your account" for a screen
+ * reader. Until the name is known, or when their profile has none, the person icon, named "Your account".
  */
 function PersonButton({ size, pubkey }: { size: AccountSize; pubkey: string }): JSX.Element {
   const name = useOwnName(pubkey);
   return (
-    <AccountButton size={size} label={name ?? copy.nav.you}>
+    <AccountButton size={size} label={name === undefined ? copy.nav.yourAccount : copy.nav.accountOf(name)}>
       {name === undefined ? <PersonIcon size={20} /> : <span lang={scriptLang(name)}>{initialOf(name)}</span>}
     </AccountButton>
   );

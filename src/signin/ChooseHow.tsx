@@ -8,15 +8,22 @@ import { QrCode } from "./QrCode.tsx";
  * What "Continue with Nostr" opens on the sign-in page: the choice of how to sign in, and signing in
  * that way. "This browser" asks the browser's add-on (NIP-07); "An app on your phone" shows a code to
  * scan and a link to copy (NIP-46's nostrconnect), or takes a link the phone app gives (bunker). This
- * module, with the QR code's library, is a chunk the sign-in page loads (./SignInPage.tsx); the
- * signing code loads when a way is chosen (src/account/AccountProvider.tsx).
+ * module, with the QR code's library, is a chunk the sign-in page loads (./loadChooseHow.ts); the
+ * signing code loads when a way is chosen (src/account/AccountProvider.tsx). Once the person is
+ * signed in, the sign-in page takes them back to where they were.
  */
 
 /** The ground the panel is on: the phone's dark page, or the white card on a desktop (SignIn.dc.html, DeskSignIn.dc.html). */
 export type Tone = "night" | "card";
 
-/** The colours of each part on each ground: the sign-in page's own, as its buttons and notes have them. */
+/** The colours of each part on each ground, the sign-in page's own, and what differs between its two layouts. */
 interface Look {
+  /**
+   * The phone's layout. There the person is likely on the phone their app is on, which cannot scan its
+   * own screen: "Open the app" goes to the app with the link. And there a browser seldom takes an
+   * add-on, so the line about getting one is left out.
+   */
+  onPhone: boolean;
   /** A button that goes on: white on the dark page, as Continue is; the accent on the card. */
   primary: string;
   /** A button beside the way on: outlined, as Keep House picks is. */
@@ -33,6 +40,7 @@ interface Look {
 
 const LOOK: Record<Tone, Look> = {
   night: {
+    onPhone: true,
     primary: "border-0 bg-ground text-ink",
     secondary: "border-token border-muted bg-transparent text-ground",
     text: "text-ground",
@@ -41,6 +49,7 @@ const LOOK: Record<Tone, Look> = {
     code: "",
   },
   card: {
+    onPhone: false,
     primary: "border-0 bg-accent-solid text-on-accent",
     secondary: "border-token border-field-border bg-transparent text-ink",
     text: "text-ink",
@@ -83,8 +92,8 @@ function CancelButton({ look, onCancel }: { look: Look; onCancel(): void }): JSX
 
 /**
  * The two ways, "This browser" first: offered only where the browser has an add-on, with a line on
- * how to get one in its place. The focus goes to `focus`'s button, the one the person came back
- * from, or else the first.
+ * how to get one in its place on a desktop. The focus goes to `focus`'s button, the one the person
+ * came back from, or else the first.
  */
 function Choices({ look, focus, onChoose }: { look: Look; focus: How | undefined; onChoose(how: How): void }): JSX.Element {
   const [browser] = useState(hasAddOn);
@@ -103,37 +112,23 @@ function Choices({ look, focus, onChoose }: { look: Look; focus: How | undefined
           {copy.signin.phone}
         </button>
       </div>
-      {!browser && <p className={`m-0 text-center text-caption leading-[1.45] ${look.note}`}>{copy.signin.noAddOn}</p>}
+      {!browser && !look.onPhone && <p className={`m-0 text-center text-caption leading-[1.45] ${look.note}`}>{copy.signin.noAddOn}</p>}
     </>
   );
 }
 
 /** Signing in with the browser's add-on, which asks the person: under way from when it is drawn until it ends or is cancelled. */
-function BrowserWait({
-  look,
-  onSignedIn,
-  onFailed,
-  onCancel,
-}: {
-  look: Look;
-  onSignedIn(): void;
-  onFailed(): void;
-  onCancel(): void;
-}): JSX.Element {
+function BrowserWait({ look, onFailed, onCancel }: { look: Look; onFailed(): void; onCancel(): void }): JSX.Element {
   const connect = useConnect();
   const said = useRef<HTMLParagraphElement>(null);
   useFocusOnMount(said);
-  const signedIn = useEffectEvent(onSignedIn);
   const failed = useEffectEvent(onFailed);
 
   useEffect(() => {
     const controller = new AbortController();
-    connect.browser(controller.signal).then(
-      () => signedIn(),
-      () => {
-        if (!controller.signal.aborted) failed();
-      },
-    );
+    connect.browser(controller.signal).catch(() => {
+      if (!controller.signal.aborted) failed();
+    });
     return () => controller.abort();
   }, [connect]);
 
@@ -149,20 +144,11 @@ function BrowserWait({
 
 /**
  * Signing in with an app on the phone: a code to scan and a link to copy, which the app waits on from
- * when it is drawn, and a field for a link from the phone app, which stops the wait and connects with
- * that instead. One way at a time; each ends when the panel goes (`Cancel`, or the page left).
+ * when it is drawn, and on a phone a link that opens the app on it; and a field for a link from the
+ * phone app, which stops the wait and connects with that instead. One way at a time; each ends when
+ * the panel goes (`Cancel`, or the page left).
  */
-function PhonePanel({
-  look,
-  onSignedIn,
-  onFailed,
-  onCancel,
-}: {
-  look: Look;
-  onSignedIn(): void;
-  onFailed(): void;
-  onCancel(): void;
-}): JSX.Element {
+function PhonePanel({ look, onFailed, onCancel }: { look: Look; onFailed(): void; onCancel(): void }): JSX.Element {
   const connect = useConnect();
   const fieldId = useId();
   const said = useRef<HTMLParagraphElement>(null);
@@ -173,7 +159,6 @@ function PhonePanel({
   const [pasting, setPasting] = useState(false);
   const scanning = useRef<AbortController | null>(null);
   const pastingRef = useRef<AbortController | null>(null);
-  const signedIn = useEffectEvent(onSignedIn);
   const failed = useEffectEvent(onFailed);
 
   useEffect(() => {
@@ -183,12 +168,9 @@ function PhonePanel({
       .phone((uri) => {
         if (!controller.signal.aborted) setLink(uri);
       }, controller.signal)
-      .then(
-        () => signedIn(),
-        () => {
-          if (!controller.signal.aborted) failed();
-        },
-      );
+      .catch(() => {
+        if (!controller.signal.aborted) failed();
+      });
     return () => {
       controller.abort();
       pastingRef.current?.abort();
@@ -215,7 +197,7 @@ function PhonePanel({
     const controller = new AbortController();
     pastingRef.current = controller;
     setPasting(true);
-    connect.bunker(uri, controller.signal).then(onSignedIn, () => {
+    connect.bunker(uri, controller.signal).catch(() => {
       if (!controller.signal.aborted) onFailed();
     });
   };
@@ -225,18 +207,26 @@ function PhonePanel({
       <p ref={said} tabIndex={-1} className={`m-0 text-center text-body font-semibold leading-[1.45] outline-none ${look.text}`}>
         {copy.signin.scan}
       </p>
-      <div className={`mx-auto flex size-[232px] shrink-0 items-center justify-center rounded-tile bg-ground p-3 text-ink ${look.code}`}>
+      {/* The light square behind the code, which draws its own quiet zone (QUIET_ZONE). */}
+      <div className={`mx-auto flex size-[232px] shrink-0 items-center justify-center overflow-hidden rounded-tile bg-ground text-ink ${look.code}`}>
         {link !== undefined && !pasting && <QrCode text={link} label={copy.signin.qrLabel} />}
       </div>
       <div className="flex flex-col items-center gap-1">
-        <button
-          type="button"
-          onClick={() => void copyLink()}
-          aria-disabled={link === undefined || pasting ? true : undefined}
-          className={`${SMALL} ${look.secondary} aria-disabled:cursor-not-allowed aria-disabled:opacity-60`}
-        >
-          {copy.signin.copyLink}
-        </button>
+        <div className="flex flex-wrap justify-center gap-2">
+          {look.onPhone && link !== undefined && !pasting && (
+            <a href={link} className={`${SMALL} ${look.primary} no-underline`}>
+              {copy.signin.openApp}
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => void copyLink()}
+            aria-disabled={link === undefined || pasting ? true : undefined}
+            className={`${SMALL} ${look.secondary} aria-disabled:cursor-not-allowed aria-disabled:opacity-60`}
+          >
+            {copy.signin.copyLink}
+          </button>
+        </div>
         <p role="status" className={`m-0 min-h-[1.45em] text-center text-caption leading-[1.45] ${look.note}`}>
           {copied === "yes" ? copy.signin.copied : copied === "failed" ? copy.signin.notCopied : ""}
         </p>
@@ -296,10 +286,10 @@ function Failed({ look, onRetry, onCancel }: { look: Look; onRetry(): void; onCa
 type Step = { at: "choose"; from?: How } | { at: How; attempt: number } | { at: "failed"; how: How };
 
 /**
- * The choice of how to sign in, in place of Continue, and signing in that way. `onSignedIn` is called
- * once the person is signed in; the page then goes back to where they were.
+ * The choice of how to sign in, in place of Continue, and signing in that way. Once the person is
+ * signed in, the sign-in page goes back to where they were (./SignInPage.tsx).
  */
-export function ChooseHow({ tone, onSignedIn }: { tone: Tone; onSignedIn(): void }): JSX.Element {
+export function ChooseHow({ tone }: { tone: Tone }): JSX.Element {
   const look = LOOK[tone];
   const [step, setStep] = useState<Step>({ at: "choose" });
   const attempts = useRef(0);
@@ -316,7 +306,6 @@ export function ChooseHow({ tone, onSignedIn }: { tone: Tone; onSignedIn(): void
         <BrowserWait
           key={step.attempt}
           look={look}
-          onSignedIn={onSignedIn}
           onFailed={() => setStep({ at: "failed", how: "browser" })}
           onCancel={() => back("browser")}
         />
@@ -325,7 +314,6 @@ export function ChooseHow({ tone, onSignedIn }: { tone: Tone; onSignedIn(): void
         <PhonePanel
           key={step.attempt}
           look={look}
-          onSignedIn={onSignedIn}
           onFailed={() => setStep({ at: "failed", how: "phone" })}
           onCancel={() => back("phone")}
         />

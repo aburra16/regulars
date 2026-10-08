@@ -118,6 +118,8 @@ export interface SignerAppBehaviour {
   connectReply?: "secret" | "wrong-secret" | "ack" | "none";
   /** Its answer to get_public_key: the person's key, an error (the person said no), or nothing. */
   getPublicKey?: "answer" | "error" | "none";
+  /** How it encrypts its answers: NIP-44, as NIP-46 asks, or NIP-04, as some phone apps still do. Default: NIP-44. */
+  encryption?: "nip44" | "nip04";
 }
 
 /** A signer app on a phone, with a person's key, that answers requests on `relay`. */
@@ -150,7 +152,7 @@ export function createSignerApp(relay: MemoryConnectRelay, behaviour: SignerAppB
   let bunkerSecret: string | undefined;
 
   const respond = async (to: string, response: { id: string; result: string; error?: string }) => {
-    const content = await remote.nip44.encrypt(to, JSON.stringify(response));
+    const content = await remote[behaviour.encryption ?? "nip44"].encrypt(to, JSON.stringify(response));
     const event = finalizeEvent({ kind: CONNECT_KIND, created_at: Math.floor(Date.now() / 1000), tags: [["p", to]], content }, remoteKey);
     await relay.event(event);
   };

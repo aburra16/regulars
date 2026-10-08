@@ -23,12 +23,29 @@ export interface Connect {
   bunker(uri: string, signal: AbortSignal): Promise<void>;
 }
 
+/**
+ * The signer signed as someone other than the person who signed in: their add-on or phone app has
+ * changed accounts since. They are signed out; the page that asked should send them to sign in again.
+ */
+export class AccountChanged extends Error {
+  constructor() {
+    super("The signer signed as someone other than the person who signed in");
+    this.name = "AccountChanged";
+  }
+}
+
 const AccountContext = createContext<{ state: AccountState; connect: Connect } | null>(null);
 
 /** Nobody is signed in: what a tree with no provider has, such as a test of part of the app. */
 const SIGNED_OUT: AccountState = { account: undefined, signOut: () => {}, restoring: false };
 
 let connectCode: Promise<typeof import("./connect.ts")> | undefined;
+
+/**
+ * For a closing that cannot be done: the signing code did not load, so it holds nothing open. (It
+ * loaded before there was an account to close, so this is for completeness.)
+ */
+const ignore = () => {};
 
 /**
  * The signing code (./connect.ts), which brings Nostrify: loaded when it is first needed, as the relay
@@ -45,7 +62,8 @@ function loadConnect(): Promise<typeof import("./connect.ts")> {
 /**
  * `account`, with a signer that checks each event it signs is the person's. An add-on or a phone app
  * may have changed to someone else since the person signed in (a reload does not ask again); then
- * `signedSomeoneElse` signs them out, and the signing fails, so they are asked to sign in again.
+ * `signedSomeoneElse` signs them out, and the signing fails with `AccountChanged`, so that the page
+ * that asked can send them to sign in again.
  */
 function checked(account: Account, signedSomeoneElse: () => void): Account {
   const { pubkey, signer } = account;
@@ -55,7 +73,7 @@ function checked(account: Account, signedSomeoneElse: () => void): Account {
       const event = await signer.signEvent(template);
       if (event.pubkey !== pubkey) {
         signedSomeoneElse();
-        throw new Error("The signer signed as someone other than the person who signed in");
+        throw new AccountChanged();
       }
       return event;
     },
@@ -84,13 +102,13 @@ export function AccountProvider({ children, relays }: { children: ReactNode; rel
     current.current = undefined;
     forgetSession();
     setShown({ account: undefined, restoring: false });
-    if (was !== undefined) void loadConnect().then((code) => code.disconnect(was));
+    if (was !== undefined) void loadConnect().then((code) => code.disconnect(was), ignore);
   }, []);
 
   const adopt = useCallback(
     (account: Account) => {
       const was = current.current;
-      if (was !== undefined && was !== account) void loadConnect().then((code) => code.disconnect(was));
+      if (was !== undefined && was !== account) void loadConnect().then((code) => code.disconnect(was), ignore);
       current.current = account;
       setShown({
         account: checked(account, () => {

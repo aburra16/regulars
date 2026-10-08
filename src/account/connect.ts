@@ -129,10 +129,16 @@ function phoneSigner(relay: NRelay, signerPubkey: string, local: NostrSigner, cl
   return signer;
 }
 
-/** Whether `event` is an answer to the app's key that carries `secret`, read with the app's own key (NIP-44). */
+/**
+ * Whether `event` is an answer to the app's key that carries `secret`, read with the app's own key.
+ * NIP-46 encrypts with NIP-44, and some phone apps still answer in NIP-04, whose text ends in
+ * `?iv=<iv>`, which NIP-44's base64 cannot hold: the encryption is told from that, as NConnectSigner
+ * does. Either way it is the secret that decides.
+ */
 async function carriesSecret(local: NSecSigner, event: NostrEvent, secret: string): Promise<boolean> {
   try {
-    const answer: unknown = JSON.parse(await local.nip44.decrypt(event.pubkey, event.content));
+    const scheme = event.content.includes("?iv=") ? local.nip04 : local.nip44;
+    const answer: unknown = JSON.parse(await scheme.decrypt(event.pubkey, event.content));
     return typeof answer === "object" && answer !== null && (answer as { result?: unknown }).result === secret;
   } catch {
     // Not encrypted to the app, not JSON: not the answer.
@@ -142,8 +148,8 @@ async function carriesSecret(local: NSecSigner, event: NostrEvent, secret: strin
 
 /**
  * The key of the phone app that answers the nostrconnect link: the first answer to `appPubkey` on
- * `relay` that carries `secret`. Anything else is passed over: an answer with another secret, or "ack",
- * which anyone who saw the app's key could send. The request is open from the moment this is called
+ * `relay` that carries `secret`, in NIP-44 or NIP-04. Anything else is passed over: an answer with
+ * another secret, or "ack", which anyone who saw the app's key could send. The request is open from the moment this is called
  * (the code is shown after it), and closed when it returns or `signal` aborts.
  */
 async function connectAnswer(relay: NRelay, local: NSecSigner, appPubkey: string, secret: string, signal: AbortSignal): Promise<string> {

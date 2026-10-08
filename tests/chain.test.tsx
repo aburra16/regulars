@@ -111,7 +111,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   resetWidth();
-  config.features.signIn = false;
+  // Signing in is open in production; a test that turns it off turns it on again.
+  config.features.signIn = true;
 });
 
 // ---- The header ----
