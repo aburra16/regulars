@@ -8,7 +8,7 @@ import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { kindOf } from "../places/kinds.ts";
 import { Attribution } from "../ui/Attribution.tsx";
-import { MinusIcon, PlusIcon } from "../ui/icons.tsx";
+import { BackToPlaceIcon, MinusIcon, PlusIcon } from "../ui/icons.tsx";
 import { FamilyIcon } from "../ui/KindTile.tsx";
 import type { Bbox } from "./area.ts";
 import { CLUSTER_OPTIONS, MAX_MARKERS, type Pin, PIN_SOURCE, pinsGeoJSON } from "./pins.ts";
@@ -41,8 +41,21 @@ export interface BaseMapProps {
   /** Whether the person can move the map and tap its pins. A map that is not is a picture of where a place is. */
   interactive: boolean;
   /**
-   * A map that does not move, to a screen reader: one picture with this name ("Map showing where
-   * Jacafé is"), in place of the map's own region, which it hides. Its attribution stays reachable.
+   * A map that moves, in a page that scrolls past it (a place's map): one finger and a plain scroll
+   * of the wheel move the page, two fingers, a pinch, or Ctrl (⌘ on a Mac) and the wheel move the
+   * map, and the map says so when it leaves a gesture to the page. Read when the map is made.
+   */
+  cooperative?: boolean;
+  /**
+   * A map that moves but stays north up and flat (a place's map, too small for turning or tilting to
+   * help): no right-drag or Ctrl and a drag, no two fingers turning or tilting, no Shift and the
+   * arrows. Read when the map is made.
+   */
+  flat?: boolean;
+  /**
+   * The map's name to a screen reader ("Map showing where Jacafé is"), in place of "Map". A map that
+   * moves is a region with this name, renamed when it changes. A map that does not is one picture
+   * with it, in place of the map's own region, which it hides; its attribution stays reachable.
    */
   label?: string;
   pins?: readonly Pin[];
@@ -69,6 +82,14 @@ export interface BaseMapProps {
   onViewChange?(view: MapView): void;
   /** The zoom buttons, at the bottom right (DeskExplore.dc.html). */
   zoomButtons?: boolean;
+  /**
+   * The words of a way back to where the map started ("Back to the place"), at the map's top left,
+   * clear of a pin in its middle: there while a person's move has left the map away from it, gone
+   * once it is back. Where the map started is the `center` and `zoom` given now, so it is for a map
+   * without `fit` or `initialView`, which start it elsewhere. It does not undo a turn or a tilt:
+   * give it to a `flat` map.
+   */
+  back?: string;
   /** At the bottom right, above the zoom buttons and the attribution: the page's own controls. */
   corner?: ReactNode;
   /** Below the attribution, the width of the map: the phone's docked card (Map.dc.html). */
@@ -109,6 +130,26 @@ const FIT_OPTIONS = { padding: 60, maxZoom: 15 } as const;
 
 /** "61", "1.2K": a count that fits its bubble. */
 const compactCount = new Intl.NumberFormat("en", { notation: "compact" });
+
+/**
+ * MapLibre's own words, in the app's: the map's name to a screen reader, and what a map that leaves
+ * gestures to the page says over itself when it does.
+ */
+const mapWords = (title: string) => ({
+  "Map.Title": title,
+  "CooperativeGesturesHandler.WindowsHelpText": copy.map.gestureHelp.ctrl,
+  "CooperativeGesturesHandler.MacHelpText": copy.map.gestureHelp.mac,
+  "CooperativeGesturesHandler.MobileHelpText": copy.map.gestureHelp.touch,
+});
+
+/**
+ * Whether the map looks where it started: at `center`, at `zoom`. A millionth of a degree is a tenth
+ * of a metre, far less than a pixel at any zoom a person reads a street at.
+ */
+const lookingAt = (map: MapLibreMap, [lon, lat]: LngLat, zoom: number) => {
+  const now = map.getCenter();
+  return Math.abs(now.lng - lon) < 1e-6 && Math.abs(now.lat - lat) < 1e-6 && Math.abs(map.getZoom() - zoom) < 1e-3;
+};
 
 /** A move a person made: one that came from their input, or from the zoom buttons. */
 const byPerson = (event: { originalEvent?: unknown; byPerson?: unknown }) =>
@@ -265,18 +306,47 @@ function PinMark({
   );
 }
 
-/** The two zoom buttons, as DeskExplore.dc.html draws them: one white block, a line between. */
+/**
+ * The two zoom buttons, as DeskExplore.dc.html draws them: one white block, a line between. Each
+ * button has the block's corners of its own, so the block need not cut off what overflows it, and
+ * the focus ring, drawn outside the button, shows.
+ */
 function ZoomButtons({ onZoom }: { onZoom(direction: "in" | "out"): void }): JSX.Element {
   const button = "flex size-11 cursor-pointer items-center justify-center border-0 bg-ground p-0 text-ink";
   return (
-    <div className="flex flex-col overflow-hidden rounded-tile bg-ground shadow-map-controls">
-      <button type="button" aria-label={copy.map.zoomIn} onClick={() => onZoom("in")} className={`${button} border-b-token border-line`}>
+    <div className="flex flex-col rounded-tile bg-ground shadow-map-controls">
+      <button
+        type="button"
+        aria-label={copy.map.zoomIn}
+        onClick={() => onZoom("in")}
+        className={`${button} rounded-t-(--radius-tile) border-b-token border-line`}
+      >
         <PlusIcon size={20} />
       </button>
-      <button type="button" aria-label={copy.map.zoomOut} onClick={() => onZoom("out")} className={button}>
+      <button type="button" aria-label={copy.map.zoomOut} onClick={() => onZoom("out")} className={`${button} rounded-b-(--radius-tile)`}>
         <MinusIcon size={20} />
       </button>
     </div>
+  );
+}
+
+/**
+ * The way back to where the map started, in the map's top left corner, as far in from its edges as
+ * the zoom buttons are: a white block as theirs is. On a phone, a 44 px square with its icon, since
+ * the words would reach a pin in the middle of a narrow map; from `wide` up, its words. Either way
+ * its name is the words.
+ */
+function BackButton({ label, onBack }: { label: string; onBack(): void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onBack}
+      className="absolute top-3 left-3 z-10 flex size-11 cursor-pointer items-center justify-center rounded-tile border-0 bg-ground p-0 font-text text-secondary font-bold whitespace-nowrap text-ink shadow-map-controls wide:top-4 wide:left-4 wide:w-auto wide:px-3.5"
+    >
+      <BackToPlaceIcon size={22} className="wide:hidden" />
+      <span className="hidden wide:inline">{label}</span>
+    </button>
   );
 }
 
@@ -295,6 +365,8 @@ export function BaseMap({
   zoom,
   fit,
   interactive,
+  cooperative = false,
+  flat = false,
   label,
   pins = NO_PINS,
   selected,
@@ -307,6 +379,7 @@ export function BaseMap({
   initialView,
   onViewChange,
   zoomButtons = false,
+  back,
   corner,
   below,
   children,
@@ -318,9 +391,27 @@ export function BaseMap({
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [shown, setShown] = useState<Shown>(NOTHING_SHOWN);
+  // Whether the person has moved the map away from where it started, for the way back.
+  const [strayed, setStrayed] = useState(false);
 
   // What the map's handlers read when they run: the latest of each, not those it was made with.
-  const latestProps = { center, zoom, fit, interactive, pins, selected, highlighted, onSelect, onMoveEnd, initialView, onViewChange };
+  const latestProps = {
+    center,
+    zoom,
+    fit,
+    interactive,
+    cooperative,
+    flat,
+    label,
+    pins,
+    selected,
+    highlighted,
+    onSelect,
+    onMoveEnd,
+    initialView,
+    onViewChange,
+    back,
+  };
   const latest = useRef(latestProps);
   useLayoutEffect(() => {
     latest.current = latestProps;
@@ -384,10 +475,21 @@ export function BaseMap({
     import("./maplibre.ts").then(
       (library) => {
         if (cancelled || container.current === null) return;
-        const { center: here, zoom: level, fit: box, interactive: canMove, initialView: left } = latest.current;
+        const {
+          center: here,
+          zoom: level,
+          fit: box,
+          interactive: canMove,
+          cooperative: sharesGestures,
+          flat: keptFlat,
+          label: title,
+          initialView: left,
+        } = latest.current;
         const start = left ?? { center: here, zoom: level };
         // Where the person left it, on Back; otherwise the box it is to show, or its centre.
         const fitted = left === undefined && box !== undefined ? { bounds: box, fitBoundsOptions: FIT_OPTIONS } : {};
+        // Right-drag and Ctrl and a drag (which turn, tilt and roll it), and two fingers tilting it.
+        const unturned = keptFlat ? { dragRotate: false, touchPitch: false, pitchWithRotate: false } : {};
         const style = mapStyle(config.mapTilerKey);
         let map: MapLibreMap;
         try {
@@ -398,13 +500,21 @@ export function BaseMap({
             zoom: start.zoom,
             ...fitted,
             interactive: canMove,
+            // A map that does not move has no gestures to share with the page.
+            cooperativeGestures: canMove && sharesGestures,
+            ...unturned,
             attributionControl: false,
-            locale: { "Map.Title": copy.map.label },
+            locale: mapWords(title ?? copy.map.label),
           });
         } catch {
           // A browser that cannot draw a map (no WebGL). The page goes on without one.
           setFailed(true);
           return;
+        }
+        if (keptFlat) {
+          // Two fingers still pinch it, and the keys still move and zoom it; neither turns it.
+          map.touchZoomRotate.disableRotation();
+          map.keyboard.disableRotation();
         }
         made = map;
         mapRef.current = map;
@@ -497,6 +607,10 @@ export function BaseMap({
           const { lng, lat: at } = map.getCenter();
           latest.current.onViewChange?.({ center: [lng, at], zoom: map.getZoom() });
           if (!moved) return;
+          // Away from where it started, or back there by the person's own hand. A key that would turn
+          // a flat map ends a move that went nowhere.
+          const { back: way, center: home, zoom: homeZoom } = latest.current;
+          if (way !== undefined) setStrayed(!lookingAt(map, home, homeZoom));
           const bounds = map.getBounds();
           latest.current.onMoveEnd?.([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
         });
@@ -525,6 +639,12 @@ export function BaseMap({
   // A pin picked out from outside the map: whether it is in view.
   useEffect(() => lookAgain.current(), [selected, highlighted]);
 
+  // A new name for the map. MapLibre names its region once, from "Map.Title", when the map is made
+  // (which reads the latest label); after that, the region is renamed here.
+  useEffect(() => {
+    mapRef.current?.getCanvas().setAttribute("aria-label", label ?? copy.map.label);
+  }, [label]);
+
   // New pins, or a new chosen one: new data for the map, which gathers them again.
   const inSource = useMemo(() => gathered(pins, selected), [pins, selected]);
   const signature = useMemo(() => signatureOf(inSource), [inSource]);
@@ -548,6 +668,8 @@ export function BaseMap({
     const map = mapRef.current;
     if (last === null || map === null || latest.current.fit !== undefined) return;
     if (last.lon === lon && last.lat === lat && last.recentre === recentre) return;
+    // Where the map goes is where it starts from now: there is no way back to where it was.
+    setStrayed(false);
     map.easeTo({ center: [lon, lat], zoom });
     // The zoom is where to land, read when the move starts; a new zoom alone is not a move.
   }, [lon, lat, recentre]);
@@ -642,6 +764,17 @@ export function BaseMap({
     else map?.zoomOut(undefined, { byPerson: true });
   };
 
+  // Back to where the map started: the centre, at its zoom. The control goes once it is pressed, so
+  // the focus goes to the map, which is named and takes the keys, not to the page, where a keyboard
+  // would have to start again.
+  const goBack = () => {
+    const map = mapRef.current;
+    if (map === null) return;
+    map.getCanvas().focus({ preventScroll: true });
+    map.easeTo({ center: [lon, lat], zoom });
+    setStrayed(false);
+  };
+
   const canTap = interactive && onSelect !== undefined;
 
   return (
@@ -660,6 +793,8 @@ export function BaseMap({
           {children}
         </div>
       )}
+      {/* Top left, before the zoom buttons at the bottom right, in the keyboard's order as on screen. */}
+      {interactive && back !== undefined && strayed && <BackButton label={back} onBack={goBack} />}
       <div
         ref={bottomLayer}
         className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex flex-col items-end gap-2 wide:inset-x-4 wide:bottom-4 wide:gap-2.5 *:pointer-events-auto">

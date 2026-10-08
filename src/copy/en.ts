@@ -362,8 +362,14 @@ export const copy = {
     /** At the foot of the page, a link to the place's own record. */
     viewOnOsm: "View on OpenStreetMap",
     // DRAFT for Avi
-    /** The map of the place, which does not move, as one picture for a screen reader. */
+    /** The map of the place, for a screen reader: the name of the map's region. */
     mapLabel: (name: string) => `Map showing where ${name} is`,
+    // DRAFT for Avi
+    /**
+     * At the map's top left, once the person has moved the map: takes it back to the place's pin. The
+     * words in the desktop's rail; on a phone, the name of the icon that stands for them.
+     */
+    mapBack: "Back to the place",
     // DRAFT for Avi
     /** The desktop's side rail (DeskPlace.dc.html), for a screen reader. */
     railLabel: "Details and directions",
@@ -490,6 +496,19 @@ export const copy = {
     // DRAFT for Avi
     /** The card of the pin chosen on the phone's map, for a screen reader: the region a pin opens. */
     selected: "Selected on the map",
+    /**
+     * Over a map that the page scrolls past (a place's map), for a moment, when a scroll or one finger
+     * moved the page and not the map: how to move the map instead. Ctrl on Windows and Linux, ⌘ on a
+     * Mac, two fingers on a phone.
+     */
+    gestureHelp: {
+      // DRAFT for Avi
+      ctrl: "Use Ctrl + scroll to zoom the map",
+      // DRAFT for Avi
+      mac: "Use ⌘ + scroll to zoom the map",
+      // DRAFT for Avi
+      touch: "Use two fingers to move the map",
+    },
   },
   /** The desktop's Explore (DeskExplore.dc.html): the list beside the map. */
   deskExplore: {

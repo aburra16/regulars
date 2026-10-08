@@ -161,7 +161,12 @@ function MissingDetails({ place, actions, state }: { place: Place; actions: Plac
   );
 }
 
-/** The place on a map that does not move: its pin chosen, close in, with the map's attribution on it. */
+/**
+ * The place on a map, its pin chosen, close in, with the map's attribution on it. The person can zoom
+ * and move it, never turn or tilt it, and the page still scrolls past it: one finger and a plain
+ * scroll move the page. Once they have moved it, a way back to the place, at the map's top left.
+ * The pin is the place itself: tapping it does nothing.
+ */
 function PlaceMap({ place, className }: { place: Place; className: string }): JSX.Element {
   const center = useMemo<LngLat>(() => [place.lon, place.lat], [place.lon, place.lat]);
   const pins = useMemo<Pin[]>(
@@ -172,10 +177,14 @@ function PlaceMap({ place, className }: { place: Place; className: string }): JS
     <BaseMap
       center={center}
       zoom={MAP_ZOOM}
-      interactive={false}
+      interactive
+      cooperative
+      flat
       label={copy.place.mapLabel(place.name)}
       pins={pins}
       selected={place.address}
+      zoomButtons
+      back={copy.place.mapBack}
       className={className}
     />
   );

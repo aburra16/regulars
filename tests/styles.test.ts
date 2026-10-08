@@ -77,6 +77,20 @@ function declarationsOf(css: string, className: string): string[] {
     .filter(Boolean);
 }
 
+/** Where each `@layer name { ... }` block of a stylesheet starts and ends. */
+const layerBlocks = (css: string) =>
+  [...css.matchAll(/@layer [\w-]+\s*\{/g)].map((match) => {
+    let depth = 0;
+    for (let i = match.index + match[0].length - 1; i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}" && --depth === 0) return [match.index, i] as const;
+    }
+    return [match.index, css.length] as const;
+  });
+
+/** Whether the text at `at` is inside one of the stylesheet's layers: a rule in none wins over every rule in one. */
+const inLayer = (css: string, at: number) => layerBlocks(css).some(([start, end]) => at > start && at < end);
+
 describe("styles", () => {
   it("carries handoff/design/tokens.css verbatim", () => {
     expect(indexCss).toContain(tokensCss.trim());
@@ -192,6 +206,50 @@ describe("focus and scrolling", () => {
   it("gives the tab bar the height the page scrolls past", () => {
     // At least that tall: a bar that grows with a larger text size still clears the page's padding.
     expect(read("src/shell/TabBar.tsx")).toMatch(/(?<![\w-])min-h-\(--tab-bar-height\)/);
+  });
+});
+
+describe("the note a map shows when it leaves a gesture to the page", () => {
+  const SELECTOR = ".maplibregl-map .maplibregl-cooperative-gesture-screen";
+
+  it("is in the app's face and colours, from the tokens, and clear of the zoom buttons on both sides", () => {
+    const body = new RegExp(`${SELECTOR.replace(/\./g, "\\.")}\\s*\\{([^}]*)\\}`).exec(indexCss)?.[1] ?? "";
+    expect(body).toMatch(/font-family:\s*var\(--font-text\);/);
+    expect(body).toMatch(/font-size:\s*var\(--size-body\);/);
+    expect(body).toMatch(/color:\s*var\(--ground\);/);
+    expect(body).toMatch(/background:\s*color-mix\(in srgb, var\(--ink\) \d+%, transparent\);/);
+    // The zoom buttons are a touch target wide, in from the map's edge: the words keep that far in from each side.
+    expect(body).toMatch(/padding:[^;]*calc\(var\(--touch\) \+ \d+px\)/);
+    // No colour of its own: every colour is a token's.
+    expect(body).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(/i);
+  });
+
+  it("wins over MapLibre's own rule, which is in no layer and loads after the app's", async () => {
+    // Two classes to MapLibre's one, so the order the stylesheets load in does not decide it.
+    const maplibre = read("node_modules/maplibre-gl/dist/maplibre-gl.css");
+    expect(maplibre).toMatch(/(?:^|\})\s*\.maplibregl-cooperative-gesture-screen\s*\{/);
+    // In no layer: a rule in a layer loses to any rule in none, whatever its selector.
+    const at = indexCss.indexOf(`${SELECTOR} {`);
+    expect(at).toBeGreaterThan(-1);
+    expect(inLayer(indexCss, at)).toBe(false);
+    const css = await compileUtilities([]);
+    const compiledAt = css.indexOf(`${SELECTOR} {`);
+    expect(compiledAt).toBeGreaterThan(-1);
+    expect(inLayer(css, compiledAt)).toBe(false);
+  });
+});
+
+describe("the map's own focus ring", () => {
+  it("is drawn inside the map's edge, since the map's box cuts off what overflows it, and in no layer, so it wins", async () => {
+    // BaseMap's box hides what overflows it: the app's ring, 2 px outside, would not show on the map.
+    expect(read("src/map/BaseMap.tsx")).toMatch(/className=\{`relative overflow-hidden bg-map-land/);
+    const rule = /\.maplibregl-map \.maplibregl-canvas:focus-visible\s*\{([^}]*)\}/.exec(indexCss);
+    expect(rule?.[1]).toMatch(/^\s*outline-offset:\s*-2px;\s*$/);
+    const css = await compileUtilities([]);
+    expect(css).toMatch(/\.maplibregl-map \.maplibregl-canvas:focus-visible\s*\{\s*outline-offset:\s*-2px;\s*\}/);
+    const at = indexCss.indexOf(".maplibregl-map .maplibregl-canvas:focus-visible {");
+    expect(at).toBeGreaterThan(-1);
+    expect(inLayer(indexCss, at)).toBe(false);
   });
 });
 
