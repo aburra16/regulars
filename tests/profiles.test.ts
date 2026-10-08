@@ -16,14 +16,26 @@ describe("nameIn (Review Focus 4)", () => {
     expect(nameIn(profile({ display_name: "   ", name: "alice" }))).toBe("alice");
   });
 
-  it("takes out format characters, such as those that turn text around, and makes runs of space one", () => {
-    expect(nameIn(profile({ name: "Ali​ce" }))).toBe("Alice");
+  it("takes out the characters that reorder the text around them, and makes runs of space one", () => {
     // A right-to-left override would reverse what follows it on the page.
-    expect(nameIn(profile({ name: "‮ecilA" }))).toBe("ecilA");
-    expect(nameIn(profile({ name: "⁦Bob⁩ \n\t Ferreira­" }))).toBe("Bob Ferreira");
-    // Nothing left once they are out: the next name, or none.
-    expect(nameIn(profile({ display_name: "​‍⁠", name: "Carol" }))).toBe("Carol");
-    expect(nameIn(profile({ name: "﻿\u0000\u0007" }))).toBeUndefined();
+    expect(nameIn(profile({ name: "\u202eecilA" }))).toBe("ecilA");
+    // Every embedding, override, isolate and mark that can reorder text: U+202A–E, U+2066–9, U+200E–F, U+061C.
+    const reorderers = "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\u200e\u200f\u061c";
+    expect(nameIn(profile({ name: `Bo${reorderers}b` }))).toBe("Bob");
+    expect(nameIn(profile({ name: "\u2066Bob\u2069 \n\t Ferreira" }))).toBe("Bob Ferreira");
+    expect(nameIn(profile({ name: "\u0000\u0007" }))).toBeUndefined();
+  });
+
+  it("keeps the joiners and other format characters that names are written with", () => {
+    // An emoji joined into one (woman, ZWJ, laptop), and a Persian word with a zero-width non-joiner.
+    expect(nameIn(profile({ name: "\u{1f469}\u200d\u{1f4bb} Maya" }))).toBe("\u{1f469}\u200d\u{1f4bb} Maya");
+    expect(nameIn(profile({ name: "می\u200cخواهم" }))).toBe("می\u200cخواهم");
+    expect(nameIn(profile({ name: "Ana\u00adbela" }))).toBe("Ana\u00adbela");
+  });
+
+  it("takes a name of nothing but invisible characters for no name", () => {
+    expect(nameIn(profile({ display_name: "\u200b\u200d\u2060\u200c", name: "Carol" }))).toBe("Carol");
+    expect(nameIn(profile({ name: "\ufeff\u200b \u00ad" }))).toBeUndefined();
   });
 
   it("passes over a code or a key, but keeps a short name that begins like one", () => {

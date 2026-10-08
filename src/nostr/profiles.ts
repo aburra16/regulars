@@ -14,19 +14,30 @@ export const PROFILE_KIND = 0;
 const NIP19_CODE = /^(?:npub|nsec|nprofile|note|nevent|naddr|nrelay)1[02-9ac-hj-np-z]{50,}$/i;
 
 /**
- * `value` as a name to show: text, with its format characters taken out (those that turn the text
- * around, or hide in it), its runs of space and control characters made one space, and none at
- * either end. Undefined when that leaves nothing, or a code or a key (64 hex digits): a name that
- * is a key would put the key on screen (Review Focus 4). Pages show names in a <bdi>, so that one
- * written right to left keeps to itself.
+ * The characters that can reorder the text around them: the bidirectional embeddings and overrides
+ * (U+202A to U+202E), isolates (U+2066 to U+2069) and marks (U+200E, U+200F, U+061C). A name loses
+ * them. Other format characters stay: names are written with them, such as the joiner inside an
+ * emoji (U+200D) or the non-joiner of Persian (U+200C).
+ */
+const REORDERING = /[\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c]/gu;
+
+/** Characters that show nothing: space, and the format characters. */
+const INVISIBLE = /[\s\p{Cf}]/gu;
+
+/**
+ * `value` as a name to show: text, with the characters that reorder text taken out, its runs of
+ * space and control characters made one space, and none at either end. Undefined when nothing in
+ * it shows, or it is a code or a key (64 hex digits): a name that is a key would put the key on
+ * screen (Review Focus 4). Pages show names in a <bdi>, which keeps one written right to left, and
+ * any format characters left in it, to itself.
  */
 function shownName(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const text = value
-    .replace(/\p{Cf}/gu, "")
+    .replace(REORDERING, "")
     .replace(/[\s\p{Cc}]+/gu, " ")
     .trim();
-  if (text === "" || NIP19_CODE.test(text) || isHex64(text.toLowerCase())) return undefined;
+  if (text.replace(INVISIBLE, "") === "" || NIP19_CODE.test(text) || isHex64(text.toLowerCase())) return undefined;
   return text;
 }
 
