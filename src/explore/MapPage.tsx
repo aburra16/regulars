@@ -15,6 +15,7 @@ import { LocateIcon } from "../ui/icons.tsx";
 import { PlaceCard } from "../ui/PlaceCard.tsx";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
 import { SearchLink } from "./ExploreList.tsx";
+import { mapFocusOn, useMapFocus, viewAt } from "./mapFocus.ts";
 import { useRememberedView } from "./mapMemory.ts";
 import { useAreaEntries, useSearchedArea } from "./useArea.ts";
 
@@ -59,7 +60,9 @@ export function MapPage(): JSX.Element {
   const { initialView, onViewChange } = useRememberedView(memoryKey);
   const { entries } = useAreaEntries(searched.area);
   const pins = useMemo(() => pinsFor(entries, locale, now), [entries, locale, now]);
-  const [selected, setSelected] = useState<string>();
+  // Opened at a place ("See on map"): the map starts there, unless it was left somewhere else, and its pin is chosen.
+  const focused = useMapFocus();
+  const [selected, setSelected] = useState(() => focused?.address);
   const [recentre, setRecentre] = useState(0);
   const cardId = useId();
   // Each pin chosen from the keyboard: the focus goes to its card once the card is drawn.
@@ -73,7 +76,8 @@ export function MapPage(): JSX.Element {
     [here.source, here.lon, here.lat],
   );
 
-  if (wide) return <Navigate to="/" replace />;
+  // A desktop has the map on Explore, opened at the same place.
+  if (wide) return <Navigate to="/" replace state={focused === undefined ? undefined : mapFocusOn(focused)} />;
 
   // The chosen pin's place or chain, while it is still on the map.
   const chosen = selected === undefined ? undefined : entries.find((entry) => entryAddress(entry) === selected);
@@ -117,7 +121,7 @@ export function MapPage(): JSX.Element {
         onSelect={choose}
         pinsControl={cardId}
         onMoveEnd={searched.moved}
-        initialView={initialView}
+        initialView={initialView ?? (focused === undefined ? undefined : viewAt(focused, START_ZOOM))}
         onViewChange={onViewChange}
         corner={
           <button

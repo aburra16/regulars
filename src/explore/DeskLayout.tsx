@@ -8,7 +8,9 @@ import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
 import { DetailsCredit } from "../ui/DetailsCredit.tsx";
 import { shownPageOf } from "../ui/shown.ts";
+import type { Place } from "../places/place.ts";
 import { Entries } from "./Entries.tsx";
+import { viewAt } from "./mapFocus.ts";
 import { useRememberedView } from "./mapMemory.ts";
 import { START_ZOOM } from "./MapPage.tsx";
 
@@ -84,6 +86,8 @@ export interface DeskLayoutProps {
   onMoveEnd?(bbox: Bbox): void;
   /** Over the map: "Search this area". `unselect` lets the chosen pin go, for a new list. */
   overlay?(unselect: () => void): ReactNode;
+  /** A place to open at (`useMapFocus`): its pin chosen, and the map at it unless it was left somewhere else. */
+  focus?: Place;
 }
 
 /**
@@ -108,6 +112,7 @@ export function DeskLayout({
   fit,
   onMoveEnd,
   overlay,
+  focus,
 }: DeskLayoutProps): JSX.Element {
   const here = useHere();
   const now = useNow();
@@ -117,7 +122,7 @@ export function DeskLayout({
   // Each pin chosen from the keyboard: the focus goes to its card in the list.
   const [focusRequest, setFocusRequest] = useState(0);
   const pins = useMemo(() => pinsFor(entries, locale, now), [entries, locale, now]);
-  const [selected, setSelected] = useState<string>();
+  const [selected, setSelected] = useState(() => focus?.address);
   const [highlighted, setHighlighted] = useState<string>();
   const column = useRef<HTMLElement>(null);
   const center = useMemo<LngLat>(() => [here.lon, here.lat], [here.lon, here.lat]);
@@ -174,7 +179,7 @@ export function DeskLayout({
         }}
         pinsControl={listId}
         onMoveEnd={onMoveEnd}
-        initialView={initialView}
+        initialView={initialView ?? (focus === undefined ? undefined : viewAt(focus, START_ZOOM))}
         onViewChange={onViewChange}
         zoomButtons
       >

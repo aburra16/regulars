@@ -10,6 +10,7 @@ import { PageMessage } from "../ui/Banner.tsx";
 import { DeskLayout } from "./DeskLayout.tsx";
 import { HouseLine, NoneNearby } from "./ExploreList.tsx";
 import { FilterMenus } from "./FilterMenus.tsx";
+import { useMapFocus } from "./mapFocus.ts";
 import { SearchAreaButton } from "./MapPage.tsx";
 import { setExploreIdx } from "./returnPoint.ts";
 import { useAreaEntries, useSearchedArea } from "./useArea.ts";
@@ -34,6 +35,8 @@ export function DeskExplore(): JSX.Element {
   const searched = useSearchedArea(memoryKey);
   const { area } = searched;
   const { nearby, rows, entries } = useAreaEntries(area, filters);
+  // Opened at a place, from a phone's link to the map ("See on map").
+  const focused = useMapFocus();
 
   // Where Explore is in the history, for the search's back arrow, as the phone's Explore records it.
   useEffect(() => {
@@ -75,6 +78,7 @@ export function DeskExplore(): JSX.Element {
       entries={entries}
       instead={instead}
       mapKey={memoryKey}
+      focus={focused}
       onMoveEnd={searched.moved}
       overlay={(unselect) =>
         searched.canSearch && (

@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
+import { mapFocusOn } from "../explore/mapFocus.ts";
 import { useHere } from "../location/useLocation.ts";
 import { BaseMap, type Pin } from "../map/BaseMap.tsx";
 import { distanceKm } from "../places/distance.ts";
@@ -112,7 +113,12 @@ function Locations({ info, shown, showMap }: { info: ChainInfo; shown: Shown; sh
       <div className="flex items-baseline justify-between gap-3 pb-1">
         <h2 className="m-0 font-display text-h2 font-bold wide:text-[26px]">{heading}</h2>
         {showMap && near > 0 && (
-          <Link to="/map" className="inline-flex min-h-touch items-center text-[15px] font-bold text-accent no-underline">
+          // The map, at the nearest location, with the chain's pin chosen.
+          <Link
+            to="/map"
+            state={mapFocusOn(listed[0]!.place)}
+            className="inline-flex min-h-touch items-center text-[15px] font-bold text-accent underline"
+          >
             {copy.chain.seeOnMap}
           </Link>
         )}

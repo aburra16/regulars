@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 
 import { fitView } from "../src/chain/fit";
+import { mapFocusOn } from "../src/explore/mapFocus";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { PIN_SOURCE } from "../src/map/pins";
@@ -374,13 +375,54 @@ describe("the chain page: reached from the map", () => {
 // ---- A phone ----
 
 describe("the chain page on a phone", () => {
-  it("has a link to the map beside 'Near you', and no map of its own", async () => {
+  it("has a link to the map beside 'Near you', underlined as a link, and no map of its own", async () => {
     await openApp(confeitariaPath, { events: fixtures });
     const link = screen.getByRole("link", { name: copy.chain.seeOnMap });
     expect(link).toHaveAttribute("href", "/map");
-    expect(link).toHaveClass("min-h-touch", "text-accent");
+    expect(link).toHaveClass("min-h-touch", "text-accent", "underline");
+    expect(link).not.toHaveClass("no-underline");
     expect(FakeMap.instances).toHaveLength(0);
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+  });
+
+  it("opens the map at the nearest location, with the chain's pin chosen and its card docked", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { router } = await openApp(confeitariaPath, { events: fixtures });
+    await user.click(screen.getByRole("link", { name: copy.chain.seeOnMap }));
+    expect(router.state.location.pathname).toBe("/map");
+
+    const nearest = nearestFirst(CONFEITARIA)[0]!.place;
+    const map = await waitFor(() => {
+      const made = FakeMap.instances.at(-1);
+      if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
+      return made;
+    });
+    expect(map.options.center).toEqual([nearest.lon, nearest.lat]);
+    const pin = await screen.findByRole("button", { name: /^A Confeitaria Coffee & Bakery, a chain/ });
+    expect(pin).toHaveAttribute("aria-pressed", "true");
+    const docked = screen.getByRole("region", { name: copy.map.selected });
+    expect(within(docked).getByRole("link", { name: "A Confeitaria Coffee & Bakery" })).toHaveAttribute(
+      "href",
+      `/chain/${chainSlug(CONFEITARIA)}`,
+    );
+  });
+
+  it("on a desktop, the same link opens Explore centred on the nearest location, its card chosen", async () => {
+    const nearest = nearestFirst(CONFEITARIA)[0]!.place;
+    const { router } = await openApp("/map", {
+      events: fixtures,
+      px: DESKTOP,
+      entries: [confeitariaPath, { pathname: "/map", state: mapFocusOn(nearest) }],
+    });
+    expect(router.state.location.pathname).toBe("/");
+    const map = await waitFor(() => {
+      const made = FakeMap.instances.at(-1);
+      if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
+      return made;
+    });
+    expect(map.options.center).toEqual([nearest.lon, nearest.lat]);
+    const card = within(screen.getByRole("list")).getByRole("link", { name: "A Confeitaria Coffee & Bakery" });
+    expect(card).toHaveClass("border-2", "border-ink");
   });
 
   it("leaves the link out when no location is near", async () => {
