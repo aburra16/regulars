@@ -549,8 +549,8 @@ describe("the place page: map", () => {
       return made;
     });
     expect(map.options).toMatchObject({ interactive: false, center: [JACAFE.lon, JACAFE.lat], zoom: 16 });
-    const features = map.sources.get(PIN_SOURCE)!.data.features;
-    expect(features.map((feature) => feature.properties)).toEqual([{ address: JACAFE.address }]);
+    // Its one pin is the chosen one, drawn on its own: the source the map gathers into bubbles is without it.
+    expect(map.sources.get(PIN_SOURCE)!.data.features).toEqual([]);
     // The pin is the design's drop (Place.dc.html): 34 px, in the accent colour with a white dot, its tip on the place.
     const drop = await waitFor(() => {
       const found = [...map.container.querySelectorAll("svg")].find((svg) => svg.classList.contains("size-[34px]"));

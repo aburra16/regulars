@@ -17,7 +17,7 @@ import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import raw from "./fixtures/funchal-items.json";
 import { DESKTOP, openApp, openAppWithSaved, resetWidth } from "./support/app";
-import { FakeMap } from "./support/fakeMaplibre";
+import { FakeMap, FakeMarker } from "./support/fakeMaplibre";
 
 const fixtures: NostrEvent[] = raw;
 const idx = buildIndexes(parsePlaces(fixtures));
@@ -426,10 +426,41 @@ describe("the chain page on a desktop", () => {
     const near = nearestFirst(CONFEITARIA).map(({ place }) => place);
     const view = fitView(near);
     expect(map.options).toMatchObject({ interactive: false, center: view.center, zoom: view.zoom });
+    // The chosen one, the nearest, is drawn on its own; the source the map gathers into bubbles has the rest.
     const addresses = map.sources.get(PIN_SOURCE)!.data.features.map((feature) => (feature.properties as { address: string }).address);
-    expect(addresses.sort()).toEqual(near.map((place) => place.address).sort());
+    expect(addresses.sort()).toEqual(near.slice(1).map((place) => place.address).sort());
     // Several locations: the view takes them all in, so it is wider than one street.
     expect(view.zoom).toBeLessThan(15);
+  });
+
+  it("draws each location once: the bubbles count the others, and the chosen one is a pin of its own", async () => {
+    await openApp(confeitariaPath, { events: fixtures, px: DESKTOP });
+    const map = await waitFor(() => {
+      const made = FakeMap.instances.at(-1);
+      if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
+      return made;
+    });
+    const near = nearestFirst(CONFEITARIA).map(({ place }) => place);
+    expect(near.length).toBeGreaterThan(2);
+
+    // At the rail's zoom the map gathers everything its source holds into one bubble.
+    const held = map.sources.get(PIN_SOURCE)!.data.features;
+    map.features = [
+      {
+        type: "Feature",
+        geometry: held[0]!.geometry as { type: "Point"; coordinates: number[] },
+        properties: { cluster: true, cluster_id: 1, point_count: held.length },
+      },
+    ];
+    act(() => map.fire("render"));
+
+    // Each marker on the map: a bubble stands for its count, a pin for one place.
+    const drawn = FakeMarker.instances.filter((marker) => marker.map === map);
+    const bubbles = drawn.map((marker) => Number(marker.element.textContent)).filter((n) => n > 0);
+    const pins = drawn.length - bubbles.length;
+    expect(bubbles).toEqual([near.length - 1]);
+    expect(pins).toBe(1);
+    expect(bubbles.reduce((sum, n) => sum + n, 0) + pins).toBe(near.length);
   });
 
   it("pins the locations the list shows, and takes in more of them when the list shows more", async () => {
@@ -442,13 +473,14 @@ describe("the chain page on a desktop", () => {
       if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
       return made;
     });
+    // What the map gathers into bubbles: every location pinned but the chosen one, the nearest, drawn on its own.
     const pinned = () =>
       map.sources.get(PIN_SOURCE)!.data.features.map((feature) => (feature.properties as { address: string }).address).sort();
     const everyPlace = nearestFirst(chain).map(({ place }) => place);
-    expect(pinned()).toEqual(everyPlace.slice(0, 4).map((place) => place.address).sort());
+    expect(pinned()).toEqual(everyPlace.slice(1, 4).map((place) => place.address).sort());
 
     await user.click(screen.getByRole("button", { name: "Show all 7 locations" }));
-    await waitFor(() => expect(pinned()).toEqual(everyPlace.map((place) => place.address).sort()));
+    await waitFor(() => expect(pinned()).toEqual(everyPlace.slice(1).map((place) => place.address).sort()));
     // The view takes in the ones in Lisbon: it is farther out than it was.
     const all = fitView(everyPlace);
     expect(map.center).toEqual(all.center);
@@ -482,7 +514,8 @@ describe("the chain page on a desktop", () => {
     });
     const nearest = nearestFirst(lisboa).slice(0, 3).map(({ place }) => place);
     const addresses = map.sources.get(PIN_SOURCE)!.data.features.map((feature) => (feature.properties as { address: string }).address);
-    expect(addresses.sort()).toEqual(nearest.map((place) => place.address).sort());
+    // The nearest is the chosen one, drawn on its own.
+    expect(addresses.sort()).toEqual(nearest.slice(1).map((place) => place.address).sort());
     expect(map.options.center).toEqual(fitView(nearest).center);
   });
 });

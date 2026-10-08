@@ -90,6 +90,8 @@ type Seen =
 interface Shown {
   items: Seen[];
   inView: ReadonlySet<string>;
+  /** The pin the source was without when these were read (the chosen one, drawn on its own then). */
+  without?: string;
 }
 
 const NOTHING_SHOWN: Shown = { items: [], inView: new Set() };
@@ -147,6 +149,13 @@ function seenOf(map: MapLibreMap): Seen[] {
 
 /** The pins as a signature: the same places at the same points are the same data, whatever their names say. */
 const signatureOf = (pins: readonly Pin[]) => pins.map((pin) => `${pin.address}@${pin.lon},${pin.lat}`).join("\n");
+
+/**
+ * The pins the map's source holds, which it gathers into bubbles: all but the chosen one, which is
+ * drawn once, on its own, so no bubble counts it as well.
+ */
+const gathered = (pins: readonly Pin[], selected: string | undefined): readonly Pin[] =>
+  selected === undefined ? pins : pins.filter((pin) => pin.address !== selected);
 
 /** The star of a score's pin, in the pin's text colour. */
 function Star({ className }: { className: string }): JSX.Element {
@@ -363,8 +372,9 @@ export function BaseMap({
     return element;
   };
 
-  // The data the map's source holds, so the same pins are not sent again.
+  // The data the map's source holds, so the same pins are not sent again, and the pin it is without.
   const applied = useRef<string | null>(null);
+  const appliedWithout = useRef<string | undefined>(undefined);
 
   // Make the map, once.
   useEffect(() => {
@@ -412,20 +422,24 @@ export function BaseMap({
           const visible = (lngLat: LngLat) => bounds.contains(lngLat) && lngLat[1] <= clearNorth && lngLat[1] >= clearSouth;
           const inView = new Set<string>();
           for (const item of items) if (visible(item.lngLat)) inView.add(item.key);
+          // A source that has new data is not loaded until it has gathered it: what is read here is the
+          // data last sent, which was without this pin.
+          const without = appliedWithout.current;
           // The pins picked out are drawn wherever they are, inside a bubble too: whether they are in view.
           const { pins: now, selected: chosen, highlighted: pointed } = latest.current;
-          for (const address of [chosen, pointed]) {
+          for (const address of [chosen, pointed, without]) {
             const pin = address === undefined ? undefined : now.find((each) => each.address === address);
             if (pin !== undefined && visible([pin.lon, pin.lat])) inView.add(`pin:${pin.address}`);
           }
           // Drawn again only when what is drawn, or what is in view, has changed: not every frame of a move.
           setShown((current) =>
+            current.without === without &&
             current.items.length === items.length &&
             current.items.every((each, i) => each.key === items[i]!.key) &&
             current.inView.size === inView.size &&
             [...inView].every((key) => current.inView.has(key))
               ? current
-              : { items, inView },
+              : { items, inView, without },
           );
         };
         lookAgain.current = look;
@@ -450,7 +464,8 @@ export function BaseMap({
           styled = true;
           recolour(map);
           if (map.getSource(PIN_SOURCE) === undefined) {
-            const { pins: now } = latest.current;
+            const now = gathered(latest.current.pins, latest.current.selected);
+            appliedWithout.current = latest.current.selected;
             map.addSource(PIN_SOURCE, { type: "geojson", data: pinsGeoJSON(now), ...CLUSTER_OPTIONS });
             // Drawn by no one: the markers draw the pins. Without a layer the source would load no tiles to read them from.
             map.addLayer({
@@ -510,15 +525,17 @@ export function BaseMap({
   // A pin picked out from outside the map: whether it is in view.
   useEffect(() => lookAgain.current(), [selected, highlighted]);
 
-  // New pins: new data for the map, which gathers them again.
-  const signature = useMemo(() => signatureOf(pins), [pins]);
+  // New pins, or a new chosen one: new data for the map, which gathers them again.
+  const inSource = useMemo(() => gathered(pins, selected), [pins, selected]);
+  const signature = useMemo(() => signatureOf(inSource), [inSource]);
   useEffect(() => {
     if (!ready || applied.current === signature) return;
     const source = mapRef.current?.getSource<GeoJSONSource>(PIN_SOURCE);
     if (source === undefined) return;
     applied.current = signature;
-    source.setData(pinsGeoJSON(pins));
-    // `pins` goes with `signature`, which says when they are new.
+    appliedWithout.current = selected;
+    source.setData(pinsGeoJSON(inSource));
+    // `inSource` goes with `signature`, which says when they are new.
   }, [ready, signature]);
 
   // A new centre, or the same one asked for again: move there. The map is made at the first. While
@@ -566,7 +583,9 @@ export function BaseMap({
         if (pin !== undefined) add(pin);
       }
     }
-    for (const address of [selected, highlighted]) {
+    // The chosen and picked-out pins wherever they are; and the pin the source was without when the map
+    // was read, until the map has gathered it again: a pin let go is not missing for a frame.
+    for (const address of [selected, highlighted, shown.without]) {
       const pin = address === undefined || drawn.has(address) ? undefined : byAddress.get(address);
       if (pin !== undefined) add(pin);
     }
