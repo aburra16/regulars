@@ -2,6 +2,7 @@ import tzLookup from "@photostructure/tz-lookup";
 import OpeningHours, { type nominatim_object } from "opening_hours";
 
 import { copy } from "../copy/en.ts";
+import { safeLocale } from "../locale.ts";
 import type { Place } from "./place.ts";
 
 /**
@@ -269,22 +270,14 @@ export function openState(place: HoursPlace, now: Date): OpenState {
   }
 }
 
-const FALLBACK_LOCALE = "en-US";
-
 const twelveHourLocales = new Map<string, boolean>();
 
 /** Whether the locale writes the time on a 12-hour clock ("11 pm") and not a 24-hour one ("23:00"). */
 function usesTwelveHour(locale: string): boolean {
   let twelve = twelveHourLocales.get(locale);
   if (twelve === undefined) {
-    const cycleOf = (tag: string) => new Intl.DateTimeFormat(tag, { hour: "numeric" }).resolvedOptions().hourCycle;
-    let cycle: string | undefined;
-    try {
-      cycle = cycleOf(locale);
-    } catch {
-      // A malformed locale tag reads the clock the way English does.
-      cycle = cycleOf(FALLBACK_LOCALE);
-    }
+    // A tag that is not a locale reads the clock the way English does (see `safeLocale`).
+    const cycle = new Intl.DateTimeFormat(safeLocale(locale), { hour: "numeric" }).resolvedOptions().hourCycle;
     twelve = cycle === "h11" || cycle === "h12";
     twelveHourLocales.set(locale, twelve);
   }

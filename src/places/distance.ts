@@ -1,4 +1,5 @@
 import { copy } from "../copy/en.ts";
+import { formatInteger, safeLocale } from "../locale.ts";
 import { distance } from "./geo.ts";
 
 const KM_PER_MILE = 1.609344;
@@ -20,21 +21,20 @@ const usesMilesByLocale = new Map<string, boolean>();
 export function usesMiles(locale: string): boolean {
   const known = usesMilesByLocale.get(locale);
   if (known !== undefined) return known;
-  let miles = false;
-  try {
-    const region = new Intl.Locale(locale).maximize().region;
-    miles = region !== undefined && MILE_REGIONS.has(region);
-  } catch {
-    // Not a locale. Nobody should see a broken distance for it.
-  }
+  // A tag that is not a locale reads as the fallback, which has no country: metric.
+  const region = new Intl.Locale(safeLocale(locale)).maximize().region;
+  const miles = region !== undefined && MILE_REGIONS.has(region);
   usesMilesByLocale.set(locale, miles);
   return miles;
 }
 
-/** `value` to one decimal place, or, when that is ten or more, to a whole number. */
-function tenths(value: number, unit: string): string {
+/**
+ * `value` to one decimal place, or, when that is ten or more, to a whole number, which is grouped
+ * the way the language groups ("3,494 mi", "3.494 km").
+ */
+function tenths(value: number, unit: string, locale: string): string {
   const rounded = Math.round(value * 10) / 10;
-  return rounded < 10 ? `${rounded.toFixed(1)} ${unit}` : `${Math.round(value)} ${unit}`;
+  return rounded < 10 ? `${rounded.toFixed(1)} ${unit}` : `${formatInteger(Math.round(value), locale)} ${unit}`;
 }
 
 /**
@@ -45,11 +45,11 @@ function tenths(value: number, unit: string): string {
  */
 export function formatDistance(km: number, locale: string): string {
   if (!Number.isFinite(km)) return "";
-  if (usesMiles(locale)) return tenths(Math.max(0.1, km / KM_PER_MILE), copy.units.mi);
+  if (usesMiles(locale)) return tenths(Math.max(0.1, km / KM_PER_MILE), copy.units.mi, locale);
   if (km < 1) {
     const metres = Math.max(50, Math.round(km * 20) * 50);
     // 0.99 km rounds to 1000 m: say it in kilometres.
     if (metres < 1000) return `${metres} ${copy.units.m}`;
   }
-  return tenths(km, copy.units.km);
+  return tenths(km, copy.units.km, locale);
 }

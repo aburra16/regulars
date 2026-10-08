@@ -132,7 +132,8 @@ describe("the about page: where the places come from", () => {
     const source = screen.getByText(copy.about.source);
     expect(copy.about.source).toBe("Place details from OpenStreetMap, gathered for us by BTC Map");
     expect(source).toHaveClass("text-caption", "text-muted");
-    expect(screen.getByText(copy.about.licence)).toHaveClass("text-caption", "text-muted");
+    // The design sets the licence sentence in 14 px; the line about where the details come from is the fine print.
+    expect(screen.getByText(copy.about.licence)).toHaveClass("text-secondary", "text-muted");
 
     const licence = link(new RegExp(`^${copy.about.licenceLink}`));
     expect(licence).toHaveAttribute("href", "https://www.openstreetmap.org/copyright");
@@ -178,6 +179,18 @@ describe("the about page: what it says", () => {
   it("names the house curator", async () => {
     await openApp("/about", { events: fixtures });
     expect(within(section(copy.about.houseHeading)).getByText(/Mise en Place, our house curator/)).toBeInTheDocument();
+  });
+
+  it("says what House picks are once, and the house section points to it", async () => {
+    await openApp("/about", { events: fixtures });
+    // One paragraph defines them: scores from the reviewers the house trusts.
+    const definitions = screen.getAllByText(/scores from the reviewers/);
+    expect(definitions).toHaveLength(1);
+    expect(section(copy.about.reviewsHeading)).toContainElement(definitions[0]!);
+    // The house section names the house and what it does for House picks, in its own words.
+    const house = within(section(copy.about.houseHeading)).getByText(copy.about.houseBody);
+    expect(house).toHaveTextContent("House picks");
+    expect(house).toHaveTextContent("keeps the list of places up to date");
   });
 
   it("has an anchor for how scores are worked out and one for how signing in works", async () => {
@@ -242,6 +255,8 @@ describe("the about page: layout", () => {
     await openApp("/about", { events: fixtures, px: DESKTOP });
     const rail = screen.getByRole("complementary", { name: copy.about.railLabel });
     expect(rail).toHaveClass("w-rail");
+    // The column and the rail are 40 px apart, as on the place and chain pages.
+    expect(rail.parentElement).toHaveClass("gap-10");
     expect(within(rail).getByText(copy.about.figures.places, { selector: "dt" })).toBeInTheDocument();
     expect(within(rail).getByText(copy.about.yoursHeading)).toBeInTheDocument();
     expect(rail).not.toContainElement(heading());
@@ -292,7 +307,7 @@ describe("the sign-in page on a phone", () => {
     await openApp("/signin", { events: fixtures });
     expect(config.features.signIn).toBe(false);
     const button = screen.getByRole("button", { name: copy.signin.continueButton });
-    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAccessibleDescription(copy.signin.comingSoon);
     expect(copy.signin.comingSoon).toBe("Signing in opens soon. Everything else works without it.");
     // The note is under the button, in the page's flow.
@@ -300,11 +315,54 @@ describe("the sign-in page on a phone", () => {
     expect(button.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("keeps Continue in the keyboard's reach while it is off, so its note can be read, and it does nothing", async () => {
+    const user = userEvent.setup();
+    const { router } = await openApp("/signin", { events: fixtures, entries: ["/", signinFrom("/about")] });
+    const button = screen.getByRole("button", { name: copy.signin.continueButton });
+    // Not the native `disabled`, which takes a button out of the tab order and out of reach of its description.
+    expect(button).not.toHaveAttribute("disabled");
+    for (let i = 0; i < 5 && document.activeElement !== button; i += 1) await user.tab();
+    expect(button).toHaveFocus();
+    await user.click(button);
+    await user.keyboard("{Enter}");
+    expect(router.state.location.pathname).toBe("/signin");
+  });
+
   it("has Continue on, with no note, once signing in is open", async () => {
     config.features.signIn = true;
     await openApp("/signin", { events: fixtures });
-    expect(screen.getByRole("button", { name: copy.signin.continueButton })).toBeEnabled();
+    const button = screen.getByRole("button", { name: copy.signin.continueButton });
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(button).toBeEnabled();
     expect(screen.queryByText(copy.signin.comingSoon)).not.toBeInTheDocument();
+  });
+
+  it("puts the focus on the headline when the page opens, which a screen reader reads first", async () => {
+    await openApp("/signin", { events: fixtures });
+    expect(heading()).toHaveFocus();
+    // Not in the tab order: Tab goes on to the first control.
+    expect(heading()).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("draws the focus ring white on the dark ground, where the ink ring would not show", async () => {
+    await openApp("/signin", { events: fixtures });
+    const onDark = (element: HTMLElement) => element.closest(".on-dark") !== null;
+    for (const control of [
+      link(copy.signin.close),
+      screen.getByRole("button", { name: copy.signin.continueButton }),
+      link(copy.signin.keepHousePicks),
+      link(copy.signin.howItWorks),
+    ]) {
+      expect(onDark(control)).toBe(true);
+    }
+  });
+
+  it("fits a phone of the design's height: the buttons are not pushed past the screen", async () => {
+    await openApp("/signin", { events: fixtures });
+    // 844 px is the design's frame. The group at the foot has no more room above it than the steps need.
+    const group = link(copy.signin.keepHousePicks).parentElement!;
+    expect(group).not.toHaveClass("pt-8");
+    expect(group).toHaveClass("pt-3");
   });
 
   it("draws Continue white and Keep House picks outlined, as SignIn.dc.html does", async () => {
@@ -330,8 +388,29 @@ describe("the sign-in page on a desktop", () => {
     expect(within(card as HTMLElement).getByRole("link", { name: copy.signin.howItWorks })).toBeInTheDocument();
     // On the white card Continue is the accent colour.
     expect(button).toHaveClass("bg-accent", "text-on-accent");
-    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAccessibleDescription(copy.signin.comingSoon);
+  });
+
+  it("draws the ring white on the dark ground and keeps the ink ring on the white card", async () => {
+    await openApp("/signin", { events: fixtures, px: DESKTOP });
+    // The wordmark and the cross are on the dark ground.
+    expect(link(copy.app.name).closest(".on-dark")).not.toBeNull();
+    expect(link(copy.signin.close).closest(".on-dark")).not.toBeNull();
+    // The card's controls are on white: a white ring there would be invisible.
+    for (const control of [
+      screen.getByRole("button", { name: copy.signin.continueButton }),
+      link(copy.signin.keepHousePicks),
+      link(copy.signin.howItWorks),
+    ]) {
+      expect(control.closest(".on-dark")).toBeNull();
+    }
+  });
+
+  it("puts the focus on the headline when the page opens", async () => {
+    await openApp("/signin", { events: fixtures, px: DESKTOP });
+    expect(heading()).toHaveFocus();
+    expect(heading()).toHaveAttribute("tabindex", "-1");
   });
 
   it("has the wordmark, which goes to Explore", async () => {

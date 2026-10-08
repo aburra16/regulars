@@ -1,6 +1,7 @@
-import { type JSX, type ReactNode, useCallback, useEffect, useId, useMemo } from "react";
+import { type JSX, type ReactNode, type RefObject, useCallback, useEffect, useId, useMemo, useRef } from "react";
 import { Link, type To, useLocation, useNavigate } from "react-router-dom";
 
+import { aboutAt, SIGNING_IN } from "../about/anchors.ts";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
@@ -53,19 +54,21 @@ function Steps({ tone, gap, textClass = "" }: { tone: "night" | "card"; gap: str
 
 /**
  * "Continue with Nostr". Signing in is not open in M1 (`config.features.signIn`): the button is off,
- * and says why under it, which the button names as its description.
+ * and says why under it, which the button names as its description. It is off with `aria-disabled`
+ * and not `disabled`, so that it stays where the keyboard goes and a screen reader reads its note.
  */
 function Continue({ buttonClass, noteClass }: { buttonClass: string; noteClass: string }): JSX.Element {
   const noteId = useId();
   const open = config.features.signIn;
   return (
     <>
-      {/* When signing in opens (M2), this starts it. */}
       <button
         type="button"
-        disabled={!open}
+        aria-disabled={open ? undefined : true}
         aria-describedby={open ? undefined : noteId}
-        className={`flex cursor-pointer items-center justify-center rounded-[18px] border-0 font-text font-bold disabled:cursor-not-allowed disabled:opacity-60 ${buttonClass}`}
+        // While it is off it does nothing. When signing in opens (M2), this starts it.
+        onClick={open ? undefined : (event) => event.preventDefault()}
+        className={`flex cursor-pointer items-center justify-center rounded-[18px] border-0 font-text font-bold aria-disabled:cursor-not-allowed aria-disabled:opacity-60 ${buttonClass}`}
       >
         {copy.signin.continueButton}
       </button>
@@ -75,6 +78,15 @@ function Continue({ buttonClass, noteClass }: { buttonClass: string; noteClass: 
         </p>
       )}
     </>
+  );
+}
+
+/** The page's headline, which has the focus when the page opens, so a screen reader starts there. It is not a control: no ring. */
+function Headline({ headlineRef, className }: { headlineRef: RefObject<HTMLHeadingElement | null>; className: string }): JSX.Element {
+  return (
+    <h1 ref={headlineRef} tabIndex={-1} className={`m-0 font-display font-extrabold outline-none ${className}`}>
+      {copy.signin.headline}
+    </h1>
   );
 }
 
@@ -108,10 +120,17 @@ function LeaveLink({
   );
 }
 
+/** What each layout of the page is given: where it leaves to, how, and the headline to focus. */
+interface LayoutProps {
+  to: To;
+  leave(): void;
+  headlineRef: RefObject<HTMLHeadingElement | null>;
+}
+
 /** The sign-in page on a phone (SignIn.dc.html): the headline and the steps over the dark ground, the buttons at the foot. */
-function PhoneSignIn({ to, leave }: { to: To; leave(): void }): JSX.Element {
+function PhoneSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
   return (
-    <div className="flex flex-1 flex-col bg-night text-ground">
+    <div className="on-dark flex flex-1 flex-col bg-night text-ground">
       <div className="flex justify-end px-3 pt-3.5">
         <LeaveLink to={to} leave={leave} label={copy.signin.close} className="flex size-11 items-center justify-center text-ground">
           <CloseIcon size={22} />
@@ -119,13 +138,13 @@ function PhoneSignIn({ to, leave }: { to: To; leave(): void }): JSX.Element {
       </div>
       <section className="flex flex-col gap-3.5 px-6 pt-5">
         <div className="font-display text-[20px] font-extrabold tracking-[-0.01em] text-wordmark-on-night">{copy.app.name}</div>
-        <h1 className="m-0 font-display text-[42px] leading-[1.05] font-extrabold tracking-[-0.025em]">{copy.signin.headline}</h1>
+        <Headline headlineRef={headlineRef} className="text-[42px] leading-[1.05] tracking-[-0.025em]" />
         <p className="m-0 text-[17px] leading-[1.5] text-on-night-soft">{copy.signin.intro}</p>
       </section>
       <section className="px-6 pt-[30px]">
         <Steps tone="night" gap="gap-[18px]" />
       </section>
-      <section className="mt-auto flex flex-col gap-3 px-6 pt-8 pb-7">
+      <section className="mt-auto flex flex-col gap-3 px-6 pt-3 pb-7">
         <Continue buttonClass="h-14 bg-ground text-[17px] text-ink" noteClass="text-line-dashed" />
         <LeaveLink
           to={to}
@@ -136,7 +155,7 @@ function PhoneSignIn({ to, leave }: { to: To; leave(): void }): JSX.Element {
         </LeaveLink>
         <p className="m-0 text-center text-caption leading-[1.45] text-line-dashed">{copy.signin.notice}</p>
         <Link
-          to="/about#signing-in"
+          to={aboutAt(SIGNING_IN)}
           className="flex min-h-touch items-center justify-center text-secondary font-semibold text-ground underline"
         >
           {copy.signin.howItWorks}
@@ -151,10 +170,10 @@ function PhoneSignIn({ to, leave }: { to: To; leave(): void }): JSX.Element {
  * ground, the headline on the left, and on the right a white card with the steps, the buttons and the
  * notice. Where the window is too narrow for the two side by side, the card goes under the headline.
  */
-function DeskSignIn({ to, leave }: { to: To; leave(): void }): JSX.Element {
+function DeskSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
   return (
     <div className="flex flex-1 flex-col bg-night text-ground">
-      <div className="flex items-center justify-between px-gutter-desktop py-[18px]">
+      <div className="on-dark flex items-center justify-between px-gutter-desktop py-[18px]">
         <Link
           to="/"
           className="font-display text-[26px] font-extrabold tracking-display text-wordmark-on-night no-underline"
@@ -167,7 +186,7 @@ function DeskSignIn({ to, leave }: { to: To; leave(): void }): JSX.Element {
       </div>
       <div className="mx-auto flex w-full max-w-content flex-1 flex-wrap items-center gap-x-[72px] gap-y-10 px-gutter-desktop pt-6 pb-16">
         <section className="flex min-w-0 flex-[999_1_460px] flex-col gap-5">
-          <h1 className="m-0 font-display text-[68px] leading-none font-extrabold tracking-[-0.03em]">{copy.signin.headline}</h1>
+          <Headline headlineRef={headlineRef} className="text-[68px] leading-none tracking-[-0.03em]" />
           <p className="m-0 max-w-[46ch] text-[19px] leading-[1.5] text-on-night-soft">{copy.signin.intro}</p>
         </section>
         <section className="flex min-w-0 flex-[1_1_380px] flex-col gap-[22px] rounded-dialog bg-ground p-7 text-ink">
@@ -185,7 +204,7 @@ function DeskSignIn({ to, leave }: { to: To; leave(): void }): JSX.Element {
           <div className="flex flex-col gap-1">
             <p className="m-0 text-caption leading-[1.45] text-muted">{copy.signin.notice}</p>
             <Link
-              to="/about#signing-in"
+              to={aboutAt(SIGNING_IN)}
               className="inline-flex min-h-touch items-center self-start text-secondary font-semibold text-ink underline hover:text-accent"
             >
               {copy.signin.howItWorks}
@@ -207,6 +226,12 @@ export function SignInPage(): JSX.Element {
   useDocumentTitle(copy.titles.signin);
   const wide = useWide();
   const { to, leave } = useLeave();
+  const headlineRef = useRef<HTMLHeadingElement>(null);
+
+  // The page opens at its headline: a screen reader reads the page from there, and the keyboard starts above the buttons.
+  useEffect(() => {
+    headlineRef.current?.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -216,5 +241,9 @@ export function SignInPage(): JSX.Element {
     return () => document.removeEventListener("keydown", onKey);
   }, [leave]);
 
-  return wide ? <DeskSignIn to={to} leave={leave} /> : <PhoneSignIn to={to} leave={leave} />;
+  return wide ? (
+    <DeskSignIn to={to} leave={leave} headlineRef={headlineRef} />
+  ) : (
+    <PhoneSignIn to={to} leave={leave} headlineRef={headlineRef} />
+  );
 }

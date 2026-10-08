@@ -6,6 +6,7 @@ import { type PlacesValue, usePlaces } from "../places/store.tsx";
 import { Banner, PageMessage, primaryButton } from "../ui/Banner.tsx";
 import { ViewProvider } from "../view/ViewProvider.tsx";
 import { PhoneTop } from "./PhoneTop.tsx";
+import { scrollKey } from "./scrollKey.ts";
 import { TabBar } from "./TabBar.tsx";
 import { TopBar } from "./TopBar.tsx";
 import { useOnline } from "./useOnline.ts";
@@ -107,7 +108,7 @@ export function Shell(): JSX.Element {
     <ViewProvider>
       <Frame />
       {/* A new page opens at its top; Back returns to where the person was. */}
-      <ScrollRestoration />
+      <ScrollRestoration getKey={scrollKey} />
     </ViewProvider>
   );
 }

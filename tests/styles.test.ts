@@ -104,6 +104,16 @@ describe("focus and scrolling", () => {
     );
   });
 
+  it("draws it white on a dark ground, since the sign-in page's ground is the ink colour and an ink ring would not show", async () => {
+    const night = tokens.find((token) => token.name === "night")?.value;
+    expect(night).toBe(tokens.find((token) => token.name === "ink")?.value);
+    expect(baseLayer).toMatch(/\.on-dark\s+:focus-visible\s*\{[^}]*outline-color:\s*var\(--ground\);/);
+    // The ring's width and offset stay the one rule's: the dark ground changes its colour only.
+    expect(baseLayer.match(/\.on-dark\s+:focus-visible\s*\{([^}]*)\}/)?.[1]).not.toMatch(/outline(?:-width|-offset|-style)|outline:/);
+    const css = await compileUtilities([]);
+    expect(css).toMatch(/\.on-dark :focus-visible\s*\{\s*outline-color:\s*var\(--ground\);/);
+  });
+
   it("leaves no component to draw a focus ring of its own, but the field that holds an input", () => {
     const files = filesUnder("src").filter((file) => /\.tsx$/.test(file));
     const own = files.flatMap((file) =>

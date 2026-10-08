@@ -260,6 +260,7 @@ export const copy = {
     /** The notice about what personalizing does (the brief, section 6). */
     notice: "Nothing is posted without you. Your circle's scores are worked out by our scoring partner and are public.",
     howItWorks: "First time? How signing in works",
+    // DRAFT for Avi
     /** The numbered list of steps, for a screen reader. */
     stepsLabel: "The three steps",
   },
@@ -273,6 +274,7 @@ export const copy = {
     /** The arrow at the top left, for a screen reader, when the page was opened from another one. */
     back: "Back",
     title: "Places to eat and drink, rated by people you'd actually ask.",
+    // DRAFT for Avi
     /** The desktop's side rail, for a screen reader. */
     railLabel: "The data in numbers",
     placesHeading: "Where the places come from",
@@ -284,6 +286,7 @@ export const copy = {
       lastRefreshed: "Last refreshed",
       refreshed: "Refreshed",
       monthly: "Every month",
+      // DRAFT for Avi
       /** In place of a figure while the places have not loaded. */
       none: "—",
     },
@@ -294,12 +297,13 @@ export const copy = {
     reviewsHeading: "Where the reviews come from",
     reviewsBody:
       "People write them under their own names. Nobody at Regulars edits or reorders them. The score you see for a place is worked out from the reviewers you trust, so two people can see different scores for the same place.",
-    // DRAFT for Avi: the two views in plain words. The design links to a "How scores are worked out" page, which is for people who have signed in.
+    // DRAFT for Avi: the two views in plain words, where House picks are said once. The design links to a "How scores are worked out" page, which is for people who have signed in.
     viewsBody:
-      "House picks are the scores from the reviewers that Mise en Place trusts, and everyone starts there. My circle is the same, worked out from the people you trust and the people they trust. You can switch between them whenever you like.",
+      "House picks are the scores from the reviewers that the house trusts, and everyone starts there. My circle is the same, worked out from the people you trust and the people they trust. You can switch between them whenever you like.",
     houseHeading: "Who the house is",
+    // DRAFT for Avi: the design's sentence says what House picks are, which the section above now does.
     houseBody:
-      "Before you sign in you see House picks: scores from the reviewers that Mise en Place, our house curator, trusts. Mise en Place also keeps the list of places up to date.",
+      "Mise en Place, our house curator, is the house. It trusts the reviewers behind House picks, and it also keeps the list of places up to date.",
     signingInHeading: "How signing in works",
     signingInBody:
       "You sign in with an account you hold yourself, through a sign-in app in your browser or on your phone. Regulars never sees a password, and nothing is posted unless you press Post.",
@@ -435,6 +439,8 @@ export const copy = {
     seeOnMap: "See on map",
     /** The button under the locations that are near, when the chain has more (Chain.dc.html): "Show all 74 locations". */
     showAll: (n: number) => `Show all ${locations(n)}`,
+    // DRAFT for Avi: the page lists at most this many, so the button for a chain with more says it shows the nearest.
+    showNearest: (n: number) => `Show the nearest ${n.toLocaleString("en")}`,
     // DRAFT for Avi: the design adds "Not the same business? Tell us", a link to a form this version does not have.
     grouped: "Places with the same name are grouped.",
     // DRAFT for Avi

@@ -7,14 +7,11 @@ import { useLocale } from "../shell/useLocale.ts";
 import { useWide } from "../shell/useWide.ts";
 import { BackLink } from "../ui/BackLink.tsx";
 import { NewTabHint } from "../ui/NewTab.tsx";
+import { HOW_SCORES_WORK, SIGNING_IN } from "./anchors.ts";
 import { aboutFigures, formatCount, formatRefreshed } from "./figures.ts";
 
 /** Where OpenStreetMap says how its data may be used. */
 const OSM_COPYRIGHT = "https://www.openstreetmap.org/copyright";
-
-/** The anchors other pages link to: Explore's "How this works", and the sign-in page's "First time?". */
-const HOW_SCORES_WORK = "how-scores-work";
-const SIGNING_IN = "signing-in";
 
 /** A paragraph of the page's words. */
 const BODY = "m-0 max-w-measure text-body leading-[1.5] text-ink-soft";
@@ -76,7 +73,7 @@ function FinePrint(): JSX.Element {
   return (
     <>
       <p className="m-0 max-w-measure text-caption leading-[1.5] text-muted">{copy.about.source}</p>
-      <p className="m-0 max-w-measure text-caption leading-[1.5] text-muted">{copy.about.licence}</p>
+      <p className="m-0 max-w-measure text-secondary leading-[1.5] text-muted">{copy.about.licence}</p>
       <a
         href={OSM_COPYRIGHT}
         target="_blank"
@@ -155,7 +152,7 @@ function DeskAbout({ locale }: { locale: string }): JSX.Element {
   return (
     <div className="mx-auto flex w-full max-w-content flex-col gap-4 px-gutter-desktop pt-4 pb-12">
       <BackLink wide back={copy.about.back} />
-      <div className="flex items-start gap-14">
+      <div className="flex items-start gap-10">
         <div className="flex min-w-0 flex-1 flex-col gap-8">
           <h1 className="m-0 font-display text-[48px] leading-[1.04] font-extrabold tracking-[-0.025em]">{copy.about.title}</h1>
           <Section id="where-the-places-come-from" heading={copy.about.placesHeading} wide>

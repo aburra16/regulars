@@ -3,10 +3,12 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+
 import { fitView } from "../src/chain/fit";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { PIN_SOURCE } from "../src/map/pins";
+import * as distanceModule from "../src/places/distance";
 import { distanceKm, formatDistance } from "../src/places/distance";
 import { openLine, openState } from "../src/places/hours";
 import { buildIndexes, type Chain, chainSlug } from "../src/places/indexes";
@@ -65,6 +67,17 @@ const lisbonConfeitaria = (count: number) =>
       locality: "Lisboa",
       lat: String(38.72 + i * 0.001),
       lon: String(-9.14 + i * 0.001),
+    }),
+  );
+
+/** More A Confeitaria Coffee & Bakery, in the middle of Funchal, so the chain has many locations near you. */
+const funchalConfeitaria = (count: number) =>
+  Array.from({ length: count }, (_, i) =>
+    variant(confeitariaEvent, {
+      d: `funchal-confeitaria-${i}`,
+      address: `${i + 1} Rua Nova Funchal`,
+      lat: String(32.651 + i * 0.0002),
+      lon: "-16.908",
     }),
   );
 
@@ -242,7 +255,7 @@ describe("the chain page: locations", () => {
     expect(screen.queryByRole("button", { name: /^Show all/ })).not.toBeInTheDocument();
   });
 
-  it("pages a long list: fifty more at a time, to the last location", async () => {
+  it("shows every location when 'Show all' is pressed, with no more paging after it", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     // 4 near, 75 in Lisbon: 79 locations.
     const events = [...fixtures, ...lisbonConfeitaria(75)];
@@ -251,14 +264,57 @@ describe("the chain page: locations", () => {
     expect(rows()).toHaveLength(4);
 
     await user.click(screen.getByRole("button", { name: "Show all 79 locations" }));
-    expect(rows()).toHaveLength(54);
-    expect(rows()[4]).toHaveFocus();
-
-    await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
     expect(rows()).toHaveLength(79);
-    expect(rows()[54]).toHaveFocus();
-    expect(screen.queryByRole("button", { name: copy.explore.showMore })).not.toBeInTheDocument();
+    expect(rows()[4]).toHaveFocus();
     expect(rowHrefs()).toEqual(nearestFirst(chain).map(({ place }) => placeHref(place)));
+    // Nothing is left to show: no button of any name is under the list.
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("lists the nearest five hundred of a chain that has more, and the button says so", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    // 4 near, 520 in Lisbon: 524 locations.
+    const events = [...fixtures, ...lisbonConfeitaria(520)];
+    const chain = buildIndexes(parsePlaces(events)).chains.get("PT:a confeitaria coffee & bakery")!;
+    await openApp(`/chain/${chainSlug(chain)}`, { events });
+    expect(header()).toHaveTextContent("524 locations · 4 near you");
+
+    await user.click(screen.getByRole("button", { name: "Show the nearest 500" }));
+    expect(copy.chain.showNearest(500)).toBe("Show the nearest 500");
+    expect(rows()).toHaveLength(500);
+    expect(rowHrefs()).toEqual(nearestFirst(chain).slice(0, 500).map(({ place }) => placeHref(place)));
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("lists fifty of the locations near you when there are many, and 'Show all' shows the rest", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    // 4 near already, and 60 more in the middle of Funchal.
+    const events = [...fixtures, ...funchalConfeitaria(60)];
+    const chain = buildIndexes(parsePlaces(events)).chains.get("PT:a confeitaria coffee & bakery")!;
+    await openApp(`/chain/${chainSlug(chain)}`, { events });
+
+    expect(header()).toHaveTextContent("64 locations · 64 near you");
+    expect(rows()).toHaveLength(50);
+    expect(rowHrefs()).toEqual(nearestFirst(chain).slice(0, 50).map(({ place }) => placeHref(place)));
+    expect(screen.getByRole("heading", { level: 2, name: copy.chain.near })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show all 64 locations" }));
+    expect(rows()).toHaveLength(64);
+    expect(rows()[50]).toHaveFocus();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("does not draw the rows it has shown again when more are shown", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const events = [...fixtures, ...lisbonConfeitaria(3)];
+    const chain = buildIndexes(parsePlaces(events)).chains.get("PT:a confeitaria coffee & bakery")!;
+    await openApp(`/chain/${chainSlug(chain)}`, { events });
+    // Each row works out how far it is as it is drawn.
+    const drawn = vi.spyOn(distanceModule, "formatDistance");
+    drawn.mockClear();
+    await user.click(screen.getByRole("button", { name: "Show all 7 locations" }));
+    expect(rows()).toHaveLength(7);
+    expect(drawn).toHaveBeenCalledTimes(3);
   });
 
   it("is as long as it was when the person comes back to it from a place", async () => {
@@ -374,6 +430,30 @@ describe("the chain page on a desktop", () => {
     expect(addresses.sort()).toEqual(near.map((place) => place.address).sort());
     // Several locations: the view takes them all in, so it is wider than one street.
     expect(view.zoom).toBeLessThan(15);
+  });
+
+  it("pins the locations the list shows, and takes in more of them when the list shows more", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const events = [...fixtures, ...lisbonConfeitaria(3)];
+    const chain = buildIndexes(parsePlaces(events)).chains.get("PT:a confeitaria coffee & bakery")!;
+    await openApp(`/chain/${chainSlug(chain)}`, { events, px: DESKTOP });
+    const map = await waitFor(() => {
+      const made = FakeMap.instances.at(-1);
+      if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
+      return made;
+    });
+    const pinned = () =>
+      map.sources.get(PIN_SOURCE)!.data.features.map((feature) => (feature.properties as { address: string }).address).sort();
+    const everyPlace = nearestFirst(chain).map(({ place }) => place);
+    expect(pinned()).toEqual(everyPlace.slice(0, 4).map((place) => place.address).sort());
+
+    await user.click(screen.getByRole("button", { name: "Show all 7 locations" }));
+    await waitFor(() => expect(pinned()).toEqual(everyPlace.map((place) => place.address).sort()));
+    // The view takes in the ones in Lisbon: it is farther out than it was.
+    const all = fitView(everyPlace);
+    expect(map.center).toEqual(all.center);
+    expect(map.zoom).toBe(all.zoom);
+    expect(all.zoom).toBeLessThan(fitView(everyPlace.slice(0, 4)).zoom);
   });
 
   it("centres on the one location when there is one, close in", async () => {

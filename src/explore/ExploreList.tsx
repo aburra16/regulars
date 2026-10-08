@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
+import { aboutAt, HOW_SCORES_WORK } from "../about/anchors.ts";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { HereCityPicker } from "../location/CityPicker.tsx";
@@ -70,7 +71,7 @@ export function HouseLine({ count }: { count?: number }): JSX.Element {
     <p className="m-0 text-secondary leading-[1.4] text-muted">
       {count !== undefined && `${copy.deskExplore.count(count)} `}
       {copy.explore.houseLine}{" "}
-      <Link to="/about#how-scores-work" className="font-semibold text-ink underline hover:text-accent">
+      <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
         {copy.explore.howThisWorks}
       </Link>
     </p>

@@ -786,6 +786,48 @@ describe("the scroll position", () => {
     await act(() => router.navigate(-1));
     expect(scrollTo).toHaveBeenLastCalledWith(0, 240);
   });
+
+  describe("of a page the person opened afresh, which the router calls 'default' like the first page of a tab", () => {
+    const POSITIONS = "react-router-scroll-positions";
+    let scrolledTo: ReturnType<typeof vi.fn>;
+    beforeEach(() => {
+      scrolledTo = vi.fn();
+      Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, writable: true, value: scrolledTo });
+    });
+    afterEach(() => {
+      Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+    });
+
+    it("goes to the section a link names, not to where the page that was in the tab before it was left", () => {
+      // The tab's last first page was left at the top, and kept as "default".
+      window.sessionStorage.setItem(POSITIONS, JSON.stringify({ default: 0 }));
+      const scrollTo = vi.spyOn(window, "scrollTo");
+      renderApp("/about#how-scores-work");
+      expect(scrolledTo).toHaveBeenCalled();
+      expect(scrolledTo.mock.contexts.at(-1)).toBe(document.getElementById("how-scores-work"));
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it("keeps its own position for the address it has, so a reload comes back to where it was", () => {
+      window.sessionStorage.setItem(POSITIONS, JSON.stringify({ default: 0, "/about?x=1#signing-in": 300 }));
+      const scrollTo = vi.spyOn(window, "scrollTo");
+      renderApp("/about?x=1#signing-in");
+      // The router goes to the section as the page opens, and then to the position kept for this address.
+      expect(scrollTo).toHaveBeenLastCalledWith(0, 300);
+    });
+
+    it("keeps a page the person went to by the router's own key, as before", async () => {
+      const scrollTo = vi.spyOn(window, "scrollTo");
+      const scrollY = vi.spyOn(window, "scrollY", "get").mockReturnValue(120);
+      const { router } = renderApp("/about#signing-in");
+      scrolledTo.mockClear();
+      await act(() => router.navigate("/map"));
+      scrollY.mockReturnValue(0);
+      await act(() => router.navigate(-1));
+      // Back to a hash link as the person left it: the position they had, not the section again.
+      expect(scrollTo).toHaveBeenLastCalledWith(0, 120);
+    });
+  });
 });
 
 describe("the document title", () => {

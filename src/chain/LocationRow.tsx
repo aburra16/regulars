@@ -1,4 +1,4 @@
-import { type JSX, useId, useMemo } from "react";
+import { type JSX, memo, useId, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
@@ -17,9 +17,10 @@ export const locationName = (place: Place): string => place.street ?? place.loca
 /**
  * A location in the chain's list (Chain.dc.html): its address, and at the top right, where its
  * score goes, that nobody has reviewed it yet; under it how far it is and whether it is open. The
- * whole row is one link to the place, named by the address, described by the rest.
+ * whole row is one link to the place, named by the address, described by the rest. It is `memo`:
+ * a chain can have hundreds of rows, and showing more of them does not draw those already there again.
  */
-export function LocationRow({
+export const LocationRow = memo(function LocationRow({
   place,
   km,
   locale,
@@ -75,4 +76,4 @@ export function LocationRow({
       )}
     </Link>
   );
-}
+});

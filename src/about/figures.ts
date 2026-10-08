@@ -1,3 +1,4 @@
+import { formatInteger, safeLocale } from "../locale.ts";
 import type { Place } from "../places/place.ts";
 
 /** What the About page says of the places the app has. */
@@ -25,18 +26,9 @@ export function aboutFigures(places: readonly Pick<Place, "country" | "createdAt
   return { places: places.length, countries: countries.size, refreshedAt };
 }
 
-/** A locale `Intl` can use: the browser's, or English when it gives one that is not. */
-function usable(locale: string): string {
-  try {
-    return Intl.getCanonicalLocales(locale)[0] ?? "en";
-  } catch {
-    return "en";
-  }
-}
-
-/** A count in the browser's language: "7,954", "7.954". */
+/** A count in the browser's language: "7,954", "7.954", "7 954". */
 export function formatCount(n: number, locale: string): string {
-  return new Intl.NumberFormat(usable(locale)).format(n);
+  return formatInteger(n, locale);
 }
 
 /**
@@ -45,5 +37,5 @@ export function formatCount(n: number, locale: string): string {
  * later for a person in Madeira.
  */
 export function formatRefreshed(seconds: number, locale: string): string {
-  return new Intl.DateTimeFormat(usable(locale), { dateStyle: "long", timeZone: "UTC" }).format(new Date(seconds * 1000));
+  return new Intl.DateTimeFormat(safeLocale(locale), { dateStyle: "long", timeZone: "UTC" }).format(new Date(seconds * 1000));
 }

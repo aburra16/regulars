@@ -256,6 +256,13 @@
     outline-offset: 2px;
   }
 
+  /* On a dark ground the same ring is white: the sign-in page's ground (--night) is the ink colour, so
+     an ink ring would not show. Put `on-dark` on the part of a page that is dark, and on no white
+     part of it (the desktop's card). The ring's width and offset stay the rule's above. */
+  .on-dark :focus-visible {
+    outline-color: var(--ground);
+  }
+
   /* The page is the scroller. On a phone the sticky tab bar covers its foot, so scrolling to a
      focused target stops short of it. */
   html {
