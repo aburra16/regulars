@@ -2,6 +2,7 @@ import { copy } from "../copy/en.ts";
 import { openState } from "../places/hours.ts";
 import { type FamilyId, familyLabel, kindOf } from "../places/kinds.ts";
 import type { Place } from "../places/place.ts";
+import { filtersToParams, noFilters } from "../search/filters.ts";
 
 /** The filter chips on Explore, in order. `all` is the one that is on when none is chosen. */
 export const EXPLORE_CHIPS = ["all", "open", "restaurants", "cafes"] as const;
@@ -31,4 +32,17 @@ export function chipKeeps(chip: ExploreChip, place: Place, now: Date): boolean {
   if (chip === "all") return true;
   if (chip === "open") return openState(place, now).kind === "open";
   return kindOf(place.category).family === FAMILY_OF[chip];
+}
+
+/**
+ * Where More goes from a chip: the filters page, with the chip's own filter on (Open now, or its kind
+ * of place), so the person goes on from what Explore was showing.
+ */
+export function filtersPathFrom(chip: ExploreChip, locale: string): string {
+  const family = FAMILY_OF[chip];
+  const params = filtersToParams(
+    { ...noFilters(locale), open: chip === "open", families: family === undefined ? [] : [family] },
+    locale,
+  );
+  return params.size === 0 ? "/filters" : `/filters?${params}`;
 }

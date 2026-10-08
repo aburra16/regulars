@@ -675,6 +675,46 @@ describe("Explore: hours that cannot be read", () => {
 });
 
 describe("Explore: the filter chips", () => {
+  const more = () => within(screen.getByRole("group", { name: copy.explore.filtersLabel })).getByRole("link", { name: "More" });
+
+  it.each([
+    ["/", "/filters"],
+    ["/?chip=open", "/filters?open=1"],
+    ["/?chip=restaurants", "/filters?kinds=restaurants"],
+    ["/?chip=cafes", "/filters?kinds=cafes"],
+  ])("carries the chip that is on at %s into the filters as its filter: More goes to %s", async (path, filters) => {
+    await openExplore(path);
+    expect(more()).toHaveAttribute("href", filters);
+  });
+
+  it("opens the filters from More with the chip's kind chosen, and the cross comes back to Explore as it was", async () => {
+    const user = userEvent.setup();
+    const { router } = await openExplore("/?chip=cafes");
+    const explore = router.state.location.key;
+    await user.click(more());
+    await screen.findByRole("heading", { level: 1, name: copy.pages.filters });
+    expect(router.state.location.search).toBe("?kinds=cafes");
+    const kinds = screen.getByRole("group", { name: copy.filters.kinds });
+    expect(within(kinds).getByRole("button", { name: "Cafes" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("link", { name: copy.filters.close }));
+    await screen.findByRole("heading", { level: 1, name: copy.pages.explore });
+    expect(router.state.location.key).toBe(explore);
+    expect(router.state.location.search).toBe("?chip=cafes");
+  });
+
+  it("goes to the search from the filters opened on Explore, in place of the filters", async () => {
+    const user = userEvent.setup();
+    const { router } = await openExplore("/?chip=cafes");
+    await user.click(more());
+    await screen.findByRole("heading", { level: 1, name: copy.pages.filters });
+    await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
+    await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+    expect(router.state.location.search).toBe("?kinds=cafes");
+    await act(() => router.navigate(-1));
+    expect(router.state.location.pathname).toBe("/");
+  });
+
   it("keeps only the places that are open now with 'Open now'", async () => {
     const user = userEvent.setup();
     const { router } = await openExplore();

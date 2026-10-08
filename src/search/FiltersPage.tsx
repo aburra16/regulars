@@ -1,5 +1,5 @@
 import { type JSX, type ReactNode, useId, useState } from "react";
-import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
@@ -7,7 +7,8 @@ import { useLocale } from "../shell/useLocale.ts";
 import { useWide } from "../shell/useWide.ts";
 import { CloseIcon } from "../ui/icons.tsx";
 import { KindOptions, OpenNowSwitch, SortOptions, WithinOptions } from "./FilterControls.tsx";
-import { type Filters, filtersFromParams, FROM_FILTERS, noFilters, sortInUse, withFilters } from "./filters.ts";
+import { isPlainClick } from "../ui/plainClick.ts";
+import { cameFromExplore, type Filters, filtersFromParams, FROM_FILTERS, noFilters, sortInUse, withFilters } from "./filters.ts";
 import { useResults } from "./useResults.ts";
 
 /** Where the search page is for an address's text: no text, no question mark. */
@@ -36,10 +37,12 @@ function Section({
 
 /**
  * The filters (Filters.dc.html; screen 4): how to sort, Open now, how far, and which kinds of
- * place. The page works on its own copy of them. "Show 5 places" goes back to the search with that
- * copy in the address, in place of this page in the history; "Clear all" turns every filter off;
- * the cross goes back as the search was. The words searched for stay in the address. Both ways back
- * say they come from here (`FROM_FILTERS`), so the search does not raise the keyboard over its results.
+ * place. The page works on its own copy of them. "Show 5 places" goes to the search with that copy
+ * in the address, in place of this page in the history; "Clear all" turns every filter off. The
+ * cross goes back to where the page was opened from, as it was: Explore, when its More chip opened
+ * it (`FROM_EXPLORE`, with the chip's own filter on here), or else the search. The words searched
+ * for stay in the address. The ways to the search say they come from here (`FROM_FILTERS`), so the
+ * search does not raise the keyboard over its results.
  *
  * A desktop has these same controls (FilterControls) as menus above its results, so there this page
  * gives its place in the history to the search with the same address, as the map's page gives its to
@@ -51,6 +54,8 @@ export function FiltersPage(): JSX.Element {
   const navigate = useNavigate();
   const locale = useLocale();
   const [params] = useSearchParams();
+  const { state } = useLocation();
+  const fromExplore = cameFromExplore(state);
   const query = (params.get("q") ?? "").trim();
 
   const [draft, setDraft] = useState<Filters>(() => {
@@ -72,8 +77,14 @@ export function FiltersPage(): JSX.Element {
         <h1 className="m-0 font-display text-[26px] font-extrabold tracking-display">{copy.pages.filters}</h1>
         <Link
           replace
-          to={searchPath(params.toString())}
-          state={FROM_FILTERS}
+          to={fromExplore ? "/" : searchPath(params.toString())}
+          state={fromExplore ? undefined : FROM_FILTERS}
+          onClick={(event) => {
+            // Opened from Explore: back to that Explore, with its chip, its depth and its scroll position.
+            if (!fromExplore || !isPlainClick(event)) return;
+            event.preventDefault();
+            void navigate(-1);
+          }}
           aria-label={copy.filters.close}
           className="flex size-11 items-center justify-center text-ink"
         >

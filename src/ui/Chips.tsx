@@ -75,10 +75,10 @@ export function Chips<T extends string>({
   );
 }
 
-/** A chip that goes to another page and has an icon in front: "More", which opens the filters. */
-export function ChipLink({ to, children }: { to: string; children: ReactNode }): JSX.Element {
+/** A chip that goes to another page and has an icon in front: "More", which opens the filters. `state` goes with it. */
+export function ChipLink({ to, state, children }: { to: string; state?: unknown; children: ReactNode }): JSX.Element {
   return (
-    <Link to={to} className={`gap-1.5 no-underline ${CHIP} ${CHIP_OFF}`}>
+    <Link to={to} state={state} className={`gap-1.5 no-underline ${CHIP} ${CHIP_OFF}`}>
       <FilterIcon size={16} />
       {children}
     </Link>

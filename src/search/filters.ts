@@ -156,6 +156,15 @@ export const FROM_FILTERS = { from: "filters" } as const;
 export const cameFromFilters = (state: unknown): boolean =>
   typeof state === "object" && state !== null && "from" in state && state.from === FROM_FILTERS.from;
 
+/**
+ * What Explore's More chip leaves on the filters page it opens (as the `state` of the navigation): the
+ * cross goes back to that Explore, as it was, not on to the search.
+ */
+export const FROM_EXPLORE = { from: "explore" } as const;
+
+export const cameFromExplore = (state: unknown): boolean =>
+  typeof state === "object" && state !== null && "from" in state && state.from === FROM_EXPLORE.from;
+
 /** English reads names with accents and capitals as the same letters; the code order does not. */
 const collator = new Intl.Collator("en");
 
