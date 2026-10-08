@@ -655,6 +655,13 @@ describe("the place page: footer", () => {
     expect(document.body).not.toHaveTextContent(/Also listed by/);
   });
 
+  it("gives About this data a target 24 px tall or more, from padding that does not move the words", async () => {
+    await openPlace(`/place/${JACAFE.d}`);
+    const about = within(document.querySelector("footer")!).getByRole("link", { name: copy.common.aboutData });
+    // 6 px above and below the 16 px line, taken back by as much margin: the line sits where it did.
+    expect(about).toHaveClass("py-1.5", "-my-1.5");
+  });
+
   it("leaves out the OpenStreetMap link for a place with no OpenStreetMap id", async () => {
     await openPlace(`/place/${NAME_ONLY.d}`);
     expect(queryLink(newTab(copy.place.viewOnOsm))).not.toBeInTheDocument();

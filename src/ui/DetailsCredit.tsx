@@ -13,7 +13,9 @@ export function DetailsCredit({ className = "" }: { className?: string }): JSX.E
   return (
     <div className={`flex flex-wrap items-baseline gap-x-1 text-caption text-muted ${className}`}>
       <Attribution kind="details" />
-      <Link to="/about" className="font-semibold text-ink underline hover:text-accent">
+      {/* A link on its own, so a target 24 px tall or more: 6 px above and below its line, taken back by
+          as much margin, so its words sit where they would. */}
+      <Link to="/about" className="-my-1.5 py-1.5 font-semibold text-ink underline hover:text-accent">
         {copy.common.aboutData}
       </Link>
     </div>
