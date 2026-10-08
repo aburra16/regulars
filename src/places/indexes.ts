@@ -61,10 +61,11 @@ export interface Indexes {
    */
   search(q: string, opts: { lat: number; lon: number; radiusKm?: number }): PlaceDistance[];
   /**
-   * Whether every word of `q` names a kind of place ("cafe", "bakeries", "pastry shop"), words
-   * for one ("coffee", "beer"), or a cuisine that a place in the list has ("pizza", "coffee
-   * shop"), ignoring case and accents. A label of several words is one term. For these `search`
-   * goes by distance, since people who search so mean the places near them.
+   * Whether every word of `q` names a kind of place or a family of them ("cafe", "bakeries", "ice
+   * cream"), a word that means a family ("coffee", "bread"), or a cuisine that many places have
+   * ("pizza", "coffee shop"; see `KIND_CUISINE_MIN`), ignoring case and accents. A label of
+   * several words is one term. For these `search` goes by distance, since people who search so
+   * mean the places near them.
    */
   isKindQuery(q: string): boolean;
   /** The chain a place belongs to; undefined unless two or more places in its country share its name. */
@@ -285,6 +286,14 @@ function searchDoc(place: Place, id: number): SearchDoc {
  */
 const SCORE_BANDS = 4;
 
+/**
+ * A cuisine makes a query a kind query only when at least this many places carry it, among any
+ * of their cuisines. Free text in the data puts a stray tag on a place or two ("beer" on a
+ * restaurant), and a word like that must still be searched for like any other, so that it finds
+ * the breweries too. A cuisine below this is still found by the relevance search.
+ */
+export const KIND_CUISINE_MIN = 5;
+
 /** Everything the screens look places up by, built once for a list of places. */
 export function buildIndexes(places: readonly Place[]): Indexes {
   const tree = new KDBush(places.length);
@@ -306,15 +315,15 @@ export function buildIndexes(places: readonly Place[]): Indexes {
 
   // The places that answer to each term of a kind query, by their position in the list.
   const placesByTerm = new Map<string, number[]>();
-  const vocabulary = new Set(KIND_VOCABULARY);
+  const placesWithCuisine = new Map<string, number>();
   places.forEach((place, id) => {
-    const terms = new Set(termsOfCategory(place.category));
-    for (const cuisine of cuisinesOf(place)) {
-      terms.add(cuisine);
-      vocabulary.add(cuisine);
-    }
-    for (const term of terms) push(placesByTerm, term, id);
+    const cuisines = cuisinesOf(place);
+    for (const cuisine of cuisines) placesWithCuisine.set(cuisine, (placesWithCuisine.get(cuisine) ?? 0) + 1);
+    for (const term of new Set([...termsOfCategory(place.category), ...cuisines])) push(placesByTerm, term, id);
   });
+  // The words of a kind query: the kinds and families, and each cuisine that enough places have.
+  const vocabulary = new Set(KIND_VOCABULARY);
+  for (const [cuisine, count] of placesWithCuisine) if (count >= KIND_CUISINE_MIN) vocabulary.add(cuisine);
   const readKindQuery = kindQueryReader(vocabulary);
 
   const isLocation = (lat: number, lon: number) => Number.isFinite(lat) && Number.isFinite(lon);

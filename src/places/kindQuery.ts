@@ -58,15 +58,18 @@ function termOfCuisine(cuisine: string): string {
 
 /**
  * The cuisines of a place, as terms: its keywords (the tags of the data, which hold every cuisine
- * as well as its kind and its town), less the kind and the town, and its first cuisine. A word
- * of the town is never a cuisine, and neither is the place's own kind.
+ * as well as its kind and its town), less the kind and the town, and its first cuisine. A tag
+ * that lists several cuisines with commas ("döner, pizza") gives each. A word of the town is
+ * never a cuisine, and neither is the place's own kind.
  */
 export function cuisinesOf(place: Pick<Place, "category" | "cuisine" | "locality" | "keywords">): string[] {
   const own = new Set([termOfCuisine(place.category), place.locality === undefined ? "" : termOf(place.locality)]);
   const cuisines = new Set<string>();
   for (const value of place.cuisine === undefined ? place.keywords : [place.cuisine, ...place.keywords]) {
-    const term = termOfCuisine(value);
-    if (term !== "" && !own.has(term)) cuisines.add(term);
+    for (const part of value.split(",")) {
+      const term = termOfCuisine(part.trim());
+      if (term !== "" && !own.has(term)) cuisines.add(term);
+    }
   }
   return [...cuisines];
 }
