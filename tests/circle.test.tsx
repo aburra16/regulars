@@ -274,10 +274,11 @@ describe("the tap", () => {
     brainstorm.latestRun.mockResolvedValue(run("running"));
     await after(POLL_MS);
     await waitFor(() => expect(brainstorm.latestRun).toHaveBeenCalledTimes(polled + 1));
-    // The clock moves on a little by itself (fake timers that follow real time), so a second is left either side.
-    await after(POLL_MS - 1_000);
+    // The clock moves on a little by itself (fake timers that follow real time, which a busy machine
+    // stretches), so half a poll is left either side.
+    await after(POLL_MS / 2);
     expect(brainstorm.latestRun).toHaveBeenCalledTimes(polled + 1);
-    await after(1_000);
+    await after(POLL_MS / 2);
     await waitFor(() => expect(brainstorm.latestRun).toHaveBeenCalledTimes(polled + 2));
     expect(screen.getByText(copy.circle.workingTitle)).toBeInTheDocument();
 
@@ -554,7 +555,7 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
     expect(myCircle()).toBeEnabled();
   });
 
-  it("keeps the 45 minutes counted from the tap, not from the reload", async () => {
+  it("keeps the 45 minutes counted from when the run was known, not from the reload", async () => {
     signedIn();
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.latestRun.mockResolvedValueOnce(null).mockResolvedValue(run("running"));
@@ -567,6 +568,56 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await after(POLL_CAP_MS / 2 + POLL_MS);
     expect(await screen.findByText(copy.circle.unavailable)).toBeInTheDocument();
+  });
+
+  it("starts afresh when the tab is reloaded before a run is known: Personalize again, polling nothing", async () => {
+    const pubkey = signedIn();
+    saveToken(pubkey, TOKEN);
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    // Brainstorm has not said yet whether there is a run.
+    brainstorm.latestRun.mockImplementation(
+      (_token, signal) =>
+        new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
+    );
+    const first = await open();
+    await user.click(await personalize());
+    expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
+    expect(brainstorm.latestRun).toHaveBeenCalledTimes(1);
+
+    // The tab is reloaded.
+    first.unmount();
+    brainstorm.latestRun.mockReset().mockResolvedValue(run("running"));
+    await open();
+    expect(await personalize()).toBeInTheDocument();
+    expect(screen.queryByText(copy.circle.workingTitle)).toBeNull();
+    await after(POLL_MS * 2);
+    expect(brainstorm.latestRun).not.toHaveBeenCalled();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+  });
+
+  it("goes back to Personalize, quietly, when the reload finds no run at all", async () => {
+    signedIn();
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    brainstorm.startRun.mockResolvedValue({ run: run("running") });
+    const first = await open();
+    await user.click(await personalize());
+    expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
+    await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledTimes(1));
+
+    // The tab is reloaded, and Brainstorm has no run for the person.
+    first.unmount();
+    brainstorm.latestRun.mockClear().mockResolvedValue(null);
+    await open();
+    expect(await personalize()).toBeInTheDocument();
+    expect(brainstorm.latestRun).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(copy.circle.workingTitle)).toBeNull();
+    expect(screen.queryByText(copy.circle.unavailable)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    await after(POLL_MS * 2);
+    expect(brainstorm.latestRun).toHaveBeenCalledTimes(1);
+    expect(brainstorm.startRun).toHaveBeenCalledTimes(1);
+    expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a ready circle ready, and its view, over a reload", async () => {
@@ -603,11 +654,12 @@ describe("a sign-in that runs out while polling", () => {
     expect(window.sessionStorage.getItem(TOKEN_KEY)).toBeNull();
     const polled = brainstorm.latestRun.mock.calls.length;
 
-    // Not ready (no ranks on the relay yet): looked for again a minute later, not before.
-    await after(OPEN_POLL_MS - 1_000);
+    // Not ready (no ranks on the relay yet): looked for again a minute later, not before (half a
+    // minute later is two polls with a token), with half a minute left either side.
+    await after(OPEN_POLL_MS / 2);
     expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
     expect(screen.getByText(copy.circle.workingTitle)).toBeInTheDocument();
-    await after(1_000);
+    await after(OPEN_POLL_MS / 2);
     await waitFor(() => expect(brainstorm.scorerOf).toHaveBeenCalledTimes(2));
 
     ranks = [rankEvent()];
@@ -615,6 +667,44 @@ describe("a sign-in that runs out while polling", () => {
     expect(await screen.findByText(copy.circle.ready)).toBeInTheDocument();
     expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
     expect(brainstorm.latestRun).toHaveBeenCalledTimes(polled);
+  });
+});
+
+describe("someone else signing in to the tab", () => {
+  it("gives them nothing of the person before: no circle, no scorer, no sign-in to Brainstorm", async () => {
+    // What the tab keeps of the person who was signed in before.
+    const before = "a1".repeat(32);
+    window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey: before, state: "ready", scorer: SCORER_AT, notice: true }));
+    window.sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ pubkey: before, token: TOKEN }));
+    const pubkey = signedIn();
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await open();
+
+    expect(await personalize()).toBeInTheDocument();
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    expect(myCircle()).toBeDisabled();
+    expect(screen.queryByText(copy.circle.ready)).toBeNull();
+    // Their own returning look, not the other person's circle.
+    expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
+    expect(brainstorm.scorerOf).toHaveBeenCalledWith(pubkey, expect.any(AbortSignal));
+    expect(readToken(pubkey)).toBeNull();
+    // What the tab keeps is theirs now, in place of the other person's.
+    await waitFor(() => expect(JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "null")).toEqual({ pubkey, state: "off" }));
+
+    // The other person's token is not theirs: the tap asks their own add-on.
+    let used: string | undefined;
+    brainstorm.latestRun.mockImplementation(async (token) => {
+      used = token;
+      return null;
+    });
+    brainstorm.signInToBrainstorm.mockImplementation(async (who) => {
+      saveToken(who, "eyJhbGciOiJIUzI1NiJ9.eyJ3aG8iOjJ9.dGhlaXJz");
+      return "eyJhbGciOiJIUzI1NiJ9.eyJ3aG8iOjJ9.dGhlaXJz";
+    });
+    await user.click(await personalize());
+    await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalled());
+    expect(brainstorm.signInToBrainstorm).toHaveBeenCalledWith(pubkey, expect.anything(), expect.any(AbortSignal), { how: "browser" });
+    expect(used).not.toBe(TOKEN);
   });
 });
 

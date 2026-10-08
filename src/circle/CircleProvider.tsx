@@ -128,7 +128,7 @@ type KeptState = Exclude<CircleState, "checking" | "signing">;
 
 const KEPT: ReadonlySet<string> = new Set<KeptState>(["off", "working", "ready", "recently", "busy", "failed", "unavailable"]);
 
-/** What is kept for the tab: whose circle, where it is, since when it has been worked out, and its scorer once ready. */
+/** What is kept for the tab: whose circle, where it is, since when its run has been followed, and its scorer once ready. */
 interface Kept {
   pubkey: string;
   state: KeptState;
@@ -241,7 +241,11 @@ interface Shown {
   state: CircleState;
   scorer?: Scorer;
   notice: boolean;
-  /** While working: when the tap that started it was, for the 45 minutes. */
+  /**
+   * While working: when the run followed was first known (Brainstorm named one, or started one, after
+   * the sign-in), from which the 45 minutes count. Unset until then; and "working" is kept for the tab
+   * only once it is set, so a reload before a run is known starts afresh, polling nothing.
+   */
   since?: number;
   flow: Flow | null;
 }
@@ -317,8 +321,9 @@ async function check(step: Step): Promise<void> {
  * Polls the person's run until their circle is ready: every 15 s with the token, from `run` when
  * given (else asked first). When Brainstorm says the token has run out, it is let go of, and the
  * person is not asked again (Global Constraints, Token): from then on the scorer and its ranks are
- * looked for every minute, with no token. A failed run is "failed"; `MISSED_POLLS` unanswered polls in
- * a row, or 45 minutes from `since`, "unavailable". Never spins for ever (Review Focus 4).
+ * looked for every minute, with no token. A failed run is "failed"; no run at all (after a reload, say)
+ * is back to off, quietly, for the person to tap again; `MISSED_POLLS` unanswered polls in a row, or
+ * 45 minutes from `since`, "unavailable". Never spins for ever (Review Focus 4).
  */
 async function follow(client: Client, step: Step, token: string | null, since: number, run?: Run | null): Promise<void> {
   const { signal } = step;
@@ -330,7 +335,8 @@ async function follow(client: Client, step: Step, token: string | null, since: n
     try {
       if (held !== null) {
         const now = current === undefined ? await client.latestRun(held, signal) : current;
-        const where = now === null ? "waiting" : client.runState(now);
+        if (now === null) return step.set({ state: "off", flow: null });
+        const where = client.runState(now);
         if (where === "failed") return step.set({ state: "failed", flow: null });
         const scorer = where === "done" ? await readableScorer(client, step, false) : null;
         if (scorer !== null) return step.set({ state: "ready", scorer, notice: true, flow: null });
@@ -379,7 +385,6 @@ async function start(step: Step, account: Account): Promise<void> {
 
   let token = readToken(pubkey);
   let asked = false;
-  let since = Date.now();
   let latest: Run | null;
   for (;;) {
     if (token === null) {
@@ -393,8 +398,7 @@ async function start(step: Step, account: Account): Promise<void> {
         return step.set({ state: unreachable ? "unavailable" : "off", flow: null });
       }
     }
-    since = Date.now();
-    step.set({ state: "working", since });
+    step.set({ state: "working" });
     try {
       latest = await client.latestRun(token, signal);
       break;
@@ -427,6 +431,9 @@ async function start(step: Step, account: Account): Promise<void> {
     return step.set({ state: "unavailable", flow: null });
   }
   if (run === null) return step.set({ state: "busy", flow: null });
+  // A run is known: from here a reload follows it, and the 45 minutes count.
+  const since = Date.now();
+  step.set({ since });
   if (recently && client.runState(run) === "done") {
     try {
       const scorer = await readableScorer(client, step, false);
@@ -516,9 +523,14 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
   useEffect(() => {
     const { who: pubkey, state, since, scorer, notice } = shown;
     if (pubkey === undefined || !config.features.circle || state === "checking" || state === "signing") return;
-    if (state === "working") keep({ pubkey, state, since });
-    else if ((state === "ready" || state === "recently") && scorer !== undefined) keep({ pubkey, state, scorer, notice });
-    else keep({ pubkey, state });
+    if (state === "working") {
+      // Kept once a run is known; until then, what was kept before stays.
+      if (since !== undefined) keep({ pubkey, state, since });
+    } else if ((state === "ready" || state === "recently") && scorer !== undefined) {
+      keep({ pubkey, state, scorer, notice });
+    } else {
+      keep({ pubkey, state });
+    }
   }, [shown]);
 
   // The latest of what is shown, for the taps.
@@ -534,10 +546,9 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
     // With a sign-in this tab already has, the add-on is not asked.
     const state: CircleState = readToken(account.pubkey) === null ? "signing" : "working";
     const flow = newFlow("start");
-    const since = Date.now();
     setShown((current) =>
       current.who === account.pubkey && CAN_START.has(current.state)
-        ? { ...current, state, since, notice: false, flow }
+        ? { ...current, state, since: undefined, notice: false, flow }
         : current,
     );
   }, [account]);
