@@ -1,5 +1,14 @@
 import { copy } from "../copy/en.ts";
 
+/**
+ * The moment a review written at `createdAt` (seconds) was written, as a date; undefined for a time
+ * no date can hold (past ±8.64e12 seconds, or not a number), which a page must not try to show.
+ */
+export function writtenOn(createdAt: number): Date | undefined {
+  const date = new Date(createdAt * 1000);
+  return Number.isFinite(date.getTime()) ? date : undefined;
+}
+
 /** The day `date` falls on, on the person's own calendar, as a count of days. */
 const dayOf = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000;
 

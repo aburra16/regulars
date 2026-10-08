@@ -3,7 +3,7 @@ import { type JSX, type KeyboardEvent, type MouseEvent, useEffect, useId, useMem
 import { copy } from "../copy/en.ts";
 import type { RemoveReview, RemoveStatus } from "../review/useRemoveReview.ts";
 import type { Review } from "../reviews/review.ts";
-import { whenWritten } from "../reviews/when.ts";
+import { whenWritten, writtenOn } from "../reviews/when.ts";
 import type { PlaceScore } from "../score/score.ts";
 import type { HouseState } from "../score/store.ts";
 import { useNames } from "../score/useScore.ts";
@@ -45,6 +45,7 @@ function ReviewItem({
   folded: boolean;
 }): JSX.Element {
   const ink = folded ? "text-muted" : "text-ink";
+  const written = writtenOn(review.createdAt);
   return (
     <article data-folded={folded ? "true" : undefined} className="flex flex-col gap-2">
       <div className={`flex items-center ${wide ? "gap-3" : "gap-2.5"}`}>
@@ -58,9 +59,12 @@ function ReviewItem({
         <h3 className={`m-0 min-w-0 flex-1 truncate text-body font-bold ${ink}`}>
           <bdi lang={scriptLang(name)}>{name}</bdi>
         </h3>
-        <time dateTime={new Date(review.createdAt * 1000).toISOString()} className="shrink-0 text-caption text-muted">
-          {whenWritten(review.createdAt, now)}
-        </time>
+        {/* No date for a time no date can hold: the review shows without one, and the page stands. */}
+        {written !== undefined && (
+          <time dateTime={written.toISOString()} className="shrink-0 text-caption text-muted">
+            {whenWritten(review.createdAt, now)}
+          </time>
+        )}
       </div>
       {review.stars !== null && <Stars value={review.stars} tone={folded ? "muted" : "accent"} />}
       {review.text !== "" && (

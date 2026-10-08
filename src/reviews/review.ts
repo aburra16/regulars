@@ -63,6 +63,17 @@ export function placeInD(d: string | undefined): string | undefined {
 /** The value of an event's first tag called `name`. */
 const firstTag = (ev: NostrEvent, name: string) => ev.tags.find((tag) => tag[0] === name)?.[1];
 
+/** How far ahead of the device's clock a review may be written, in seconds: a day, for clocks that are off. */
+const FUTURE_SLACK_S = 86_400;
+
+/**
+ * Whether `ev` was written more than a day ahead of the device's clock: no clock is that far off, so
+ * its time is made up. It is dropped, as if it were not there: it would sort above every real review
+ * as the newest, replace the reviewer's real one, and its date can't be shown (one far enough ahead is
+ * past what a date can hold).
+ */
+const fromTheFuture = (ev: NostrEvent) => ev.created_at > Date.now() / 1000 + FUTURE_SLACK_S;
+
 /**
  * The stars in a review's tags, as Brainstorm-UI's `starsOf` reads them, so a review shows the same
  * stars here as there. An `s` tag of a whole number from 1 to 5 wins. Else the first `rating` with
@@ -88,11 +99,13 @@ export function starsOf(tags: readonly string[][]): number | null {
 }
 
 /**
- * The review in `ev`, a well-formed event of the review kind, or null when it reviews no place. The
- * place is the `a` tag when that is a place's address, else the `d` tag: the place's address, or
- * `place:` and the address (brief § 4.1, decisions 16 and 17). Reviews written either way are read.
+ * The review in `ev`, a well-formed event of the review kind, or null when it reviews no place, or
+ * was written more than a day ahead of the device's clock (`fromTheFuture`). The place is the `a` tag
+ * when that is a place's address, else the `d` tag: the place's address, or `place:` and the address
+ * (brief § 4.1, decisions 16 and 17). Reviews written either way are read.
  */
 function reviewIn(ev: NostrEvent): Review | null {
+  if (fromTheFuture(ev)) return null;
   const a = firstTag(ev, "a");
   const address = isPlaceAddress(a) ? a : placeInD(firstTag(ev, "d"));
   if (!isPlaceAddress(address)) return null;
@@ -118,7 +131,8 @@ const stamp = (review: Review) => ({ id: review.id, created_at: review.createdAt
 
 /**
  * The reviews among `values`, which may come from several relays and be malformed: each person's
- * newest review of each place, and nothing else. A review a relay no longer sends is not here.
+ * newest review of each place, and nothing else. A review a relay no longer sends is not here, nor
+ * one from the future (`fromTheFuture`).
  *
  * First NIP-01's replacement: of a person's events at one `d`, only the newest stands (on a tie,
  * the lowest id), whatever it says. A relay that lags may still send the ones it replaced, such as
@@ -129,7 +143,8 @@ export function latestReviews(values: readonly unknown[]): Review[] {
   const standing = new Map<string, NostrEvent>();
   for (const value of values) {
     const ev = asEvent(value);
-    if (ev === null || ev.kind !== REVIEW_KIND) continue;
+    // One from the future is not there: it must not replace the review it would be newer than.
+    if (ev === null || ev.kind !== REVIEW_KIND || fromTheFuture(ev)) continue;
     // A public key is 64 characters, so no two (pubkey, d) pairs make the same key.
     const key = `${ev.pubkey}${firstTag(ev, "d") ?? ""}`;
     const current = standing.get(key);

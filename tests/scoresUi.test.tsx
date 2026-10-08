@@ -16,7 +16,7 @@ import { placeKindLabel } from "../src/places/kinds";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { REVIEW_KIND } from "../src/reviews/review";
-import { whenWritten } from "../src/reviews/when";
+import { whenWritten, writtenOn } from "../src/reviews/when";
 import type { ShownScore } from "../src/score/shown";
 import { ScoresStore } from "../src/score/store";
 import raw from "./fixtures/funchal-items.json";
@@ -1033,6 +1033,37 @@ describe("when a review was written", () => {
     ["a moment in the future (a clock ahead)", "Today", at(2026, 10, 7, 11)],
   ])("for a review written %s says %s", (_, words, when) => {
     expect(written(when)).toBe(words);
+  });
+
+  it("has no date for a time no date can hold, and the date for any other", () => {
+    expect(writtenOn(9e12)).toBeUndefined();
+    expect(writtenOn(Number.NaN)).toBeUndefined();
+    expect(writtenOn(NOW_S)?.toISOString()).toBe(AFTERNOON.toISOString());
+  });
+
+  it("leaves out a review from far in the future, and lists the others with their dates", async () => {
+    // By Dave, whom the house trusts: it would be listed, dated, and counted.
+    const future = shapedEvent({
+      kind: REVIEW_KIND,
+      pubkey: DAVE,
+      created_at: 9e12,
+      content: "From the year 287,000.",
+      tags: [
+        ["d", `place:${JACAFE.address}`],
+        ["a", JACAFE.address],
+        ["m", "place"],
+        ["s", "1"],
+      ],
+    });
+    const { readers } = houseNetwork([...jacafeScored(), future], HOUSE_RANKS);
+    await openApp(placePath(JACAFE), { events: places, readers });
+
+    expect(await screen.findByText(copy.score.fromHouse(2))).toBeInTheDocument();
+    await screen.findByText("Alice Bento");
+    expect(insideReviews()).toHaveLength(2);
+    expect(screen.queryByText("From the year 287,000.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.reviews.show })).not.toBeInTheDocument();
+    for (const time of document.querySelectorAll("article time")) expect(time.getAttribute("datetime")).toMatch(/^2026-/);
   });
 
   it("words each age in copy", () => {

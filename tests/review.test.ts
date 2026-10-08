@@ -1,5 +1,5 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { latestReviews, newestPerReviewer, parseReview, REVIEW_KIND, type Review, starsOf } from "../src/reviews/review";
 import { hex64, shapedEvent } from "./support/events";
@@ -239,6 +239,35 @@ describe("latestReviews (Review Focus 2)", () => {
   it("passes over values that are not reviews of a place", () => {
     const ev = review();
     expect(latestReviews([null, review({ kind: 1 }), { ...ev, sig: "nope" }, ev]).map((r) => r.id)).toEqual([ev.id]);
+  });
+});
+
+describe("reviews from the future", () => {
+  /** Thursday 8 October 2026, 12:00 UTC, in seconds: the time on the device. */
+  const NOW = 1_791_460_800;
+  const DAY = 86_400;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("drops a review more than a day ahead of the device's clock: no date can be shown for it, nor trusted", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW * 1000);
+    expect(parseReview(review({ created_at: 9e12 }))).toBeNull();
+    expect(parseReview(review({ created_at: NOW + DAY + 1 }))).toBeNull();
+    // A clock a little ahead of the device's is a clock, not a forgery.
+    expect(parseReview(review({ created_at: NOW + DAY }))?.createdAt).toBe(NOW + DAY);
+    expect(parseReview(review({ created_at: NOW }))?.createdAt).toBe(NOW);
+  });
+
+  it("does not let one from the future stand in for the reviewer's real review at its d", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW * 1000);
+    const real = review({ created_at: NOW - DAY });
+    const future = review({ created_at: 9e12, content: "Pinned to the top forever" });
+    expect(latestReviews([real, future]).map((each) => each.id)).toEqual([real.id]);
+    expect(latestReviews([future])).toEqual([]);
   });
 });
 
