@@ -113,11 +113,15 @@ const sameTag = (a: readonly string[], b: readonly string[] | undefined) =>
   a.length === b?.length && a.every((value, i) => value === b[i]);
 
 /**
- * The tags a signer may never add: each names a review (`d`), a place or a review's address (`a`), an
- * event (`e`), a kind (`k`) or a person (`p`). Added to a review, one would file it under another place
- * too; added to a removal, it would remove more than the person asked to (ruling R17).
+ * The tags a signer may never add. Each of the first names a review (`d`), a place or a review's
+ * address (`a`), an event (`e`), a kind (`k`) or a person (`p`): added to a review, one would file it
+ * under another place too; added to a removal, it would remove more than the person asked to (ruling
+ * R17). The others change what becomes of it: `expiration` has relays drop it at a time (NIP-40), `-`
+ * has them refuse it from an app that has not proven whose it is (NIP-70), and `delegation` makes it
+ * another person's (NIP-26). A list of what may not be added, not of what may: a signer that adds a
+ * tag of its own, such as `client` or a `nonce` (NIP-13), still signs reviews.
  */
-const NOT_THE_SIGNERS = new Set(["d", "a", "e", "k", "p"]);
+const NOT_THE_SIGNERS = new Set(["d", "a", "e", "k", "p", "expiration", "-", "delegation"]);
 
 /**
  * Whether `tags` are `asked`, tag by tag and value by value, and then any the signer added: none of a

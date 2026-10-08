@@ -145,6 +145,16 @@ describe("postReview", () => {
     expect(search.published).toEqual([posted.event]);
   });
 
+  it("is posted with any other tag a signer adds after them, such as a nonce: the rule names what may not be added", async () => {
+    const by = signer();
+    by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
+      finalizeEvent({ ...asked, tags: [...asked.tags, ["nonce", "776797", "20"], ["client", "x"]] }, KEY),
+    );
+    const search = createMemoryWriter();
+    const posted = await run([SEARCH], writersOver({ [SEARCH]: search }), undefined, by);
+    expect(posted.event.tags).toEqual([...template().tags, ["nonce", "776797", "20"], ["client", "x"]]);
+  });
+
   it.each([
     ["a second a, filing the review under another place too", ["a", "39999:other:place"]],
     ["a d", ["d", "place:39999:other:place"]],
@@ -152,6 +162,9 @@ describe("postReview", () => {
     ["a k", ["k", "1"]],
     ["a p", ["p", "f".repeat(64)]],
     ["another of a name the review uses", ["s", "5"]],
+    ["an expiration, which would have relays drop the review (NIP-40)", ["expiration", "1800000600"]],
+    ["a -, which relays refuse from an app that has not proven whose it is (NIP-70)", ["-"]],
+    ["a delegation, which would make it another person's (NIP-26)", ["delegation", "f".repeat(64), "kind=34259", "f".repeat(128)]],
   ])("is not posted, and nothing is sent, when the signer appends %s (R17)", async (_, tag) => {
     const by = signer();
     by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
@@ -456,6 +469,24 @@ describe("removeReview (NIP-09)", () => {
       ).rejects.toBeInstanceOf(NotPosted);
       expect(search.published).toEqual([]);
     }
+  });
+
+  it.each([
+    ["an expiration", ["expiration", "1800000600"]],
+    ["a -", ["-"]],
+    ["a delegation", ["delegation", "f".repeat(64), "kind=5", "f".repeat(128)]],
+  ])("is not removed, and nothing is sent, when the signer appends %s", async (_, tag) => {
+    const by = signer();
+    by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
+      finalizeEvent({ ...asked, tags: [...asked.tags, tag] }, KEY),
+    );
+    const search = createMemoryWriter();
+    await expect(
+      removeReview(reviews, { pubkey: PUBKEY, signer: by }, [SEARCH], 1_800_000_500, new AbortController().signal, {
+        writers: writersOver({ [SEARCH]: search }),
+      }),
+    ).rejects.toBeInstanceOf(NotPosted);
+    expect(search.published).toEqual([]);
   });
 
   it("is removed with a tag naming the signer appended, such as client", async () => {
