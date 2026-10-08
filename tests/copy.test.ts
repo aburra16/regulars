@@ -240,6 +240,12 @@ describe("index.html", () => {
     );
   });
 
+  it("names an empty icon, so a browser does not ask the site for a /favicon.ico it does not have", () => {
+    // A real icon is a design question for Avi; until then, no request and no 404 on every load.
+    const icons = Array.from(indexHtml.querySelectorAll('link[rel="icon"]'));
+    expect(icons.map((icon) => icon.getAttribute("href"))).toEqual(["data:,"]);
+  });
+
   it("no banned word in index.html title or meta", () => {
     const texts = [
       indexHtml.title,
