@@ -297,9 +297,57 @@ describe("BaseMap", () => {
     const map = await theMap();
     expect(FakeMap.instances).toHaveLength(1);
     expect(map.options).toMatchObject({ center: funchal, zoom: 13, interactive: true, attributionControl: false });
-    expect(map.options.locale).toEqual({ "Map.Title": copy.map.label });
+    expect(map.options.cooperativeGestures).toBe(false);
+    // MapLibre's own words, in the app's: the map's name, and what it says when a gesture is left to the page.
+    expect(map.options.locale).toEqual({
+      "Map.Title": copy.map.label,
+      "CooperativeGesturesHandler.WindowsHelpText": copy.map.gestureHelp.ctrl,
+      "CooperativeGesturesHandler.MacHelpText": copy.map.gestureHelp.mac,
+      "CooperativeGesturesHandler.MobileHelpText": copy.map.gestureHelp.touch,
+    });
     expect(mapAttribution()).toBeVisible();
     expect(mapAttribution().closest(".bg-map-land")).toContainElement(map.container);
+  });
+
+  it("names a map that moves for its label, and leaves the page to scroll past it when it is cooperative", async () => {
+    render(<BaseMap center={funchal} zoom={13} interactive cooperative label="Map showing where Alpha is" />);
+    const map = await theMap();
+    expect(map.options).toMatchObject({ interactive: true, cooperativeGestures: true });
+    expect(map.options.locale).toMatchObject({ "Map.Title": "Map showing where Alpha is" });
+    expect(screen.getByRole("region", { name: "Map showing where Alpha is" })).toBe(map.canvas);
+    expect(screen.queryByRole("img", { name: "Map showing where Alpha is" })).not.toBeInTheDocument();
+  });
+
+  it("offers a way back to where it started beside the zoom buttons, once the person has moved it, and not before", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<BaseMap center={funchal} zoom={13} interactive zoomButtons back="Back to the start" />);
+    const map = await theMap();
+    const queryBack = () => screen.queryByRole("button", { name: "Back to the start" });
+    expect(queryBack()).not.toBeInTheDocument();
+    act(() => map.dragTo(LISBON_VIEW, 11));
+    await user.click(await screen.findByRole("button", { name: "Back to the start" }));
+    await waitFor(() => expect(map.easeTo).toHaveBeenLastCalledWith({ center: funchal, zoom: 13, bearing: 0, pitch: 0 }));
+    await waitFor(() => expect(queryBack()).not.toBeInTheDocument());
+    expect(map.canvas).toHaveFocus();
+
+    // A new centre is a new start: the way back to the old one goes.
+    act(() => map.dragTo(LISBON_VIEW, 11));
+    expect(await screen.findByRole("button", { name: "Back to the start" })).toBeInTheDocument();
+    rerender(<BaseMap center={[-9.14, 38.72]} zoom={13} interactive zoomButtons back="Back to the start" />);
+    await waitFor(() => expect(queryBack()).not.toBeInTheDocument());
+  });
+
+  it("has no way back on a map that is not given one", async () => {
+    const onMoveEnd = vi.fn();
+    render(<BaseMap center={funchal} zoom={13} interactive zoomButtons onMoveEnd={onMoveEnd} />);
+    const map = await theMap();
+    act(() => map.dragTo(LISBON_VIEW, 11));
+    // The move has been taken as the person's.
+    await waitFor(() => expect(onMoveEnd).toHaveBeenCalledTimes(1));
+    expect(screen.getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual([
+      copy.map.zoomIn,
+      copy.map.zoomOut,
+    ]);
   });
 
   it("uses MapTiler's style with the key, and the plain one without", async () => {

@@ -552,15 +552,24 @@ describe("the place page: missing details", () => {
 
 // ---- The map, and a picture ----
 
+/** The place's map, once its style has loaded and its pin is on it. */
+const placeMap = () =>
+  waitFor(() => {
+    const made = FakeMap.instances.at(-1);
+    if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
+    return made;
+  });
+/** The way back to the place, there once the person has moved the map. */
+const queryBack = () => screen.queryByRole("button", { name: copy.place.mapBack });
+/** A view of Funchal away from Jacafé, further out: where a person might drag and pinch the map to. */
+const AWAY = { west: -16.93, south: 32.64, east: -16.9, north: 32.66 };
+
 describe("the place page: map", () => {
-  it("is a picture of where the place is: not moved by the person, at the place, close in, its pin chosen", async () => {
+  it("can be moved and zoomed, starting at the place, close in, its pin chosen; the page still scrolls past it", async () => {
     await openPlace(`/place/${JACAFE.d}`);
-    const map = await waitFor(() => {
-      const made = FakeMap.instances.at(-1);
-      if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
-      return made;
-    });
-    expect(map.options).toMatchObject({ interactive: false, center: [JACAFE.lon, JACAFE.lat], zoom: 16 });
+    const map = await placeMap();
+    // Cooperative: one finger and a plain wheel scroll the page; two fingers, a pinch or Ctrl (⌘) and the wheel move the map.
+    expect(map.options).toMatchObject({ interactive: true, cooperativeGestures: true, center: [JACAFE.lon, JACAFE.lat], zoom: 16 });
     // Its one pin is the chosen one, drawn on its own: the source the map gathers into bubbles is without it.
     expect(map.sources.get(PIN_SOURCE)!.data.features).toEqual([]);
     // The pin is the design's drop (Place.dc.html): 34 px, in the accent colour with a white dot, its tip on the place.
@@ -578,25 +587,119 @@ describe("the place page: map", () => {
     const marker = FakeMarker.instances.find((each) => each.element.contains(drop))!;
     expect(marker.anchor).toBe("bottom");
     expect(map.container.querySelector(".border-accent")).toBeNull();
+    // Tapping the place's own pin does nothing: it is no button.
     expect(screen.queryByRole("button", { name: new RegExp(JACAFE.name) })).not.toBeInTheDocument();
     // The map says whose it is.
     const attribution = screen.getByText((_, element) => element?.tagName === "P" && element.textContent === copy.attribution.map);
     expect(attribution).toBeVisible();
   });
 
-  it("is one picture to a screen reader, named for the place, with its attribution still reachable", async () => {
+  it("is a map named for the place to a screen reader, no longer a picture, with its attribution still reachable", async () => {
     await openPlace(`/place/${JACAFE.d}`);
-    const picture = screen.getByRole("img", { name: copy.place.mapLabel(JACAFE.name) });
-    expect(copy.place.mapLabel(JACAFE.name)).toContain(JACAFE.name);
-    const canvas = await waitFor(() => {
-      const found = picture.querySelector("canvas");
-      if (found === null) throw new Error("No canvas yet");
-      return found;
-    });
-    expect(canvas.closest('[aria-hidden="true"]')).not.toBeNull();
+    const map = await placeMap();
+    expect(copy.place.mapLabel(JACAFE.name)).toBe("Map showing where Jacafé is");
+    expect(map.options.locale).toMatchObject({ "Map.Title": copy.place.mapLabel(JACAFE.name) });
+    // MapLibre names its canvas, the map's region, from the title.
+    const region = screen.getByRole("region", { name: copy.place.mapLabel(JACAFE.name) });
+    expect(region).toBe(map.canvas);
+    expect(region.closest('[aria-hidden="true"]')).toBeNull();
+    expect(screen.queryByRole("img", { name: copy.place.mapLabel(JACAFE.name) })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: copy.map.label })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: copy.attribution.mapTiler })).toBeInTheDocument();
-    expect(picture).not.toContainElement(screen.getByRole("link", { name: copy.attribution.mapTiler }));
+  });
+
+  it("says how to move the map in the app's own words, when a scroll or a finger is left to the page", async () => {
+    await openPlace(`/place/${JACAFE.d}`);
+    const map = await placeMap();
+    expect(map.options.locale).toMatchObject({
+      "CooperativeGesturesHandler.WindowsHelpText": copy.map.gestureHelp.ctrl,
+      "CooperativeGesturesHandler.MacHelpText": copy.map.gestureHelp.mac,
+      "CooperativeGesturesHandler.MobileHelpText": copy.map.gestureHelp.touch,
+    });
+    expect(copy.map.gestureHelp).toEqual({
+      ctrl: "Use Ctrl + scroll to zoom the map",
+      mac: "Use ⌘ + scroll to zoom the map",
+      touch: "Use two fingers to move the map",
+    });
+  });
+
+  it("zooms in and out with its buttons, on a phone and in the desktop's rail", async () => {
+    const user = userEvent.setup();
+    for (const px of [PHONE, DESKTOP]) {
+      const { unmount } = await openPlace(`/place/${JACAFE.d}`, { px });
+      const map = await placeMap();
+      if (px === DESKTOP) {
+        const rail = screen.getByRole("complementary", { name: copy.place.railLabel });
+        expect(rail).toContainElement(screen.getByRole("button", { name: copy.map.zoomIn }));
+      }
+      await user.click(screen.getByRole("button", { name: copy.map.zoomIn }));
+      await waitFor(() => expect(map.zoom).toBe(17));
+      await user.click(screen.getByRole("button", { name: copy.map.zoomOut }));
+      await user.click(screen.getByRole("button", { name: copy.map.zoomOut }));
+      await waitFor(() => expect(map.zoom).toBe(15));
+      expect(map.zoomIn).toHaveBeenCalledTimes(1);
+      expect(map.zoomOut).toHaveBeenCalledTimes(2);
+      unmount();
+    }
+  });
+
+  it("offers a way back to the place once the person has moved the map, which goes back and leaves the focus on the map", async () => {
+    const user = userEvent.setup();
+    await openPlace(`/place/${JACAFE.d}`);
+    const map = await placeMap();
+    expect(queryBack()).not.toBeInTheDocument();
+    // A move the page makes is not the person's.
+    act(() => void map.easeTo({ center: [JACAFE.lon, JACAFE.lat], zoom: 16 }));
+    expect(queryBack()).not.toBeInTheDocument();
+
+    act(() => map.dragTo(AWAY, 13));
+    const back = await screen.findByRole("button", { name: copy.place.mapBack });
+    expect(copy.place.mapBack).toBe("Back to the place");
+    await user.click(back);
+    // On the pin again, at the zoom the map started at, north up and flat.
+    await waitFor(() => expect(map.easeTo).toHaveBeenLastCalledWith({ center: [JACAFE.lon, JACAFE.lat], zoom: 16, bearing: 0, pitch: 0 }));
+    expect(map.center).toEqual([JACAFE.lon, JACAFE.lat]);
+    expect(map.zoom).toBe(16);
+    await waitFor(() => expect(queryBack()).not.toBeInTheDocument());
+    // The control has gone: the focus is on the map it brought back, not lost to the page.
+    expect(map.canvas).toHaveFocus();
+
+    // The zoom buttons move the map as much as a drag does.
+    await user.click(screen.getByRole("button", { name: copy.map.zoomIn }));
+    expect(await screen.findByRole("button", { name: copy.place.mapBack })).toBeInTheDocument();
+  });
+
+  it("reaches the way back and the zoom buttons from the keyboard before the map, with nothing around them cutting off the focus ring", async () => {
+    const user = userEvent.setup();
+    await openPlace(`/place/${JACAFE.d}`);
+    const map = await placeMap();
+    act(() => map.dragTo(AWAY, 13));
+    const back = await screen.findByRole("button", { name: copy.place.mapBack });
+    const zoomIn = screen.getByRole("button", { name: copy.map.zoomIn });
+    const zoomOut = screen.getByRole("button", { name: copy.map.zoomOut });
+
+    const reached: Element[] = [];
+    while (document.activeElement !== map.canvas && reached.length < 80) {
+      await user.tab();
+      reached.push(document.activeElement!);
+    }
+    const at = (element: Element) => reached.indexOf(element);
+    expect(at(map.canvas)).toBeGreaterThan(-1);
+    expect(at(back)).toBeGreaterThan(-1);
+    expect(at(back)).toBeLessThan(at(zoomIn));
+    expect(at(zoomIn)).toBeLessThan(at(zoomOut));
+    expect(at(zoomOut)).toBeLessThan(at(map.canvas));
+
+    // The app's one focus ring is drawn 2 px outside a control: a box between it and the map's edge
+    // that hid what overflows it would cut the ring off.
+    const mapBox = map.container.closest(".bg-map-land")!;
+    for (const control of [back, zoomIn, zoomOut]) {
+      expect(mapBox).toContainElement(control);
+      for (let box = control.parentElement; box !== null && box !== mapBox; box = box.parentElement) {
+        expect(box).not.toHaveClass("overflow-hidden");
+      }
+      expect(control.className).not.toMatch(/(?:^|\s)outline-(?:none|hidden|0)\b/);
+    }
   });
 
   it("shows no photograph, and loads nothing from the place's picture address, on a phone or a desktop", async () => {

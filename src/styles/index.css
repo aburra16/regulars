@@ -245,6 +245,30 @@
   border-bottom-width: var(--border);
 }
 
+/* The note MapLibre puts over a map that leaves a gesture to the page ("Use two fingers to move the
+   map"), in the app's face and colours. Its own is Helvetica, white on 40% black, too faint to read
+   over a light map, and centred across the whole map, under the zoom buttons: the words keep a touch
+   target and a gap in from each side, so they stay centred and clear of them. Two classes and in no
+   layer, so it wins over MapLibre's rule, which the map's chunk loads after this stylesheet. */
+.maplibregl-map .maplibregl-cooperative-gesture-screen {
+  padding: 16px calc(var(--touch) + 20px);
+  background: color-mix(in srgb, var(--ink) 70%, transparent);
+  color: var(--ground);
+  font-family: var(--font-text);
+  font-size: var(--size-body);
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* A map that moves takes the keys (the arrows move it, + and − zoom it), so it is in the keyboard's
+   order. BaseMap's box cuts off what overflows it, so the app's ring, drawn outside, would not show:
+   on the map it is drawn just inside the edge. In no layer, so it wins over the ring's own rule. */
+.maplibregl-map .maplibregl-canvas:focus-visible {
+  outline-offset: -2px;
+}
+
 @layer base {
   /* The screens set a line height only where they mean one, and leave the rest of their text at the
      browser's `normal` (about 1.2 in Figtree: 17 px for 14 px text). Tailwind's preflight puts 1.5 on

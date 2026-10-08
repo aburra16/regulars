@@ -469,6 +469,24 @@ describe("the chain page on a desktop", () => {
     expect(screen.getByRole("link", { name: copy.place.backHome })).toBeInTheDocument();
   });
 
+  it("keeps the rail's map a picture: not moved by the person, with no zoom buttons and no way back", async () => {
+    await openApp(confeitariaPath, { events: fixtures, px: DESKTOP });
+    const map = await waitFor(() => {
+      const made = FakeMap.instances.at(-1);
+      if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
+      return made;
+    });
+    expect(map.options.interactive).toBe(false);
+    expect(map.options.cooperativeGestures).toBeFalsy();
+    const rail = screen.getByRole("complementary", { name: copy.chain.railLabel });
+    const picture = within(rail).getByRole("img", { name: copy.chain.mapLabel("A Confeitaria Coffee & Bakery") });
+    expect(picture).toContainElement(map.container);
+    expect(map.canvas.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(screen.queryByRole("button", { name: copy.map.zoomIn })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.map.zoomOut })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.place.mapBack })).not.toBeInTheDocument();
+  });
+
   it("pins the locations that are listed, fitted to them, with the nearest chosen", async () => {
     await openApp(confeitariaPath, { events: fixtures, px: DESKTOP });
     const map = await waitFor(() => {
