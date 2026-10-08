@@ -123,6 +123,12 @@ async function theMap(): Promise<FakeMap> {
 }
 
 const pinSource = (map: FakeMap): FakeSource => map.sources.get(PIN_SOURCE)!;
+/** A pin of the map's source on its own, as `querySourceFeatures` gives it. */
+const pointFeature = (address: string, lon: number, lat: number): FakeFeature => ({
+  type: "Feature",
+  geometry: { type: "Point", coordinates: [lon, lat] },
+  properties: { address },
+});
 const pinAddresses = (map: FakeMap) =>
   pinSource(map).data.features.map((feature) => (feature.properties as { address: string }).address);
 
@@ -573,6 +579,135 @@ describe("BaseMap", () => {
     await theMap();
     await waitFor(() => expect(screen.getAllByRole("button", { name: /^Place / })).toHaveLength(200));
     expect(screen.queryByRole("button", { name: /^Place 0,/ })).not.toBeInTheDocument();
+  });
+
+  /** `pins` as a map of every place has them: points, and each pin worked out when it is drawn. */
+  const pointsOf = (given: readonly Pin[]) => ({
+    points: given.map(({ address, lat, lon }) => ({ address, lat, lon })),
+    pinOf: (address: string) => given.find((each) => each.address === address),
+  });
+
+  it("keeps the chosen pin in a map of every place's data: choosing and letting go of a pin never sends the data again", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const every = pointsOf(pins);
+    const { rerender } = render(<BaseMap center={funchal} zoom={13} interactive {...every} onSelect={onSelect} />);
+    const map = await theMap();
+    await user.click(await findPin("Alpha"));
+    rerender(<BaseMap center={funchal} zoom={13} interactive {...every} onSelect={onSelect} selected="a" />);
+    expect(pin("Alpha")).toHaveAttribute("aria-pressed", "true");
+    rerender(<BaseMap center={funchal} zoom={13} interactive {...every} onSelect={onSelect} selected="b" />);
+    rerender(<BaseMap center={funchal} zoom={13} interactive {...every} onSelect={onSelect} />);
+    expect(pinSource(map).setData).not.toHaveBeenCalled();
+    expect(pinAddresses(map)).toEqual(["a", "b"]);
+  });
+
+  it("keeps a map of a few pins without the chosen one, so no bubble counts it as well", async () => {
+    const { rerender } = render(<BaseMap center={funchal} zoom={13} interactive pins={pins} onSelect={() => {}} />);
+    const map = await theMap();
+    rerender(<BaseMap center={funchal} zoom={13} interactive pins={pins} onSelect={() => {}} selected="a" />);
+    await waitFor(() => expect(pinAddresses(map)).toEqual(["b"]));
+    expect(pin("Alpha")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("draws the chosen pin of a map of every place on its own over the bubble it is in, which still counts it", async () => {
+    const every = pointsOf(pins);
+    const { rerender } = render(<BaseMap center={funchal} zoom={13} interactive {...every} onSelect={() => {}} />);
+    const map = await theMap();
+    map.features = [
+      { type: "Feature", geometry: { type: "Point", coordinates: [-16.908, 32.6505] }, properties: { cluster: true, cluster_id: 4, point_count: 2 } },
+    ];
+    act(() => map.fire("render"));
+    rerender(<BaseMap center={funchal} zoom={13} interactive {...every} onSelect={() => {}} selected="a" />);
+    expect(pin("Alpha")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "2 places here, zoom in" })).toBeInTheDocument();
+    expect(pinSource(map).setData).not.toHaveBeenCalled();
+  });
+
+  it("leaves no place in view without a marker when more pins are in view than it draws", async () => {
+    const user = userEvent.setup();
+    // 260 places on their own in view, and no bubble: the 200 nearest the middle are pins, the rest in bubbles.
+    const crowd: Pin[] = Array.from({ length: 260 }, (_, i) => ({
+      address: `p${i}`,
+      lat: 32.621 + (i % 20) * 0.0029,
+      lon: -16.949 + Math.floor(i / 20) * 0.0061,
+      name: `Place ${i}, Cafe, Hours not listed, no reviews yet`,
+    }));
+    render(<BaseMap center={funchal} zoom={15} interactive pins={crowd} onSelect={() => {}} />);
+    const map = await theMap();
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /^Place / }).length).toBe(MAX_MARKERS));
+    const bubbles = () => screen.queryAllByRole("button", { name: /places here, zoom in$/ });
+    const counted = (each: HTMLElement) => Number(/^(\d+) places/.exec(each.getAttribute("aria-label") ?? "")![1]);
+    expect(bubbles().length).toBeGreaterThan(0);
+    expect(MAX_MARKERS + bubbles().map(counted).reduce((a, b) => a + b, 0)).toBe(crowd.length);
+    // The pins kept are the nearest the middle of the view.
+    const middle = screen.getByRole("button", { name: /^Place 130,/ });
+    expect(middle).toBeInTheDocument();
+
+    // A bubble made of the pins left over opens up the way a bubble does: closer in, where it is.
+    map.easeTo.mockClear();
+    const zoom = map.zoom;
+    await user.click(bubbles()[0]!);
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: zoom + 2 })));
+  });
+
+  it("puts the pins left over into the bubbles already there, so each place in view is in some marker", async () => {
+    const crowd: Pin[] = Array.from({ length: 250 }, (_, i) => ({
+      address: `p${i}`,
+      lat: 32.621 + (i % 20) * 0.0029,
+      lon: -16.949 + Math.floor(i / 20) * 0.0061,
+      name: `Place ${i}, Cafe, Hours not listed, no reviews yet`,
+    }));
+    render(<BaseMap center={funchal} zoom={13} interactive pins={crowd} onSelect={() => {}} />);
+    const map = await theMap();
+    const bubble = (id: number, lon: number, lat: number): FakeFeature => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [lon, lat] },
+      properties: { cluster: true, cluster_id: id, point_count: 10 },
+    });
+    map.features = [
+      ...[1, 2, 3, 4, 5].map((id) => bubble(id, -16.94 + id * 0.01, 32.63)),
+      ...crowd.map((each) => ({ type: "Feature" as const, geometry: { type: "Point" as const, coordinates: [each.lon, each.lat] }, properties: { address: each.address } })),
+    ];
+    act(() => map.fire("render"));
+    const drawnPins = screen.getAllByRole("button", { name: /^Place / });
+    const bubbles = screen.getAllByRole("button", { name: /places here, zoom in$/ });
+    expect(drawnPins).toHaveLength(MAX_MARKERS - 5);
+    expect(bubbles).toHaveLength(5);
+    const counted = bubbles.map((each) => Number(/^(\d+) places/.exec(each.getAttribute("aria-label") ?? "")![1]));
+    expect(drawnPins.length + counted.reduce((a, b) => a + b, 0)).toBe(5 * 10 + crowd.length);
+  });
+
+  it("tells the page which pins it draws as they change, once for each new set of them", async () => {
+    const onPinsDrawn = vi.fn();
+    const points = [
+      { address: "north", lat: 32.66, lon: -16.91 },
+      { address: "south", lat: 32.64, lon: -16.91 },
+    ];
+    const pinOf = (address: string): Pin | undefined => {
+      const point = points.find((each) => each.address === address);
+      return point === undefined ? undefined : { ...point, name: `${address}, Cafe, Hours not listed, no reviews yet` };
+    };
+    // The north pin chosen, and inside a bubble: drawn on its own after the pins the map shows.
+    FakeMap.arrives = "none";
+    render(<BaseMap center={funchal} zoom={13} interactive points={points} pinOf={pinOf} onPinsDrawn={onPinsDrawn} selected="north" />);
+    const map = await waitFor(() => {
+      const made = FakeMap.instances.at(-1);
+      if (made === undefined) throw new Error("No map yet");
+      return made;
+    });
+    map.features = [pointFeature("south", -16.91, 32.64)];
+    act(() => {
+      map.fire("style.load");
+      map.fire("render");
+    });
+    await waitFor(() => expect(onPinsDrawn).toHaveBeenLastCalledWith(["north", "south"]));
+    const calls = onPinsDrawn.mock.calls.length;
+    // Now the map shows it on its own too, first in its reading order: the same pins, nothing new to say.
+    map.features = [pointFeature("north", -16.91, 32.66), pointFeature("south", -16.91, 32.64)];
+    act(() => map.fire("render"));
+    await act(async () => {});
+    expect(onPinsDrawn).toHaveBeenCalledTimes(calls);
   });
 
   it("says which pin was tapped, marks the selected one, and says when the map away from the pins is tapped", async () => {
@@ -1630,6 +1765,19 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       const found = manyPlaces.find((each) => each.address === address);
       return found !== undefined && idx.chainOf(found) !== undefined;
     }
+  });
+
+  it.each([
+    ["the phone", PHONE, "/map"],
+    ["a desktop", DESKTOP, "/"],
+  ])("never sends the map's data again when a pin is chosen and let go, on %s", async (_, px, path) => {
+    const user = userEvent.setup();
+    const { map } = await openApp(path, { px });
+    await user.click(await findPin("Jacafé"));
+    expect(pin("Jacafé")).toHaveAttribute("aria-pressed", "true");
+    act(() => map.fire("click", { originalEvent: new MouseEvent("click") }));
+    expect(pin("Jacafé")).toHaveAttribute("aria-pressed", "false");
+    expect(pinSource(map).setData).not.toHaveBeenCalled();
   });
 
   describe("a pin chosen outside the list", () => {

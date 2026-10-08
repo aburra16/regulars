@@ -124,16 +124,24 @@ export interface BaseMapProps {
 
 type Library = typeof import("./maplibre.ts");
 
-/** What the map has drawn of the pins: a pin on its own, or a bubble of pins too close together to tell apart. */
-type Seen =
-  | { key: string; address: string; lngLat: LngLat }
-  | { key: string; cluster: { id: number; count: number }; lngLat: LngLat };
+/**
+ * A bubble of pins too close together to tell apart: MapLibre's, by its id, which opens up at the zoom
+ * MapLibre says; or one made of pins left over past `MAX_MARKERS`, which opens up `zoomTo`.
+ */
+interface Bubble {
+  id: number;
+  count: number;
+  zoomTo?: number;
+}
+
+/** What the map has drawn of the pins: a pin on its own, or a bubble. */
+type Seen = { key: string; address: string; lngLat: LngLat } | { key: string; cluster: Bubble; lngLat: LngLat };
 
 /** What the map shows: its pins and bubbles, and which of them, and of the pins picked out, are in view (by key). */
 interface Shown {
   items: Seen[];
   inView: ReadonlySet<string>;
-  /** The pin the source was without when these were read (the chosen one, drawn on its own then). */
+  /** The pin the source was without when these were read (the chosen one of a map of `pins`, drawn on its own then). */
   without?: string;
 }
 
@@ -142,7 +150,7 @@ const NOTHING_SHOWN: Shown = { items: [], inView: new Set() };
 /** A marker on the map: a pin, a bubble, or where the person is. */
 type Item =
   | { key: string; kind: "pin"; lngLat: LngLat; pin: Pin }
-  | { key: string; kind: "cluster"; lngLat: LngLat; id: number; count: number }
+  | ({ key: string; kind: "cluster"; lngLat: LngLat } & Bubble)
   | { key: string; kind: "you"; lngLat: LngLat };
 
 const NO_PINS: readonly Pin[] = [];
@@ -177,10 +185,58 @@ const lookingAt = (map: MapLibreMap, [lon, lat]: LngLat, zoom: number) => {
 const byPerson = (event: { originalEvent?: unknown; byPerson?: unknown }) =>
   event.originalEvent !== undefined || event.byPerson === true;
 
+/** Across and down the view, how many cells the pins left over are gathered in when no bubble is in view to take them. */
+const LEFTOVER_CELLS = 4;
+
+const isBubble = (seen: Seen): seen is Extract<Seen, { cluster: Bubble }> => "cluster" in seen;
+
+/**
+ * More pins and bubbles in view than the map draws: every bubble, then the `MAX_MARKERS` pins (less a
+ * place for each bubble) nearest the middle of the view. Each pin left over is not left out: it is
+ * counted in the bubble nearest it, or, with no bubble in view, in a bubble of its own part of the
+ * view, which opens up two zoom levels closer in. So every place in view is in some marker.
+ */
+function gatherLeftovers(inView: Seen[], [west, south, east, north]: Bbox, zoom: number): Seen[] {
+  const bubbles = inView.filter(isBubble).map((seen) => ({ ...seen, cluster: { ...seen.cluster } }));
+  const pins = inView.filter((seen) => !isBubble(seen));
+  // Distances on the screen, near enough: a degree of longitude is narrower away from the equator.
+  const squeeze = Math.cos((((south + north) / 2) * Math.PI) / 180);
+  const apart = (a: LngLat, b: LngLat) => ((a[0] - b[0]) * squeeze) ** 2 + (a[1] - b[1]) ** 2;
+  const middle: LngLat = [(west + east) / 2, (south + north) / 2];
+  pins.sort((a, b) => apart(a.lngLat, middle) - apart(b.lngLat, middle));
+  const room = Math.max(0, MAX_MARKERS - bubbles.length);
+  const leftOver = pins.slice(room);
+  if (bubbles.length > 0) {
+    for (const pin of leftOver) {
+      let nearest = bubbles[0]!;
+      for (const bubble of bubbles) if (apart(bubble.lngLat, pin.lngLat) < apart(nearest.lngLat, pin.lngLat)) nearest = bubble;
+      nearest.cluster.count += 1;
+    }
+  } else {
+    const cells = new Map<string, { count: number; lon: number; lat: number }>();
+    const cellOf = (value: number, from: number, to: number) =>
+      Math.min(LEFTOVER_CELLS - 1, Math.max(0, Math.floor(((value - from) / (to - from || 1)) * LEFTOVER_CELLS)));
+    for (const pin of leftOver) {
+      const key = `${cellOf(pin.lngLat[0], west, east)},${cellOf(pin.lngLat[1], south, north)}`;
+      const cell = cells.get(key) ?? { count: 0, lon: 0, lat: 0 };
+      cells.set(key, { count: cell.count + 1, lon: cell.lon + pin.lngLat[0], lat: cell.lat + pin.lngLat[1] });
+    }
+    for (const [key, cell] of cells) {
+      bubbles.push({
+        key: `more:${key}`,
+        cluster: { id: -1, count: cell.count, zoomTo: zoom + 2 },
+        lngLat: [cell.lon / cell.count, cell.lat / cell.count],
+      });
+    }
+  }
+  return [...bubbles, ...pins.slice(0, room)];
+}
+
 /**
  * The pins and bubbles a source has in its tiles, once each, in reading order: north to south,
  * then west to east, which is the order the keyboard reaches them in. Past `MAX_MARKERS`, only
- * those in view, as many as that.
+ * those in view; and past it in view, the pins nearest the middle, with the rest counted in bubbles
+ * (`gatherLeftovers`): no place in view is left without a marker.
  */
 function seenOf(map: MapLibreMap): Seen[] {
   const all: Seen[] = [];
@@ -205,10 +261,21 @@ function seenOf(map: MapLibreMap): Seen[] {
   let kept = all;
   if (all.length > MAX_MARKERS) {
     const bounds = map.getBounds();
-    kept = all.filter((seen) => bounds.contains(seen.lngLat)).slice(0, MAX_MARKERS);
+    kept = all.filter((seen) => bounds.contains(seen.lngLat));
+    if (kept.length > MAX_MARKERS) {
+      const box: Bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+      kept = gatherLeftovers(kept, box, map.getZoom());
+    }
   }
   return kept.sort((a, b) => b.lngLat[1] - a.lngLat[1] || a.lngLat[0] - b.lngLat[0]);
 }
+
+/** Whether two readings of the map have drawn the same: the same pins, and bubbles of the same counts in the same places. */
+const sameSeen = (a: Seen, b: Seen) =>
+  a.key === b.key &&
+  a.lngLat[0] === b.lngLat[0] &&
+  a.lngLat[1] === b.lngLat[1] &&
+  (!isBubble(a) || (isBubble(b) && a.cluster.count === b.cluster.count));
 
 /** Each array of points as a signature, worked out once: Explore's every place is one array for as long as the places are. */
 const signatures = new WeakMap<readonly PinPoint[], string>();
@@ -223,6 +290,15 @@ function signatureOf(points: readonly PinPoint[]): string {
   return signature;
 }
 
+/**
+ * The points a map of `pins` gives its source, which it gathers into bubbles: all but the chosen one,
+ * which is drawn once, on its own, so no bubble counts it as well. A map of every place (`points`)
+ * keeps the chosen one in: gathering every place again for each pin chosen is not worth one less in
+ * a bubble's count.
+ */
+const gathered = (points: readonly PinPoint[], without: string | undefined): readonly PinPoint[] =>
+  without === undefined ? points : points.filter((point) => point.address !== without);
+
 /** Each array of points by address, made once for each array. */
 const lookups = new WeakMap<readonly PinPoint[], ReadonlyMap<string, PinPoint>>();
 
@@ -235,12 +311,6 @@ function byAddressOf(points: readonly PinPoint[]): ReadonlyMap<string, PinPoint>
   return lookup;
 }
 
-/**
- * The points the map's source holds, which it gathers into bubbles: all but the chosen one, which is
- * drawn once, on its own, so no bubble counts it as well.
- */
-const gathered = (points: readonly PinPoint[], without: string | undefined): readonly PinPoint[] =>
-  without === undefined ? points : points.filter((point) => point.address !== without);
 
 /** The star of a score's pin, in the pin's text colour. */
 function Star({ className }: { className: string }): JSX.Element {
@@ -442,13 +512,14 @@ export function BaseMap({
   // Whether the person has moved the map away from where it started, for the way back.
   const [strayed, setStrayed] = useState(false);
 
-  // What the source holds: every place, or the pins; each by its address; and the chosen one, which
-  // the source is without while it is one of them. The same points and the same chosen one are the
-  // same data, whichever array they come in.
+  // What the source holds: every place, or the pins, each by its address. On a map of every place the
+  // chosen pin is among them, as any pin is: choosing a pin, or letting it go, never sends the source
+  // again, nor has the map gather its 7,954 points again. A map of a few `pins` is without the chosen
+  // one (`gathered`). The same points and the same chosen one are the same data, whichever array.
   const source = points ?? pins;
   const pointAt = useMemo(() => byAddressOf(source), [source]);
-  const without = selected !== undefined && pointAt.has(selected) ? selected : undefined;
-  const signature = useMemo(() => `${signatureOf(source)}\n-${without ?? ""}`, [source, without]);
+  const without = points === undefined && selected !== undefined && pointAt.has(selected) ? selected : undefined;
+  const signature = `${signatureOf(source)}\n-${without ?? ""}`;
 
   // What the map's handlers read when they run: the latest of each, not those it was made with.
   const latestProps = {
@@ -609,7 +680,7 @@ export function BaseMap({
           setShown((current) =>
             current.without === without &&
             current.items.length === items.length &&
-            current.items.every((each, i) => each.key === items[i]!.key) &&
+            current.items.every((each, i) => sameSeen(each, items[i]!)) &&
             current.inView.size === inView.size &&
             [...inView].every((key) => current.inView.has(key))
               ? current
@@ -725,8 +796,8 @@ export function BaseMap({
     mapRef.current?.getCanvas().setAttribute("aria-label", label ?? copy.map.label);
   }, [label]);
 
-  // New points, or a new chosen one among them: new data for the map, which gathers them again. A new
-  // score, a new minute or a move is none: Explore's every place is sent once.
+  // New points (or, on a map of `pins`, a new chosen one): new data for the map, which gathers them
+  // again. On a map of every place, a pin chosen or let go, a new score, a new minute or a move is none.
   useEffect(() => {
     if (!ready || applied.current === signature) return;
     const geojson = mapRef.current?.getSource<GeoJSONSource>(PIN_SOURCE);
@@ -765,23 +836,25 @@ export function BaseMap({
     // `fit` goes with `fitKey`, which says when it is a new box.
   }, [fitKey]);
 
-  // The pins to draw, by address: what the map shows of them on their own, in its reading order; then
-  // the chosen and picked-out ones wherever they are (a pin inside a bubble too); and the pin the source
-  // was without when the map was read, until the map has gathered it again: a pin let go is not
-  // missing for a frame.
+  // The pins to draw, by address: what the map shows of them on their own, and the chosen and
+  // picked-out ones wherever they are (a pin inside a bubble too, which on a map of every place the
+  // bubble still counts); and the pin a map of `pins` was without when the map was read, until the map
+  // has gathered it again: a pin let go is not missing for a frame.
   const drawn = useMemo(() => {
     const kept = new Set<string>();
     const add = (address: string | undefined) => {
       if (address !== undefined && pointAt.has(address)) kept.add(address);
     };
-    for (const each of shown.items) if (!("cluster" in each)) add(each.address);
+    for (const each of shown.items) if (!isBubble(each)) add(each.address);
     for (const address of [selected, highlighted, shown.without]) add(address);
     return [...kept];
   }, [shown, pointAt, selected, highlighted]);
-  // The page hears which they are, to ask for their scores. They do not hang on the pins' looks: a
-  // new score draws a pin again, and asks nothing again.
-  const drawnKey = drawn.join("\n");
-  useEffect(() => latest.current.onPinsDrawn?.(drawn), [drawnKey]);
+  // The page hears which they are, to ask for their scores: as a set, so the same pins in another order
+  // (one chosen, then shown on its own) are not news. They do not hang on the pins' looks: a new score
+  // draws a pin again, and asks nothing again.
+  const drawnSet = useMemo(() => [...drawn].sort(), [drawn]);
+  const drawnKey = drawnSet.join("\n");
+  useEffect(() => latest.current.onPinsDrawn?.(drawnSet), [drawnKey]);
 
   // Each pin as it is drawn: the one given, or the one worked out for its point.
   const pinAt = useMemo(() => {
@@ -801,7 +874,7 @@ export function BaseMap({
     };
     const read = new Set<string>();
     for (const each of shown.items) {
-      if ("cluster" in each) {
+      if (isBubble(each)) {
         list.push({ key: each.key, kind: "cluster", lngLat: each.lngLat, ...each.cluster });
       } else if (pointAt.has(each.address)) {
         read.add(each.address);
@@ -840,13 +913,18 @@ export function BaseMap({
     }
   }, [items, ready, selected, highlighted]);
 
-  const zoomInto = async (id: number, lngLat: LngLat) => {
+  const zoomInto = async ({ id, zoomTo }: Bubble, lngLat: LngLat) => {
     const map = mapRef.current;
     const source = map?.getSource<GeoJSONSource>(PIN_SOURCE);
     if (!map || source === undefined) return;
     // The bubble goes as the map opens it up. The focus goes to the map, which is named and takes the
     // keys, not to the page, where a keyboard would have to start again.
     map.getCanvas().focus({ preventScroll: true });
+    // A bubble of pins left over past what the map draws is not MapLibre's: it opens up where it is.
+    if (zoomTo !== undefined) {
+      map.easeTo({ center: lngLat, zoom: zoomTo });
+      return;
+    }
     try {
       const level = await source.getClusterExpansionZoom(id);
       if (mapRef.current === map) map.easeTo({ center: lngLat, zoom: level });
@@ -929,7 +1007,7 @@ export function BaseMap({
               type="button"
               aria-label={copy.map.cluster(item.count)}
               tabIndex={shown.inView.has(item.key) ? undefined : -1}
-              onClick={() => void zoomInto(item.id, item.lngLat)}
+              onClick={() => void zoomInto(item, item.lngLat)}
               className={`cursor-pointer ${look}`}
             >
               {compactCount.format(item.count)}
