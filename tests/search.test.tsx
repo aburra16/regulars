@@ -1334,15 +1334,22 @@ describe("Search: typing", () => {
     expect(field()).not.toHaveFocus();
   });
 
-  it("searches by itself a quarter of a second after the person stops typing, and not before", async () => {
+  it("searches by itself once the person stops typing, replacing the page in the history", async () => {
+    // The next test holds the timing on a fake clock: nothing is searched for until a quarter of a second
+    // after the last letter. On a real clock a slow machine can leave that long between two letters, so
+    // this one waits for the outcome only.
     const user = userEvent.setup();
     const { router } = await openSearch("/search");
     await user.type(field(), "novo");
-    // Typing is not yet a search.
-    expect(router.state.location.search).toBe("");
-    await waitFor(() => expect(router.state.location.search).toBe("?q=novo"), { timeout: 1500 });
+    // The address changes first and the list is drawn after it, so both are waited for.
+    await waitFor(
+      () => {
+        expect(router.state.location.search).toBe("?q=novo");
+        expect(names()).toEqual(["Novo Tahiti"]);
+      },
+      { timeout: 1500 },
+    );
     expect(router.state.historyAction).toBe("REPLACE");
-    expect(names()).toEqual(["Novo Tahiti"]);
   });
 
   it("waits the quarter of a second out from the last letter", async () => {
@@ -1360,6 +1367,7 @@ describe("Search: typing", () => {
     await act(async () => void vi.advanceTimersByTime(1));
     expect(router.state.location.search).toBe("?q=novo");
     expect(router.state.historyAction).toBe("REPLACE");
+    expect(names()).toEqual(["Novo Tahiti"]);
   });
 
   it("writes the search without the spaces around it, and does not take them out of the field while the person is typing", async () => {

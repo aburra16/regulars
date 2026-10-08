@@ -416,7 +416,8 @@ describe("the chain page on a phone", () => {
       px: DESKTOP,
       entries: [confeitariaPath, { pathname: "/map", state: mapFocusOn(nearest) }],
     });
-    expect(router.state.location.pathname).toBe("/");
+    // The map's page sends a desktop on to Explore from an effect, which runs after the page is drawn: on a slow machine, later.
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
     const map = await waitFor(() => {
       const made = FakeMap.instances.at(-1);
       if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
