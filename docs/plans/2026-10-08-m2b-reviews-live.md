@@ -65,8 +65,9 @@
 - **New network hosts:**
   - `wss://search.brainstorm.world` (reviews, reviewer names);
   - `wss://scores.brainstorm.world` (the house's scorer, read from its kind 10040);
-  - the reviewer's own write relays, only when posting;
-  - one NIP-46 meeting point, `wss://relay.nsec.app`, only while connecting a phone app.
+  - `wss://purplepag.es` (the reviewer's relay list, read only when posting or removing; ruling R6);
+  - the reviewer's own write relays, only when posting or removing;
+  - one NIP-46 meeting point, `wss://relay.nsec.app` (or the relay a bunker link names), only while connecting a phone app and asking it to sign.
 - **Tests:** they wait for outcomes (`waitFor`/`findBy`) and never assert wall-clock time. CI deploys only on green.
 
 ## Review Focus

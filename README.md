@@ -26,6 +26,12 @@ Open the app at <http://localhost:5173> (or the port Vite prints). Use `localhos
 
 The app reads the places from `wss://dcosl.brainstorm.world` and the map from `api.maptiler.com`. In production it also reads the reviews of the places on screen, and their reviewers' names, from `wss://search.brainstorm.world`; the house's choice of scorer from `wss://scores.brainstorm.world`; and the ranks from the relay that choice names. In development it reads no reviews unless `VITE_REVIEW_RELAYS` is set (see "House scores, locally"), so every place says "No reviews yet".
 
+A person who signs in brings three more, each only while they are needed:
+
+- `wss://purplepag.es`, read when posting or removing a review, for the person's relay list (kind 10002), beside the review relays (`config.relayListRelays`);
+- the person's own write relays, which that list names, sent the review when posting, and the removal when removing one;
+- `wss://relay.nsec.app` (`config.connectRelay`), or the relay a bunker link names, to sign in with an app on a phone, and to ask that app to sign.
+
 ## Test
 
 ```sh
