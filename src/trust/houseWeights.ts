@@ -8,7 +8,7 @@ import { isHex64, isRelayUrl } from "../nostr/shapes.ts";
 const TRUST_LIST_KIND = 10040;
 
 /** The kind of a scorer's ranks for one person: one event per person, whose `d` is their public key. */
-const RANK_KIND = 30382;
+export const RANK_KIND = 30382;
 
 /**
  * The most people one request for ranks names (Brainstorm reads at most 500 items at a time). It

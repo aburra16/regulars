@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config";
 import { weightOf } from "../src/trust/houseWeights";
 
+/** What is open as config.ts sets it, read as this file loads: before tests/setup.ts sets anything for a test. */
+const SET_FEATURES = structuredClone(config.features);
+
 /** Loads a fresh copy of the config module under the given VITE_MAPTILER_KEY. */
 async function configWithMapTilerKey(value: string | undefined) {
   vi.stubEnv("VITE_MAPTILER_KEY", value);
@@ -54,8 +57,9 @@ describe("config", () => {
     expect(config.defaultCity).toEqual({ name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 });
   });
 
-  it("opens signing in, and keeps My circle off until its scores can be worked out (M2b)", () => {
-    expect(config.features).toEqual({ signIn: true, circle: false });
+  it("opens signing in, and keeps My circle off until its scores can be worked out (M2b; M3 Task 3)", () => {
+    // As config.ts sets them: tests/setup.ts closes My circle before each test, whatever it says.
+    expect(SET_FEATURES).toEqual({ signIn: true, circle: false });
   });
 
   it("meets phone apps at one place, relay.nsec.app, only while connecting one", () => {

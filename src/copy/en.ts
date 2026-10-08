@@ -211,9 +211,53 @@ export const copy = {
     // DRAFT for Avi
     /**
      * The My circle half while the person's circle cannot be had yet, after they sign in: off, and
-     * saying so (the brief's screen 11; Tuning.dc.html).
+     * saying so, until it is ready (the brief's screen 11; Tuning.dc.html).
      */
     circleSoon: "My circle · soon",
+  },
+  /**
+   * Personalizing: the action under the toggle on Explore that asks Brainstorm, our scoring partner,
+   * to work out the person's circle, and what it says while it does (decisions 8 and 26; the brief's
+   * screen 11, Tuning.dc.html). "Brainstorm" is the partner's name.
+   */
+  circle: {
+    // DRAFT for Avi
+    /** The button. Tapping it is the person's consent (decision 26). */
+    personalize: "Personalize",
+    // DRAFT for Avi: decision 26's line, beside the button.
+    consent:
+      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle's scores are public.",
+    // DRAFT for Avi
+    /** While the person's browser add-on asks them to let Brainstorm know it is them. */
+    approveBrowser: "Approve the request in your browser add-on to go on.",
+    // DRAFT for Avi
+    /** The same, for a person who signed in with an app on their phone. */
+    approvePhone: "Approve the request in the app on your phone to go on.",
+    // DRAFT for Avi
+    /** Stops waiting on the add-on or the app, and gives Personalize back. */
+    cancel: "Cancel",
+    // DRAFT for Avi: the banner's heading (Tuning.dc.html).
+    workingTitle: "Working out your circle",
+    // DRAFT for Avi: the banner's words (Tuning.dc.html).
+    workingBody: "This takes a few minutes. Keep browsing House picks. We'll tell you when My circle is ready.",
+    // DRAFT for Avi
+    /** A quiet notice once it is ready. It never switches the view: the toggle's My circle half is now on. */
+    ready: "Your circle is ready.",
+    // DRAFT for Avi: the brief's § 6.
+    /** Brainstorm would not start a run, as one was made lately, and that run is the one used. */
+    recently: "Your circle was updated recently. We'll use that.",
+    // DRAFT for Avi
+    /** Brainstorm would not start a run (too many from this address), and the person has none yet. */
+    busy: "Brainstorm is busy right now. Try again in a little while.",
+    // DRAFT for Avi: the brief's § 6.
+    /** The run failed, or Brainstorm could not be reached. House picks still works. */
+    unavailable: "My circle isn't available right now.",
+    // DRAFT for Avi
+    /** Beside `busy` or `unavailable`: personalizes again. */
+    tryAgain: "Try again",
+    // DRAFT for Avi
+    /** Beside `ready` or `recently`: puts the notice away. */
+    dismiss: "Dismiss",
   },
   score: {
     /** On a card with no score, under the hours, when nobody has reviewed the place (SCREENS.md, wording patterns). */

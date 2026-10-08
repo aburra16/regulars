@@ -1,5 +1,6 @@
-import { createContext, type JSX, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, type JSX, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
+import { useCircle } from "../circle/CircleProvider.tsx";
 import { config } from "../config.ts";
 
 /** Whose scores the screens show: the house curator's view, or the person's own circle. */
@@ -30,17 +31,26 @@ function readView(): View {
 /**
  * The view, for every screen below it, so the toggles on the top bar, the map and a place page
  * agree. It is state only: which scores to show is up to each screen. It starts at House picks.
+ * My circle can be the view only while it is open and the person's circle is ready (`useCircle`):
+ * otherwise the view is House picks, and when the circle goes (the person signs out) House picks is
+ * kept, so that My circle never comes back by itself.
  */
 export function ViewProvider({ children }: { children: ReactNode }): JSX.Element {
-  const [view, setState] = useState<View>(readView);
+  const { ready } = useCircle();
+  const usable = config.features.circle && ready;
+  const [chosen, setChosen] = useState<View>(readView);
   const setView = useCallback((next: View) => {
-    setState(next);
+    setChosen(next);
     try {
       window.sessionStorage.setItem(VIEW_STORAGE_KEY, next);
     } catch {
       // Blocked or full. The view still holds until the page is closed.
     }
   }, []);
+  useEffect(() => {
+    if (!usable && chosen === "circle") setView("house");
+  }, [usable, chosen, setView]);
+  const view: View = usable ? chosen : "house";
   const value = useMemo(() => ({ view, setView }), [view, setView]);
   return <ViewContext value={value}>{children}</ViewContext>;
 }

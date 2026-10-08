@@ -59,8 +59,11 @@ interface Config {
   mapTilerKey: string | undefined;
   /**
    * What is open. `signIn`: signing in, with a browser add-on or an app on a phone (docs/decisions.md
-   * #21). `circle`: My circle, the person's own scores, which needs their circle worked out; until it
-   * is open, the toggle's My circle half reads "soon" for a person who has signed in.
+   * #21). `circle`: My circle, the person's own scores, which needs their circle worked out: a person
+   * signed in can Personalize, which asks Brainstorm, and the toggle's My circle half turns on once
+   * their circle is ready (src/circle/CircleProvider.tsx). It stays closed until My circle's scores
+   * can be worked out (the M3 plan, Task 3). Closed, nothing asks Brainstorm, and the half reads
+   * "soon" for a person who has signed in.
    */
   features: { signIn: boolean; circle: boolean };
   /**

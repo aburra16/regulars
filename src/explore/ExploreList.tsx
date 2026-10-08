@@ -2,6 +2,7 @@ import { type JSX, useId, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { aboutAt, HOW_SCORES_WORK } from "../about/anchors.ts";
+import { Personalize } from "../circle/Personalize.tsx";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { HereCityPicker } from "../location/CityPicker.tsx";
@@ -159,8 +160,9 @@ export function HouseLine({
 
 /**
  * Explore, as a list (Main.dc.html; the phone's first screen). Below the top of the page, which the
- * shell draws, it has the search field, the toggle, the filter chips and the places near the
- * person, nearest first, chains as one card. A chip is kept in the address, so Back undoes it.
+ * shell draws, it has the search field, the toggle, Personalize under it for a person signed in whose
+ * circle is not ready (and the banner while it gets ready, Tuning.dc.html), the filter chips and the
+ * places near the person, nearest first, chains as one card. A chip is kept in the address, so Back undoes it.
  * The desktop has its own Explore, with the map beside the list (DeskExplore).
  */
 export function ExploreList(): JSX.Element {
@@ -196,6 +198,8 @@ export function ExploreList(): JSX.Element {
   // The scores of the whole list, asked for in one go. The list stays nearest first.
   const { entries, scores } = useListScores(grouped);
   const { refresh } = useScoreActions();
+  // The toggle and its line, which keep the focus when Personalize's notice is put away.
+  const toggleBlock = useRef<HTMLDivElement>(null);
 
   const choose = (next: ExploreChip) =>
     setParams((current) => {
@@ -238,10 +242,11 @@ export function ExploreList(): JSX.Element {
       <div className="flex flex-col gap-4 px-gutter-phone pt-4">
         <h1 className="sr-only">{copy.pages.explore}</h1>
         <SearchLink />
-        <div className="flex flex-col gap-2">
+        <div ref={toggleBlock} tabIndex={-1} className="flex flex-col gap-2 outline-none">
           <ViewSwitch variant="bar" />
           <HouseLine unavailable={scores.house === "unavailable"} onRetry={refresh} className="gap-2" />
         </div>
+        <Personalize holdFocus={toggleBlock} />
         <Chips
           label={copy.explore.filtersLabel}
           options={CHIP_OPTIONS}

@@ -1,6 +1,7 @@
-import { type JSX, useLayoutEffect, useMemo } from "react";
+import { type JSX, useLayoutEffect, useMemo, useRef } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 
+import { Personalize } from "../circle/Personalize.tsx";
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
 import { placeCount } from "../places/indexes.ts";
@@ -20,7 +21,8 @@ import { useAreaEntries, useSearchedArea } from "./useArea.ts";
 
 /**
  * Explore on a desktop (DeskExplore.dc.html): the list beside the map (DeskLayout). The top bar,
- * which the shell draws, has the search and the toggle.
+ * which the shell draws, has the search and the toggle; Personalize is at the top of the list's
+ * column, for a person signed in whose circle is not ready.
  *
  * Above the list are the filters, as menus, kept in the address the way the search keeps them, so
  * the phone's filters page and these read one model. The map has every place, at any zoom, whatever
@@ -45,6 +47,8 @@ export function DeskExplore(): JSX.Element {
   // The scores of the whole list, asked for in one go for the cards and the pins; best first when asked.
   const { entries, scores } = useListScores(filtered, sort === "score");
   const { refresh } = useScoreActions();
+  // What goes above the cards, which keeps the focus when Personalize's notice is put away.
+  const head = useRef<HTMLDivElement>(null);
   // Opened at a place, from a phone's link to the map ("See on map").
   const focused = useMapFocus();
   // The map has every place, narrowed by the filters as the list is; a chosen pin's card beyond the
@@ -95,7 +99,9 @@ export function DeskExplore(): JSX.Element {
       historyKey={historyKey}
       list={list}
       head={
-        <>
+        <div ref={head} tabIndex={-1} className="flex flex-col gap-3.5 outline-none">
+          {/* Under the top bar's toggle: Personalize, for a person signed in whose circle is not ready. */}
+          <Personalize holdFocus={head} />
           {/* Explore has no words to match: its list is nearest first, by name, or best first by House picks. */}
           <FilterMenus
             filters={filters}
@@ -113,7 +119,7 @@ export function DeskExplore(): JSX.Element {
             onRetry={refresh}
             className="gap-3.5"
           />
-        </>
+        </div>
       }
       entries={entries}
       scores={scores}
