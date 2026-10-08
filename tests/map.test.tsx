@@ -298,6 +298,10 @@ describe("BaseMap", () => {
     expect(FakeMap.instances).toHaveLength(1);
     expect(map.options).toMatchObject({ center: funchal, zoom: 13, interactive: true, attributionControl: false });
     expect(map.options.cooperativeGestures).toBe(false);
+    // Turned and tilted as MapLibre lets any map be: only a flat map is kept from it.
+    for (const option of ["dragRotate", "touchPitch", "pitchWithRotate"]) expect(map.options).not.toHaveProperty(option);
+    expect(map.touchZoomRotate.disableRotation).not.toHaveBeenCalled();
+    expect(map.keyboard.disableRotation).not.toHaveBeenCalled();
     // MapLibre's own words, in the app's: the map's name, and what it says when a gesture is left to the page.
     expect(map.options.locale).toEqual({
       "Map.Title": copy.map.label,
@@ -318,23 +322,59 @@ describe("BaseMap", () => {
     expect(screen.queryByRole("img", { name: "Map showing where Alpha is" })).not.toBeInTheDocument();
   });
 
-  it("offers a way back to where it started beside the zoom buttons, once the person has moved it, and not before", async () => {
+  it("keeps a flat map north up and flat: no drag, two fingers or keys turn or tilt it", async () => {
+    render(<BaseMap center={funchal} zoom={13} interactive flat />);
+    const map = await theMap();
+    // Right-drag and Ctrl and a drag are MapLibre's drag-rotate; two fingers turn and tilt it; Shift and the arrows do too.
+    expect(map.options).toMatchObject({ interactive: true, dragRotate: false, touchPitch: false, pitchWithRotate: false });
+    expect(map.touchZoomRotate.disableRotation).toHaveBeenCalledTimes(1);
+    expect(map.keyboard.disableRotation).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a way back to where it started at its top left, once the person has moved it, and not before", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<BaseMap center={funchal} zoom={13} interactive zoomButtons back="Back to the start" />);
+    const { rerender } = render(<BaseMap center={funchal} zoom={13} interactive flat zoomButtons back="Back to the start" />);
     const map = await theMap();
     const queryBack = () => screen.queryByRole("button", { name: "Back to the start" });
     expect(queryBack()).not.toBeInTheDocument();
     act(() => map.dragTo(LISBON_VIEW, 11));
-    await user.click(await screen.findByRole("button", { name: "Back to the start" }));
-    await waitFor(() => expect(map.easeTo).toHaveBeenLastCalledWith({ center: funchal, zoom: 13, bearing: 0, pitch: 0 }));
+    const back = await screen.findByRole("button", { name: "Back to the start" });
+    // In the map's top left corner, clear of the pin in the middle and the buttons at the bottom right,
+    // and first in the keyboard's order, before the zoom buttons.
+    expect(back.parentElement).toBe(mapAttribution().closest(".bg-map-land"));
+    expect(back).toHaveClass("absolute", "top-3", "left-3", "wide:top-4", "wide:left-4");
+    expect(back.compareDocumentPosition(screen.getByRole("button", { name: copy.map.zoomIn })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(back);
+    // A flat map has only its centre and zoom to go back to.
+    await waitFor(() => expect(map.easeTo).toHaveBeenLastCalledWith({ center: funchal, zoom: 13 }));
     await waitFor(() => expect(queryBack()).not.toBeInTheDocument());
     expect(map.canvas).toHaveFocus();
 
     // A new centre is a new start: the way back to the old one goes.
     act(() => map.dragTo(LISBON_VIEW, 11));
     expect(await screen.findByRole("button", { name: "Back to the start" })).toBeInTheDocument();
-    rerender(<BaseMap center={[-9.14, 38.72]} zoom={13} interactive zoomButtons back="Back to the start" />);
+    rerender(<BaseMap center={[-9.14, 38.72]} zoom={13} interactive flat zoomButtons back="Back to the start" />);
     await waitFor(() => expect(queryBack()).not.toBeInTheDocument());
+  });
+
+  it("offers a way back only while the map is away from where it started, whatever the person did", async () => {
+    const user = userEvent.setup();
+    const onMoveEnd = vi.fn();
+    render(<BaseMap center={funchal} zoom={13} interactive flat zoomButtons back="Back to the start" onMoveEnd={onMoveEnd} />);
+    const map = await theMap();
+    const queryBack = () => screen.queryByRole("button", { name: "Back to the start" });
+    // A key that would turn a flat map moves it nowhere, yet MapLibre ends it as the person's move.
+    const originalEvent = new KeyboardEvent("keydown", { key: "ArrowLeft", shiftKey: true });
+    act(() => void map.fire("movestart", { originalEvent }).fire("moveend", { originalEvent }));
+    await waitFor(() => expect(onMoveEnd).toHaveBeenCalledTimes(1));
+    expect(queryBack()).not.toBeInTheDocument();
+
+    // In and out again with the buttons: away, then back where it started, by the person's own hand.
+    await user.click(screen.getByRole("button", { name: copy.map.zoomIn }));
+    expect(await screen.findByRole("button", { name: "Back to the start" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: copy.map.zoomOut }));
+    await waitFor(() => expect(queryBack()).not.toBeInTheDocument());
+    expect(map.zoom).toBe(13);
   });
 
   it("has no way back on a map that is not given one", async () => {

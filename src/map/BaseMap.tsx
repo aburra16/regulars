@@ -47,6 +47,12 @@ export interface BaseMapProps {
    */
   cooperative?: boolean;
   /**
+   * A map that moves but stays north up and flat (a place's map, too small for turning or tilting to
+   * help): no right-drag or Ctrl and a drag, no two fingers turning or tilting, no Shift and the
+   * arrows. Read when the map is made.
+   */
+  flat?: boolean;
+  /**
    * The map's name to a screen reader ("Map showing where Jacafé is"), in place of "Map". A map that
    * moves is a region with this name, given it when the map is made. A map that does not is one
    * picture with it, in place of the map's own region, which it hides; its attribution stays reachable.
@@ -77,9 +83,9 @@ export interface BaseMapProps {
   /** The zoom buttons, at the bottom right (DeskExplore.dc.html). */
   zoomButtons?: boolean;
   /**
-   * The words of a way back to where the map started, `center` at `zoom` ("Back to the place"),
-   * beside the zoom buttons, so only with them: there once the person has moved the map, gone once
-   * it is back.
+   * The words of a way back to where the map started, `center` at `zoom` ("Back to the place"), at
+   * the map's top left, clear of a pin in its middle: there once the person has moved the map, gone
+   * once it is back. It does not undo a turn or a tilt: give it to a `flat` map.
    */
   back?: string;
   /** At the bottom right, above the zoom buttons and the attribution: the page's own controls. */
@@ -133,6 +139,15 @@ const mapWords = (title: string) => ({
   "CooperativeGesturesHandler.MacHelpText": copy.map.gestureHelp.mac,
   "CooperativeGesturesHandler.MobileHelpText": copy.map.gestureHelp.touch,
 });
+
+/**
+ * Whether the map looks where it started: at `center`, at `zoom`. A millionth of a degree is a tenth
+ * of a metre, far less than a pixel at any zoom a person reads a street at.
+ */
+const lookingAt = (map: MapLibreMap, [lon, lat]: LngLat, zoom: number) => {
+  const now = map.getCenter();
+  return Math.abs(now.lng - lon) < 1e-6 && Math.abs(now.lat - lat) < 1e-6 && Math.abs(map.getZoom() - zoom) < 1e-3;
+};
 
 /** A move a person made: one that came from their input, or from the zoom buttons. */
 const byPerson = (event: { originalEvent?: unknown; byPerson?: unknown }) =>
@@ -313,13 +328,16 @@ function ZoomButtons({ onZoom }: { onZoom(direction: "in" | "out"): void }): JSX
   );
 }
 
-/** The way back to where the map started: to the left of the zoom buttons, level with their foot, a white block as theirs is. */
+/**
+ * The way back to where the map started, in the map's top left corner, as far in from its edges as
+ * the zoom buttons are: a white block as theirs is, with its words.
+ */
 function BackButton({ label, onBack }: { label: string; onBack(): void }): JSX.Element {
   return (
     <button
       type="button"
       onClick={onBack}
-      className="absolute right-full bottom-0 mr-2 flex h-11 cursor-pointer items-center rounded-tile border-0 bg-ground px-3.5 font-text text-secondary font-bold whitespace-nowrap text-ink shadow-map-controls wide:mr-2.5"
+      className="absolute top-3 left-3 z-10 flex h-11 cursor-pointer items-center rounded-tile border-0 bg-ground px-3.5 font-text text-secondary font-bold whitespace-nowrap text-ink shadow-map-controls wide:top-4 wide:left-4"
     >
       {label}
     </button>
@@ -342,6 +360,7 @@ export function BaseMap({
   fit,
   interactive,
   cooperative = false,
+  flat = false,
   label,
   pins = NO_PINS,
   selected,
@@ -376,6 +395,7 @@ export function BaseMap({
     fit,
     interactive,
     cooperative,
+    flat,
     label,
     pins,
     selected,
@@ -449,11 +469,21 @@ export function BaseMap({
     import("./maplibre.ts").then(
       (library) => {
         if (cancelled || container.current === null) return;
-        const { center: here, zoom: level, fit: box, interactive: canMove, cooperative: sharesGestures, label: title, initialView: left } =
-          latest.current;
+        const {
+          center: here,
+          zoom: level,
+          fit: box,
+          interactive: canMove,
+          cooperative: sharesGestures,
+          flat: keptFlat,
+          label: title,
+          initialView: left,
+        } = latest.current;
         const start = left ?? { center: here, zoom: level };
         // Where the person left it, on Back; otherwise the box it is to show, or its centre.
         const fitted = left === undefined && box !== undefined ? { bounds: box, fitBoundsOptions: FIT_OPTIONS } : {};
+        // Right-drag and Ctrl and a drag (which turn, tilt and roll it), and two fingers tilting it.
+        const unturned = keptFlat ? { dragRotate: false, touchPitch: false, pitchWithRotate: false } : {};
         const style = mapStyle(config.mapTilerKey);
         let map: MapLibreMap;
         try {
@@ -466,6 +496,7 @@ export function BaseMap({
             interactive: canMove,
             // A map that does not move has no gestures to share with the page.
             cooperativeGestures: canMove && sharesGestures,
+            ...unturned,
             attributionControl: false,
             locale: mapWords(title ?? copy.map.label),
           });
@@ -473,6 +504,11 @@ export function BaseMap({
           // A browser that cannot draw a map (no WebGL). The page goes on without one.
           setFailed(true);
           return;
+        }
+        if (keptFlat) {
+          // Two fingers still pinch it, and the keys still move and zoom it; neither turns it.
+          map.touchZoomRotate.disableRotation();
+          map.keyboard.disableRotation();
         }
         made = map;
         mapRef.current = map;
@@ -565,7 +601,10 @@ export function BaseMap({
           const { lng, lat: at } = map.getCenter();
           latest.current.onViewChange?.({ center: [lng, at], zoom: map.getZoom() });
           if (!moved) return;
-          if (latest.current.back !== undefined) setStrayed(true);
+          // Away from where it started, or back there by the person's own hand. A key that would turn
+          // a flat map ends a move that went nowhere.
+          const { back: way, center: home, zoom: homeZoom } = latest.current;
+          if (way !== undefined) setStrayed(!lookingAt(map, home, homeZoom));
           const bounds = map.getBounds();
           latest.current.onMoveEnd?.([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
         });
@@ -713,14 +752,14 @@ export function BaseMap({
     else map?.zoomOut(undefined, { byPerson: true });
   };
 
-  // Back to where the map started: the centre, at its zoom, north up and flat. The control goes once
-  // it is pressed, so the focus goes to the map, which is named and takes the keys, not to the page,
-  // where a keyboard would have to start again.
+  // Back to where the map started: the centre, at its zoom. The control goes once it is pressed, so
+  // the focus goes to the map, which is named and takes the keys, not to the page, where a keyboard
+  // would have to start again.
   const goBack = () => {
     const map = mapRef.current;
     if (map === null) return;
     map.getCanvas().focus({ preventScroll: true });
-    map.easeTo({ center: [lon, lat], zoom, bearing: 0, pitch: 0 });
+    map.easeTo({ center: [lon, lat], zoom });
     setStrayed(false);
   };
 
@@ -742,18 +781,13 @@ export function BaseMap({
           {children}
         </div>
       )}
+      {/* Top left, before the zoom buttons at the bottom right, in the keyboard's order as on screen. */}
+      {interactive && back !== undefined && strayed && <BackButton label={back} onBack={goBack} />}
       <div
         ref={bottomLayer}
         className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex flex-col items-end gap-2 wide:inset-x-4 wide:bottom-4 wide:gap-2.5 *:pointer-events-auto">
         {corner}
-        {zoomButtons && interactive && (
-          // The way back hangs to the left of the zoom buttons, outside this box, so the map above it
-          // can still be dragged.
-          <div className="relative">
-            {back !== undefined && strayed && <BackButton label={back} onBack={goBack} />}
-            <ZoomButtons onZoom={zoomBy} />
-          </div>
-        )}
+        {zoomButtons && interactive && <ZoomButtons onZoom={zoomBy} />}
         <Attribution kind="map" />
         {below !== undefined && <div className="self-stretch">{below}</div>}
       </div>

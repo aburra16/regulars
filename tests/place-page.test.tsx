@@ -570,6 +570,11 @@ describe("the place page: map", () => {
     const map = await placeMap();
     // Cooperative: one finger and a plain wheel scroll the page; two fingers, a pinch or Ctrl (⌘) and the wheel move the map.
     expect(map.options).toMatchObject({ interactive: true, cooperativeGestures: true, center: [JACAFE.lon, JACAFE.lat], zoom: 16 });
+    // North up and flat: too small a map for turning or tilting to help. No right-drag, Ctrl and a drag,
+    // two fingers turning, or Shift and the arrows.
+    expect(map.options).toMatchObject({ dragRotate: false, touchPitch: false, pitchWithRotate: false });
+    expect(map.touchZoomRotate.disableRotation).toHaveBeenCalledTimes(1);
+    expect(map.keyboard.disableRotation).toHaveBeenCalledTimes(1);
     // Its one pin is the chosen one, drawn on its own: the source the map gathers into bubbles is without it.
     expect(map.sources.get(PIN_SOURCE)!.data.features).toEqual([]);
     // The pin is the design's drop (Place.dc.html): 34 px, in the accent colour with a white dot, its tip on the place.
@@ -655,9 +660,14 @@ describe("the place page: map", () => {
     act(() => map.dragTo(AWAY, 13));
     const back = await screen.findByRole("button", { name: copy.place.mapBack });
     expect(copy.place.mapBack).toBe("Back to the place");
+    // In the map's top left corner, never over the pin, whose tip is the map's middle; the zoom
+    // buttons and the attribution are at the bottom right.
+    expect(back.parentElement).toBe(map.container.closest(".bg-map-land"));
+    expect(back).toHaveClass("absolute", "top-3", "left-3", "wide:top-4", "wide:left-4");
+    expect(screen.getByRole("button", { name: copy.map.zoomIn }).closest(".bottom-3")).not.toContainElement(back);
     await user.click(back);
-    // On the pin again, at the zoom the map started at, north up and flat.
-    await waitFor(() => expect(map.easeTo).toHaveBeenLastCalledWith({ center: [JACAFE.lon, JACAFE.lat], zoom: 16, bearing: 0, pitch: 0 }));
+    // On the pin again, at the zoom the map started at.
+    await waitFor(() => expect(map.easeTo).toHaveBeenLastCalledWith({ center: [JACAFE.lon, JACAFE.lat], zoom: 16 }));
     expect(map.center).toEqual([JACAFE.lon, JACAFE.lat]);
     expect(map.zoom).toBe(16);
     await waitFor(() => expect(queryBack()).not.toBeInTheDocument());

@@ -93,6 +93,10 @@ export class FakeMap {
   readonly canvas: HTMLCanvasElement;
   /** The features `querySourceFeatures` gives; undefined: every point of the source's data, none clustered. */
   features: FakeFeature[] | undefined;
+  /** MapLibre's two-finger handler: whether the app turned its rotation off. */
+  readonly touchZoomRotate = { disableRotation: vi.fn() };
+  /** MapLibre's keyboard handler: whether the app turned its turning and tilting (Shift and the arrows) off. */
+  readonly keyboard = { disableRotation: vi.fn() };
 
   constructor(options: Record<string, unknown>) {
     this.options = options;
