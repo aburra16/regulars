@@ -45,28 +45,35 @@ const RECOLOURS: ReadonlyArray<readonly [layer: string, token: MapToken]> = [
   ["Forest", "--map-park"],
   ["Stadium", "--map-park"],
   ["Cemetery", "--map-park"],
+  ["Water shadow", "--map-water"],
   ["Water", "--map-water"],
   ["River", "--map-water"],
 ];
 
-/** The paint property that colours a layer of each type. Other types are not coloured. */
-const COLOUR_PROPERTY: Readonly<Record<string, "background-color" | "fill-color" | "line-color">> = {
-  background: "background-color",
-  fill: "fill-color",
-  line: "line-color",
-};
+/** The paint property that colours a layer of each type, and the one that says how a new colour fades in. Other types are not coloured. */
+const COLOUR_PROPERTY = {
+  background: ["background-color", "background-color-transition"],
+  fill: ["fill-color", "fill-color-transition"],
+  line: ["line-color", "line-color-transition"],
+} as const;
+
+const isColoured = (type: string): type is keyof typeof COLOUR_PROPERTY => type in COLOUR_PROPERTY;
+
+/** No fade: the style's own transition would draw MapTiler's greys first and fade them to the tokens'. */
+const AT_ONCE = { duration: 0, delay: 0 };
 
 /**
- * Gives MapTiler's land, parks and water the tokens' colours, once its style has loaded. Each layer
- * is coloured by its own type ("River" is a line). A layer the style does not have is skipped:
+ * Gives MapTiler's land, parks and water the tokens' colours, once its style has loaded, at once
+ * rather than with the style's fade. Each layer is coloured by its own type ("River" is a line). A layer the style does not have is skipped:
  * MapTiler can rename one at any time, and the map must still draw.
  */
 export function recolour(map: Pick<MapLibreMap, "getLayer" | "setPaintProperty">): void {
   for (const [id, token] of RECOLOURS) {
-    const layer = map.getLayer(id);
-    const property = layer === undefined ? undefined : COLOUR_PROPERTY[layer.type];
-    if (property === undefined) continue;
+    const type = map.getLayer(id)?.type;
+    if (type === undefined || !isColoured(type)) continue;
+    const [property, transition] = COLOUR_PROPERTY[type];
     try {
+      map.setPaintProperty(id, transition, AT_ONCE);
       map.setPaintProperty(id, property, tokenColour(token));
     } catch {
       // A layer whose colour cannot be set keeps MapTiler's. The map is still a map.

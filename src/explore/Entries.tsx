@@ -23,9 +23,10 @@ const shown = shownMemory("regulars.explore.shown", PAGE_SIZE);
  * and its list: Back to it shows as many cards as it had, so the scroll position is still on the page.
  *
  * Beside a map (the desktop), `selected` is the address of the chosen pin, whose card gets the dark
- * edge and is brought into view, however far down it is; `onHighlight` hears which card is pointed
- * at or focused, to pick out its pin. `scrollRoot` is the element the list scrolls in, when it is
- * not the page.
+ * edge and is brought into view, however far down it is; a new `focusRequest` also moves the focus
+ * to it (a pin chosen from the keyboard). `onHighlight` hears which card is pointed at or focused, to
+ * pick out its pin. `listId` is the list's id, which the pins name as what they open. `scrollRoot`
+ * is the element the list scrolls in, when it is not the page.
  */
 export function Entries({
   page,
@@ -33,7 +34,9 @@ export function Entries({
   locale,
   now,
   selected,
+  focusRequest,
   onHighlight,
+  listId,
   scrollRoot,
 }: {
   page: ShownPage;
@@ -41,7 +44,9 @@ export function Entries({
   locale: string;
   now: Date;
   selected?: string;
+  focusRequest?: number;
   onHighlight?(address: string | undefined): void;
+  listId?: string;
   scrollRoot?: RefObject<HTMLElement | null>;
 }): JSX.Element {
   const [count, setCount] = useShownCount(shown, page, entries.length);
@@ -74,24 +79,29 @@ export function Entries({
   // The chosen pin's card: shown, with the cards before it, then brought into view, once for each choice.
   const selectedAt = selected === undefined ? -1 : entries.findIndex((entry) => entryAddress(entry) === selected);
   const broughtIntoView = useRef<string | undefined>(undefined);
+  const focused = useRef(focusRequest);
   useEffect(() => {
     if (selected === undefined || selectedAt < 0) {
       broughtIntoView.current = undefined;
       return;
     }
-    if (broughtIntoView.current === selected) return;
+    const focus = focusRequest !== focused.current;
+    if (broughtIntoView.current === selected && !focus) return;
     if (selectedAt >= count) {
       setCount(Math.ceil((selectedAt + 1) / PAGE_SIZE) * PAGE_SIZE);
       return;
     }
     broughtIntoView.current = selected;
+    focused.current = focusRequest;
+    const item = list.current?.children[selectedAt] as HTMLElement | undefined;
     // jsdom has no scrolling, and nor may an old browser.
-    (list.current?.children[selectedAt] as HTMLElement | undefined)?.scrollIntoView?.({ block: "nearest" });
-  }, [selected, selectedAt, count, setCount]);
+    item?.scrollIntoView?.({ block: "nearest" });
+    if (focus) item?.querySelector("a")?.focus({ preventScroll: true });
+  }, [selected, selectedAt, count, setCount, focusRequest]);
 
   return (
     <>
-      <ul ref={list} role="list" className="m-0 flex list-none flex-col gap-3 p-0">
+      <ul ref={list} id={listId} role="list" className="m-0 flex list-none flex-col gap-3 p-0">
         {entries.slice(0, count).map((entry) => {
           const address = entryAddress(entry);
           const chosen = address === selected;

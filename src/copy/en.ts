@@ -269,8 +269,8 @@ export const copy = {
      * reviewed it, which the ring says to the eye. "Dose, Cafe, Open until 6 pm, no reviews yet".
      */
     placePin: (name: string, kind: string, hours: string) => `${name}, ${kind}, ${hours}, no reviews yet`,
-    /** A chain's one pin, for a screen reader (Map.dc.html): "Copper Kettle Coffee, a chain, 3 locations in view". */
-    chainPin: (name: string, n: number) => `${name}, a chain, ${n.toLocaleString("en")} locations in view`,
+    /** A chain's one pin, for a screen reader: "Copper Kettle Coffee, a chain, 3 locations nearby". */
+    chainPin: (name: string, n: number) => `${name}, a chain, ${n.toLocaleString("en")} locations nearby`,
     /** What a chain's pin says beside its icon: "×3". */
     chainCount: (n: number) => `×${n.toLocaleString("en")}`,
     /** A bubble of pins too close to tell apart, for a screen reader (Map.dc.html): "12 places here, zoom in". */
@@ -286,6 +286,12 @@ export const copy = {
     // DRAFT for Avi
     /** The person searched an area of the map that has no places. */
     noneInArea: "No places listed in this area yet.",
+    // DRAFT for Avi
+    /** Where a search of the map is, in a sentence that names where the places are: "No places near this area match those filters." */
+    thisArea: "this area",
+    // DRAFT for Avi
+    /** The card of the pin chosen on the phone's map, for a screen reader: the region a pin opens. */
+    selected: "Selected on the map",
   },
   /** The desktop's Explore (DeskExplore.dc.html): the list beside the map. */
   deskExplore: {

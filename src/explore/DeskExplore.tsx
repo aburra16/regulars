@@ -1,9 +1,9 @@
-import { type JSX, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type JSX, type RefObject, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
-import { BaseMap, type LngLat } from "../map/BaseMap.tsx";
+import { BaseMap, type ChosenBy, type LngLat } from "../map/BaseMap.tsx";
 import { pinsFor } from "../map/pins.ts";
 import { type Filters, filtersFromParams, withFilters } from "../search/filters.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
@@ -15,6 +15,7 @@ import { shownPageOf } from "../ui/shown.ts";
 import { Entries } from "./Entries.tsx";
 import { HouseLine, NoneNearby } from "./ExploreList.tsx";
 import { FilterMenus } from "./FilterMenus.tsx";
+import { useRememberedView } from "./mapMemory.ts";
 import { SearchAreaButton, START_ZOOM } from "./MapPage.tsx";
 import { setExploreIdx } from "./returnPoint.ts";
 import { useAreaEntries, useSearchedArea } from "./useArea.ts";
@@ -73,8 +74,9 @@ function useColumnScroll(column: RefObject<HTMLElement | null>, historyKey: stri
  *
  * Above the list are the filters, as menus, kept in the address the way the search keeps them, so
  * the phone's filters page and these read one model. Pointing at a card picks out its pin; clicking a
- * pin brings its card into view with the dark edge. Once the person moves the map, "Search this
- * area" lists the places where it is now, in both.
+ * pin brings its card into view with the dark edge, and a pin chosen from the keyboard moves the
+ * focus to its card. Once the person moves the map, "Search this area" lists the places where it is
+ * now, in both. Back to this page (from a place) finds the map where it was, with that area.
  */
 export function DeskExplore(): JSX.Element {
   useDocumentTitle(copy.titles.explore);
@@ -84,7 +86,12 @@ export function DeskExplore(): JSX.Element {
   const [params, setParams] = useSearchParams();
   const { key: historyKey } = useLocation();
   const filters = useMemo(() => filtersFromParams(params, locale), [params, locale]);
-  const searched = useSearchedArea();
+  const memoryKey = `desk:${historyKey}`;
+  const searched = useSearchedArea(memoryKey);
+  const { initialView, onViewChange } = useRememberedView(memoryKey);
+  const listId = useId();
+  // Each pin chosen from the keyboard: the focus goes to its card in the list.
+  const [focusRequest, setFocusRequest] = useState(0);
   const { area } = searched;
   const { nearby, rows, entries } = useAreaEntries(area, filters);
   const pins = useMemo(() => pinsFor(entries, locale, now), [entries, locale, now]);
@@ -115,7 +122,7 @@ export function DeskExplore(): JSX.Element {
   } else if (entries.length === 0) {
     body = (
       <PageMessage>
-        {copy.search.noResultsFiltered(here.label)} {copy.search.noResultsFilteredHint}
+        {copy.search.noResultsFiltered(searched.fromMap ? copy.map.thisArea : here.label)} {copy.search.noResultsFilteredHint}
       </PageMessage>
     );
   } else {
@@ -127,7 +134,9 @@ export function DeskExplore(): JSX.Element {
         locale={locale}
         now={now}
         selected={selected}
+        focusRequest={focusRequest}
         onHighlight={setHighlighted}
+        listId={listId}
         scrollRoot={column}
       />
     );
@@ -159,8 +168,14 @@ export function DeskExplore(): JSX.Element {
         selected={selected}
         highlighted={highlighted}
         you={you}
-        onSelect={setSelected}
+        onSelect={(address: string | undefined, by?: ChosenBy) => {
+          setSelected(address);
+          if (address !== undefined && by === "keyboard") setFocusRequest((n) => n + 1);
+        }}
+        pinsControl={listId}
         onMoveEnd={searched.moved}
+        initialView={initialView}
+        onViewChange={onViewChange}
         zoomButtons
       >
         {searched.canSearch && (

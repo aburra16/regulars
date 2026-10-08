@@ -7,6 +7,7 @@ import { clear } from "idb-keyval";
 import { afterEach, beforeEach, vi } from "vitest";
 
 import { config } from "../src/config";
+import { forgetMapPages } from "../src/explore/mapMemory";
 import { forgetExploreIdx } from "../src/explore/returnPoint";
 import { forgetShownInMemory } from "../src/ui/shown";
 import { resetFakeMaplibre } from "./support/fakeMaplibre";
@@ -42,6 +43,7 @@ afterEach(async () => {
   await clear();
   forgetShownInMemory();
   forgetExploreIdx();
+  forgetMapPages();
   resetFakeMaplibre();
   // A test that runs in Node, not jsdom, has no window.
   if (typeof window !== "undefined") {

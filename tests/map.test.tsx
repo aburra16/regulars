@@ -14,14 +14,14 @@ import { filtersFromParams, withFilters } from "../src/search/filters";
 import { MAPTILER_STYLE_URL, mapStyle, recolour } from "../src/map/style";
 import { distanceKm } from "../src/places/distance";
 import { openLine, openState } from "../src/places/hours";
-import { buildIndexes, groupForList } from "../src/places/indexes";
+import { buildIndexes, formatDistance, groupForList } from "../src/places/indexes";
 import { placeKindLabel } from "../src/places/kinds";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
 import { routes } from "../src/routes";
 import raw from "./fixtures/funchal-items.json";
-import { type FakeFeature, FakeMap, type FakeSource, MAPTILER_LAYERS } from "./support/fakeMaplibre";
+import { type FakeFeature, FakeMap, FakeMarker, type FakeSource, MAPTILER_LAYERS } from "./support/fakeMaplibre";
 import { createMemoryReader } from "./support/memoryReader";
 
 const fixtures: NostrEvent[] = raw;
@@ -175,27 +175,42 @@ describe("the map's style", () => {
     expect(mapStyle(undefined)).toMatchObject({ layers: [{ paint: { "background-color": "#123456" } }] });
   });
 
+  /** The colours `recolour` set, without the transitions it turned off first. */
+  const coloursSet = (map: FakeMap) => map.setPaintProperty.mock.calls.filter(([, property]) => !property.endsWith("-transition"));
+
   it("recolours MapTiler's land, parks and water to the tokens, by each layer's type", () => {
     const map = new FakeMap({ container: document.createElement("div"), style: "https://x.test/style.json" });
     recolour(map as never);
-    expect(map.setPaintProperty.mock.calls).toEqual([
+    expect(coloursSet(map)).toEqual([
       ["Background", "background-color", "#E4EAEE"],
       ["Residential", "fill-color", "#E4EAEE"],
       ["Landcover", "fill-color", "#CFE3DA"],
       ["Forest", "fill-color", "#CFE3DA"],
       ["Stadium", "fill-color", "#CFE3DA"],
       ["Cemetery", "fill-color", "#CFE3DA"],
+      ["Water shadow", "fill-color", "#CBDDEA"],
       ["Water", "fill-color", "#CBDDEA"],
       ["River", "line-color", "#CBDDEA"],
     ]);
+  });
+
+  it("changes each colour at once, without the style's fade from MapTiler's grey", () => {
+    const map = new FakeMap({ container: document.createElement("div"), style: "https://x.test/style.json" });
+    recolour(map as never);
+    const calls = map.setPaintProperty.mock.calls;
+    for (const [id, property] of coloursSet(map)) {
+      const transition = calls.findIndex((call) => call[0] === id && call[1] === `${property}-transition`);
+      const colour = calls.findIndex((call) => call[0] === id && call[1] === property);
+      expect(calls[transition]?.[2]).toEqual({ duration: 0, delay: 0 });
+      expect(transition).toBeLessThan(colour);
+    }
   });
 
   it("skips a layer the style does not have, and never throws for one", () => {
     FakeMap.styleLayers = MAPTILER_LAYERS.filter((layer) => !["Forest", "River", "Background"].includes(layer.id));
     const map = new FakeMap({ container: document.createElement("div"), style: "https://x.test/style.json" });
     expect(() => recolour(map as never)).not.toThrow();
-    const coloured = map.setPaintProperty.mock.calls.map(([id]) => id);
-    expect(coloured).toEqual(["Residential", "Landcover", "Stadium", "Cemetery", "Water"]);
+    expect(coloursSet(map).map(([id]) => id)).toEqual(["Residential", "Landcover", "Stadium", "Cemetery", "Water shadow", "Water"]);
   });
 });
 
@@ -232,7 +247,7 @@ describe("the pins", () => {
       address: kettleRows[0]!.place.address,
       lat: kettleRows[0]!.place.lat,
       chainCount: 3,
-      name: "Copper Kettle, a chain, 3 locations in view",
+      name: "Copper Kettle, a chain, 3 locations nearby",
     });
   });
 
@@ -274,7 +289,7 @@ describe("BaseMap", () => {
   const funchal: [number, number] = [HERE.lon, HERE.lat];
   const pins: Pin[] = [
     { address: "a", lat: 32.65, lon: -16.91, name: "Alpha, Cafe, Hours not listed, no reviews yet", category: "cafe" },
-    { address: "b", lat: 32.651, lon: -16.905, name: "Bravo, a chain, 3 locations in view", chainCount: 3, category: "cafe" },
+    { address: "b", lat: 32.651, lon: -16.905, name: "Bravo, a chain, 3 locations nearby", chainCount: 3, category: "cafe" },
   ];
 
   it("loads the map library when it is drawn, and makes one map with its own attribution, not MapLibre's", async () => {
@@ -376,7 +391,7 @@ describe("BaseMap", () => {
     expect(look(ring)).toBeEmptyDOMElement();
 
     const chain = pin("Bravo");
-    expect(chain).toHaveAccessibleName("Bravo, a chain, 3 locations in view");
+    expect(chain).toHaveAccessibleName("Bravo, a chain, 3 locations nearby");
     expect(look(chain)).toHaveTextContent(/^×3$/);
     expect(look(chain)).toHaveClass("bg-ground", "text-ink");
   });
@@ -430,7 +445,10 @@ describe("BaseMap", () => {
     const { rerender } = render(<BaseMap center={funchal} zoom={13} interactive pins={pins} onSelect={onSelect} />);
     const map = await theMap();
     await user.click(await findPin("Alpha"));
-    expect(onSelect).toHaveBeenLastCalledWith("a");
+    expect(onSelect).toHaveBeenLastCalledWith("a", "pointer");
+    act(() => pin("Bravo").focus());
+    await user.keyboard("{Enter}");
+    expect(onSelect).toHaveBeenLastCalledWith("b", "keyboard");
 
     rerender(<BaseMap center={funchal} zoom={13} interactive pins={pins} onSelect={onSelect} selected="a" />);
     expect(pin("Alpha")).toHaveAttribute("aria-pressed", "true");
@@ -530,7 +548,7 @@ describe("the map on a phone", () => {
       entries.map((entry) => ("chain" in entry ? entry.nearby[0]!.place.address : entry.place.address)),
     );
     expect(await findPin("Jacafé")).toBeInTheDocument();
-    expect(pin("A Confeitaria Coffee & Bakery")).toHaveAccessibleName("A Confeitaria Coffee & Bakery, a chain, 4 locations in view");
+    expect(pin("A Confeitaria Coffee & Bakery")).toHaveAccessibleName("A Confeitaria Coffee & Bakery, a chain, 4 locations nearby");
   });
 
   it("docks the place's card at the foot of the map when its pin is tapped; the card opens the place", async () => {
@@ -796,5 +814,307 @@ describe("Explore on a desktop", () => {
     act(() => map.dragTo(LISBON_VIEW));
     await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
     expect(cards().map(nameOf).sort()).toEqual(["Lisbon place 1", "Lisbon place 2", "Lisbon place 3"]);
+  });
+});
+
+// ---- Round 1 of the review ----
+
+/** Whether an element is a pin, or inside one: in one of the map's markers. */
+const inMarker = (element: Element | null) =>
+  element !== null && FakeMarker.instances.some((marker) => marker.element.contains(element));
+
+/** The browser says the device is at this point whenever it is asked. */
+function deviceAt(lat: number, lon: number) {
+  const getCurrentPosition = vi.fn((done: PositionCallback) =>
+    done({ coords: { latitude: lat, longitude: lon } } as GeolocationPosition),
+  );
+  Object.defineProperty(navigator, "geolocation", { configurable: true, value: { getCurrentPosition } });
+  return getCurrentPosition;
+}
+
+/** The `count`th map made, once its pins are on it: a page that comes back makes a new one. */
+async function mapNumber(count: number): Promise<FakeMap> {
+  return waitFor(() => {
+    const map = FakeMap.instances[count - 1];
+    if (map === undefined || !map.sources.has(PIN_SOURCE)) throw new Error(`No map ${count} with pins yet`);
+    return map;
+  });
+}
+
+/** A view a little east of the middle of Funchal, which still has the middle in it. */
+const EAST_OF_FUNCHAL = { west: -16.93, south: 32.63, east: -16.85, north: 32.67 };
+
+describe("the map and the keyboard", () => {
+  it("reaches the search, the toggle and the map's controls before the map and its pins", async () => {
+    const user = userEvent.setup();
+    const { map } = await openApp("/map");
+    await findPin("Jacafé");
+    const reached: Element[] = [];
+    while (!inMarker(document.activeElement) && reached.length < 20) {
+      await user.tab();
+      reached.push(document.activeElement!);
+    }
+    const at = (element: Element) => reached.indexOf(element);
+    const firstPin = reached.findIndex(inMarker);
+    expect(firstPin).toBeGreaterThan(0);
+    expect(at(screen.getByRole("link", { name: `${copy.search.label}: ${copy.search.placeholder}` }))).toBe(0);
+    for (const control of [
+      screen.getByRole("button", { name: copy.view.house }),
+      screen.getByRole("button", { name: copy.location.useMine }),
+      within(mapAttribution()).getByRole("link", { name: "MapTiler" }),
+      map.canvas,
+    ]) {
+      expect(at(control)).toBeGreaterThan(-1);
+      expect(at(control)).toBeLessThan(firstPin);
+    }
+  });
+
+  it("puts the docked card before the pins", async () => {
+    const user = userEvent.setup();
+    await openApp("/map");
+    await user.click(await findPin("Jacafé"));
+    const card = screen.getByRole("link", { name: "Jacafé" });
+    expect(card.compareDocumentPosition(pin("Jacafé")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("leaves the pins out of view out of the keyboard's order", async () => {
+    const { map } = await openApp("/map");
+    await findPin("Jacafé");
+    expect(pin("Museu Café")).not.toHaveAttribute("tabindex", "-1");
+    const jacafe = place("Jacafé");
+    map.bounds = { west: jacafe.lon - 5e-4, east: jacafe.lon + 5e-4, south: jacafe.lat - 5e-4, north: jacafe.lat + 5e-4 };
+    act(() => map.fire("render"));
+    expect(pin("Jacafé")).not.toHaveAttribute("tabindex", "-1");
+    expect(pin("Museu Café")).toHaveAttribute("tabindex", "-1");
+    expect(pin("A Confeitaria Coffee & Bakery")).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("leaves out of the keyboard's order the pins under what floats over the map", async () => {
+    // A browser that lays the page out: the map 800 px tall, the controls over its top 200 px, the
+    // attribution and the card over its bottom 100 px.
+    const rects = new Map<Element, Partial<DOMRect>>();
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return { top: 0, bottom: 0, height: 0, left: 0, right: 0, width: 0, ...rects.get(this) } as DOMRect;
+    });
+    const observed: Array<() => void> = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observed.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const funchal: [number, number] = [HERE.lon, HERE.lat];
+    const pins: Pin[] = [
+      { address: "under-controls", lat: 32.675, lon: -16.91, name: "Under the controls, Cafe, Hours not listed, no reviews yet" },
+      { address: "clear", lat: 32.65, lon: -16.91, name: "In the clear, Cafe, Hours not listed, no reviews yet" },
+      { address: "under-card", lat: 32.622, lon: -16.91, name: "Under the card, Cafe, Hours not listed, no reviews yet" },
+    ];
+    const { container } = render(
+      <BaseMap center={funchal} zoom={13} interactive pins={pins} onSelect={() => {}} below={<p>card</p>}>
+        <div>controls</div>
+      </BaseMap>,
+    );
+    const map = await theMap();
+    const root = container.firstElementChild!;
+    rects.set(root, { top: 0, bottom: 800, height: 800 });
+    rects.set(screen.getByText("controls"), { top: 16, bottom: 200, height: 184 });
+    rects.set(mapAttribution().parentElement!, { top: 700, bottom: 788, height: 88 });
+    act(() => {
+      for (const callback of observed) callback();
+      map.fire("render");
+    });
+    expect(pin("Under the controls")).toHaveAttribute("tabindex", "-1");
+    expect(pin("In the clear")).not.toHaveAttribute("tabindex");
+    expect(pin("Under the card")).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("keeps the focus in the map when a bubble is opened from the keyboard", async () => {
+    const user = userEvent.setup();
+    const { map } = await openApp("/map");
+    map.features = [
+      {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [HERE.lon, HERE.lat] },
+        properties: { cluster: true, cluster_id: 3, point_count: 12 },
+      },
+    ];
+    act(() => map.fire("render"));
+    act(() => screen.getByRole("button", { name: "12 places here, zoom in" }).focus());
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(map.easeTo).toHaveBeenCalled());
+    expect(document.activeElement).toBe(map.canvas);
+    expect(map.canvas).toHaveAccessibleName(copy.map.label);
+
+    // The bubble opens up into its pins; the focus stays where it is.
+    map.features = undefined;
+    act(() => map.fire("render"));
+    expect(document.activeElement).toBe(map.canvas);
+  });
+
+  it("moves the focus to the docked card when a pin is chosen from the keyboard, not from a tap", async () => {
+    const user = userEvent.setup();
+    await openApp("/map");
+    const jacafe = await findPin("Jacafé");
+    act(() => jacafe.focus());
+    await user.keyboard("{Enter}");
+    const region = screen.getByRole("region", { name: copy.map.selected });
+    const card = within(region).getByRole("link", { name: "Jacafé" });
+    expect(card).toHaveFocus();
+    expect(pin("Jacafé")).toHaveAttribute("aria-controls", region.id);
+    expect(pin("Museu Café")).toHaveAttribute("aria-controls", region.id);
+
+    await user.click(pin("Museu Café"));
+    expect(within(region).getByRole("link", { name: "Museu Café" })).toBeInTheDocument();
+    expect(pin("Museu Café")).toHaveFocus();
+  });
+
+  it("on a desktop, moves the focus to the pin's card in the list when it is chosen from the keyboard", async () => {
+    const user = userEvent.setup();
+    await openApp("/", { px: DESKTOP });
+    const jacafe = await findPin("Jacafé");
+    const list = screen.getByRole("list");
+    expect(jacafe).toHaveAttribute("aria-controls", list.id);
+    act(() => jacafe.focus());
+    await user.keyboard("{Enter}");
+    expect(within(list).getByRole("link", { name: "Jacafé" })).toHaveFocus();
+  });
+});
+
+describe("distances on the map's pages, when the device has said where the person is", () => {
+  it("are from the device on the docked card, wherever the map searched", async () => {
+    const user = userEvent.setup();
+    deviceAt(HERE.lat, HERE.lon);
+    const { map } = await openApp("/map");
+    await user.click(screen.getByRole("button", { name: copy.location.useMine }));
+    await screen.findByRole("img", { name: copy.map.youAreHere });
+
+    act(() => map.dragTo(EAST_OF_FUNCHAL));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    await user.click(await findPin("Jacafé"));
+    const jacafe = place("Jacafé");
+    const fromDevice = formatDistance(distanceKm(HERE.lat, HERE.lon, jacafe.lat, jacafe.lon), "en-US");
+    const fromCentre = formatDistance(distanceKm(32.65, -16.89, jacafe.lat, jacafe.lon), "en-US");
+    expect(fromDevice).not.toBe(fromCentre);
+    expect(screen.getByRole("link", { name: "Jacafé" })).toHaveAccessibleDescription(expect.stringContaining(` · ${fromDevice} `));
+  });
+
+  it("are from the device in the desktop's list, which is nearest the device first and limited from it", async () => {
+    const user = userEvent.setup();
+    deviceAt(HERE.lat, HERE.lon);
+    const { map } = await openApp("/?within=0.8", { px: DESKTOP });
+    await user.click(screen.getByRole("button", { name: "Near Funchal" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: copy.location.useMine }));
+    await screen.findByRole("img", { name: copy.map.youAreHere });
+
+    act(() => map.dragTo(EAST_OF_FUNCHAL));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+
+    const area = areaOf([EAST_OF_FUNCHAL.west, EAST_OF_FUNCHAL.south, EAST_OF_FUNCHAL.east, EAST_OF_FUNCHAL.north]);
+    const rows = idx
+      .near(area.lat, area.lon, area.radiusKm)
+      .map(({ place: each }) => ({ place: each, km: distanceKm(HERE.lat, HERE.lon, each.lat, each.lon) }))
+      .filter((row) => row.km <= 0.8)
+      .sort((a, b) => a.km - b.km);
+    const names = groupForList(rows, idx).map((entry) => ("chain" in entry ? entry.chain.name : entry.place.name));
+    expect(names.length).toBeGreaterThan(3);
+    const cards = within(screen.getByRole("list")).getAllByRole("link");
+    expect(cards.map(nameOf)).toEqual(names.slice(0, 30));
+    expect(cards[0]).toHaveAccessibleDescription(expect.stringContaining(` · ${formatDistance(rows[0]!.km, "en-US")} `));
+  });
+
+  it("put no limit on a searched area at the widest distance, however far it is from the device", async () => {
+    const user = userEvent.setup();
+    deviceAt(HERE.lat, HERE.lon);
+    const { map } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisbon] });
+    await user.click(screen.getByRole("button", { name: "Near Funchal" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: copy.location.useMine }));
+    await screen.findByRole("img", { name: copy.map.youAreHere });
+
+    act(() => map.dragTo(LISBON_VIEW));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    expect(within(screen.getByRole("list")).getAllByRole("link").map(nameOf).sort()).toEqual([
+      "Lisbon place 1",
+      "Lisbon place 2",
+      "Lisbon place 3",
+    ]);
+  });
+});
+
+describe("an area searched on the map with nothing to show", () => {
+  it("says so over the phone's map", async () => {
+    const user = userEvent.setup();
+    const { map } = await openApp("/map");
+    // The regions over the map are there before anything is said in them, so a screen reader hears it.
+    const regions = within(mapAttribution().closest<HTMLElement>(".bg-map-land")!).getAllByRole("status");
+    expect(screen.queryByText(copy.map.noneInArea)).not.toBeInTheDocument();
+    act(() => map.dragTo({ west: -20.1, south: 30, east: -20, north: 30.1 }));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    const said = screen.getByText(copy.map.noneInArea);
+    expect(regions).toContain(said.closest("[role=status]"));
+    expect(pinAddresses(map)).toEqual([]);
+  });
+
+  it("names the area, not the town, when the desktop's filters leave none of it", async () => {
+    const user = userEvent.setup();
+    const { map } = await openApp("/?kinds=cafes", { px: DESKTOP, events: [...fixtures, ...lisbon] });
+    act(() => map.dragTo(LISBON_VIEW));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    expect(screen.getByText(copy.search.noResultsFiltered(copy.map.thisArea), { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText(copy.search.noResultsFiltered("Funchal"), { exact: false })).not.toBeInTheDocument();
+  });
+});
+
+describe("the map on Back", () => {
+  it("comes back on the phone where it was, at its zoom, with the area that was searched", async () => {
+    const user = userEvent.setup();
+    const { router, map } = await openApp("/map", { events: [...fixtures, ...lisbon] });
+    act(() => map.dragTo(LISBON_VIEW, 15));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    await user.click(await findPin("Lisbon place 1"));
+    await user.click(screen.getByRole("link", { name: "Lisbon place 1" }));
+    expect(router.state.location.pathname).toBe("/place/lisbon-0");
+    expect(map.remove).toHaveBeenCalled();
+
+    await act(() => router.navigate(-1));
+    const back = await mapNumber(2);
+    expect(back.options).toMatchObject({ center: [-9.14, 38.72], zoom: 15 });
+    expect(pinAddresses(back)).toEqual(expect.arrayContaining(parsePlaces(lisbon).map((each) => each.address)));
+    expect(back.easeTo).not.toHaveBeenCalled();
+    // Kept in memory, not on the device: a reload starts again where the person is near.
+    expect([...Object.keys(window.sessionStorage), ...Object.keys(window.localStorage)].filter((key) => /map|area/i.test(key))).toEqual([]);
+  });
+
+  it("comes back on a desktop where it was, with the list of the area that was searched", async () => {
+    const user = userEvent.setup();
+    const { router, map } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisbon] });
+    act(() => map.dragTo(LISBON_VIEW, 14));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    await user.click(within(screen.getByRole("list")).getByRole("link", { name: "Lisbon place 2" }));
+    expect(router.state.location.pathname).toBe("/place/lisbon-1");
+
+    await act(() => router.navigate(-1));
+    const back = await mapNumber(2);
+    expect(back.options).toMatchObject({ center: [-9.14, 38.72], zoom: 14 });
+    expect(within(screen.getByRole("list")).getAllByRole("link").map(nameOf).sort()).toEqual([
+      "Lisbon place 1",
+      "Lisbon place 2",
+      "Lisbon place 3",
+    ]);
+  });
+
+  it("starts where the person is near on a new visit to the page", async () => {
+    const user = userEvent.setup();
+    const { router, map } = await openApp("/map", { events: [...fixtures, ...lisbon] });
+    act(() => map.dragTo(LISBON_VIEW, 15));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    await act(() => router.navigate("/saved"));
+    await act(() => router.navigate("/map"));
+    const fresh = await mapNumber(2);
+    expect(fresh.options).toMatchObject({ center: [HERE.lon, HERE.lat], zoom: 13 });
+    expect(pinAddresses(fresh)).toContain(place("Jacafé").address);
   });
 });

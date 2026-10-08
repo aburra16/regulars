@@ -19,6 +19,15 @@ export type { Pin } from "./pins.ts";
 /** A point on the map as MapLibre takes one: longitude, then latitude. */
 export type LngLat = [lon: number, lat: number];
 
+/** Where a map looks, and how far in. */
+export interface MapView {
+  center: LngLat;
+  zoom: number;
+}
+
+/** How a pin was chosen: from the keyboard (Enter or Space), or by a tap or a click. */
+export type ChosenBy = "keyboard" | "pointer";
+
 export interface BaseMapProps {
   /** Where the map looks, longitude first. A new centre moves the map there. */
   center: LngLat;
@@ -35,12 +44,18 @@ export interface BaseMapProps {
   /** Change it to move the map back to `center` when `center` itself has not changed (Locate me, pressed again). */
   recentre?: number;
   /**
-   * A pin was tapped: its address. Undefined: the map was tapped away from any pin, which lets the
-   * chosen one go.
+   * A pin was chosen: its address, and whether from the keyboard, when the page moves the focus to
+   * what the pin opens. Undefined: the map was tapped away from any pin, which lets the chosen one go.
    */
-  onSelect?(address: string | undefined): void;
+  onSelect?(address: string | undefined, by?: ChosenBy): void;
+  /** The id of what a chosen pin opens (the docked card, the list): each pin says it controls it. */
+  pinsControl?: string;
   /** The person moved the map (a drag, a pinch, the wheel, the keys, the zoom buttons): what it shows now. Not called for moves the page makes. */
   onMoveEnd?(bbox: Bbox): void;
+  /** Where the map starts, when it is not `center` at `zoom`: where it was left, on Back. */
+  initialView?: MapView;
+  /** After every move, the person's or the page's: where the map looks now. */
+  onViewChange?(view: MapView): void;
   /** The zoom buttons, at the bottom right (DeskExplore.dc.html). */
   zoomButtons?: boolean;
   /** At the bottom right, above the zoom buttons and the attribution: the page's own controls. */
@@ -57,8 +72,16 @@ type Library = typeof import("./maplibre.ts");
 
 /** What the map has drawn of the pins: a pin on its own, or a bubble of pins too close together to tell apart. */
 type Seen =
-  | { key: string; address: string }
+  | { key: string; address: string; lngLat: LngLat }
   | { key: string; cluster: { id: number; count: number }; lngLat: LngLat };
+
+/** What the map shows: its pins and bubbles, and which of them, and of the pins picked out, are in view (by key). */
+interface Shown {
+  items: Seen[];
+  inView: ReadonlySet<string>;
+}
+
+const NOTHING_SHOWN: Shown = { items: [], inView: new Set() };
 
 /** A marker on the map: a pin, a bubble, or where the person is. */
 type Item =
@@ -81,12 +104,12 @@ const byPerson = (event: { originalEvent?: unknown; byPerson?: unknown }) =>
  * those in view, as many as that.
  */
 function seenOf(map: MapLibreMap): Seen[] {
-  const all: (Seen & { lngLat: LngLat })[] = [];
+  const all: Seen[] = [];
   const keys = new Set<string>();
   for (const feature of map.querySourceFeatures(PIN_SOURCE)) {
     const props = feature.properties ?? {};
     const lngLat = (feature.geometry as Point).coordinates as LngLat;
-    let seen: Seen & { lngLat: LngLat };
+    let seen: Seen;
     if (props.cluster) {
       const id = Number(props.cluster_id);
       seen = { key: `cluster:${id}`, cluster: { id, count: Number(props.point_count) }, lngLat };
@@ -132,12 +155,17 @@ function PinMark({
   pin,
   accent,
   selected,
+  focusable,
+  controls,
   onSelect,
 }: {
   pin: Pin;
   accent: boolean;
   selected: boolean;
-  onSelect: ((address: string) => void) | undefined;
+  /** In view: in the keyboard's order. A pin off the screen is not, so Tab goes only to the pins the person can see. */
+  focusable: boolean;
+  controls: string | undefined;
+  onSelect: ((address: string, by: ChosenBy) => void) | undefined;
 }): JSX.Element {
   let look: JSX.Element;
   let box: string;
@@ -190,7 +218,10 @@ function PinMark({
       type="button"
       aria-label={pin.name}
       aria-pressed={selected}
-      onClick={() => onSelect(pin.address)}
+      aria-controls={controls}
+      tabIndex={focusable ? undefined : -1}
+      // A click from Enter or Space has no count of mouse clicks.
+      onClick={(event) => onSelect(pin.address, event.detail === 0 ? "keyboard" : "pointer")}
       className={`cursor-pointer ${className}`}
     >
       {look}
@@ -233,7 +264,10 @@ export function BaseMap({
   you,
   recentre,
   onSelect,
+  pinsControl,
   onMoveEnd,
+  initialView,
+  onViewChange,
   zoomButtons = false,
   corner,
   below,
@@ -245,12 +279,47 @@ export function BaseMap({
   const libraryRef = useRef<Library | null>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [seen, setSeen] = useState<Seen[]>([]);
+  const [shown, setShown] = useState<Shown>(NOTHING_SHOWN);
 
   // What the map's handlers read when they run: the latest of each, not those it was made with.
-  const latest = useRef({ center, zoom, interactive, pins, onSelect, onMoveEnd });
+  const latestProps = { center, zoom, interactive, pins, selected, highlighted, onSelect, onMoveEnd, initialView, onViewChange };
+  const latest = useRef(latestProps);
   useLayoutEffect(() => {
-    latest.current = { center, zoom, interactive, pins, onSelect, onMoveEnd };
+    latest.current = latestProps;
+  });
+  // Looks again at what the map shows: set once the map is made.
+  const lookAgain = useRef<() => void>(() => {});
+
+  // How much of the map's top and foot what floats over it covers, in pixels, and how tall the map
+  // is: a pin under the search field or the docked card cannot be seen, so the keyboard skips it.
+  const root = useRef<HTMLDivElement>(null);
+  const topLayer = useRef<HTMLDivElement>(null);
+  const bottomLayer = useRef<HTMLDivElement>(null);
+  const covered = useRef({ top: 0, bottom: 0, height: 0 });
+  useLayoutEffect(() => {
+    // A browser that cannot watch sizes (and jsdom, which lays nothing out) counts the whole map.
+    if (typeof ResizeObserver === "undefined" || root.current === null) return;
+    const measure = () => {
+      const box = root.current?.getBoundingClientRect();
+      if (box === undefined) return;
+      let top = 0;
+      for (const child of topLayer.current?.children ?? []) {
+        const rect = child.getBoundingClientRect();
+        if (rect.height > 0) top = Math.max(top, rect.bottom - box.top);
+      }
+      const foot = bottomLayer.current?.getBoundingClientRect();
+      const bottom = foot !== undefined && foot.height > 0 ? box.bottom - foot.top : 0;
+      const last = covered.current;
+      if (top === last.top && bottom === last.bottom && box.height === last.height) return;
+      covered.current = { top, bottom, height: box.height };
+      lookAgain.current();
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(root.current);
+    for (const child of topLayer.current?.children ?? []) observer.observe(child);
+    if (bottomLayer.current !== null) observer.observe(bottomLayer.current);
+    return () => observer.disconnect();
+    // After every change to the page: what floats over the map may be new (a card docked, a line said).
   });
 
   // Each marker's element, made when it is first drawn, and the marker that puts it on the map.
@@ -276,15 +345,16 @@ export function BaseMap({
     import("./maplibre.ts").then(
       (library) => {
         if (cancelled || container.current === null) return;
-        const { center: at, zoom: level, interactive: canMove } = latest.current;
+        const { center: here, zoom: level, interactive: canMove, initialView: left } = latest.current;
+        const start = left ?? { center: here, zoom: level };
         const style = mapStyle(config.mapTilerKey);
         let map: MapLibreMap;
         try {
           map = new library.Map({
             container: container.current,
             style,
-            center: at,
-            zoom: level,
+            center: start.center,
+            zoom: start.zoom,
             interactive: canMove,
             attributionControl: false,
             locale: { "Map.Title": copy.map.label },
@@ -300,11 +370,33 @@ export function BaseMap({
 
         const look = () => {
           if (map.getSource(PIN_SOURCE) === undefined || !map.isSourceLoaded(PIN_SOURCE)) return;
-          const next = seenOf(map);
-          setSeen((current) =>
-            current.length === next.length && current.every((each, i) => each.key === next[i]!.key) ? current : next,
+          const items = seenOf(map);
+          const bounds = map.getBounds();
+          // The part of the map nothing floats over, in degrees: a city's view is close enough to flat for this.
+          const { top, bottom, height } = covered.current;
+          const span = bounds.getNorth() - bounds.getSouth();
+          const clearNorth = height > 0 ? bounds.getNorth() - (span * top) / height : bounds.getNorth();
+          const clearSouth = height > 0 ? bounds.getSouth() + (span * bottom) / height : bounds.getSouth();
+          const visible = (lngLat: LngLat) => bounds.contains(lngLat) && lngLat[1] <= clearNorth && lngLat[1] >= clearSouth;
+          const inView = new Set<string>();
+          for (const item of items) if (visible(item.lngLat)) inView.add(item.key);
+          // The pins picked out are drawn wherever they are, inside a bubble too: whether they are in view.
+          const { pins: now, selected: chosen, highlighted: pointed } = latest.current;
+          for (const address of [chosen, pointed]) {
+            const pin = address === undefined ? undefined : now.find((each) => each.address === address);
+            if (pin !== undefined && visible([pin.lon, pin.lat])) inView.add(`pin:${pin.address}`);
+          }
+          // Drawn again only when what is drawn, or what is in view, has changed: not every frame of a move.
+          setShown((current) =>
+            current.items.length === items.length &&
+            current.items.every((each, i) => each.key === items[i]!.key) &&
+            current.inView.size === inView.size &&
+            [...inView].every((key) => current.inView.has(key))
+              ? current
+              : { items, inView },
           );
         };
+        lookAgain.current = look;
 
         let styled = false;
         let fellBack = false;
@@ -355,6 +447,8 @@ export function BaseMap({
         map.on("moveend", (event: { originalEvent?: unknown; byPerson?: unknown }) => {
           const moved = personMoving || byPerson(event);
           personMoving = false;
+          const { lng, lat: at } = map.getCenter();
+          latest.current.onViewChange?.({ center: [lng, at], zoom: map.getZoom() });
           if (!moved) return;
           const bounds = map.getBounds();
           latest.current.onMoveEnd?.([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
@@ -376,9 +470,13 @@ export function BaseMap({
       cancelled = true;
       made?.remove();
       mapRef.current = null;
+      lookAgain.current = () => {};
       ownMarkers.clear();
     };
   }, []);
+
+  // A pin picked out from outside the map: whether it is in view.
+  useEffect(() => lookAgain.current(), [selected, highlighted]);
 
   // New pins: new data for the map, which gathers them again.
   const signature = useMemo(() => signatureOf(pins), [pins]);
@@ -415,7 +513,7 @@ export function BaseMap({
       drawn.add(pin.address);
       list.push({ key: `pin:${pin.address}`, kind: "pin", lngLat: [pin.lon, pin.lat], pin });
     };
-    for (const each of seen) {
+    for (const each of shown.items) {
       if ("cluster" in each) {
         list.push({ key: each.key, kind: "cluster", lngLat: each.lngLat, ...each.cluster });
       } else {
@@ -429,7 +527,7 @@ export function BaseMap({
     }
     if (youLon !== undefined && youLat !== undefined) list.push({ key: "you", kind: "you", lngLat: [youLon, youLat] });
     return list;
-  }, [seen, byAddress, selected, highlighted, youLon, youLat]);
+  }, [shown, byAddress, selected, highlighted, youLon, youLat]);
 
   // Put each marker on the map, and take off those that have gone. The chosen pin sits on top.
   useEffect(() => {
@@ -460,6 +558,9 @@ export function BaseMap({
     const map = mapRef.current;
     const source = map?.getSource<GeoJSONSource>(PIN_SOURCE);
     if (!map || source === undefined) return;
+    // The bubble goes as the map opens it up. The focus goes to the map, which is named and takes the
+    // keys, not to the page, where a keyboard would have to start again.
+    map.getCanvas().focus({ preventScroll: true });
     try {
       const level = await source.getClusterExpansionZoom(id);
       if (mapRef.current === map) map.easeTo({ center: lngLat, zoom: level });
@@ -478,23 +579,33 @@ export function BaseMap({
   const canTap = interactive && onSelect !== undefined;
 
   return (
-    <div className={`relative overflow-hidden bg-map-land ${className}`}>
-      {/* MapLibre's styles make its container `position: relative`, and they win over a class here: its
-          box fills one that is placed. */}
-      <div className="absolute inset-0">
-        <div ref={container} className="size-full" />
-      </div>
+    <div ref={root} className={`relative overflow-hidden bg-map-land ${className}`}>
+      {/* What floats over the map comes first, so the keyboard reaches the page's controls, the
+          attribution and the docked card before the map and its pins. Each layer is placed, so the
+          order on screen is the z-index's, not the page's. */}
       {failed && (
-        <p className="absolute inset-0 m-0 flex items-center justify-center p-6 text-center text-secondary text-muted">
+        <p className="absolute inset-0 z-10 m-0 flex items-center justify-center p-6 text-center text-secondary text-muted">
           {copy.map.failed}
         </p>
       )}
-      {children}
-      <div className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-col items-end gap-2 wide:inset-x-4 wide:bottom-4 wide:gap-2.5 *:pointer-events-auto">
+      {/* The page places what it puts here, and lets taps through where it has nothing. */}
+      {children !== undefined && (
+        <div ref={topLayer} className="pointer-events-none absolute inset-0 z-10">
+          {children}
+        </div>
+      )}
+      <div
+        ref={bottomLayer}
+        className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex flex-col items-end gap-2 wide:inset-x-4 wide:bottom-4 wide:gap-2.5 *:pointer-events-auto">
         {corner}
         {zoomButtons && interactive && <ZoomButtons onZoom={zoomBy} />}
         <Attribution kind="map" />
         {below !== undefined && <div className="self-stretch">{below}</div>}
+      </div>
+      {/* MapLibre's styles make its container `position: relative`, and they win over a class here: its
+          box fills one that is placed. */}
+      <div className="absolute inset-0 z-0">
+        <div ref={container} className="size-full" />
       </div>
       {items.map((item) => {
         let mark: JSX.Element;
@@ -513,6 +624,7 @@ export function BaseMap({
             <button
               type="button"
               aria-label={copy.map.cluster(item.count)}
+              tabIndex={shown.inView.has(item.key) ? undefined : -1}
               onClick={() => void zoomInto(item.id, item.lngLat)}
               className={`cursor-pointer ${look}`}
             >
@@ -530,7 +642,9 @@ export function BaseMap({
               pin={item.pin}
               accent={address === selected || address === highlighted}
               selected={address === selected}
-              onSelect={canTap ? (tapped) => latest.current.onSelect?.(tapped) : undefined}
+              focusable={shown.inView.has(item.key)}
+              controls={pinsControl}
+              onSelect={canTap ? (tapped, by) => latest.current.onSelect?.(tapped, by) : undefined}
             />
           );
         }

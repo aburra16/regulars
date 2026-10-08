@@ -86,12 +86,24 @@ export class FakeMap {
   readonly layers: Map<string, FakeLayer>;
   removed = false;
   bounds: FakeBounds = { west: -16.95, south: 32.62, east: -16.87, north: 32.68 };
+  /** Where the map looks and how far in, as the app's moves and the person's leave them. */
+  center: [number, number];
+  zoom: number;
+  /** MapLibre's canvas: focusable when the map is, and named by the map's label. */
+  readonly canvas: HTMLCanvasElement;
   /** The features `querySourceFeatures` gives; undefined: every point of the source's data, none clustered. */
   features: FakeFeature[] | undefined;
 
   constructor(options: Record<string, unknown>) {
     this.options = options;
     this.container = options.container as HTMLElement;
+    this.center = (options.center as [number, number] | undefined) ?? [0, 0];
+    this.zoom = (options.zoom as number | undefined) ?? 0;
+    this.canvas = document.createElement("canvas");
+    this.canvas.tabIndex = options.interactive === false ? -1 : 0;
+    this.canvas.setAttribute("role", "region");
+    this.canvas.setAttribute("aria-label", (options.locale as Record<string, string> | undefined)?.["Map.Title"] ?? "Map");
+    this.container.append(this.canvas);
     this.layers = new Map(
       (typeof options.style === "string" ? FakeMap.styleLayers : []).map((layer) => [layer.id, layer]),
     );
@@ -161,27 +173,36 @@ export class FakeMap {
     };
   });
   /** A move the app asks for: the map ends it with a `moveend` that no person caused. */
-  easeTo = vi.fn((_options: Record<string, unknown>, eventData: Record<string, unknown> = {}) => {
+  easeTo = vi.fn((options: { center?: [number, number]; zoom?: number }, eventData: Record<string, unknown> = {}) => {
+    if (options.center !== undefined) this.center = options.center;
+    if (options.zoom !== undefined) this.zoom = options.zoom;
     this.fire("movestart", eventData).fire("moveend", eventData);
     return this;
   });
   zoomIn = vi.fn((_options?: unknown, eventData: Record<string, unknown> = {}) => {
+    this.zoom += 1;
     this.fire("movestart", eventData).fire("moveend", eventData);
     return this;
   });
   zoomOut = vi.fn((_options?: unknown, eventData: Record<string, unknown> = {}) => {
+    this.zoom -= 1;
     this.fire("movestart", eventData).fire("moveend", eventData);
     return this;
   });
+  getCenter = () => ({ lng: this.center[0], lat: this.center[1] });
+  getZoom = () => this.zoom;
+  getCanvas = () => this.canvas;
   getCanvasContainer = () => this.container;
   remove = vi.fn(() => {
     this.removed = true;
     this.handlers.clear();
   });
 
-  /** Plays a person dragging the map to `bounds`. */
-  dragTo(bounds: FakeBounds) {
+  /** Plays a person dragging the map to `bounds`, and pinching it to `zoom`. */
+  dragTo(bounds: FakeBounds, zoom = this.zoom) {
     this.bounds = bounds;
+    this.center = [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2];
+    this.zoom = zoom;
     const originalEvent = new MouseEvent("mouseup");
     this.fire("movestart", { originalEvent }).fire("moveend", { originalEvent });
   }
