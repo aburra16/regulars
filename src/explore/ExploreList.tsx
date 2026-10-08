@@ -18,7 +18,15 @@ import { DetailsCredit } from "../ui/DetailsCredit.tsx";
 import { SearchIcon } from "../ui/icons.tsx";
 import { shownPageOf } from "../ui/shown.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
-import { CHIP_LABELS, CHIP_PARAM, chipFromParam, chipKeeps, EXPLORE_CHIPS, type ExploreChip, filtersPathFrom } from "./chips.ts";
+import {
+  CHIP_LABELS,
+  CHIP_PARAM,
+  chipFromParam,
+  chipKeeps,
+  EXPLORE_CHIPS,
+  type ExploreChip,
+  filtersPathFrom,
+} from "./chips.ts";
 import { Entries } from "./Entries.tsx";
 import { setExploreIdx } from "./returnPoint.ts";
 

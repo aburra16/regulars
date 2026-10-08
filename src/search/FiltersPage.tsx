@@ -6,8 +6,8 @@ import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useWide } from "../shell/useWide.ts";
 import { CloseIcon } from "../ui/icons.tsx";
-import { KindOptions, OpenNowSwitch, SortOptions, WithinOptions } from "./FilterControls.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
+import { KindOptions, OpenNowSwitch, SortOptions, WithinOptions } from "./FilterControls.tsx";
 import { cameFromExplore, type Filters, filtersFromParams, FROM_FILTERS, noFilters, sortInUse, withFilters } from "./filters.ts";
 import { useResults } from "./useResults.ts";
 
