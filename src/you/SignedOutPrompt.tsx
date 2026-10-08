@@ -7,7 +7,7 @@ import { primaryButton } from "../ui/Banner.tsx";
 
 /**
  * Saved and You, before signing in opens (neither is drawn signed out): the page's name, a sentence
- * that says what signing in is for, and the button that goes to the sign-in page, which can bring the
+ * of its own that says what signing in is for there, and the button that goes to the sign-in page, which can bring the
  * person back here. When signing in opens, the lists and the person's own page take this place.
  */
 export function SignedOutPrompt({ page }: { page: "saved" | "you" }): JSX.Element {
@@ -18,7 +18,7 @@ export function SignedOutPrompt({ page }: { page: "saved" | "you" }): JSX.Elemen
       <h1 className="m-0 font-display text-display-phone font-extrabold tracking-display wide:text-display-desktop">
         {copy.pages[page]}
       </h1>
-      <p className="m-0 max-w-[36ch] text-body leading-[1.5] text-ink-soft">{copy.saved.signedOut}</p>
+      <p className="m-0 max-w-[36ch] text-body leading-[1.5] text-ink-soft">{copy[page].signedOut}</p>
       <Link to="/signin" state={{ from: location }} className={primaryButton}>
         {copy.signin.button}
       </Link>

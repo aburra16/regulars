@@ -517,14 +517,14 @@ describe("leaving the sign-in page", () => {
 // ---- Saved and You, before sign in opens ----
 
 describe.each([
-  ["/saved", copy.pages.saved, copy.titles.saved],
-  ["/you", copy.pages.you, copy.titles.you],
-] as const)("%s, before sign in opens", (path, name, title) => {
-  it("asks the person to sign in, in a sentence and a button", async () => {
+  ["/saved", copy.pages.saved, copy.titles.saved, copy.saved.signedOut, "Sign in to save places and make lists you can share."],
+  ["/you", copy.pages.you, copy.titles.you, copy.you.signedOut, "Sign in to see your reviews and the people you trust."],
+] as const)("%s, before sign in opens", (path, name, title, sentence, words) => {
+  it("asks the person to sign in, in a sentence of its own and a button", async () => {
     await openApp(path, { events: fixtures });
     expect(heading()).toHaveTextContent(name);
-    expect(screen.getByText(copy.saved.signedOut)).toBeInTheDocument();
-    expect(copy.saved.signedOut).toBe("Sign in to save places and make lists you can share.");
+    expect(screen.getByText(sentence)).toBeInTheDocument();
+    expect(sentence).toBe(words);
     expect(screen.getByRole("link", { name: copy.signin.button })).toHaveAttribute("href", "/signin");
     await waitFor(() => expect(document.title).toBe(title));
   });
@@ -549,6 +549,6 @@ describe.each([
     await openApp(path, { events: fixtures, px: DESKTOP });
     expect(banner()).toBeInTheDocument();
     expect(tabBar()).not.toBeInTheDocument();
-    expect(screen.getByText(copy.saved.signedOut)).toBeInTheDocument();
+    expect(screen.getByText(sentence)).toBeInTheDocument();
   });
 });

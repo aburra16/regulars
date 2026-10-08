@@ -263,10 +263,14 @@ export const copy = {
     /** The numbered list of steps, for a screen reader. */
     stepsLabel: "The three steps",
   },
-  /** The pages that need a person, before sign in opens (Saved and You). */
+  /** The pages that need a person, before sign in opens (Saved and You). The design draws neither signed out. */
   saved: {
-    // DRAFT for Avi: the design draws neither page signed out.
+    // DRAFT for Avi
     signedOut: "Sign in to save places and make lists you can share.",
+  },
+  you: {
+    // DRAFT for Avi
+    signedOut: "Sign in to see your reviews and the people you trust.",
   },
   /** About and data (About.dc.html). */
   about: {
