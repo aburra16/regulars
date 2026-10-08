@@ -1,3 +1,6 @@
+import v8 from "node:v8";
+import vm from "node:vm";
+
 import type { NostrEvent } from "@nostrify/nostrify";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { get, set } from "idb-keyval";
@@ -8,6 +11,7 @@ import { config } from "../src/config";
 import { CACHE_KEY } from "../src/places/cache";
 import type { RelayReader } from "../src/places/load";
 import * as defaultStore from "../src/places/store";
+import { useIndexes } from "../src/places/useIndexes";
 import raw from "./fixtures/funchal-items.json";
 import { createMemoryReader } from "./support/memoryReader";
 
@@ -546,6 +550,97 @@ describe("saving places on the device", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
     expect(seen).toEqual(["loading:network", "ready:network"]);
     expect(debug).not.toHaveBeenCalled();
+  });
+});
+
+describe("not saving what the device has already", () => {
+  /** A copy of `event` written again, at a later time: a new version of the same address. */
+  const rewritten = (event: NostrEvent): NostrEvent => ({
+    ...event,
+    id: "f".repeat(64),
+    created_at: event.created_at + 60,
+  });
+
+  it("does not write the saved copy again when the relay's places are the ones saved", async () => {
+    const write = vi.fn((_key: unknown, _value: unknown) => Promise.resolve());
+    const { result } = await renderWithStorage(
+      { get: () => Promise.resolve({ events: fixtures, savedAt: 1_000, complete: true }), set: write },
+      createMemoryReader(fixtures, { delayMs: 10 }),
+    );
+
+    await waitFor(() => expect(result.current.status === "ready" && result.current.source).toBe("network"));
+    // A save follows at once, in the same few microtasks as the comparison: a task later it would have begun.
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    expect(write).not.toHaveBeenCalled();
+    expect(result.current.places).toHaveLength(43);
+    // What is on the device is what is on screen, saved at the time it was.
+    expect(result.current.savedAt).toBe(1_000);
+  });
+
+  it.each<[string, () => NostrEvent[]]>([
+    ["a place is new", () => fixtures],
+    ["a place has a new version", () => [rewritten(fixtures[0]!), ...fixtures.slice(1)]],
+    ["a place is gone", () => fixtures.slice(1)],
+  ])("writes it when %s", async (_why, latest) => {
+    const write = vi.fn((_key: unknown, _value: unknown) => Promise.resolve());
+    const savedEvents = _why === "a place is new" ? fixtures.slice(1) : fixtures;
+    const { result } = await renderWithStorage(
+      { get: () => Promise.resolve({ events: savedEvents, savedAt: 1_000, complete: true }), set: write },
+      createMemoryReader(latest(), { delayMs: 10 }),
+    );
+
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.savedAt).toBeGreaterThan(1_000));
+  });
+
+  it("writes it when the saved copy came from a load that stopped before the end", async () => {
+    const write = vi.fn((_key: unknown, _value: unknown) => Promise.resolve());
+    await renderWithStorage(
+      { get: () => Promise.resolve({ events: fixtures, savedAt: 1_000, complete: false }), set: write },
+      createMemoryReader(fixtures, { delayMs: 10 }),
+    );
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    expect((write.mock.calls[0]![1] as Saved).complete).toBe(true);
+  });
+});
+
+describe("the saved copy in memory", () => {
+  /** The garbage collector, which Node gives a test that asks V8 for it. */
+  function collector(): () => void {
+    v8.setFlagsFromString("--expose-gc");
+    return vm.runInNewContext("gc") as () => void;
+  }
+
+  it("lets the saved copy go once the relay's places replace it, with the indexes built for it", async () => {
+    const gc = collector();
+    await saveCopy(fixtures.slice(0, 40));
+    const gate = held(createMemoryReader(fixtures));
+    const view = renderHook(
+      () => {
+        const state = usePlaces();
+        return { state, indexes: useIndexes() };
+      },
+      { wrapper: ({ children }: { children: ReactNode }) => <defaultStore.PlacesProvider reader={gate.reader}>{children}</defaultStore.PlacesProvider> },
+    );
+    await waitFor(() => expect(view.result.current.state.source).toBe("cache"));
+    expect(view.result.current.indexes).toBeDefined();
+    // Held weakly, from a function of their own, so this test keeps neither alive.
+    const weakly = (() => {
+      const { state, indexes } = view.result.current;
+      return { places: new WeakRef(state.places), indexes: new WeakRef(indexes!) };
+    })();
+
+    await waitFor(() => expect(gate.waiting).toBe(1));
+    gate.release();
+    await waitFor(() => expect(view.result.current.state.places).toHaveLength(43));
+    // The relay's places differ from the saved copy, so they are saved, and the page is drawn again with the time.
+    await waitFor(() => expect(view.result.current.state.savedAt).toBeGreaterThan(1_000));
+    view.rerender();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    gc();
+    expect(weakly.places.deref()).toBeUndefined();
+    expect(weakly.indexes.deref()).toBeUndefined();
   });
 });
 

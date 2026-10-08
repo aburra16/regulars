@@ -12,7 +12,16 @@ import {
 } from "react";
 
 import { readSaved, writeSaved } from "./cache.ts";
-import { debug, fetchHouseEvents, parsePlaces, placesFromEvents, type RelayReader } from "./load.ts";
+import {
+  debug,
+  fetchHouseEvents,
+  parsePlaces,
+  type RelayReader,
+  sameStamps,
+  savedEvents,
+  type Stamps,
+  stampsOf,
+} from "./load.ts";
 import type { Place } from "./place.ts";
 
 /** Why the places could not be refreshed: a code, never a message. The screens choose the words. */
@@ -45,12 +54,23 @@ interface SavedCopy {
   places: Place[];
   savedAt: number;
   complete: boolean;
+  /** Each saved event's address and time, to tell whether the relay's are the same. */
+  stamps: Stamps;
 }
 
 /** What one mount knows of the saved copy. */
 interface Device {
-  /** The one read of the saved copy. It never rejects; null means there is none to show. */
-  read?: Promise<SavedCopy | null>;
+  /** The one read of the saved copy. It never rejects, and answers once `copy` and `saved` are set. */
+  read?: Promise<void>;
+  /**
+   * The saved copy, to show while the relay's places have not come; null: none, or the relay's are on
+   * screen. Once they are, it is let go, with the indexes built for it: the app holds one list.
+   */
+  copy?: SavedCopy | null;
+  /** The relay's places are on screen: the saved copy is not shown again, nor kept. */
+  replaced?: boolean;
+  /** The saved events' addresses and times, until the relay's places have been compared with them. */
+  stamps?: Stamps;
   /** The saved copy's size, once the read has answered or a save has worked; null: none. */
   saved?: { count: number; savedAt: number; complete: boolean } | null;
 }
@@ -69,8 +89,11 @@ async function readSavedCopy(): Promise<SavedCopy | null> {
   try {
     const record = await readSaved();
     if (record === undefined) return null;
-    const places = placesFromEvents(record.events);
-    return places.length > 0 ? { places, savedAt: record.savedAt, complete: record.complete } : null;
+    const events = savedEvents(record.events);
+    const places = parsePlaces(events);
+    return places.length > 0
+      ? { places, savedAt: record.savedAt, complete: record.complete, stamps: stampsOf(events) }
+      : null;
   } catch (error) {
     debug("could not use the saved places", error);
     return null;
@@ -119,11 +142,13 @@ export function PlacesProvider({ children, reader }: { children: ReactNode; read
     device.read ??= readSavedCopy().then((copy) => {
       if (device.saved === undefined) {
         device.saved = copy && { count: copy.places.length, savedAt: copy.savedAt, complete: copy.complete };
+        device.stamps = copy?.stamps;
       }
-      return copy;
+      device.copy = device.replaced ? null : copy;
     });
-    void device.read.then((copy) => {
-      if (signal.aborted || copy === null) return;
+    void device.read.then(() => {
+      const copy = device.copy;
+      if (signal.aborted || copy === null || copy === undefined) return;
       setState((current) =>
         current.status === "ready"
           ? current
@@ -162,11 +187,19 @@ export function PlacesProvider({ children, reader }: { children: ReactNode; read
       // `savedAt` stays the saved copy's until these places are saved too.
       const before = device.saved?.savedAt;
       setState({ status: "ready", places, source: "network", complete, ...(before === undefined ? {} : { savedAt: before }) });
+      // The saved copy is off the screen for good: let it go, and the indexes built for it.
+      device.replaced = true;
+      device.copy = null;
 
       // Save only what may replace the saved copy, so wait for it to be read: a read that never
       // answers means nothing is saved, which is what a stuck device would do anyway.
       await device.read;
       if (signal.aborted || !mayReplace(places.length, complete, device.saved ?? null)) return;
+      // The device has these already (the same version of each place, from a load that was as
+      // complete): writing the 8.5 MB again would change nothing.
+      const stamps = device.stamps;
+      device.stamps = undefined;
+      if (stamps !== undefined && device.saved?.complete === complete && sameStamps(stamps, events)) return;
       const savedAt = Date.now();
       if (!(await writeSaved({ events, savedAt, complete }))) return;
       device.saved = { count: places.length, savedAt, complete };

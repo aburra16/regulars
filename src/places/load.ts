@@ -75,6 +75,11 @@ export function debug(message: string, ...details: unknown[]): void {
   if (import.meta.env.DEV) console.debug(`[places] ${message}`, ...details);
 }
 
+/** An event's address (`kind:pubkey:d`): what says two events are versions of one place. */
+function addressOf(ev: NostrEvent): string {
+  return `${ev.kind}:${ev.pubkey}:${ev.tags.find((tag) => tag[0] === "d")?.[1] ?? ""}`;
+}
+
 /** The newest event at each address of the house's list, from events that may be malformed. */
 class Latest {
   readonly byAddress = new Map<string, NostrEvent>();
@@ -100,7 +105,7 @@ class Latest {
     }
     this.oldest = this.oldest === undefined ? ev.created_at : Math.min(this.oldest, ev.created_at);
 
-    const address = `${ev.kind}:${ev.pubkey}:${ev.tags.find((tag) => tag[0] === "d")?.[1] ?? ""}`;
+    const address = addressOf(ev);
     const kept = this.byAddress.get(address);
     if (kept === undefined || isNewer(ev, kept)) this.byAddress.set(address, ev);
     return kept === undefined;
@@ -166,14 +171,32 @@ export function parsePlaces(events: readonly NostrEvent[]): Place[] {
 }
 
 /**
- * The places in `values` saved on the device: well-formed events of the house account, the
- * newest at each address, that are places of the list. They are checked like the relay's.
+ * The events in `values` saved on the device that the app reads: well-formed events of the house
+ * account, the newest at each address. They are checked like the relay's.
  */
-export function placesFromEvents(values: readonly unknown[]): Place[] {
+export function savedEvents(values: readonly unknown[]): NostrEvent[] {
   const latest = new Latest();
   for (const value of values) latest.add(value);
   latest.report("this device");
-  return parsePlaces(latest.events);
+  return latest.events;
+}
+
+/** The places in `values` saved on the device: the places of the list among `savedEvents(values)`. */
+export function placesFromEvents(values: readonly unknown[]): Place[] {
+  return parsePlaces(savedEvents(values));
+}
+
+/** Each event's address, with the time of the version of it that `events` has. */
+export type Stamps = ReadonlyMap<string, number>;
+
+/** The addresses of `events` and the time of each, which say whether two copies of the list are the same. */
+export function stampsOf(events: readonly NostrEvent[]): Stamps {
+  return new Map(events.map((ev) => [addressOf(ev), ev.created_at]));
+}
+
+/** Whether `events` (one at each address) are the same versions of the same addresses as `stamps`. */
+export function sameStamps(stamps: Stamps, events: readonly NostrEvent[]): boolean {
+  return stamps.size === events.length && events.every((ev) => stamps.get(addressOf(ev)) === ev.created_at);
 }
 
 /** Reads the house's places from the relay. See `fetchHouseEvents` for the paging. */
