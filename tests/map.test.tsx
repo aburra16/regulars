@@ -1479,6 +1479,9 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
   /** The addresses each `want` of the scores store was asked, in order, leaving out asks of nothing. */
   const asks = (spy: { mock: { calls: unknown[][] } }) =>
     spy.mock.calls.map(([addresses]) => [...(addresses as Iterable<string>)]).filter((addresses) => addresses.length > 0);
+  /** How many places' pins the map draws now (a bubble is no place's). */
+  const drawnPinCount = () =>
+    FakeMarker.instances.filter((marker) => marker.map !== undefined && marker.element.querySelector("button[aria-pressed]") !== null).length;
 
   describe("the pins", () => {
     it("are every place, on the phone's map, before and after the person zooms out to the world", async () => {
@@ -1735,7 +1738,11 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
     async function searchShutBox(events: NostrEvent[]) {
       const user = userEvent.setup();
       const { map } = await openApp("/?open=1", { px: DESKTOP, events });
+      // The map draws one bubble and no pin on its own, so no pin's hours are read meanwhile; and the work
+      // of the first view (its pins' hours, read a moment after they are drawn) is done before counting.
       map.features = [bubbleOf(10.25, 10.25, events.length)];
+      act(() => map.fire("render"));
+      await waitFor(() => expect(drawnPinCount()).toBe(0));
       act(() => map.dragTo(SHUT_BOX, 7));
       const hours = vi.spyOn(hoursModule, "openState");
       await user.click(searchArea());
@@ -1806,6 +1813,9 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       const want = vi.spyOn(ScoresStore.prototype, "want");
       const { map } = await openApp("/map", { events: manyEvents });
       await screen.findAllByRole("button", { name: /^Crowd place \d+,/ });
+      // The pins drawn are asked for a moment after they are drawn (the map tells the page, which asks):
+      // wait for that ask, so that it is not taken for one of the next view's.
+      await waitFor(() => expect(asks(want).at(-1)?.length).toBe(drawnPinCount()));
       for (const call of asks(want)) expect(call.length).toBeLessThanOrEqual(MAX_MARKERS);
 
       // Zoomed out: one bubble, and two pins on their own.
@@ -1822,6 +1832,8 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       const want = vi.spyOn(ScoresStore.prototype, "want");
       const { map } = await openApp("/", { px: DESKTOP, events: manyEvents });
       await screen.findAllByRole("button", { name: /^Crowd place \d+,/ });
+      // The pins drawn are asked for a moment after they are drawn: wait for that ask before counting afresh.
+      await waitFor(() => expect(asks(want).some((call) => call.length === drawnPinCount())).toBe(true));
       // Before a search the list is the town's, as it was, and asks for its places as it did.
       act(() => map.dragTo(WORLD, 1));
       want.mockClear();
@@ -1836,7 +1848,11 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
           .slice(0, LIST_LIMIT)
           .map(({ place: each }) => each.address),
       );
-      expect(asks(want)).toContainEqual(expect.arrayContaining([...listedAddresses].filter((address) => !inChain(address))));
+      // The list asks for its places a moment after it is drawn: wait for that ask too.
+      await waitFor(() =>
+        expect(asks(want)).toContainEqual(expect.arrayContaining([...listedAddresses].filter((address) => !inChain(address)))),
+      );
+      for (const call of asks(want)) expect(call.length).toBeLessThanOrEqual(Math.max(LIST_LIMIT, MAX_MARKERS) + 1);
 
       // Zoomed out: one bubble, and one pin on its own. Only that pin is asked about now.
       want.mockClear();
