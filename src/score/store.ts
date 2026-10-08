@@ -3,7 +3,7 @@ import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { readSession } from "../account/session.ts";
 import { config } from "../config.ts";
 import { asEvent, isNewer, type RelayReader, readAll, withReadExtras } from "../nostr/events.ts";
-import { fetchNames } from "../nostr/profiles.ts";
+import { fetchProfiles, type Profile } from "../nostr/profiles.ts";
 import { appReaders } from "../nostr/relayCode.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import type { Place } from "../places/place.ts";
@@ -25,8 +25,8 @@ import { type PlaceScore, scorePlace } from "./score.ts";
  * (the house's, and the person's circle once it is ready), and the reviewers' names, read once a
  * session and held in memory. Scores are worked out from them when asked for, from the view asked
  * for, and never stored (brief § 5): toggling the view reads nothing (Review Focus 5). What it holds
- * about people stays here: a page gets reviews, place scores and names, never a person's rank or
- * weight (decision 19).
+ * about people stays here: a page gets reviews, place scores and names, and the person signed in their
+ * own picture, never a person's rank or weight (decision 19).
  *
  * Nothing here loads the relay code: the app's readers import it when they first read
  * (src/nostr/relayCode.ts), so the store can be on the first screen.
@@ -495,6 +495,17 @@ export class ScoresStore {
   /** The people whose profiles a relay has answered for, with a name or not. */
   readonly #namesKnown = new Set<string>();
   readonly #names = new Map<string, string>();
+  /**
+   * The picture of the person signed in, read with their name. No one else's is kept, nor shown
+   * (`pictureOf`): a picture is an address on a server of someone's choosing, and the app asks none
+   * but the person's own.
+   */
+  readonly #pictures = new Map<string, string>();
+  /**
+   * The people whose profile was read while they were the person signed in: their picture, if their
+   * profile gives one, was taken then. A profile read before they signed in, as a reviewer's, took none.
+   */
+  readonly #ownRead = new Set<string>();
 
   /**
    * `readers` gives each relay's reader; by default the app's. Each relay's read extras are added to
@@ -778,6 +789,26 @@ export class ScoresStore {
   /** The person's name, from their profile; undefined when it has none, or it has not been read. */
   nameOf(pubkey: string): string | undefined {
     return this.#names.get(pubkey);
+  }
+
+  /**
+   * The picture in the profile of the person signed in (an https address, `shownPicture`), read with
+   * their name; undefined when it has none, or it has not been read. Of the person signed in alone,
+   * and of themself only: for anyone else, and for no one when no one is signed in, undefined.
+   */
+  pictureOf(pubkey: string): string | undefined {
+    return pubkey === readSession()?.pubkey ? this.#pictures.get(pubkey) : undefined;
+  }
+
+  /**
+   * Asks for the picture of the person signed in as `pubkey`, with their name (`wantNames`). A profile
+   * read before they signed in, as a reviewer's, took no picture: it is read once more. One read while
+   * they were signed in is not read again, whether or not it gave a picture.
+   */
+  wantOwnPicture(pubkey: string): void {
+    if (!isHex64(pubkey)) return;
+    this.wantNames([pubkey]);
+    if (!this.#ownRead.has(pubkey) && this.#namesKnown.has(pubkey) && this.#namesAsked.delete(pubkey)) this.#queueFlush();
   }
 
   /**
@@ -1097,20 +1128,27 @@ export class ScoresStore {
   }
 
   async #readNames(people: readonly string[], signal: AbortSignal): Promise<void> {
-    let names: Map<string, string> | null;
+    let profiles: Map<string, Profile> | null;
     try {
-      names = await fetchNames(this.#readers, config.reviewRelays, people, signal);
+      profiles = await fetchProfiles(this.#readers, config.reviewRelays, people, signal);
     } catch {
       return; // Aborted: asked again if the store starts again.
     }
-    if (names === null) {
+    if (profiles === null) {
       debug("no review relay answered for profiles");
       return;
     }
+    // Only the person signed in, now, has a picture kept: the reads of everyone else's profile are for their names.
+    const own = readSession()?.pubkey;
     for (const pubkey of people) {
       this.#namesKnown.add(pubkey);
-      const name = names.get(pubkey);
+      const { name, picture } = profiles.get(pubkey) ?? {};
       if (name !== undefined) this.#names.set(pubkey, name);
+      if (pubkey !== own) continue;
+      this.#ownRead.add(pubkey);
+      // A newer profile with no picture takes the old one away, as the person meant.
+      if (picture === undefined) this.#pictures.delete(pubkey);
+      else this.#pictures.set(pubkey, picture);
     }
     this.#changed("names");
   }

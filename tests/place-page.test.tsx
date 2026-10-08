@@ -247,14 +247,31 @@ describe("the place page: header", () => {
     expect(router.state.historyAction).toBe("PUSH");
   });
 
-  it("asks the person to sign in to save the place", async () => {
+  it("asks the person to sign in to save the place, once saved lists open", async () => {
+    config.features.saved = true;
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { router } = await openPlace(`/place/${JACAFE.d}`);
     const save = link(copy.place.save);
     expect(save).toHaveAttribute("href", "/signin");
+    // The back link at the left of the row, and the bookmark at its right.
+    expect(link(copy.place.backHome).parentElement).toBe(save.parentElement);
+    expect(save.parentElement!.children).toHaveLength(2);
     await user.click(save);
     expect(router.state.location.pathname).toBe("/signin");
     expect(router.state.location.state).toMatchObject({ from: { pathname: `/place/${JACAFE.d}` } });
+  });
+
+  it("has no bookmark on a phone until saved lists open, and the way back stands alone in its row", async () => {
+    expect(config.features.saved).toBe(false);
+    await openPlace(`/place/${JACAFE.d}`);
+    expect(queryLink(copy.place.save)).not.toBeInTheDocument();
+    expect(screen.queryByText(copy.place.save)).not.toBeInTheDocument();
+    const back = link(copy.place.backHome);
+    // Nothing else in the row: no empty box holds the place of the bookmark.
+    expect(back.parentElement!.children).toHaveLength(1);
+    expect(back.parentElement!.children[0]).toBe(back);
+    // The page under the row is as it was.
+    expect(heading()).toHaveTextContent(JACAFE.name);
   });
 });
 
@@ -946,7 +963,7 @@ describe("the place page at 1360 px (D2)", () => {
     expect(panel.className).not.toMatch(/\[/);
   });
 
-  it("puts Rate this place, Go, Call, Site and Save, the map, the facts with the chip, Suggest a fix and the attribution in the rail", async () => {
+  it("puts Rate this place, Go, Call and Site, the map, the facts with the chip, Suggest a fix and the attribution in the rail", async () => {
     await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP });
     const rail = screen.getByRole("complementary");
     const inRail = within(rail);
@@ -955,7 +972,6 @@ describe("the place page at 1360 px (D2)", () => {
     expect(inRail.getByRole("link", { name: newTab(copy.place.go) })).toHaveAttribute("href", goUrl(JACAFE));
     expect(inRail.getByRole("link", { name: copy.place.call })).toHaveAttribute("href", "tel:+351926958673");
     expect(inRail.getByRole("link", { name: new RegExp(`^${copy.place.site}`) })).toHaveAttribute("href", JACAFE.website!);
-    expect(inRail.getByRole("link", { name: copy.place.saveShort })).toHaveAttribute("href", "/signin");
     await waitFor(() => expect(rail.querySelector("canvas")).not.toBeNull());
     expect(inRail.getByText(copy.place.facts.address)).toBeInTheDocument();
     expect(inRail.getByText(copy.place.bitcoinChip)).toBeInTheDocument();
@@ -966,6 +982,38 @@ describe("the place page at 1360 px (D2)", () => {
     // Once each on the page.
     expect(screen.getAllByText(copy.place.bitcoinChip)).toHaveLength(1);
     expect(screen.getAllByRole("link", { name: "Rate this place" })).toHaveLength(1);
+  });
+
+  it("has no Save in the rail until saved lists open, and the actions fill the row with no gap", async () => {
+    expect(config.features.saved).toBe(false);
+    await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP });
+    const rail = within(screen.getByRole("complementary"));
+    expect(rail.queryByRole("link", { name: copy.place.saveShort })).not.toBeInTheDocument();
+    expect(rail.queryByText(copy.place.saveShort)).not.toBeInTheDocument();
+    // Go, Call and Site, each place at the row's grid, and nothing else in it.
+    const go = rail.getByRole("link", { name: newTab(copy.place.go) });
+    const row = go.parentElement!;
+    expect([...row.children].map((child) => child.textContent)).toEqual([
+      expect.stringContaining(copy.place.go),
+      copy.place.call,
+      expect.stringContaining(copy.place.site),
+    ]);
+    for (const child of row.children) expect(child.textContent?.trim()).not.toBe("");
+    cleanup();
+    // A place with directions only: the one button, and no Save beside it.
+    await openPlace(`/place/${NAME_ONLY.d}`, { px: DESKTOP });
+    const only = within(screen.getByRole("complementary")).getByRole("link", { name: newTab(copy.place.go) });
+    expect(only.parentElement!.children).toHaveLength(1);
+  });
+
+  it("puts Save last in the rail's actions once saved lists open", async () => {
+    config.features.saved = true;
+    await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP });
+    const rail = within(screen.getByRole("complementary"));
+    const save = rail.getByRole("link", { name: copy.place.saveShort });
+    expect(save).toHaveAttribute("href", "/signin");
+    expect(save.parentElement!.lastElementChild).toBe(save);
+    expect(save.parentElement!.children).toHaveLength(4);
   });
 
   it("shows the kind, the distance and the hours on one line under the name", async () => {

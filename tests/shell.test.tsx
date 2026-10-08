@@ -111,6 +111,7 @@ afterEach(() => {
   Reflect.deleteProperty(window, "matchMedia");
   Reflect.deleteProperty(navigator, "onLine");
   config.features.circle = false;
+  config.features.saved = false;
 });
 
 /** A person's circle that is ready, as the circle's provider gives it (src/circle/CircleProvider.tsx). */
@@ -196,11 +197,13 @@ describe("useWide", () => {
 });
 
 describe("the layout, by width", () => {
-  it("at 390 px shows the tabs Explore, Map, Saved and You, and no top bar", () => {
+  it("at 390 px shows the tabs Explore, Map and You, and no top bar", () => {
     renderApp("/", { width: PHONE });
     const tabs = within(tabBar()!).getAllByRole("link");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Saved", "You"]);
-    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/saved", "/you"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "You"]);
+    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/you"]);
+    // Each takes an equal share of the bar.
+    for (const tab of tabs) expect(tab).toHaveClass("flex-1");
     expect(within(tabBar()!).getByRole("link", { name: "Explore" })).toHaveAttribute("aria-current", "page");
     for (const tab of tabs) expect(tab.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
 
@@ -217,10 +220,9 @@ describe("the layout, by width", () => {
     expect(within(top).getByRole("button", { name: "Near Funchal" })).toBeInTheDocument();
   });
 
-  it("at 390 px shows the tabs on Map, Saved and You, marking the page that is open", () => {
+  it("at 390 px shows the tabs on Map and You, marking the page that is open", () => {
     for (const [path, tab] of [
       ["/map", "Map"],
-      ["/saved", "Saved"],
       ["/you", "You"],
     ] as const) {
       const { unmount } = renderApp(path, { width: PHONE });
@@ -239,7 +241,7 @@ describe("the layout, by width", () => {
     }
   });
 
-  it("at 1360 px shows the top bar: wordmark, search with its location, the toggle, Saved and the account", () => {
+  it("at 1360 px shows the top bar: wordmark, search with its location, the toggle and the account", () => {
     renderApp("/", { width: DESKTOP });
     const bar = screen.getByRole("banner");
 
@@ -252,7 +254,7 @@ describe("the layout, by width", () => {
     expect(within(search).getByRole("button", { name: "Near Funchal" })).toHaveAttribute("aria-haspopup", "dialog");
     expect(within(bar).getByRole("group", { name: copy.view.label })).toBeInTheDocument();
     expect(within(bar).getByRole("button", { name: copy.view.house })).toHaveAttribute("aria-pressed", "true");
-    expect(within(bar).getByRole("link", { name: copy.nav.saved })).toHaveAttribute("href", "/saved");
+    expect(within(bar).queryByRole("link", { name: copy.nav.saved })).not.toBeInTheDocument();
     expect(within(bar).getByRole("link", { name: copy.nav.signIn })).toHaveAttribute("href", "/signin");
 
     expect(tabBar()).not.toBeInTheDocument();
@@ -270,12 +272,38 @@ describe("the layout, by width", () => {
     expect(topBarSearch()).not.toBeInTheDocument();
   });
 
-  it("marks Saved in the top bar when it is open", () => {
+  it("leaves Saved out of the top bar and the tabs until saved lists open, and a link to it still has its page", () => {
+    expect(config.features.saved).toBe(false);
+    for (const width of [PHONE, DESKTOP]) {
+      const { unmount } = renderApp("/saved", { width });
+      expect(screen.queryByRole("link", { name: copy.nav.saved }), `${width} px`).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1, name: copy.pages.saved })).toBeInTheDocument();
+      expect(screen.getByText(copy.saved.signedOut)).toBeInTheDocument();
+      // On a phone the tabs are there, with none of them the page that is open.
+      if (width === PHONE) {
+        expect(within(tabBar()!).getAllByRole("link").map((tab) => tab.textContent)).toEqual(["Explore", "Map", "You"]);
+        expect(within(tabBar()!).queryByRole("link", { current: "page" })).not.toBeInTheDocument();
+      }
+      unmount();
+    }
+  });
+
+  it("puts Saved back, between Map and You and left of the account, once saved lists open", () => {
+    config.features.saved = true;
+    const phone = renderApp("/saved", { width: PHONE });
+    const tabs = within(tabBar()!).getAllByRole("link");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Saved", "You"]);
+    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/saved", "/you"]);
+    expect(within(tabBar()!).getByRole("link", { name: "Saved" })).toHaveAttribute("aria-current", "page");
+    phone.unmount();
+
     renderApp("/saved", { width: DESKTOP });
-    expect(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.saved })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    const bar = screen.getByRole("banner");
+    const saved = within(bar).getByRole("link", { name: copy.nav.saved });
+    expect(saved).toHaveAttribute("href", "/saved");
+    expect(saved).toHaveAttribute("aria-current", "page");
+    const account = within(bar).getByRole("link", { name: copy.nav.signIn });
+    expect(saved.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("switches between the two as the window is resized", () => {

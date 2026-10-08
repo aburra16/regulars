@@ -53,7 +53,8 @@ export const routes: RouteObject[] = [
           // Why you see what you see: "How this works", beside the toggle, links here. It shows no places.
           { path: WHY_PATH.slice(1), element: <WhyPage />, handle: chrome({ needsPlaces: false }) },
           { path: "signin", element: <SignInPage />, handle: chrome({ topBar: false, needsPlaces: false }) },
-          // Both ask the person to sign in, until they have.
+          // Both ask the person to sign in, until they have. Saved is in no tab or bar until saved
+          // lists open (config.features.saved); a link to it still opens it.
           { path: "saved", element: <SavedPage />, handle: chrome({ tabs: true, needsPlaces: false }) },
           { path: "you", element: <YouPage />, handle: chrome({ tabs: true, needsPlaces: false }) },
           { path: "*", element: <NotFound />, handle: chrome({ needsPlaces: false }) },

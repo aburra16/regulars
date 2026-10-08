@@ -64,8 +64,10 @@ interface Config {
    * their circle is ready (src/circle/CircleProvider.tsx), its scores worked out from their circle's
    * ranks (src/score/store.ts; the M3 plan, Task 3). Closed, nothing asks Brainstorm, and the half
    * reads "soon" for a person who has signed in.
+   * `saved`: Saved in the phone's tabs and the desktop's top bar; it comes back with saved lists
+   * (brief § 13, step 7). Until then a link to /saved still opens its page, which says saving opens soon.
    */
-  features: { signIn: boolean; circle: boolean };
+  features: { signIn: boolean; circle: boolean; saved: boolean };
   /**
    * Where the app meets an app on a phone that signs for the person (NIP-46): the one relay it shows
    * in its nostrconnect link, and reaches only to connect and to ask that app to sign.
@@ -120,7 +122,7 @@ export const config: Config = {
   placesRelay: "wss://dcosl.brainstorm.world",
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
   mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
-  features: { signIn: true, circle: true },
+  features: { signIn: true, circle: true, saved: false },
   connectRelay: "wss://relay.nsec.app",
   // In a production build `import.meta.env.DEV` is false, so neither variable is read there.
   reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay],

@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { NavLink } from "react-router-dom";
 
+import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { MapIcon, PersonIcon, SavedIcon, SearchIcon } from "../ui/icons.tsx";
 
@@ -11,14 +12,18 @@ const TABS = [
   { to: "/you", label: copy.nav.you, Icon: PersonIcon },
 ] as const;
 
-/** The phone's tabs, at the foot of the screen (Main.dc.html): Explore, Map, Saved and You. */
+/**
+ * The phone's tabs, at the foot of the screen (Main.dc.html): Explore, Map, Saved and You, each an
+ * equal share of the bar. Saved is left out until saved lists open (`config.features.saved`).
+ */
 export function TabBar(): JSX.Element {
+  const tabs = TABS.filter(({ to }) => to !== "/saved" || config.features.saved);
   return (
     <nav
       aria-label={copy.nav.label}
       className="sticky bottom-0 z-10 flex min-h-(--tab-bar-height) border-t-token border-line bg-ground px-2 pt-1.5 pb-3.5"
     >
-      {TABS.map(({ to, label, Icon }) => (
+      {tabs.map(({ to, label, Icon }) => (
         <NavLink
           key={to}
           to={to}
