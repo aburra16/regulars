@@ -127,6 +127,20 @@ export function LocateIcon(props: IconProps): JSX.Element {
   );
 }
 
+/**
+ * A pin inside the corners of a frame: on a phone, the map's way back to the place it is about,
+ * framed again. Not the crosshair, which is where the person is.
+ */
+export function BackToPlaceIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <path d="M4 8.5V4h4.5M15.5 4H20v4.5M20 15.5V20h-4.5M8.5 20H4v-4.5" />
+      <path d="M12 17.5s4.5-4.1 4.5-7.6a4.5 4.5 0 0 0-9 0c0 3.5 4.5 7.6 4.5 7.6z" />
+      <circle cx="12" cy="9.9" r="1.4" />
+    </Icon>
+  );
+}
+
 /** The plus: zooms the map in. */
 export function PlusIcon(props: IconProps): JSX.Element {
   return (

@@ -365,7 +365,10 @@ export const copy = {
     /** The map of the place, for a screen reader: the name of the map's region. */
     mapLabel: (name: string) => `Map showing where ${name} is`,
     // DRAFT for Avi
-    /** Beside the map's zoom buttons, once the person has moved the map: takes it back to the place's pin. */
+    /**
+     * At the map's top left, once the person has moved the map: takes it back to the place's pin. The
+     * words in the desktop's rail; on a phone, the name of the icon that stands for them.
+     */
     mapBack: "Back to the place",
     // DRAFT for Avi
     /** The desktop's side rail (DeskPlace.dc.html), for a screen reader. */

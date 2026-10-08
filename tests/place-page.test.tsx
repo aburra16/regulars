@@ -552,11 +552,11 @@ describe("the place page: missing details", () => {
 
 // ---- The map, and a picture ----
 
-/** The place's map, once its style has loaded and its pin is on it. */
+/** The place's map, once its style has loaded and its pin is on it: never one already removed. */
 const placeMap = () =>
   waitFor(() => {
     const made = FakeMap.instances.at(-1);
-    if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
+    if (made === undefined || made.removed || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");
     return made;
   });
 /** The way back to the place, there once the person has moved the map. */
@@ -653,8 +653,9 @@ describe("the place page: map", () => {
     await openPlace(`/place/${JACAFE.d}`);
     const map = await placeMap();
     expect(queryBack()).not.toBeInTheDocument();
-    // A move the page makes is not the person's.
-    act(() => void map.easeTo({ center: [JACAFE.lon, JACAFE.lat], zoom: 16 }));
+    // A move the page makes is not the person's, even one that leaves the map away from the place.
+    act(() => void map.easeTo({ center: [-16.915, 32.65], zoom: 13 }));
+    expect(map.center).toEqual([-16.915, 32.65]);
     expect(queryBack()).not.toBeInTheDocument();
 
     act(() => map.dragTo(AWAY, 13));
@@ -677,6 +678,22 @@ describe("the place page: map", () => {
     // The zoom buttons move the map as much as a drag does.
     await user.click(screen.getByRole("button", { name: copy.map.zoomIn }));
     expect(await screen.findByRole("button", { name: copy.place.mapBack })).toBeInTheDocument();
+  });
+
+  it("draws the way back as a line icon on a phone, still named in words, and as its words in the desktop's rail", async () => {
+    await openPlace(`/place/${JACAFE.d}`);
+    const map = await placeMap();
+    act(() => map.dragTo(AWAY, 13));
+    const back = await screen.findByRole("button", { name: copy.place.mapBack });
+    expect(back).toHaveAccessibleName("Back to the place");
+    // A 44 px square on a phone, where the words would reach the pin on a narrow screen; as wide as its words from `wide` up.
+    expect(back).toHaveClass("size-11", "justify-center", "wide:w-auto", "wide:px-3.5");
+    const icon = back.querySelector("svg")!;
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+    expect(icon).toHaveAttribute("fill", "none");
+    expect(icon).toHaveAttribute("stroke", "currentColor");
+    expect(icon).toHaveClass("wide:hidden");
+    expect(within(back).getByText(copy.place.mapBack)).toHaveClass("hidden", "wide:inline");
   });
 
   it("reaches the way back and the zoom buttons from the keyboard before the map, with nothing around them cutting off the focus ring", async () => {

@@ -322,6 +322,17 @@ describe("BaseMap", () => {
     expect(screen.queryByRole("img", { name: "Map showing where Alpha is" })).not.toBeInTheDocument();
   });
 
+  it("renames a moving map's region when its label changes, and calls it Map again without one", async () => {
+    const { rerender } = render(<BaseMap center={funchal} zoom={13} interactive label="Map showing where Alpha is" />);
+    const map = await theMap();
+    expect(map.canvas).toHaveAccessibleName("Map showing where Alpha is");
+    rerender(<BaseMap center={funchal} zoom={13} interactive label="Map showing where Bravo is" />);
+    await waitFor(() => expect(map.canvas).toHaveAccessibleName("Map showing where Bravo is"));
+    expect(screen.getByRole("region", { name: "Map showing where Bravo is" })).toBe(map.canvas);
+    rerender(<BaseMap center={funchal} zoom={13} interactive />);
+    await waitFor(() => expect(map.canvas).toHaveAccessibleName(copy.map.label));
+  });
+
   it("keeps a flat map north up and flat: no drag, two fingers or keys turn or tilt it", async () => {
     render(<BaseMap center={funchal} zoom={13} interactive flat />);
     const map = await theMap();

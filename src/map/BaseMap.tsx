@@ -8,7 +8,7 @@ import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { kindOf } from "../places/kinds.ts";
 import { Attribution } from "../ui/Attribution.tsx";
-import { MinusIcon, PlusIcon } from "../ui/icons.tsx";
+import { BackToPlaceIcon, MinusIcon, PlusIcon } from "../ui/icons.tsx";
 import { FamilyIcon } from "../ui/KindTile.tsx";
 import type { Bbox } from "./area.ts";
 import { CLUSTER_OPTIONS, MAX_MARKERS, type Pin, PIN_SOURCE, pinsGeoJSON } from "./pins.ts";
@@ -54,8 +54,8 @@ export interface BaseMapProps {
   flat?: boolean;
   /**
    * The map's name to a screen reader ("Map showing where Jacafé is"), in place of "Map". A map that
-   * moves is a region with this name, given it when the map is made. A map that does not is one
-   * picture with it, in place of the map's own region, which it hides; its attribution stays reachable.
+   * moves is a region with this name, renamed when it changes. A map that does not is one picture
+   * with it, in place of the map's own region, which it hides; its attribution stays reachable.
    */
   label?: string;
   pins?: readonly Pin[];
@@ -83,9 +83,11 @@ export interface BaseMapProps {
   /** The zoom buttons, at the bottom right (DeskExplore.dc.html). */
   zoomButtons?: boolean;
   /**
-   * The words of a way back to where the map started, `center` at `zoom` ("Back to the place"), at
-   * the map's top left, clear of a pin in its middle: there once the person has moved the map, gone
-   * once it is back. It does not undo a turn or a tilt: give it to a `flat` map.
+   * The words of a way back to where the map started ("Back to the place"), at the map's top left,
+   * clear of a pin in its middle: there while a person's move has left the map away from it, gone
+   * once it is back. Where the map started is the `center` and `zoom` given now, so it is for a map
+   * without `fit` or `initialView`, which start it elsewhere. It does not undo a turn or a tilt:
+   * give it to a `flat` map.
    */
   back?: string;
   /** At the bottom right, above the zoom buttons and the attribution: the page's own controls. */
@@ -330,16 +332,20 @@ function ZoomButtons({ onZoom }: { onZoom(direction: "in" | "out"): void }): JSX
 
 /**
  * The way back to where the map started, in the map's top left corner, as far in from its edges as
- * the zoom buttons are: a white block as theirs is, with its words.
+ * the zoom buttons are: a white block as theirs is. On a phone, a 44 px square with its icon, since
+ * the words would reach a pin in the middle of a narrow map; from `wide` up, its words. Either way
+ * its name is the words.
  */
 function BackButton({ label, onBack }: { label: string; onBack(): void }): JSX.Element {
   return (
     <button
       type="button"
+      aria-label={label}
       onClick={onBack}
-      className="absolute top-3 left-3 z-10 flex h-11 cursor-pointer items-center rounded-tile border-0 bg-ground px-3.5 font-text text-secondary font-bold whitespace-nowrap text-ink shadow-map-controls wide:top-4 wide:left-4"
+      className="absolute top-3 left-3 z-10 flex size-11 cursor-pointer items-center justify-center rounded-tile border-0 bg-ground p-0 font-text text-secondary font-bold whitespace-nowrap text-ink shadow-map-controls wide:top-4 wide:left-4 wide:w-auto wide:px-3.5"
     >
-      {label}
+      <BackToPlaceIcon size={22} className="wide:hidden" />
+      <span className="hidden wide:inline">{label}</span>
     </button>
   );
 }
@@ -632,6 +638,12 @@ export function BaseMap({
 
   // A pin picked out from outside the map: whether it is in view.
   useEffect(() => lookAgain.current(), [selected, highlighted]);
+
+  // A new name for the map. MapLibre names its region once, from "Map.Title", when the map is made
+  // (which reads the latest label); after that, the region is renamed here.
+  useEffect(() => {
+    mapRef.current?.getCanvas().setAttribute("aria-label", label ?? copy.map.label);
+  }, [label]);
 
   // New pins, or a new chosen one: new data for the map, which gathers them again.
   const inSource = useMemo(() => gathered(pins, selected), [pins, selected]);
