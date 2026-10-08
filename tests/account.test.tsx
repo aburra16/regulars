@@ -24,12 +24,15 @@ const fixtures: NostrEvent[] = raw;
 
 // What Continue opens is a chunk of its own. `broken` makes fetching it fail, as on a flaky network
 // or after a deploy that removed the old chunk, until a test mends it.
-const choiceChunk = vi.hoisted(() => ({ broken: false }));
+// `held`, while set, keeps it coming until the test lets it settle, as on a slow network.
+const choiceChunk = vi.hoisted(() => ({ broken: false, held: undefined as Promise<void> | undefined }));
 vi.mock("../src/signin/loadChooseHow", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/signin/loadChooseHow")>();
   return {
-    loadChooseHow: () =>
-      choiceChunk.broken ? Promise.reject(new TypeError("Failed to fetch dynamically imported module")) : actual.loadChooseHow(),
+    loadChooseHow: async () => {
+      await choiceChunk.held;
+      return choiceChunk.broken ? Promise.reject(new TypeError("Failed to fetch dynamically imported module")) : actual.loadChooseHow();
+    },
   };
 });
 
@@ -124,6 +127,7 @@ beforeEach(() => {
 
 afterEach(() => {
   choiceChunk.broken = false;
+  choiceChunk.held = undefined;
   vi.useRealTimers();
   vi.restoreAllMocks();
   resetWidth();
@@ -546,6 +550,27 @@ describe("Continue with Nostr", () => {
     await user.click(retry);
     expect(await screen.findByRole("group", { name: copy.signin.chooseLabel })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the focus on Continue while what it opens is fetched, and gives it to the choice once it comes", async () => {
+    const user = userEvent.setup();
+    await openApp("/signin", { events: fixtures, px: DESKTOP });
+    let arrive!: () => void;
+    choiceChunk.held = new Promise<void>((resolve) => (arrive = resolve));
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+
+    // While it comes, Continue stays, off and busy, with the focus: not lost to the page.
+    const waiting = screen.getByRole("button", { name: copy.signin.continueButton });
+    expect(waiting).toHaveFocus();
+    expect(waiting).toHaveAttribute("aria-disabled", "true");
+    expect(waiting).toHaveAttribute("aria-busy", "true");
+    expect(document.activeElement).not.toBe(document.body);
+    await user.click(waiting);
+
+    act(() => arrive());
+    const choice = await screen.findByRole("group", { name: copy.signin.chooseLabel });
+    await waitFor(() => expect(choice).toContainElement(document.activeElement as HTMLElement));
+    expect(screen.queryByRole("button", { name: copy.signin.continueButton })).not.toBeInTheDocument();
   });
 
   it("keeps the sign-in page's notice, now that signing in is open", async () => {

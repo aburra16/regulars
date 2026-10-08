@@ -98,7 +98,8 @@ function NotFetched({ buttonClass, textClass, onRetry }: { buttonClass: string; 
 type Opened = { at: "button" } | { at: "fetching" } | { at: "open"; Panel: typeof ChooseHowPanel } | { at: "not fetched" };
 
 /**
- * "Continue with Nostr", which opens the choice of how to sign in in its place (./ChooseHow.tsx).
+ * "Continue with Nostr", which opens the choice of how to sign in in its place (./ChooseHow.tsx),
+ * staying, off and busy, with the focus, while that is fetched.
  * A person signed in, or about to be (a session this tab kept being restored), has nothing to
  * continue to, and does not see it: the page takes them back. While signing in is not open
  * (`config.features.signIn`), the button is off, and says why under it, which the button names as its
@@ -130,16 +131,20 @@ function Continue({
 
   if (account !== undefined || restoring) return null;
   if (opened.at === "open") return <opened.Panel tone={tone} />;
-  if (opened.at === "fetching") return null;
   if (opened.at === "not fetched") return <NotFetched buttonClass={buttonClass} textClass={textClass} onRetry={choose} />;
+  // While what it opens is fetched, the button stays, off and busy, and keeps the focus: drawn in its
+  // place, nothing would have it, and a keyboard or a screen reader would be sent back to the page's top.
+  const fetching = opened.at === "fetching";
+  const off = !open || fetching;
   return (
     <>
       <button
         type="button"
-        aria-disabled={open ? undefined : true}
+        aria-disabled={off ? true : undefined}
+        aria-busy={fetching ? true : undefined}
         aria-describedby={open ? undefined : noteId}
         // While it is off it does nothing.
-        onClick={open ? choose : (event) => event.preventDefault()}
+        onClick={off ? (event) => event.preventDefault() : choose}
         className={`${BUTTON} ${buttonClass}`}
       >
         {copy.signin.continueButton}
