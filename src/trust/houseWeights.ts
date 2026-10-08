@@ -1,7 +1,7 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
 import { config } from "../config.ts";
-import { isPubkey, isRelayUrl } from "../nostr/shapes.ts";
+import { isHex64, isRelayUrl } from "../nostr/shapes.ts";
 import { asEvent, isNewer, type RelayReader } from "../places/load.ts";
 
 /** The kind of the list in which an account names its scorers (NIP-85). */
@@ -10,7 +10,12 @@ const TRUST_LIST_KIND = 10040;
 /** The kind of a scorer's ranks for one person: one event per person, whose `d` is their public key. */
 const RANK_KIND = 30382;
 
-/** The most people one request for ranks names (Brainstorm reads at most 500 items at a time). */
+/**
+ * The most people one request for ranks names (Brainstorm reads at most 500 items at a time). It
+ * assumes the scorer's relay sends at least 500 events for one request (its `max_limit`): a relay
+ * that sends fewer cuts the batch short, and the people whose ranks it leaves out count as outside,
+ * with nothing to say so.
+ */
 const RANK_BATCH = 500;
 
 /** A rank as a scorer writes it: a plain decimal number, such as "6" or "12.5". */
@@ -36,7 +41,7 @@ export function scorerFrom(values: readonly unknown[], house: string): Scorer | 
   }
   const [, pubkey, relay] = newest?.tags.find((tag) => tag[0] === "30382:rank") ?? [];
   if (pubkey === undefined || relay === undefined) return null;
-  return isPubkey(pubkey) && isRelayUrl(relay) ? { pubkey, relay } : null;
+  return isHex64(pubkey) && isRelayUrl(relay) ? { pubkey, relay } : null;
 }
 
 /** The rank in a 30382's tags, from 0 to 100, or undefined when it is missing or anything else. */
@@ -58,7 +63,7 @@ export function ranksFrom(values: readonly unknown[], scorer: string): Map<strin
     const ev = asEvent(value);
     if (ev === null || ev.kind !== RANK_KIND || ev.pubkey !== scorer) continue;
     const subject = ev.tags.find((tag) => tag[0] === "d")?.[1];
-    if (subject === undefined || !isPubkey(subject)) continue;
+    if (subject === undefined || !isHex64(subject)) continue;
     const kept = newest.get(subject);
     if (kept === undefined || isNewer(ev, kept)) newest.set(subject, ev);
   }

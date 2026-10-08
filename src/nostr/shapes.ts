@@ -5,8 +5,8 @@
 
 const HEX_64 = /^[0-9a-f]{64}$/;
 
-/** Whether `text` is a public key as events carry it: 64 lowercase hex digits. */
-export function isPubkey(text: string): boolean {
+/** Whether `text` is a public key or an event id as events carry them: 64 lowercase hex digits. */
+export function isHex64(text: string): boolean {
   return HEX_64.test(text);
 }
 

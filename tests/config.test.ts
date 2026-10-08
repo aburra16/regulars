@@ -120,3 +120,22 @@ describe("config", () => {
     expect((await configWith({ devScorer, production: true })).devScorer).toBeUndefined();
   });
 });
+
+// These two run in order: the first changes the config, the second sees what tests/setup.ts restores.
+describe("each test's config (tests/setup.ts)", () => {
+  it("may be changed by a test", () => {
+    config.mapTilerKey = "a-key";
+    config.reviewRelays = ["ws://localhost:10547"];
+    config.devScorer = { pubkey: SCORER, relay: "ws://localhost:10547" };
+    config.houseTrustRelays = ["ws://localhost:10547"];
+    config.scoring = { line: 50, priorWeight: 0, priorMean: 1 };
+  });
+
+  it("is back at its defaults for the next test, with no map key, review relays or scorer override", () => {
+    expect(config.mapTilerKey).toBeUndefined();
+    expect(config.reviewRelays).toEqual([]);
+    expect(config.devScorer).toBeUndefined();
+    expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
+    expect(config.scoring).toEqual({ line: 2, priorWeight: 1.5, priorMean: 3.5 });
+  });
+});

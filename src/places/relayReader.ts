@@ -57,8 +57,9 @@ function requestLimits(url: string): { signal: AbortSignal; heard(): void; stop(
 /**
  * Reads from the relay at `url`, one connection per request, closed when the request ends. A
  * request ends well at EOSE; a CLOSED or NOTICE before it, or one of its limits, is an error.
+ * NRelay1 checks each event's signature and drops any that fails, unless `verify` is false.
  */
-export function readerFor(url: string): RelayReader {
+export function readerFor(url: string, { verify = true }: { verify?: boolean } = {}): RelayReader {
   return {
     async *req(filter, signal) {
       signal.throwIfAborted();
@@ -66,12 +67,7 @@ export function readerFor(url: string): RelayReader {
       let stop: AbortSignal | undefined;
       const limits = requestLimits(url);
       try {
-        relay = new NoticeRelay(url, {
-          // TODO(follow-up "Verify place signatures", Ruling R12): NRelay1 checks each signature by
-          // default, which took 6.7 s for the list on a desktop, on the main thread. Off until then,
-          // for every relay read through here, so each relay is trusted with what it sends.
-          verifyEvent: () => true,
-        });
+        relay = new NoticeRelay(url, verify ? {} : { verifyEvent: () => true });
         stop = AbortSignal.any([signal, limits.signal, relay.notices.signal]);
         for await (const msg of relay.req([filter], { signal: stop })) {
           limits.heard();
@@ -91,5 +87,11 @@ export function readerFor(url: string): RelayReader {
   };
 }
 
-/** Reads from the places relay. */
-export const relayReader: RelayReader = readerFor(config.placesRelay);
+/**
+ * Reads from the places relay.
+ *
+ * TODO(follow-up "Verify place signatures", Ruling R12): NRelay1 checks each signature by default,
+ * which took 6.7 s for the list on a desktop, on the main thread. Off for the places relay until
+ * then, so it is trusted with what it sends. Every other relay's events are checked (Ruling R3b).
+ */
+export const relayReader: RelayReader = readerFor(config.placesRelay, { verify: false });

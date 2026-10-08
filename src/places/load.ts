@@ -1,6 +1,7 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
 import { config } from "../config.ts";
+import { isHex64 } from "../nostr/shapes.ts";
 import { parsePlace, type Place, PLACE_KIND } from "./place.ts";
 
 /**
@@ -29,7 +30,6 @@ export interface HouseEvents {
   complete: boolean;
 }
 
-const HEX_64 = /^[0-9a-f]{64}$/;
 const HEX_128 = /^[0-9a-f]{128}$/;
 
 const isText = (value: unknown): value is string => typeof value === "string";
@@ -44,9 +44,9 @@ export function asEvent(value: unknown): NostrEvent | null {
   const { id, pubkey, created_at, kind, tags, content, sig } = value as Record<string, unknown>;
   const ok =
     isText(id) &&
-    HEX_64.test(id) &&
+    isHex64(id) &&
     isText(pubkey) &&
-    HEX_64.test(pubkey) &&
+    isHex64(pubkey) &&
     isText(sig) &&
     HEX_128.test(sig) &&
     Number.isSafeInteger(kind) &&

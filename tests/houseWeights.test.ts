@@ -1,5 +1,5 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import type { RelayReader } from "../src/places/load";
@@ -222,6 +222,33 @@ describe("fetchRanks", () => {
     expect(idle.requests).toHaveLength(0);
   });
 
+  /** 1,200 reviewers: three batches. */
+  const many = Array.from({ length: 1200 }, (_, n) => n.toString(16).padStart(64, "0"));
+
+  it("asks nothing, and ends with the caller's reason, when the caller has aborted already", async () => {
+    const controller = new AbortController();
+    const reason = new Error("unmounted");
+    controller.abort(reason);
+    const reader = createMemoryReader([]);
+    await expect(fetchRanks(reader, SCORER, many, controller.signal)).rejects.toBe(reason);
+    expect(reader.requests).toHaveLength(0);
+  });
+
+  it("asks for no further batch when the caller aborts between batches, and ends with its reason", async () => {
+    const controller = new AbortController();
+    const reason = new Error("unmounted");
+    const memory = createMemoryReader([rankOf(many[0]!, "80")]);
+    // The caller aborts as the first batch ends, quietly: the reader does not throw.
+    const reader: RelayReader = {
+      async *req(filter, signal) {
+        yield* memory.req(filter, signal);
+        controller.abort(reason);
+      },
+    };
+    await expect(fetchRanks(reader, SCORER, many, controller.signal)).rejects.toBe(reason);
+    expect(memory.requests).toHaveLength(1);
+  });
+
   it("fails when the relay fails, so the caller can say the house's view is unavailable", async () => {
     const reader = createMemoryReader([], { failWith: new Error("scores relay down") });
     await expect(fetchRanks(reader, SCORER, [ALICE], signal)).rejects.toThrow("scores relay down");
@@ -229,12 +256,7 @@ describe("fetchRanks", () => {
 });
 
 describe("resolveScorer", () => {
-  const houseTrustRelays = config.houseTrustRelays;
   const signal = new AbortController().signal;
-
-  afterEach(() => {
-    config.houseTrustRelays = houseTrustRelays;
-  });
 
   /** Readers by URL, over the given events; a relay not listed holds nothing. */
   function readersOver(byUrl: Record<string, RelayReader>) {

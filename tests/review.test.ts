@@ -41,6 +41,11 @@ describe("starsOf, as Brainstorm-UI reads stars", () => {
     expect(starsOf([["rating", "1"]])).toBe(5);
   });
 
+  it("reads numbers as Number() does, as Brainstorm-UI does: space around them is ignored", () => {
+    expect(starsOf([["s", " 4 "]])).toBe(4);
+    expect(starsOf([["rating", " 0.8 "]])).toBe(4);
+  });
+
   it("reads a rating above 1, up to 5, as stars", () => {
     expect(starsOf([["rating", "3"]])).toBe(3);
     expect(starsOf([["rating", "5"]])).toBe(5);
@@ -159,6 +164,32 @@ describe("latestReviews (Review Focus 2)", () => {
     const bob = review({ pubkey: BOB });
     const aliceElsewhere = review({ tags: [["d", OTHER_PLACE], ["s", "2"]] });
     expect(latestReviews([alice, bob, aliceElsewhere]).map((r) => r.id)).toEqual([alice.id, bob.id, aliceElsewhere.id]);
+  });
+
+  it("lets a newer review replace the older one at its d, though the older names another place", () => {
+    // The reviewer moved the review to another place: same d, new a. A relay that lags still sends both.
+    const older = review({ created_at: 1_700_000_000, tags: [["d", PLACE], ["a", PLACE], ["s", "2"]] });
+    const newer = review({ created_at: 1_700_000_100, tags: [["d", PLACE], ["a", OTHER_PLACE], ["s", "5"]] });
+    for (const values of [
+      [older, newer],
+      [newer, older],
+    ]) {
+      const reviews = latestReviews(values);
+      expect(reviews.map((r) => r.id)).toEqual([newer.id]);
+      expect(reviews[0]).toMatchObject({ address: OTHER_PLACE, stars: 5 });
+    }
+  });
+
+  it("lets a newer event at a review's d replace it, though the newer one reviews no place", () => {
+    const older = review({ created_at: 1_700_000_000, tags: [["d", "my-review"], ["a", PLACE], ["s", "4"]] });
+    const newer = review({ created_at: 1_700_000_100, tags: [["d", "my-review"], ["s", "4"]] });
+    expect(latestReviews([older, newer])).toEqual([]);
+  });
+
+  it("keeps the newer review of one place when one person filed it under two d tags", () => {
+    const older = review({ created_at: 1_700_000_000, tags: [["d", "first"], ["a", PLACE], ["s", "2"]] });
+    const newer = review({ created_at: 1_700_000_100, tags: [["d", "second"], ["a", PLACE], ["s", "5"]] });
+    expect(latestReviews([newer, older]).map((r) => r.id)).toEqual([newer.id]);
   });
 
   it("forgets a review the relays no longer send, such as one its reviewer deleted", () => {

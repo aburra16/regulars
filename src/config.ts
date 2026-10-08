@@ -1,6 +1,6 @@
 import * as nip19 from "nostr-tools/nip19";
 
-import { isPubkey, isRelayUrl } from "./nostr/shapes.ts";
+import { isHex64, isRelayUrl } from "./nostr/shapes.ts";
 
 /** The Mise en Place account that publishes the places. Everything below derives from it. */
 const houseNpub = "npub1f00dy9eqw53patfe8g96ajw9xq3casvjc25umw78w4963se40djqwxgrq8";
@@ -35,7 +35,7 @@ function scorerOverride(text: string | undefined): Config["devScorer"] {
   if (value === undefined || at < 0) return undefined;
   const pubkey = value.slice(0, at);
   const relay = value.slice(at + 1);
-  return isPubkey(pubkey) && isRelayUrl(relay) ? { pubkey, relay } : undefined;
+  return isHex64(pubkey) && isRelayUrl(relay) ? { pubkey, relay } : undefined;
 }
 
 interface Config {
