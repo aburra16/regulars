@@ -398,8 +398,17 @@ export class ScoresStore {
   /** The people whose profiles a relay has answered for, with a name or not. */
   readonly #namesKnown = new Set<string>();
   readonly #names = new Map<string, string>();
-  /** Pictures, read with the names: only the person's own is ever shown (`pictureOf`). */
+  /**
+   * The picture of the person signed in, read with their name. No one else's is kept, nor shown
+   * (`pictureOf`): a picture is an address on a server of someone's choosing, and the app asks none
+   * but the person's own.
+   */
   readonly #pictures = new Map<string, string>();
+  /**
+   * The people whose profile was read while they were the person signed in: their picture, if their
+   * profile gives one, was taken then. A profile read before they signed in, as a reviewer's, took none.
+   */
+  readonly #ownRead = new Set<string>();
 
   /**
    * `readers` gives each relay's reader; by default the app's. Each relay's read extras are added to
@@ -583,12 +592,23 @@ export class ScoresStore {
   }
 
   /**
-   * The picture in the person's profile, an https address (`pictureIn`), read with their name;
-   * undefined when it has none, or it has not been read. For the person signed in, of themself only:
-   * the app loads no one else's picture.
+   * The picture in the profile of the person signed in (an https address, `shownPicture`), read with
+   * their name; undefined when it has none, or it has not been read. Of the person signed in alone,
+   * and of themself only: for anyone else, and for no one when no one is signed in, undefined.
    */
   pictureOf(pubkey: string): string | undefined {
-    return this.#pictures.get(pubkey);
+    return pubkey === readSession()?.pubkey ? this.#pictures.get(pubkey) : undefined;
+  }
+
+  /**
+   * Asks for the picture of the person signed in as `pubkey`, with their name (`wantNames`). A profile
+   * read before they signed in, as a reviewer's, took no picture: it is read once more. One read while
+   * they were signed in is not read again, whether or not it gave a picture.
+   */
+  wantOwnPicture(pubkey: string): void {
+    if (!isHex64(pubkey)) return;
+    this.wantNames([pubkey]);
+    if (!this.#ownRead.has(pubkey) && this.#namesKnown.has(pubkey) && this.#namesAsked.delete(pubkey)) this.#queueFlush();
   }
 
   /**
@@ -882,11 +902,17 @@ export class ScoresStore {
       debug("no review relay answered for profiles");
       return;
     }
+    // Only the person signed in, now, has a picture kept: the reads of everyone else's profile are for their names.
+    const own = readSession()?.pubkey;
     for (const pubkey of people) {
       this.#namesKnown.add(pubkey);
       const { name, picture } = profiles.get(pubkey) ?? {};
       if (name !== undefined) this.#names.set(pubkey, name);
-      if (picture !== undefined) this.#pictures.set(pubkey, picture);
+      if (pubkey !== own) continue;
+      this.#ownRead.add(pubkey);
+      // A newer profile with no picture takes the old one away, as the person meant.
+      if (picture === undefined) this.#pictures.delete(pubkey);
+      else this.#pictures.set(pubkey, picture);
     }
     this.#changed("names");
   }

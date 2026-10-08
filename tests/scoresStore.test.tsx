@@ -1,6 +1,6 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { memo, type ReactNode, StrictMode, useContext } from "react";
+import { type JSX, memo, type ReactNode, StrictMode, useContext } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ForgetOnSignOut } from "../src/account/forgetOnSignOut";
@@ -11,10 +11,10 @@ import type { RelayReader } from "../src/nostr/events";
 import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
 import { REVIEW_KIND } from "../src/reviews/review";
-import { ScoresProvider } from "../src/score/ScoresProvider";
+import { ScoresProvider, useScoresStore } from "../src/score/ScoresProvider";
 import { FLUSH_WINDOW_MS, HELD_REVIEWS_KEY, REMOVED_REVIEWS_KEY } from "../src/score/store";
 import { useListScores } from "../src/score/useListScores";
-import { useNames, useScore, useScoreActions, useScores } from "../src/score/useScore";
+import { useNames, useOwnPicture, useScore, useScoreActions, useScores } from "../src/score/useScore";
 import raw from "./fixtures/funchal-items.json";
 import { DESKTOP, PHONE, resetWidth } from "./support/app";
 import { hex64, shapedEvent } from "./support/events";
@@ -1457,6 +1457,112 @@ describe("useNames", () => {
     await settle();
     expect(readers).not.toHaveBeenCalled();
     expect(result.current.get(ALICE)).toBe(copy.reviews.someone);
+  });
+});
+
+describe("useOwnPicture: only the picture of the person signed in is kept", () => {
+  const ALICE_PICTURE = "https://img.example.test/alice.jpg";
+  const BOB_PICTURE = "https://img.example.test/bob.jpg";
+
+  /** Signs `pubkey` in in this tab, as the sign-in code does before the account is shown. */
+  const signInAs = (pubkey: string) => window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({ how: "browser", pubkey }));
+  const signOut = () => window.sessionStorage.removeItem(SESSION_KEY);
+
+  /** The profiles of Alice and Bob on the review relay, both with a picture. */
+  const bothPictured = () => [
+    profileOf(ALICE, { name: "Alice", picture: ALICE_PICTURE }),
+    profileOf(BOB, { name: "Bob", picture: BOB_PICTURE }),
+  ];
+
+  it("keeps the picture of the person signed in, and of no one else whose profile was read with it", async () => {
+    config.reviewRelays = [SEARCH];
+    signInAs(ALICE);
+    const { readers } = network({ [SEARCH]: createMemoryReader(bothPictured()) });
+    const { result } = renderStore(() => ({ names: useNames([ALICE, BOB]), store: useScoresStore("the test") }), { readers });
+    await waitFor(() => expect(result.current.names.get(BOB)).toBe("Bob"));
+    expect(result.current.names.get(ALICE)).toBe("Alice");
+
+    expect(result.current.store.pictureOf(ALICE)).toBe(ALICE_PICTURE);
+    expect(result.current.store.pictureOf(BOB)).toBeUndefined();
+
+    // Bob's was not kept for a time he signs in: nothing shows of it until his own profile is read for him.
+    signInAs(BOB);
+    expect(result.current.store.pictureOf(BOB)).toBeUndefined();
+    // And the store answers for the person signed in alone: Alice's, read while she was, is not shown to Bob.
+    expect(result.current.store.pictureOf(ALICE)).toBeUndefined();
+  });
+
+  it("answers for no one when no one is signed in, and again for the person once they are", async () => {
+    config.reviewRelays = [SEARCH];
+    signInAs(ALICE);
+    const { readers } = network({ [SEARCH]: createMemoryReader(bothPictured()) });
+    const { result } = renderStore(() => ({ names: useNames([ALICE]), store: useScoresStore("the test") }), { readers });
+    await waitFor(() => expect(result.current.names.get(ALICE)).toBe("Alice"));
+    expect(result.current.store.pictureOf(ALICE)).toBe(ALICE_PICTURE);
+
+    signOut();
+    expect(result.current.store.pictureOf(ALICE)).toBeUndefined();
+    signInAs(ALICE);
+    expect(result.current.store.pictureOf(ALICE)).toBe(ALICE_PICTURE);
+  });
+
+  /**
+   * A page that asks for Alice's name, as every page does for a reviewer, and, once `signedIn`, has her
+   * account button: the one thing that asks for her picture.
+   */
+  function Page({ signedIn }: { signedIn: boolean }): JSX.Element {
+    const name = useNames([ALICE]).get(ALICE);
+    return (
+      <>
+        <p data-testid="name">{name}</p>
+        {signedIn && <Button />}
+      </>
+    );
+  }
+  function Button(): JSX.Element {
+    return <p data-testid="own">{useOwnPicture(ALICE) ?? "none"}</p>;
+  }
+  const treeOf = (readers: (url: string) => RelayReader, signedIn: boolean) => (
+    <PlacesProvider reader={createMemoryReader(places)}>
+      <ScoresProvider readers={readers}>
+        <Page signedIn={signedIn} />
+      </ScoresProvider>
+    </PlacesProvider>
+  );
+
+  it("gives the picture of someone who signs in after their profile was read as a reviewer's, with one more read of it", async () => {
+    config.reviewRelays = [SEARCH];
+    const search = createMemoryReader(bothPictured());
+    const { readers } = network({ [SEARCH]: search });
+    const { rerender } = render(treeOf(readers, false));
+    await waitFor(() => expect(screen.getByTestId("name")).toHaveTextContent("Alice"));
+    await settle();
+    expect(search.requests).toHaveLength(1);
+
+    signInAs(ALICE);
+    rerender(treeOf(readers, true));
+    await waitFor(() => expect(screen.getByTestId("own")).toHaveTextContent(ALICE_PICTURE));
+    expect(search.requests).toHaveLength(2);
+    expect(search.requests[1]).toMatchObject({ kinds: [0], authors: [ALICE] });
+  });
+
+  it("reads the profile of the person signed in once, whether or not it gives a picture, however often the button is drawn", async () => {
+    config.reviewRelays = [SEARCH];
+    signInAs(ALICE);
+    const search = createMemoryReader([profileOf(ALICE, { name: "Alice" })]);
+    const { readers } = network({ [SEARCH]: search });
+    const { rerender } = render(treeOf(readers, true));
+    await waitFor(() => expect(screen.getByTestId("name")).toHaveTextContent("Alice"));
+    await settle();
+    expect(screen.getByTestId("own")).toHaveTextContent("none");
+    // Explore's top is drawn again on the way back from Map.
+    for (let draws = 0; draws < 2; draws++) {
+      rerender(treeOf(readers, false));
+      rerender(treeOf(readers, true));
+      await settle();
+    }
+    expect(screen.getByTestId("own")).toHaveTextContent("none");
+    expect(search.requests).toHaveLength(1);
   });
 });
 

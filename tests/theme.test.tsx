@@ -649,13 +649,19 @@ describe("the dark mode switch", () => {
     expect(theSwitch()).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("sits in the desktop's top bar, just left of the account button, on every page but sign in", async () => {
-    for (const path of ["/", "/map", "/search?q=tea", "/about", "/saved", "/you"]) {
-      const { unmount } = await openApp(path, { events: fixtures, px: DESKTOP });
-      const bar = screen.getByRole("banner");
-      const button = within(bar).getByRole("button", { name: copy.nav.darkMode });
-      expect(button.nextElementSibling, path).toBe(within(bar).getByRole("link", { name: copy.nav.signIn }));
-      unmount();
+  it("sits in the desktop's top bar, left of the account button, on every page but sign in, with Saved shown or not", async () => {
+    for (const saved of [false, true]) {
+      config.features.saved = saved;
+      for (const path of ["/", "/map", "/search?q=tea", "/about", "/saved", "/you"]) {
+        const { unmount } = await openApp(path, { events: fixtures, px: DESKTOP });
+        const bar = screen.getByRole("banner");
+        const button = within(bar).getByRole("button", { name: copy.nav.darkMode });
+        // The switch comes before the account link, whatever sits between them (Saved, once it is shown).
+        const account = within(bar).getByRole("link", { name: copy.nav.signIn });
+        expect(button.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING, `${path}, saved ${saved}`).toBeTruthy();
+        expect(!!within(bar).queryByRole("link", { name: copy.nav.saved }), `${path}, saved ${saved}`).toBe(saved);
+        unmount();
+      }
     }
   });
 

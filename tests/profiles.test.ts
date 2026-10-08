@@ -1,16 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { nameIn, pictureIn, profilesFrom } from "../src/nostr/profiles";
+import { profilesFrom } from "../src/nostr/profiles";
 import { hex64, shapedEvent } from "./support/events";
 
 const profile = (fields: Record<string, unknown>) => JSON.stringify(fields);
 const ALICE = hex64("a");
 const BOB = hex64("b");
 const CAROL = hex64("c");
+/**
+ * What a profile whose `content` is this gives of ALICE, through `profilesFrom`, the path the app reads
+ * profiles by: undefined when it gives neither a name nor a picture to show.
+ */
+const profileIn = (content: string) => profilesFrom([shapedEvent({ kind: 0, pubkey: ALICE, content })]).get(ALICE);
+const nameIn = (content: string) => profileIn(content)?.name;
+const pictureIn = (content: string) => profileIn(content)?.picture;
 /** A real public key's code (the house's), as a person might paste it into their name. */
 const NPUB = "npub1f00dy9eqw53patfe8g96ajw9xq3casvjc25umw78w4963se40djqwxgrq8";
 
-describe("nameIn (Review Focus 4)", () => {
+describe("the name a profile gives (Review Focus 4)", () => {
   it("takes display_name, else name", () => {
     expect(nameIn(profile({ display_name: "Alice Bento", name: "alice" }))).toBe("Alice Bento");
     expect(nameIn(profile({ name: "alice" }))).toBe("alice");
@@ -83,7 +90,7 @@ describe("nameIn (Review Focus 4)", () => {
   });
 });
 
-describe("pictureIn", () => {
+describe("the picture a profile gives", () => {
   const AT = "https://img.example.test/me.jpg";
 
   it("keeps an https address, trimmed", () => {

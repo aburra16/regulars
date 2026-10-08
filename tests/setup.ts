@@ -9,6 +9,7 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { config } from "../src/config";
 import { forgetMapPages } from "../src/explore/mapMemory";
 import { forgetExploreIdx } from "../src/explore/returnPoint";
+import { forgetUnloadablePictures } from "../src/shell/unloadablePictures";
 import { forgetShownInMemory } from "../src/ui/shown";
 import { forgetThemeInMemory } from "../src/theme/theme";
 import { resetFakeMaplibre } from "./support/fakeMaplibre";
@@ -28,8 +29,11 @@ const defaults = structuredClone({
 
 // Every test starts with no map key, no review relays and no scorer override, whatever the machine's
 // .env.local says, and with the default trust relays, relay-list relays, scoring and read extras, whatever a test before
-// it set. A test that wants something else sets it.
+// it set. Saved is out (`features.saved`, until saved lists exist), and no picture is known not to load:
+// a test that wants Saved, or a picture that fails, sets it. A test that wants something else sets it.
 beforeEach(() => {
+  config.features.saved = false;
+  forgetUnloadablePictures();
   config.mapTilerKey = undefined;
   config.reviewRelays = [];
   config.devScorer = undefined;
