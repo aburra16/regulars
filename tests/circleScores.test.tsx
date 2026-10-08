@@ -48,6 +48,7 @@ const placeAt = (d: string): Place => {
 
 const JACAFE = placeAt("osm-node-11330857543");
 const MAIA = placeAt("osm-node-10169374926");
+const MUSEU = placeAt("osm-node-1782789982");
 /** Four A Confeitaria Coffee & Bakery, all in Funchal. */
 const CONFEITARIA = idx.chains.get("PT:a confeitaria coffee & bakery")!;
 
@@ -106,6 +107,8 @@ const CIRCLE_RANKS = [circleRank(BOB, 90), circleRank(CAROL, 50), circleRank(ALI
 interface Network {
   readers: (url: string) => RelayReader;
   log: { url: string; filter: NostrFilter }[];
+  /** The circle's ranks on its relay, as each read finds them: a test adds to them as Brainstorm publishes. */
+  circle: NostrEvent[];
   /** While true, the circle's relay fails every read of ranks (the look that finds the scorer still answers). */
   circleDown: boolean;
 }
@@ -121,17 +124,18 @@ function network({
 } = {}): Network {
   const relays: Record<string, RelayReader> = {
     [SEARCH]: createMemoryReader([...reviews, ...PROFILES]),
-    [SCORES]: createMemoryReader([trustList(), ...circle]),
     [HOUSE_RELAY]: createMemoryReader(house),
   };
   const net: Network = {
     log: [],
+    circle: [...circle],
     circleDown: false,
     readers: (url) => ({
       async *req(filter, signal) {
         net.log.push({ url, filter });
         if (net.circleDown && url === SCORES && filter["#d"] !== undefined) throw new Error("The relay answered 503");
-        yield* (relays[url] ?? createMemoryReader([])).req(filter, signal);
+        const reader = url === SCORES ? createMemoryReader([trustList(), ...net.circle]) : relays[url];
+        yield* (reader ?? createMemoryReader([])).req(filter, signal);
       },
     }),
   };
@@ -159,11 +163,16 @@ function signedIn(): string {
 }
 
 /**
- * Earlier in this session, the circle of the person with `pubkey` was ready, and they chose My circle:
- * a reload of the tab finds both, and asks Brainstorm nothing.
+ * Earlier in this session, the circle of the person with `pubkey` was found (`state`: "ready", or
+ * "unconfirmed" when its scorer had no ranks): a reload of the tab finds it, and asks Brainstorm nothing.
  */
-function choseMyCircle(pubkey: string): void {
-  window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "ready", scorer: CIRCLE_AT, notice: false }));
+function keptCircle(pubkey: string, state: "ready" | "unconfirmed" = "ready"): void {
+  window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state, scorer: CIRCLE_AT, notice: false }));
+}
+
+/** The same, and they chose My circle: a reload of the tab finds both. */
+function choseMyCircle(pubkey: string, state: "ready" | "unconfirmed" = "ready"): void {
+  keptCircle(pubkey, state);
   window.sessionStorage.setItem(VIEW_STORAGE_KEY, "circle");
 }
 
@@ -325,7 +334,149 @@ describe("the scores store: ranks per point of view", () => {
     store.stop();
   });
 
-  it("is ready but empty when nobody but the person is in the circle among the reviewers seen", async () => {
+  it("counts the new person's own review, and asks the circle again, when the circle is another person's (an account switch)", async () => {
+    const SECOND = hex64("9");
+    const net = network({ reviews: [reviewOf(OWNER, MAIA, 5), reviewOf(SECOND, MAIA, 2)], house: HOUSE_RANKS, circle: [] });
+    const store = storeOf(net);
+    store.want([MAIA.address]);
+    await vi.waitFor(() => expect(store.scoreOf(MAIA.address, "circle")).toMatchObject({ score: 5, counted: 1 }));
+    expect(circleRankReads(net).map(({ filter }) => filter["#d"])).toEqual([[SECOND]]);
+
+    store.setCircle({ owner: SECOND, scorer: CIRCLE_AT });
+    // Theirs counts in full now, and the person before them is someone to rank, whom the circle does not.
+    await vi.waitFor(() => expect(store.scoreOf(MAIA.address, "circle")).toMatchObject({ score: 2, counted: 1, outside: 1 }));
+    expect(circleRankReads(net).map(({ filter }) => filter["#d"])).toEqual([[SECOND], [OWNER]]);
+    store.stop();
+  });
+
+  it("takes nothing from a read of a circle let go of while it was being read", async () => {
+    const LATER = { pubkey: hex64("7"), relay: "wss://later.example.test" };
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    let asked = 0;
+    const net = network({ reviews: jacafeReviews(), house: HOUSE_RANKS, circle: CIRCLE_RANKS });
+    const readers = (url: string): RelayReader => {
+      if (url === LATER.relay) return createMemoryReader([rankBy(LATER.pubkey)(CAROL, 50)]);
+      const reader = net.readers(url);
+      if (url !== SCORES) return reader;
+      // The first circle's ranks come only once the test says so.
+      return {
+        async *req(filter, signal) {
+          if (filter.authors?.includes(CIRCLE_SCORER) && filter["#d"] !== undefined) {
+            asked += 1;
+            await answered;
+          }
+          yield* reader.req(filter, signal);
+        },
+      };
+    };
+    const store = new ScoresStore(readers);
+    store.start();
+    store.setPlaces(parsePlaces(places));
+    store.setCircle({ owner: OWNER, scorer: CIRCLE_AT });
+    store.want([JACAFE.address]);
+    await vi.waitFor(() => expect(asked).toBe(1));
+
+    // Another scorer for the circle, which ranks only Carol in it: Bob, whom the first ranks 90, is outside.
+    store.setCircle({ owner: OWNER, scorer: LATER });
+    await vi.waitFor(() => expect(store.scoreOf(JACAFE.address, "circle")).toMatchObject({ score: 2, counted: 1 }));
+    answer();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(store.scoreOf(JACAFE.address, "circle")).toMatchObject({ score: 2, counted: 1, outside: 2 });
+    expect(store.stateOf("circle")).toBe("ready");
+    store.stop();
+  });
+
+  it("asks an unconfirmed circle again about the people it gave no rank, on Try again and once it is confirmed", async () => {
+    const net = network({ reviews: jacafeReviews(), house: HOUSE_RANKS, circle: [] });
+    const store = new ScoresStore(net.readers);
+    store.start();
+    store.setPlaces(parsePlaces(places));
+    store.setCircle({ owner: OWNER, scorer: CIRCLE_AT, confirmed: false });
+    store.want([JACAFE.address]);
+    await vi.waitFor(() => expect(store.circleEmpty()).toBe(true));
+    expect(circleRankReads(net)).toHaveLength(1);
+
+    // Brainstorm publishes the circle's ranks: Try again finds them.
+    net.circle.push(...CIRCLE_RANKS);
+    store.refresh();
+    await vi.waitFor(() => expect(store.scoreOf(JACAFE.address, "circle")).toMatchObject({ counted: 2 }));
+    expect(store.circleEmpty()).toBe(false);
+    expect(circleRankReads(net)).toHaveLength(2);
+
+    // Confirmed, the circle's ranks are read once more, afresh; Try again then reads them no more.
+    store.setCircle({ owner: OWNER, scorer: CIRCLE_AT, confirmed: true });
+    await vi.waitFor(() => expect(circleRankReads(net)).toHaveLength(3));
+    await vi.waitFor(() => expect(store.scoreOf(JACAFE.address, "circle")).toMatchObject({ counted: 2 }));
+    store.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(circleRankReads(net)).toHaveLength(3);
+    store.stop();
+  });
+
+  it("reads ranks at most two at a time from one relay, whichever view they are for", async () => {
+    // The house's scorer publishes to the circle's relay too: one relay, both views' reads.
+    const SHARED_HOUSE = { pubkey: HOUSE_SCORER, relay: SCORES };
+    config.devScorer = SHARED_HOUSE;
+    const reviewers = Array.from({ length: 1_200 }, (_, n) => (n + 1).toString(16).padStart(64, "0"));
+    const spots = [0, 1, 2].map((n) => `39999:${places[0]!.pubkey}:osm-node-${2_000_000 + n}`);
+    const reviews = reviewers.map((reviewer, n) =>
+      shapedEvent({
+        kind: REVIEW_KIND,
+        pubkey: reviewer,
+        // A second apart, so that the pages of reviews go back in time.
+        created_at: 1_700_000_000 + n,
+        tags: [["d", `place:${spots[n % 3]}`], ["a", spots[n % 3]!], ["m", "place"], ["s", "4"]],
+      }),
+    );
+    const search = createMemoryReader(reviews);
+    const ranks = createMemoryReader([]);
+    const waiting: (() => void)[] = [];
+    let open = 0;
+    let most = 0;
+    const readers = (url: string): RelayReader => {
+      if (url === SEARCH) return search;
+      if (url !== SCORES) return createMemoryReader([]);
+      return {
+        async *req(filter, signal) {
+          if (filter["#d"] === undefined) {
+            yield* ranks.req(filter, signal);
+            return;
+          }
+          open += 1;
+          most = Math.max(most, open);
+          try {
+            await new Promise<void>((resolve) => waiting.push(resolve));
+            yield* ranks.req(filter, signal);
+          } finally {
+            open -= 1;
+          }
+        },
+      };
+    };
+    const store = new ScoresStore(readers);
+    store.start();
+    store.setPlaces(parsePlaces(places));
+    store.setCircle({ owner: OWNER, scorer: CIRCLE_AT });
+    store.want(spots);
+    // Three reads for each view, 500 people to a read; never more than two open at once.
+    let answered = 0;
+    await vi.waitFor(() => expect(waiting.length).toBe(2));
+    while (answered < 6) {
+      await vi.waitFor(() => expect(waiting.length).toBeGreaterThan(0));
+      expect(open).toBeLessThanOrEqual(2);
+      waiting.shift()!();
+      answered += 1;
+    }
+    await vi.waitFor(() => expect(store.stateOf("circle")).toBe("ready"));
+    await vi.waitFor(() => expect(store.stateOf("house")).toBe("ready"));
+    expect(most).toBe(2);
+    store.stop();
+  });
+
+  it("is ready but empty when nobody but the person is in the circle among the reviewers seen, and knows whether they rated", async () => {
     const net = network({
       reviews: [...jacafeReviews(), reviewOf(OWNER, MAIA, 5)],
       house: HOUSE_RANKS,
@@ -334,11 +485,61 @@ describe("the scores store: ranks per point of view", () => {
     });
     const store = storeOf(net);
     expect(store.circleEmpty()).toBe(false);
-    store.want([JACAFE.address, MAIA.address]);
+    store.want([JACAFE.address]);
     await vi.waitFor(() => expect(store.circleEmpty()).toBe(true));
+    expect(store.circleOwnerRated()).toBe(false);
+    store.want([MAIA.address]);
+    await vi.waitFor(() => expect(store.circleOwnerRated()).toBe(true));
+    expect(store.circleEmpty()).toBe(true);
     // Their own review still counts, at full weight.
     expect(store.scoreOf(MAIA.address, "circle")).toMatchObject({ score: 5, counted: 1 });
     expect(store.scoreOf(JACAFE.address, "circle")).toMatchObject({ score: null, counted: 0, outside: 3 });
+    store.stop();
+  });
+
+  it("keeps its last answer about an empty circle while new reviewers are being ranked, rather than flip", async () => {
+    const held: (() => void)[] = [];
+    const net = network({
+      reviews: [...jacafeReviews(), reviewOf(DAVE, MAIA, 4), reviewOf(ERIN, MUSEU, 4)],
+      house: HOUSE_RANKS,
+      circle: [circleRank(ALICE, 3), circleRank(DAVE, 2), circleRank(ERIN, 90)],
+    });
+    const readers = (url: string): RelayReader => {
+      const reader = net.readers(url);
+      if (url !== SCORES) return reader;
+      return {
+        async *req(filter, signal) {
+          // The reads naming Dave, or Erin, wait until the test lets them go.
+          if (filter["#d"]?.some((pubkey) => pubkey === DAVE || pubkey === ERIN)) {
+            await new Promise<void>((resolve) => held.push(resolve));
+          }
+          yield* reader.req(filter, signal);
+        },
+      };
+    };
+    const store = new ScoresStore(readers);
+    store.start();
+    store.setPlaces(parsePlaces(places));
+    store.setCircle({ owner: OWNER, scorer: CIRCLE_AT });
+    store.want([JACAFE.address]);
+    await vi.waitFor(() => expect(store.circleEmpty()).toBe(true));
+
+    // A new reviewer, still to be ranked: still empty, as last said. Ranked under the line: still empty.
+    store.want([MAIA.address]);
+    await vi.waitFor(() => expect(held).toHaveLength(1));
+    expect(store.reviewsOf(MAIA.address)).toHaveLength(1);
+    expect(store.circleEmpty()).toBe(true);
+    held.shift()!();
+    await vi.waitFor(() => expect(store.scoreOf(MAIA.address, "circle")).toBeDefined());
+    expect(store.circleEmpty()).toBe(true);
+
+    // One more, whom the circle ranks 90: empty until the rank comes, and not after.
+    store.want([MUSEU.address]);
+    await vi.waitFor(() => expect(held).toHaveLength(1));
+    expect(store.reviewsOf(MUSEU.address)).toHaveLength(1);
+    expect(store.circleEmpty()).toBe(true);
+    held.shift()!();
+    await vi.waitFor(() => expect(store.circleEmpty()).toBe(false));
     store.stop();
   });
 });
@@ -406,6 +607,23 @@ describe("the person's own review", () => {
     // (1 × 5 + 0.5 × 3) / 1.5.
     expect(card("Maia")).toHaveAccessibleDescription(/4\.3 out of 5 Rated by 2 people in your circle$/);
   });
+
+  it("is said to be theirs, not one person's in the circle, when it is the only one My circle counts", async () => {
+    const me = signedIn();
+    choseMyCircle(me);
+    const net = network({ reviews: [...jacafeReviews(), reviewOf(me, MAIA, 4)], house: HOUSE_RANKS, circle: CIRCLE_RANKS });
+    const { router } = await openReady(net);
+    await waitFor(() => expect(card("Maia")).toHaveAccessibleDescription(/ 4 out of 5 Rated by you$/));
+    // Others' counts stay as they were.
+    expect(card("Jacafé")).toHaveAccessibleDescription(/3\.3 out of 5 Rated by 2 people in your circle$/);
+
+    await act(() => router.navigate(placePath(MAIA)));
+    expect(await screen.findByText(copy.score.fromYou)).toBeInTheDocument();
+    expect(screen.queryByText(copy.score.fromCircle(1))).toBeNull();
+
+    await act(() => router.navigate("/map"));
+    expect(await screen.findByRole("button", { name: /^Maia, .*4\.0 out of 5, rated by you$/ })).toBeInTheDocument();
+  });
 });
 
 describe("the wording follows the view", () => {
@@ -421,7 +639,12 @@ describe("the wording follows the view", () => {
     expect(copy.deskExplore.sort.circleScore).toBe("Sort: My circle's score");
     expect(copy.search.sortedBy.circleScore).toBe("Best in My circle first");
     expect(copy.explore.circleLine).toBe("Scores from your circle: the people you trust, and the people they trust.");
-    expect(copy.explore.circleEmpty).toBe("Nobody in your circle has rated places here yet. House picks still has scores for you.");
+    expect(copy.explore.circleEmpty).toBe("Nobody in your circle has rated places yet. House picks still has scores for you.");
+    expect(copy.explore.circleOnlyYou).toBe("Only you have rated places in your circle so far. House picks still has scores for you.");
+    expect(copy.circle.workOutAgain).toBe("Work out my circle again");
+    expect(copy.score.ratedByYou).toBe("Rated by you");
+    expect(copy.score.fromYou).toBe("From you");
+    expect(copy.map.pinScoredYou("4.0")).toBe("4.0 out of 5, rated by you");
     expect(copy.score.outsideCircle(1)).toBe("1 person outside your circle has rated it");
     expect(copy.score.outsideCircle(2)).toBe("2 people outside your circle have rated it");
     expect(copy.score.noneInCircle).toBe("Nobody in your circle has rated it yet");
@@ -498,21 +721,27 @@ describe("the wording follows the view", () => {
   });
 });
 
-describe("a circle with nobody in it yet (brief § 6, ruling R7)", () => {
-  it("is ready, not offered Personalize again, when the scorer has no ranks at all; it says so plainly, and House picks is a tap away", async () => {
+describe("a circle with nobody in it yet (brief § 6, rulings R7, R8 and R10)", () => {
+  /** What the tab keeps of the circle's state. */
+  const keptState = () => (JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "null") as { state?: string } | null)?.state;
+
+  it("is unconfirmed when the scorer has no ranks at all: it says so plainly, offers to work it out again, and House picks is a tap away", async () => {
     signedIn();
     const net = network({ reviews: jacafeReviews(), house: HOUSE_RANKS, circle: [] });
     const user = userEvent.setup();
     await openReady(net);
+    // The scorer alone does not say the run is done: the line, and the way to work it out again, under the toggle.
+    expect(await screen.findByRole("button", { name: copy.circle.workOutAgain })).toBeInTheDocument();
+    expect(screen.getByText(copy.explore.circleEmpty)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(keptState()).toBe("unconfirmed");
     await waitFor(() => expect(card("Jacafé")).toHaveTextContent("4.6"));
     await circleRanksIn(net);
-    // The view stays where the person put it, and on House picks nothing is said about the circle.
     expect(housePicks()).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByText(copy.explore.circleEmpty)).toBeNull();
 
     await user.click(myCircle());
-    expect(screen.getByText(copy.explore.circleEmpty)).toBeInTheDocument();
+    // Said once, with its action: not a second time under the toggle's line.
+    expect(screen.getAllByText(copy.explore.circleEmpty)).toHaveLength(1);
     expect(card("Jacafé")).toHaveTextContent(copy.score.outsideCircle(3));
     expect(housePicks()).toBeEnabled();
     await settle();
@@ -521,10 +750,20 @@ describe("a circle with nobody in it yet (brief § 6, ruling R7)", () => {
 
     await user.click(housePicks());
     expect(card("Jacafé")).toHaveTextContent("4.6");
-    expect(screen.queryByText(copy.explore.circleEmpty)).toBeNull();
   });
 
-  it("says so when the circle's ranks are all under the line among the reviewers seen, whatever the person rated", async () => {
+  it("is ready once its scorer's ranks are found after all, published since the look, and the offer goes", async () => {
+    const me = signedIn();
+    keptCircle(me, "unconfirmed");
+    const net = network({ reviews: jacafeReviews(), house: HOUSE_RANKS, circle: CIRCLE_RANKS });
+    await openReady(net);
+    await circleRanksIn(net);
+    await waitFor(() => expect(screen.queryByRole("button", { name: copy.circle.workOutAgain })).toBeNull());
+    expect(screen.queryByText(copy.explore.circleEmpty)).toBeNull();
+    await waitFor(() => expect(keptState()).toBe("ready"));
+  });
+
+  it("says only the person has rated, when the circle's ranks are all under the line and they have rated", async () => {
     const me = signedIn();
     choseMyCircle(me);
     const net = network({
@@ -533,9 +772,10 @@ describe("a circle with nobody in it yet (brief § 6, ruling R7)", () => {
       circle: [circleRank(ALICE, 3), circleRank(BOB, 4), circleRank(ERIN, 90)],
     });
     await openReady(net);
-    expect(await screen.findByText(copy.explore.circleEmpty)).toBeInTheDocument();
-    // Their own review counts.
-    expect(card("Maia")).toHaveAccessibleDescription(/ 5 out of 5 Rated by 1 person in your circle$/);
+    expect(await screen.findByText(copy.explore.circleOnlyYou)).toBeInTheDocument();
+    expect(screen.queryByText(copy.explore.circleEmpty)).toBeNull();
+    // Their own review counts, and is said to be theirs.
+    expect(card("Maia")).toHaveAccessibleDescription(/ 5 out of 5 Rated by you$/);
   });
 
   it("is said in the list's column on a desktop, under the top bar's toggle", async () => {
@@ -547,11 +787,20 @@ describe("a circle with nobody in it yet (brief § 6, ruling R7)", () => {
     expect(column).toContainElement(line);
   });
 
-  it("is said under the toggle on the phone's map", async () => {
-    choseMyCircle(signedIn());
+  it("is said under the toggle on the phone's map, in the toggle's own block: no gap of its own when there is none", async () => {
+    const me = signedIn();
+    keptCircle(me);
     const net = network({ reviews: jacafeReviews(), house: HOUSE_RANKS, circle: [] });
+    const user = userEvent.setup();
     await openReady(net, "/map");
-    expect(await screen.findByText(copy.explore.circleEmpty)).toBeInTheDocument();
+    await circleRanksIn(net);
+    const block = toggle().parentElement!;
+    // The toggle and its line share one block of the column over the map, apart from the search field.
+    expect(within(block).queryByRole("link")).toBeNull();
+    expect(block.textContent).not.toContain(copy.explore.circleEmpty);
+
+    await user.click(myCircle());
+    expect(block).toContainElement(screen.getByText(copy.explore.circleEmpty));
   });
 
   it("says nothing when someone in the circle has rated places here", async () => {
@@ -612,18 +861,27 @@ describe("no numbers about people, in either view (decision 19)", () => {
     expectNoNumbersAboutPeople(NUMBERS);
   });
 
-  it.each([
-    ["Explore's cards", "/", DESKTOP],
-    ["the map's pins", "/map", undefined],
-    ["a chain's rows", `/chain/${chainSlug(CONFEITARIA)}`, undefined],
-  ])("never shows one in %s, in My circle", async (_, path, px) => {
-    choseMyCircle(signedIn());
+  it.each(
+    (["house", "circle"] as const).flatMap((view) => [
+      ["Explore's cards", "/", DESKTOP, view] as const,
+      ["the map's pins", "/map", undefined, view] as const,
+      ["a chain's rows", `/chain/${chainSlug(CONFEITARIA)}`, undefined, view] as const,
+    ]),
+  )("never shows one in %s (%s), in the %s view, with both views' ranks read", async (_, path, px, view) => {
+    const me = signedIn();
+    if (view === "circle") choseMyCircle(me);
+    else keptCircle(me);
     const net = network({ reviews: reviews(), house, circle });
     await openReady(net, path, px);
     await circleRanksIn(net);
-    if (path === "/map") await screen.findByRole("button", { name: /^Jacafé, .*rated by 2 people in your circle/ });
-    else if (path === "/") await waitFor(() => expect(card("Jacafé")).toHaveTextContent(copy.score.ratedByCircle(2)));
-    else await screen.findByText(copy.score.ratedByCircle(1));
+    const mine = view === "circle";
+    if (path === "/map") {
+      await screen.findByRole("button", { name: mine ? /^Jacafé, .*rated by 2 people in your circle/ : /^Jacafé, .*rated by 2 people the house trusts/ });
+    } else if (path === "/") {
+      await waitFor(() => expect(card("Jacafé")).toHaveTextContent(mine ? copy.score.ratedByCircle(2) : copy.score.ratedByHouse(2)));
+    } else {
+      await screen.findByText(mine ? copy.score.ratedByCircle(1) : copy.score.ratedByHouse(1));
+    }
     expectNoNumbersAboutPeople(NUMBERS);
   });
 });

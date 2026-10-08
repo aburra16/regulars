@@ -270,6 +270,13 @@ export const copy = {
     // DRAFT for Avi
     /** Beside `ready` or `recently`: puts the notice away. */
     dismiss: "Dismiss",
+    // DRAFT for Avi
+    /**
+     * Beside the line that says nobody in the circle has rated places yet, when the person's scorer
+     * was found with no ranks: whether its run is done, under way or failed is not known (ruling R10).
+     * Signs in to Brainstorm if needed, and follows the run, or starts one.
+     */
+    workOutAgain: "Work out my circle again",
   },
   score: {
     /** On a card with no score, under the hours, when nobody has reviewed the place (SCREENS.md, wording patterns). */
@@ -298,6 +305,12 @@ export const copy = {
     // DRAFT for Avi
     /** The same as `fromHouse`, in the place page's score panel: "From 3 people in your circle". */
     fromCircle: (n: number) => `From ${people(n)} ${inYourCircle}`,
+    // DRAFT for Avi
+    /** In place of `ratedByCircle(1)` when the one person in the circle who rated the place is the person signed in. */
+    ratedByYou: "Rated by you",
+    // DRAFT for Avi
+    /** In place of `fromCircle(1)`, in the place page's score panel, likewise. */
+    fromYou: "From you",
     // DRAFT for Avi
     /**
      * A place with reviews, none by people in the person's circle, on a card or a row while My circle
@@ -774,10 +787,13 @@ export const copy = {
     // DRAFT for Avi
     /**
      * Under that, while My circle is the view and nobody in the person's circle has rated any place
-     * they have seen (a circle of one: the brief's § 6, ruling R7). The toggle above keeps House picks
-     * one tap away; nothing switches the view for them.
+     * they have seen this session (a circle of one: the brief's § 6, rulings R7 and R8). The toggle
+     * above keeps House picks one tap away; nothing switches the view for them.
      */
-    circleEmpty: "Nobody in your circle has rated places here yet. House picks still has scores for you.",
+    circleEmpty: "Nobody in your circle has rated places yet. House picks still has scores for you.",
+    // DRAFT for Avi
+    /** The same, when the person signed in has rated places, and nobody else in their circle has (ruling R8). */
+    circleOnlyYou: "Only you have rated places in your circle so far. House picks still has scores for you.",
     howThisWorks: "How this works",
     /** The filter chips, for a screen reader. */
     filtersLabel: "Filter places",
@@ -862,6 +878,9 @@ export const copy = {
     // DRAFT for Avi
     /** The same, while My circle is the view: "4.6 out of 5, rated by 3 people in your circle". */
     pinScoredCircle: (score: string, n: number) => `${score} out of 5, rated by ${people(n)} ${inYourCircle}`,
+    // DRAFT for Avi
+    /** The same, when the one person in the circle who rated it is the person signed in: "4.0 out of 5, rated by you". */
+    pinScoredYou: (score: string) => `${score} out of 5, rated by you`,
     // DRAFT for Avi
     /** The same, for a place whose reviews are being counted. */
     pinCounting: "reviews being counted",

@@ -132,10 +132,24 @@ function BeFirst({ name, wide }: { name: string; wide: boolean }): JSX.Element {
 /**
  * The view's score (Place.dc.html, DeskPlace.dc.html): the big number, its stars, and how many
  * people it comes from, in the trust colour: people the house trusts, or people in the person's
- * circle (`circle`). A screen reader hears the stars' "4.6 out of 5" in place of the bare number, under
- * the view's name. Never anything about one of the people (decision 19).
+ * circle (`circle`), or the person alone ("From you", `yours`). A screen reader hears the stars'
+ * "4.6 out of 5" in place of the bare number, under the view's name. Never anything about one of the
+ * people (decision 19).
  */
-function ViewScore({ score, counted, circle, wide }: { score: number; counted: number; circle: boolean; wide: boolean }): JSX.Element {
+function ViewScore({
+  score,
+  counted,
+  circle,
+  yours,
+  wide,
+}: {
+  score: number;
+  counted: number;
+  circle: boolean;
+  yours: boolean;
+  wide: boolean;
+}): JSX.Element {
+  const from = !circle ? copy.score.fromHouse(counted) : yours ? copy.score.fromYou : copy.score.fromCircle(counted);
   return (
     <section className={filledPanel(wide)}>
       <h2 className="sr-only">{circle ? copy.view.circle : copy.view.house}</h2>
@@ -148,9 +162,7 @@ function ViewScore({ score, counted, circle, wide }: { score: number; counted: n
         </p>
         <div className="flex flex-col gap-1.5">
           <Stars value={score} size="panel" />
-          <p className="m-0 text-[15px] font-semibold text-trust">
-            {circle ? copy.score.fromCircle(counted) : copy.score.fromHouse(counted)}
-          </p>
+          <p className="m-0 text-[15px] font-semibold text-trust">{from}</p>
         </div>
       </div>
     </section>
@@ -256,7 +268,9 @@ function NoScore({
 function PanelOf({ name, wide, shown, onRetry }: { name: string; wide: boolean; shown: ShownScore; onRetry(): void }): JSX.Element {
   switch (shown.kind) {
     case "scored":
-      return <ViewScore score={shown.score} counted={shown.counted} circle={shown.circle === true} wide={wide} />;
+      return (
+        <ViewScore score={shown.score} counted={shown.counted} circle={shown.circle === true} yours={shown.yours === true} wide={wide} />
+      );
     case "reading":
       return <Reading wide={wide} />;
     case "failed":

@@ -3,9 +3,11 @@ import { type JSX, type ReactNode, type RefObject, useId, useRef } from "react";
 import { useAccount } from "../account/AccountProvider.tsx";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
+import { useCircleEmptiness } from "../score/useScore.ts";
 import { retryButton } from "../ui/Banner.tsx";
 import { WorkingIcon } from "../ui/icons.tsx";
 import { useCircle } from "./CircleProvider.tsx";
+import { emptyCircleLine } from "./EmptyCircle.tsx";
 
 /** Personalize: the fill of a chosen chip, a chip's shape, 44 px tall. */
 const personalizeButton =
@@ -24,7 +26,9 @@ const quietLine = "m-0 text-secondary leading-[1.4] text-muted";
  * does; once tapped, while their add-on or phone app asks them, a line that says so, with Cancel; then
  * the banner while Brainstorm works it out (the brief's screen 11); then a quiet notice that it is
  * ready, which never switches the view. When Brainstorm is busy, the run failed or Brainstorm could not
- * be reached, a quiet line with Try again; House picks works all along.
+ * be reached, a quiet line with Try again; House picks works all along. When the returning visitor's
+ * look found a scorer with no ranks (unconfirmed), the line that says nobody in their circle has rated
+ * places yet, with Work out my circle again, in either view (ruling R10).
  *
  * What it says is in a polite status that is always there while the panel is, so a screen reader hears
  * each change. A button that goes leaves the focus on the panel; Dismiss, which puts the panel away,
@@ -33,6 +37,7 @@ const quietLine = "m-0 text-secondary leading-[1.4] text-muted";
 export function Personalize({ holdFocus }: { holdFocus: RefObject<HTMLElement | null> }): JSX.Element | null {
   const { account } = useAccount();
   const circle = useCircle();
+  const { youRated } = useCircleEmptiness();
   const panel = useRef<HTMLDivElement>(null);
   const lineId = useId();
   if (!config.features.circle || account === undefined) return null;
@@ -97,6 +102,18 @@ export function Personalize({ holdFocus }: { holdFocus: RefObject<HTMLElement | 
           className={wordButton}
         >
           {copy.circle.dismiss}
+        </button>
+      );
+      break;
+    case "unconfirmed":
+      message = (
+        <p id={lineId} className="m-0 text-secondary leading-[1.4] font-semibold text-trust">
+          {emptyCircleLine(youRated)}
+        </p>
+      );
+      actions = (
+        <button type="button" aria-describedby={lineId} onClick={fromPanel(circle.personalize)} className={`mt-2 ${retryButton}`}>
+          {copy.circle.workOutAgain}
         </button>
       );
       break;

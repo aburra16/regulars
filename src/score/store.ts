@@ -67,7 +67,8 @@ const NAME_BATCH = 100;
  * How many batches of reviews are read at once; the rest wait their turn. Each batch is two requests
  * to every review relay, side by side: one by the places' `a`, one by their `d` (decision 16). So a
  * relay has at most four of the store's review requests open at a time, however many places a page asks
- * about. Names are read the same way, two batches at a time, and so are the house's ranks.
+ * about. Names are read the same way, two batches at a time; and ranks two reads at a time to each
+ * scorer's relay, whichever view they are for: House picks' and My circle's share a relay's turn.
  */
 export const BATCHES_IN_FLIGHT = 2;
 
@@ -265,7 +266,8 @@ class Lane {
  * house's scorer is read from the house's list (kind 10040) when it is first needed; the circle's is
  * the person's own, given once their circle is ready, and `owner` is that person, whose own review
  * counts in full and who is never asked about. Each view is read the same way: `RANK_BATCH` people to
- * a read, two reads at a time, and the same rules when a read fails (`ScoresStore.#readRanks`).
+ * a read, in the turn of its scorer's relay (two reads at a time, shared with any other view whose
+ * scorer is there), and the same rules when a read fails (`ScoresStore.#readRanks`).
  */
 class RankBook {
   state: ViewState = "idle";
@@ -279,8 +281,6 @@ class RankBook {
   asked = new Set<string>();
   /** The reviewers the scorer has answered for: someone it does not rank is outside. */
   readonly known = new Set<string>();
-  /** Its reads, two at a time. */
-  readonly lane = new Lane(BATCHES_IN_FLIGHT);
   /** Aborts its reads once it is let go of: the circle went, or is another person's now. */
   readonly #ended = new AbortController();
 
@@ -296,15 +296,13 @@ class RankBook {
     return this.#ended.signal;
   }
 
-  /** Lets go of it: its reads stop, and those waiting their turn are forgotten. */
+  /** Lets go of it: its reads stop, and those waiting their turn are skipped when it comes. */
   end(): void {
     this.#ended.abort();
-    this.lane.clear();
   }
 
   /** Stops its reads: the people asked about and not answered are asked about again when the store starts again. */
   pause(): void {
-    this.lane.clear();
     this.asked = new Set(this.known);
     if (this.scorer === undefined) this.scorerRead = undefined;
     if (this.state === "loading") this.state = "idle";
@@ -326,12 +324,29 @@ class RankBook {
   }
 }
 
-/** The person's circle, as the store holds it: whose it is, its scorer, and its ranks. */
+/**
+ * The person's circle, as the store holds it: whose it is, its scorer, whether its run is known to be
+ * done (`confirmed`), and its ranks; and the last answer to whether it is empty (`circleEmpty`), at
+ * which version of the scores.
+ */
 interface Circle {
   owner: string;
   scorer: Scorer;
+  confirmed: boolean;
   book: RankBook;
+  empty: boolean;
+  emptyAt: number;
 }
+
+/** A circle of `owner`'s from `scorer`, with no rank read yet. */
+const newCircle = (owner: string, scorer: Scorer, confirmed: boolean): Circle => ({
+  owner,
+  scorer,
+  confirmed,
+  book: new RankBook(async () => scorer, owner),
+  empty: false,
+  emptyAt: -1,
+});
 
 /** Newest first; at the same time, the lowest id first, as `isNewer` orders them. */
 const newestFirst = (a: Review, b: Review) => b.createdAt - a.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -438,6 +453,8 @@ export class ScoresStore {
   readonly #reviewLane = new Lane(BATCHES_IN_FLIGHT);
   /** The name reads, two batches at a time. */
   readonly #nameLane = new Lane(BATCHES_IN_FLIGHT);
+  /** The rank reads, two at a time to each scorer's relay, by its address: both views take turns in one. */
+  readonly #rankLanes = new Map<string, Lane>();
   /**
    * The person's own reviews, by `keyOf`, with the relays that took each: shown before the relays send
    * them back (`noteOwnReview`), and kept for this tab (`HELD_REVIEWS_KEY`) until then, so that a
@@ -516,54 +533,87 @@ export class ScoresStore {
   }
 
   /**
-   * The person's circle, once it is ready: `owner`, whose own reviews count in full in it, and the
-   * scorer that publishes its ranks; undefined when there is none (nobody signed in, or not ready).
-   * Its ranks are read for every reviewer seen so far, and for each new one, as the house's are, so
-   * that toggling to My circle reads nothing. Another person's circle, or none, lets go of the ranks
-   * held, and stops their reads.
+   * The person's circle, once it is ready: `owner`, whose own reviews count in full in it, the scorer
+   * that publishes its ranks, and whether its run is known to be done (`confirmed`, by default yes);
+   * undefined when there is none (nobody signed in, or not ready). Its ranks are read for every
+   * reviewer seen so far, and for each new one, as the house's are, so that toggling to My circle reads
+   * nothing. Another person's circle, another scorer, or none, lets go of the ranks held, and stops
+   * their reads. So does the circle being confirmed: its ranks are read afresh, as a run that was not
+   * known to be done may have published them since (ruling R10). While it is not confirmed, Try again
+   * (`refresh`) reads them afresh too.
    */
-  readonly setCircle = (circle: { owner: string; scorer: Scorer } | undefined): void => {
+  readonly setCircle = (circle: { owner: string; scorer: Scorer; confirmed?: boolean } | undefined): void => {
     const now = this.#circle;
+    const confirmed = circle?.confirmed ?? true;
     const same =
       circle === undefined
         ? now === null
         : now !== null &&
           now.owner === circle.owner &&
           now.scorer.pubkey === circle.scorer.pubkey &&
-          now.scorer.relay === circle.scorer.relay;
+          now.scorer.relay === circle.scorer.relay &&
+          now.confirmed === confirmed;
     if (same) return;
     now?.book.end();
-    if (circle === undefined) {
-      this.#circle = null;
-    } else {
-      const scorer = { pubkey: circle.scorer.pubkey, relay: circle.scorer.relay };
-      this.#circle = { owner: circle.owner, scorer, book: new RankBook(async () => scorer, circle.owner) };
-    }
+    this.#circle =
+      circle === undefined
+        ? null
+        : newCircle(circle.owner, { pubkey: circle.scorer.pubkey, relay: circle.scorer.relay }, confirmed);
     this.#changed("scores");
     this.#weigh();
   };
 
   /**
-   * Whether the person's circle is ready and has nobody in it here (brief § 6, ruling R7): its ranks
-   * are in for every reviewer seen, and none of them but the person is at or above the line, which a
-   * scorer with no ranks at all gives too. False until a reviewer other than the person is seen, and
-   * while any of them is still to be ranked.
+   * Whether the person's circle has nobody in it among the reviewers seen this session (brief § 6,
+   * rulings R7 and R8): its ranks are in for them, and none of them but the person is at or above the
+   * line, which a scorer with no ranks at all gives too. False until a reviewer other than the person
+   * is seen. While some are still to be ranked (a page scrolled, a map panned), the last answer stands,
+   * unless one already ranked is in the circle: a line that says so does not come and go with each read.
    */
   circleEmpty(): boolean {
     const circle = this.#circle;
-    if (circle === null || circle.book.state !== "ready") return false;
-    const { line } = config.scoring;
-    let seen = false;
-    for (const reviews of this.#reviewsByAddress().values()) {
-      for (const review of reviews) {
-        if (review.reviewer === circle.owner) continue;
-        if (!circle.book.known.has(review.reviewer)) return false;
-        if (weightOf(circle.book.ranks.get(review.reviewer), line) > 0) return false;
-        seen = true;
+    if (circle === null) return false;
+    if (circle.emptyAt === this.#scoresVersion) return circle.empty;
+    const { book, owner } = circle;
+    let answer: boolean | undefined = false;
+    if (book.state !== "unavailable") {
+      const { line } = config.scoring;
+      let seen = false;
+      let unknown = false;
+      let inside = false;
+      for (const reviews of this.#reviewsByAddress().values()) {
+        for (const review of reviews) {
+          if (review.reviewer === owner) continue;
+          if (!book.known.has(review.reviewer)) unknown = true;
+          else if (weightOf(book.ranks.get(review.reviewer), line) > 0) inside = true;
+          else seen = true;
+        }
       }
+      answer = inside ? false : unknown ? undefined : seen;
     }
-    return seen;
+    if (answer !== undefined) circle.empty = answer;
+    circle.emptyAt = this.#scoresVersion;
+    return circle.empty;
   }
+
+  /** Whether the person whose circle it is has reviewed any place seen this session (ruling R8). */
+  circleOwnerRated(): boolean {
+    const owner = this.#circle?.owner;
+    if (owner === undefined) return false;
+    for (const reviews of this.#reviewsByAddress().values()) {
+      if (reviews.some((review) => review.reviewer === owner)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Whether the circle of `owner` from the scorer `scorer` has given a rank to anyone yet: that its run
+   * has published, so a circle not confirmed before is (ruling R10). False for any other circle.
+   */
+  readonly circleRanked = (owner: string | undefined, scorer: string | undefined): boolean => {
+    const circle = this.#circle;
+    return circle !== null && circle.owner === owner && circle.scorer.pubkey === scorer && circle.book.ranks.size > 0;
+  };
 
   /** The ranks of `view`: none for My circle while the person has no circle ready. */
   #bookOf(view: View): RankBook | null {
@@ -594,6 +644,7 @@ export class ScoresStore {
     this.#flushTimer = undefined;
     this.#reviewLane.clear();
     this.#nameLane.clear();
+    for (const lane of this.#rankLanes.values()) lane.clear();
     for (const book of this.#books()) book.pause();
     this.#failed.clear();
     this.#asked = new Set([...this.#asked].filter((address) => this.#read.has(address)));
@@ -725,7 +776,8 @@ export class ScoresStore {
   /**
    * Reads the reviews of every place asked for again, and puts what comes in place of what was read:
    * a review the relays no longer send is gone (it may have been deleted). Names that could not be
-   * read are asked for again, and so is each view (House picks, My circle) that was unavailable.
+   * read are asked for again, and so is each view (House picks, My circle) that was unavailable; and
+   * a circle whose run is not known to be done is read afresh, its ranks perhaps published since.
    */
   readonly refresh = (): void => {
     this.#refreshedAt = Date.now();
@@ -739,6 +791,12 @@ export class ScoresStore {
     }
     let retried = false;
     for (const book of this.#books()) if (book.retry()) retried = true;
+    const circle = this.#circle;
+    if (circle !== null && !circle.confirmed) {
+      circle.book.end();
+      this.#circle = newCircle(circle.owner, circle.scorer, false);
+      retried = true;
+    }
     if (retried) this.#changed("scores");
     this.#queueFlush();
     this.#weigh();
@@ -930,11 +988,11 @@ export class ScoresStore {
   }
 
   /**
-   * Asks each view's scorer about the reviewers it has not been asked about, `RANK_BATCH` to a read,
-   * two reads at a time for each (`BATCHES_IN_FLIGHT`): House picks', and My circle's once the person's
-   * circle is ready, whose own reviews need no rank. Nothing is asked of a scorer until a place has a
-   * review: then the house's scorer is read, once a session, and the ranks each scorer gives. A view
-   * that is unavailable is asked nothing until it is tried again (`refresh`, back on line).
+   * Asks each view's scorer about the reviewers it has not been asked about, `RANK_BATCH` to a read:
+   * House picks', and My circle's once the person's circle is ready, whose own reviews need no rank.
+   * Nothing is asked of a scorer until a place has a review: then the house's scorer is read, once a
+   * session, and the ranks each scorer gives (`#rank`). A view that is unavailable is asked nothing
+   * until it is tried again (`refresh`, back on line).
    */
   #weigh(): void {
     const life = this.#life;
@@ -954,33 +1012,56 @@ export class ScoresStore {
         book.state = "loading";
         started = true;
       }
-      const signal = AbortSignal.any([life.signal, book.ended]);
-      for (const people of runsOf([...unknown], RANK_BATCH)) {
-        book.lane.add(signal, () => this.#readRanks(book, people, signal));
-      }
+      void this.#rank(book, [...unknown], AbortSignal.any([life.signal, book.ended]));
     }
     if (started) this.#changed("scores");
   }
 
+  /** The turn of the scorers' relay at `relay`: two rank reads at a time (`BATCHES_IN_FLIGHT`), whichever view they are for. */
+  #rankLaneFor(relay: string): Lane {
+    let lane = this.#rankLanes.get(relay);
+    if (lane === undefined) {
+      lane = new Lane(BATCHES_IN_FLIGHT);
+      this.#rankLanes.set(relay, lane);
+    }
+    return lane;
+  }
+
   /**
-   * Reads the ranks of `people` from `book`'s scorer. When the house names no scorer, or its list
-   * can't be read, House picks is unavailable. When the ranks can't be read, only `people` are let go
-   * of: they are asked about again at the next try (another place's reviews, the device back on line,
-   * `refresh`), and the ranks known stay, with the places they score. Only before any rank has come is
-   * the view unavailable then: there is none to keep. A book let go of meanwhile takes nothing.
+   * Finds `book`'s scorer (the house's is read once a session), then queues the reads of the ranks of
+   * `people`, `RANK_BATCH` to a read, in the turn of the scorer's relay. When the house names no scorer,
+   * or its list can't be read, House picks is unavailable.
    */
-  async #readRanks(book: RankBook, people: readonly string[], signal: AbortSignal): Promise<void> {
+  async #rank(book: RankBook, people: readonly string[], signal: AbortSignal): Promise<void> {
+    let scorer: Scorer | null;
     try {
-      book.scorerRead ??= book.find(signal).then((scorer) => {
-        book.scorer = scorer;
-        return scorer;
+      book.scorerRead ??= book.find(signal).then((found) => {
+        book.scorer = found;
+        return found;
       });
-      const scorer = await book.scorerRead;
-      if (scorer === null) {
-        debug("the house names no scorer, or its list could not be read");
-        this.#unavailable(book);
-        return;
-      }
+      scorer = await book.scorerRead;
+    } catch {
+      // Aborted: the people are asked about again if the store starts again.
+      return;
+    }
+    if (signal.aborted) return;
+    if (scorer === null) {
+      debug("the house names no scorer, or its list could not be read");
+      this.#unavailable(book);
+      return;
+    }
+    const lane = this.#rankLaneFor(scorer.relay);
+    for (const batch of runsOf(people, RANK_BATCH)) lane.add(signal, () => this.#readRanks(book, scorer, batch, signal));
+  }
+
+  /**
+   * Reads the ranks of `people` from `book`'s `scorer`. When they can't be read, only `people` are let
+   * go of: they are asked about again at the next try (another place's reviews, the device back on
+   * line, `refresh`), and the ranks known stay, with the places they score. Only before any rank has
+   * come is the view unavailable then: there is none to keep. A book let go of meanwhile takes nothing.
+   */
+  async #readRanks(book: RankBook, scorer: Scorer, people: readonly string[], signal: AbortSignal): Promise<void> {
+    try {
       const ranks = await fetchRanks(this.#readers(scorer.relay), scorer.pubkey, people, signal);
       if (signal.aborted) return;
       for (const pubkey of people) {

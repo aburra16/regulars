@@ -68,9 +68,8 @@ export function entryAddress(entry: Entry): string {
 function scoreWords(score: ShownScore): string | undefined {
   switch (score.kind) {
     case "scored":
-      return score.circle
-        ? copy.map.pinScoredCircle(formatScore(score.score), score.counted)
-        : copy.map.pinScored(formatScore(score.score), score.counted);
+      if (!score.circle) return copy.map.pinScored(formatScore(score.score), score.counted);
+      return score.yours ? copy.map.pinScoredYou(formatScore(score.score)) : copy.map.pinScoredCircle(formatScore(score.score), score.counted);
     case "pending":
       return copy.map.pinCounting;
     case "unscored":

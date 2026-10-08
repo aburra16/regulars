@@ -82,6 +82,7 @@ const toggle = () => screen.getByRole("group", { name: copy.view.label });
 const housePicks = () => within(toggle()).getByRole("button", { name: copy.view.house });
 const myCircle = () => within(toggle()).getByRole("button", { name: /^My circle/ });
 const personalize = () => screen.findByRole("button", { name: copy.circle.personalize });
+const workOutAgain = () => screen.findByRole("button", { name: copy.circle.workOutAgain });
 /** Whether the places are still listed: House picks keeps working. */
 const placesListed = () => document.querySelectorAll('main a[href^="/place/"]').length > 0;
 
@@ -204,14 +205,18 @@ describe("a returning visitor", () => {
     expect(housePicks()).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("has My circle ready, and empty, when their scorer has no ranks yet: not Personalize again each session (ruling R7)", async () => {
+  it("is unconfirmed when their scorer has no ranks yet: empty for now, with Work out my circle again (rulings R7, R10)", async () => {
     signedIn();
     brainstorm.scorerOf.mockResolvedValue(SCORER_AT);
     await open();
-    await waitFor(() => expect(myCircle()).toBeEnabled());
+    // The scorer exists from Brainstorm's sign-in on: whether a run is done, under way or failed is not known.
+    expect(await workOutAgain()).toBeInTheDocument();
+    expect(screen.getByText(copy.explore.circleEmpty)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
-    expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+    expect(myCircle()).toBeEnabled();
     expect(housePicks()).toHaveAttribute("aria-pressed", "true");
+    expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+    expect(JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "null")).toMatchObject({ state: "unconfirmed", scorer: SCORER_AT });
   });
 
   it("is offered Personalize when Brainstorm has no scorer for them", async () => {
@@ -244,6 +249,54 @@ describe("a returning visitor", () => {
     await open();
     expect(await personalize()).toBeInTheDocument();
     expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an unconfirmed circle, worked out again (ruling R10)", () => {
+  /** A returning visitor whose scorer has no ranks: unconfirmed, until they tap Work out my circle again. */
+  async function unconfirmed() {
+    signedIn();
+    brainstorm.scorerOf.mockResolvedValue(SCORER_AT);
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await open();
+    await user.click(await workOutAgain());
+    return user;
+  }
+
+  it("is confirmed empty when the latest run is done, and kept so for the session", async () => {
+    brainstorm.latestRun.mockResolvedValue(run("done"));
+    await unconfirmed();
+    expect(await screen.findByText(copy.circle.ready)).toBeInTheDocument();
+    expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: copy.circle.workOutAgain })).toBeNull();
+    expect(myCircle()).toBeEnabled();
+    await waitFor(() => expect(JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "null")).toMatchObject({ state: "ready" }));
+  });
+
+  it("follows a run under way, starting none, and is ready with its ranks once it is done", async () => {
+    brainstorm.latestRun.mockResolvedValue(run("running"));
+    await unconfirmed();
+    expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    brainstorm.latestRun.mockResolvedValue(run("done"));
+    ranks = [rankEvent()];
+    await after(POLL_MS);
+    expect(await screen.findByText(copy.circle.ready)).toBeInTheDocument();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+    expect(myCircle()).toBeEnabled();
+  });
+
+  it.each([
+    ["the latest run failed", () => run("failed")],
+    ["there is no run at all", () => null],
+  ])("starts a run when %s", async (_, latest) => {
+    brainstorm.latestRun.mockResolvedValueOnce(latest()).mockResolvedValue(run("running"));
+    brainstorm.startRun.mockResolvedValue({ run: run("running") });
+    await unconfirmed();
+    expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
+    await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("button", { name: copy.circle.workOutAgain })).toBeNull();
   });
 });
 

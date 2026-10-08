@@ -20,16 +20,16 @@ import type { ReadState, ViewState } from "./store.ts";
  *   review is folded, and nothing is scored from unweighted stars.
  *
  * The last three are from My circle when `circle` is set, and from House picks otherwise: the words
- * that go with them name the view. On the place's own page, for the person signed in who has reviewed
- * it (`seenBy`), `yours` says so, and they are not counted among `others`, `starless` or `reviewers`
- * (ruling R15).
+ * that go with them name the view. For the person signed in who has reviewed it (`seenBy`), `yours`
+ * says so: on `unscored` and `unavailable`, they are not counted among `others`, `starless` or
+ * `reviewers` (ruling R15); on a `scored` from My circle, the one counted is them.
  */
 export type ShownScore =
   | { kind: "none" }
   | { kind: "reading" }
   | { kind: "failed" }
   | { kind: "pending" }
-  | { kind: "scored"; score: number; counted: number; circle?: true }
+  | { kind: "scored"; score: number; counted: number; yours?: true; circle?: true }
   | { kind: "unscored"; others: number; starless: number; yours?: true; circle?: true }
   | { kind: "unavailable"; reviewers: number; yours?: true; circle?: true };
 
@@ -96,15 +96,30 @@ export function reviewOf(score: PlaceScore | undefined, pubkey: string | undefin
 }
 
 /**
+ * Whether `shown` is a score from My circle whose one counted review is `mine`: the person's own,
+ * which always counts there (brief § 5), and nobody else's with stars.
+ */
+const onlyMine = (shown: ShownScore, score: PlaceScore, mine: Review): shown is Extract<ShownScore, { kind: "scored" }> =>
+  shown.kind === "scored" &&
+  shown.circle === true &&
+  shown.counted === 1 &&
+  mine.stars !== null &&
+  score.inside.some((review) => review.id === mine.id);
+
+/**
  * What the slot shows the person who wrote `mine`, one of the place's reviews (`score`'s), on its own
  * page and on every list's card: "You've rated it" (`yours`), and the others counted without them
  * (rulings R15, R16). Not whether the view counts their review: they come off the count they are in,
- * inside the view with no stars, or outside, and the line says the same either way. As it was, with
- * no review of theirs, and for a place with a score, whose line counts no one as "other". The same
- * object each time for the same slot and review, so a card given it need not be drawn again.
+ * inside the view with no stars, or outside, and the line says the same either way. In My circle,
+ * where their review always counts, a score that is theirs alone says so ("Rated by you"), rather
+ * than "1 person in your circle". As it was, with no review of theirs, and for any other place with a
+ * score, whose line counts no one as "other". The same object each time for the same slot and review,
+ * so a card given it need not be drawn again.
  */
 export function seenBy(shown: ShownScore, score: PlaceScore | undefined, mine: Review | undefined): ShownScore {
-  if (mine === undefined || score === undefined || (shown.kind !== "unscored" && shown.kind !== "unavailable")) return shown;
+  if (mine === undefined || score === undefined) return shown;
+  const theirs = onlyMine(shown, score, mine);
+  if (shown.kind !== "unscored" && shown.kind !== "unavailable" && !theirs) return shown;
   let byReview = seenFor.get(shown);
   if (byReview === undefined) {
     byReview = new Map();
@@ -113,15 +128,20 @@ export function seenBy(shown: ShownScore, score: PlaceScore | undefined, mine: R
   let seen = byReview.get(mine.id);
   if (seen === undefined) {
     const isMine = (review: Review) => review.id === mine.id;
-    seen =
-      shown.kind === "unscored"
-        ? {
-            ...shown,
-            others: shown.others - (score.folded.some(isMine) ? 1 : 0),
-            starless: shown.starless - (score.inside.some(isMine) ? 1 : 0),
-            yours: true,
-          }
-        : { ...shown, reviewers: shown.reviewers - 1, yours: true };
+    if (shown.kind === "unscored") {
+      seen = {
+        ...shown,
+        others: shown.others - (score.folded.some(isMine) ? 1 : 0),
+        starless: shown.starless - (score.inside.some(isMine) ? 1 : 0),
+        yours: true,
+      };
+    } else if (shown.kind === "unavailable") {
+      seen = { ...shown, reviewers: shown.reviewers - 1, yours: true };
+    } else if (shown.kind === "scored") {
+      seen = { ...shown, yours: true };
+    } else {
+      return shown;
+    }
     byReview.set(mine.id, seen);
   }
   return seen;

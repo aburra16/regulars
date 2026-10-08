@@ -129,17 +129,18 @@ export function useScore(address: string): {
 }
 
 /**
- * Whether the person's circle is ready with nobody in it here, for the line that says so while My
- * circle is the view (brief § 6, ruling R7): `ScoresStore.circleEmpty`. False while House picks is.
+ * For the line that says the person's circle has nobody in it yet (brief § 6, rulings R7, R8): whether
+ * that is so among the reviewers seen this session (`ScoresStore.circleEmpty`, which keeps its last
+ * answer while new reviewers are ranked), and whether the person has rated places themselves
+ * (`ScoresStore.circleOwnerRated`), which the line says. Yes or no, never a number about anyone.
  */
-export function useEmptyCircle(): boolean {
-  const store = useScoresStore("useEmptyCircle");
+export function useCircleEmptiness(): { empty: boolean; youRated: boolean } {
+  const store = useScoresStore("useCircleEmptiness");
   const version = useScoresVersion(store);
-  const view = useCurrentView();
   return useMemo(() => {
     void version; // What the store gives changes with it.
-    return view === "circle" && store.circleEmpty();
-  }, [store, version, view]);
+    return { empty: store.circleEmpty(), youRated: store.circleOwnerRated() };
+  }, [store, version]);
 }
 
 /**

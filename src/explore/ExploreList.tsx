@@ -143,7 +143,7 @@ export function ViewLine({
           </Link>
         </p>
         {/* Always there, for a screen reader; its line, when there is one, a little under the one above. */}
-        <EmptyCircle className="*:mt-2" />
+        <EmptyCircle className="*:mt-2" withPersonalize />
       </div>
       {unavailable && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">

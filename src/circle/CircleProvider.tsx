@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 
 import { type Account, useAccount } from "../account/AccountProvider.tsx";
@@ -35,10 +36,13 @@ import { forgetToken, readToken } from "./token.ts";
  *
  * Only the tap starts this. The one thing asked of Brainstorm without it is the returning visitor's
  * look: once a session, after the places have loaded, a signed-in tab asks Brainstorm's setup (no
- * token, and it creates nothing) whether the person has a scorer, and its relay whether it answers.
- * If so, they personalized before, and My circle is ready at once: with no ranks on the relay, ready
- * and empty, a circle of one, which My circle says plainly (ruling R7), rather than offer Personalize
- * again each session.
+ * token, and it creates nothing) whether the person has a scorer, and its relay whether it has ranks.
+ * If so, they personalized before, and My circle is ready at once. A scorer with no ranks is not
+ * enough to say their circle was worked out (it exists from their sign-in to Brainstorm on, whether the
+ * run is done, under way or failed): it is "unconfirmed", empty for now, which My circle says plainly,
+ * with Work out my circle again (rulings R7, R10). That runs the tap's flow: a done run confirms it,
+ * empty, for the session; one under way is followed; with a failed run, or none, one is started. A rank
+ * by the scorer found later (the scores store reads them) confirms it too.
  *
  * Where it is, is kept for the tab (`CIRCLE_KEY`, sessionStorage), so a reload carries on polling the
  * run under way, and starts none (Review Focus 3). Signing out forgets it, and Brainstorm's token
@@ -57,6 +61,11 @@ export type CircleState =
   | "working"
   /** Ready: its scorer can be read. */
   | "ready"
+  /**
+   * The returning visitor's look found a scorer with no ranks: ready to show, empty, though whether
+   * its run is done, under way or failed is not known. Work out my circle again finds out (ruling R10).
+   */
+  | "unconfirmed"
   /** Ready, from a run Brainstorm made lately, as it would not start another. */
   | "recently"
   /** Brainstorm would not start a run (too many from this address), and the person has none yet. */
@@ -87,13 +96,13 @@ export const MISSED_POLLS = 3;
 /** The person's circle, and what can be done about it. */
 export interface CircleValue {
   state: CircleState;
-  /** Whether My circle can be shown: the state is ready or recently, and the scorer known. */
+  /** Whether My circle can be shown: the state is ready, recently or unconfirmed, and the scorer known. */
   ready: boolean;
   /** Who publishes the person's circle's ranks, and where: known once it is ready. */
   scorer?: Scorer;
   /** Whether the quiet notice that it is ready ("ready" or "recently") is to be shown. */
   notice: boolean;
-  /** Asks Brainstorm to work out the circle: the person's tap. Only while it is off, busy, failed or unavailable. */
+  /** Asks Brainstorm to work out the circle: the person's tap. Only while it is off, unconfirmed, busy, failed or unavailable. */
   personalize(): void;
   /** The same, from Try again. */
   retry(): void;
@@ -129,7 +138,16 @@ export function useCircle(): CircleValue {
 /** The states that are kept: the others last only while the page is open. */
 type KeptState = Exclude<CircleState, "checking" | "signing">;
 
-const KEPT: ReadonlySet<string> = new Set<KeptState>(["off", "working", "ready", "recently", "busy", "failed", "unavailable"]);
+const KEPT: ReadonlySet<string> = new Set<KeptState>([
+  "off",
+  "working",
+  "ready",
+  "recently",
+  "unconfirmed",
+  "busy",
+  "failed",
+  "unavailable",
+]);
 
 /** What is kept for the tab: whose circle, where it is, since when its run has been followed, and its scorer once ready. */
 interface Kept {
@@ -173,7 +191,7 @@ function readKept(pubkey: string): Kept | null {
   if (state === "working") {
     return typeof kept.since === "number" && Number.isFinite(kept.since) ? { pubkey, state, since: kept.since } : null;
   }
-  if (state === "ready" || state === "recently") {
+  if (state === "ready" || state === "recently" || state === "unconfirmed") {
     const scorer = asScorer(kept.scorer);
     return scorer === undefined ? null : { pubkey, state, scorer, notice: kept.notice === true };
   }
@@ -294,31 +312,29 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 
 /**
  * The person's scorer, once its ranks can be read: the one Brainstorm's setup names for them (no
- * token), with its relay answering. With `ranks`, the relay must also hold a rank by it: the sign,
- * while a run is followed with no token to look at it, that the run has published. Without, the relay
- * need only answer: a run that is done has published what it has, which for a circle of one may be
- * nothing, and a scorer that exists is a circle worked out before (ruling R7). Null when Brainstorm
- * names no scorer yet, or a rank was asked for and there is none. Throws when Brainstorm or the relay
- * cannot be reached, or `step.signal` aborts.
+ * token), with its relay answering; and whether the relay holds a rank by it (`ranked`): the sign,
+ * without a run to look at, that their circle has been worked out and published. A scorer with none
+ * may be a circle of one, or one whose run is under way or failed (ruling R10). Null when Brainstorm
+ * names no scorer yet. Throws when Brainstorm or the relay cannot be reached, or `step.signal` aborts.
  */
-async function readableScorer(client: Client, step: Step, ranks: boolean): Promise<Scorer | null> {
+async function findScorer(client: Client, step: Step): Promise<{ scorer: Scorer; ranked: boolean } | null> {
   const scorer = await client.scorerOf(step.pubkey, step.signal);
   if (scorer === null) return null;
   const filter = { kinds: [RANK_KIND], authors: [scorer.pubkey], limit: 1 };
   const values = await readAll(step.readers(scorer.relay), filter, step.signal);
-  return !ranks || ranksFrom(values, scorer.pubkey).size > 0 ? scorer : null;
+  return { scorer, ranked: ranksFrom(values, scorer.pubkey).size > 0 };
 }
 
 /**
- * The returning visitor's look: ready at once when they personalized before, their scorer named and
- * its relay answering, with ranks or none (ruling R7: a circle with nobody in it is ready, and empty);
- * otherwise off, quietly.
+ * The returning visitor's look: ready at once when they personalized before and their scorer has
+ * ranks; "unconfirmed" when it has none (ruling R10); otherwise off, quietly.
  */
 async function check(step: Step): Promise<void> {
   try {
     const client = await loadClient();
-    const scorer = await readableScorer(client, step, false);
-    step.set(scorer === null ? { state: "off", flow: null } : { state: "ready", scorer, notice: false, flow: null });
+    const found = await findScorer(client, step);
+    if (found === null) return step.set({ state: "off", flow: null });
+    step.set({ state: found.ranked ? "ready" : "unconfirmed", scorer: found.scorer, notice: false, flow: null });
   } catch {
     // Brainstorm or the relay could not be reached: Personalize is offered, and says more if tapped.
     step.set({ state: "off", flow: null });
@@ -346,11 +362,13 @@ async function follow(client: Client, step: Step, token: string | null, since: n
         if (now === null) return step.set({ state: "off", flow: null });
         const where = client.runState(now);
         if (where === "failed") return step.set({ state: "failed", flow: null });
-        const scorer = where === "done" ? await readableScorer(client, step, false) : null;
-        if (scorer !== null) return step.set({ state: "ready", scorer, notice: true, flow: null });
+        // A run that is done has published what it has, which for a circle of one may be nothing.
+        const found = where === "done" ? await findScorer(client, step) : null;
+        if (found !== null) return step.set({ state: "ready", scorer: found.scorer, notice: true, flow: null });
       } else {
-        const scorer = await readableScorer(client, step, true);
-        if (scorer !== null) return step.set({ state: "ready", scorer, notice: true, flow: null });
+        // With no run to look at, only a rank by the scorer says it has published.
+        const found = await findScorer(client, step);
+        if (found?.ranked === true) return step.set({ state: "ready", scorer: found.scorer, notice: true, flow: null });
       }
       missed = 0;
     } catch (error) {
@@ -444,8 +462,8 @@ async function start(step: Step, account: Account): Promise<void> {
   step.set({ since });
   if (recently && client.runState(run) === "done") {
     try {
-      const scorer = await readableScorer(client, step, false);
-      if (scorer !== null) return step.set({ state: "recently", scorer, notice: true, flow: null });
+      const found = await findScorer(client, step);
+      if (found !== null) return step.set({ state: "recently", scorer: found.scorer, notice: true, flow: null });
     } catch {
       if (signal.aborted) return;
       // Not readable yet: followed below, as any done run.
@@ -465,8 +483,8 @@ async function resume(step: Step, since: number): Promise<void> {
   await follow(client, step, readToken(step.pubkey), since);
 }
 
-/** The states in which Personalize, or Try again, can be tapped. */
-const CAN_START: ReadonlySet<CircleState> = new Set<CircleState>(["off", "busy", "failed", "unavailable"]);
+/** The states in which Personalize, Try again or Work out my circle again can be tapped. */
+const CAN_START: ReadonlySet<CircleState> = new Set<CircleState>(["off", "unconfirmed", "busy", "failed", "unavailable"]);
 
 /**
  * Holds the person's circle for the parts of the app below it (`useCircle`): the toggle, the view and
@@ -537,7 +555,7 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
     if (state === "working") {
       // Kept once a run is known; until then, what was kept before stays.
       if (since !== undefined) keep({ pubkey, state, since });
-    } else if ((state === "ready" || state === "recently") && scorer !== undefined) {
+    } else if ((state === "ready" || state === "recently" || state === "unconfirmed") && scorer !== undefined) {
       keep({ pubkey, state, scorer, notice });
     } else {
       keep({ pubkey, state });
@@ -572,20 +590,32 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
     setShown((now) => (now.notice ? { ...now, state: now.state === "recently" ? "ready" : now.state, notice: false } : now));
   }, []);
 
-  const ready = (shown.state === "ready" || shown.state === "recently") && shown.scorer !== undefined;
+  const ready =
+    (shown.state === "ready" || shown.state === "recently" || shown.state === "unconfirmed") && shown.scorer !== undefined;
 
   // The scores store reads the circle's ranks once it is ready, beside the house's, so that toggling
-  // to My circle reads nothing; before the page is drawn, so My circle never shows without them asked for.
+  // to My circle reads nothing; before the page is drawn, so My circle never shows without them asked
+  // for. An unconfirmed circle's are read afresh once it is confirmed (ruling R10).
   const owner = ready ? shown.who : undefined;
   const scorerKey = ready ? shown.scorer?.pubkey : undefined;
   const scorerRelay = ready ? shown.scorer?.relay : undefined;
+  const confirmed = shown.state !== "unconfirmed";
   useLayoutEffect(() => {
     store.setCircle(
       owner !== undefined && scorerKey !== undefined && scorerRelay !== undefined
-        ? { owner, scorer: { pubkey: scorerKey, relay: scorerRelay } }
+        ? { owner, scorer: { pubkey: scorerKey, relay: scorerRelay }, confirmed }
         : undefined,
     );
-  }, [store, owner, scorerKey, scorerRelay]);
+  }, [store, owner, scorerKey, scorerRelay, confirmed]);
+
+  // A rank by the scorer of an unconfirmed circle, found by the store since the look: its run has
+  // published, so the circle is confirmed, quietly (ruling R10).
+  const rankedNow = useCallback(() => store.circleRanked(owner, scorerKey), [store, owner, scorerKey]);
+  const ranked = useSyncExternalStore(store.subscribe, rankedNow);
+  useEffect(() => {
+    if (!ranked) return;
+    setShown((now) => (now.state === "unconfirmed" && now.scorer?.pubkey === scorerKey ? { ...now, state: "ready" } : now));
+  }, [ranked, scorerKey]);
 
   const value = useMemo<CircleValue>(
     () => ({
