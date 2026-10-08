@@ -175,6 +175,11 @@ export const copy = {
     /** The stars, for a screen reader: "4.5 out of 5". */
     starsLabel: (n: number) => `${n.toLocaleString("en", { maximumFractionDigits: 1 })} out of 5`,
   },
+  reviews: {
+    // DRAFT for Avi
+    /** A reviewer whose profile gives no name, or none that can be shown (Review Focus 4): never a code. */
+    someone: "Someone",
+  },
   /**
    * Where the map and the place details come from. `mapTiler` and `openStreetMap` are the words in
    * those lines that link to each source's terms.

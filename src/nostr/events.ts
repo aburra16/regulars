@@ -21,6 +21,25 @@ export interface RelayReader {
   req(filter: NostrFilter, signal: AbortSignal): AsyncIterable<NostrEvent>;
 }
 
+/** Every value `reader` sends for `filter`, once it has sent them all. Throws as `req` does. */
+export async function readAll(reader: RelayReader, filter: NostrFilter, signal: AbortSignal): Promise<unknown[]> {
+  const values: unknown[] = [];
+  for await (const value of reader.req(filter, signal)) values.push(value);
+  return values;
+}
+
+/** What a read from one relay adds to its filter (`config.relayReadExtras`), such as a NIP-50 `search`. */
+export type ReadExtras = Readonly<Pick<NostrFilter, "search">>;
+
+/**
+ * `reader`, adding `extras` to every filter it sends: what its relay is asked on top of what a read
+ * asks for. With no extras it is `reader` itself.
+ */
+export function withReadExtras(reader: RelayReader, extras: ReadExtras | undefined): RelayReader {
+  if (extras === undefined) return reader;
+  return { req: (filter, signal) => reader.req({ ...filter, ...extras }, signal) };
+}
+
 const HEX_128 = /^[0-9a-f]{128}$/;
 
 const isText = (value: unknown): value is string => typeof value === "string";

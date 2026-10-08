@@ -62,6 +62,7 @@ describe("reviewTemplate (decision 17)", () => {
       id: signed.id,
       reviewer: getPublicKey(secret),
       address: JACAFE,
+      d: `place:${JACAFE}`,
       stars: 4,
       text: "Get the bolo",
       createdAt: NOW,

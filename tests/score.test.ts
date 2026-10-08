@@ -17,6 +17,7 @@ function reviewBy(reviewer: string, stars: number | null): Review {
     id: made.toString(16).padStart(64, "0"),
     reviewer,
     address: PLACE,
+    d: `place:${PLACE}`,
     stars,
     text: stars === null ? "Lovely terrace." : "",
     createdAt: 1_700_000_000 + made,

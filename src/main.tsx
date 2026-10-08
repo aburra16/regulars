@@ -30,6 +30,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { HereProvider } from "./location/HereProvider.tsx";
 import { PlacesProvider } from "./places/store.tsx";
 import { routes } from "./routes.tsx";
+import { ScoresProvider } from "./score/ScoresProvider.tsx";
 import { forgetScrollOfFreshVisit } from "./shell/scrollKey.ts";
 import { APP_ROOT_ID } from "./ui/lockPage.ts";
 
@@ -40,14 +41,17 @@ if (!root) throw new Error(`Missing #${APP_ROOT_ID} element in index.html`);
 forgetScrollOfFreshVisit();
 const router = createBrowserRouter(routes);
 
-// The places load once for the whole app; where they are near is named from their towns; the
-// pages, and the shell around them, come from the router.
+// The places load once for the whole app; the reviews, ranks and names of the places that pages ask
+// about are read once a session (nothing until a page asks); where the places are near is named from
+// their towns; the pages, and the shell around them, come from the router.
 createRoot(root).render(
   <StrictMode>
     <PlacesProvider>
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <ScoresProvider>
+        <HereProvider>
+          <RouterProvider router={router} />
+        </HereProvider>
+      </ScoresProvider>
     </PlacesProvider>
   </StrictMode>,
 );

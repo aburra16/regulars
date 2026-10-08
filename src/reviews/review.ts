@@ -16,6 +16,12 @@ export interface Review {
   /** The reviewed place's address, `39999:<pubkey>:<d>`. */
   address: string;
   /**
+   * The review's own `d`, which with the reviewer names it (`34259:<reviewer>:<d>`), as a removal
+   * must. Usually `place:` and the address (decision 17), but a review written elsewhere may hold the
+   * bare address or anything else. Empty when the event has no `d` tag, as NIP-01 reads it.
+   */
+  d: string;
+  /**
    * More than 0 and up to 5, not always whole (a rating of 0.9 is 4.5); null when the review gives
    * no stars it can be scored by.
    */
@@ -91,6 +97,7 @@ function reviewIn(ev: NostrEvent): Review | null {
     id: ev.id,
     reviewer: ev.pubkey,
     address,
+    d: firstTag(ev, "d") ?? "",
     stars: starsOf(ev.tags),
     text: ev.content,
     createdAt: ev.created_at,
@@ -133,6 +140,21 @@ export function latestReviews(values: readonly unknown[]): Review[] {
     const key = `${review.reviewer} ${review.address}`;
     const current = kept.get(key);
     if (current === undefined || isNewer(stamp(review), stamp(current))) kept.set(key, review);
+  }
+  return [...kept.values()];
+}
+
+/**
+ * One review per person among `reviews`: each one's newest (at the same time, the lowest id), in the
+ * order their first review came. `latestReviews` keeps a person's reviews of two places apart, which
+ * a place filed twice (the same OSM id under two addresses, brief § 4.3) needs undone: merged, its
+ * reviews give each person one voice, the newest review winning.
+ */
+export function newestPerReviewer(reviews: readonly Review[]): Review[] {
+  const kept = new Map<string, Review>();
+  for (const review of reviews) {
+    const current = kept.get(review.reviewer);
+    if (current === undefined || isNewer(stamp(review), stamp(current))) kept.set(review.reviewer, review);
   }
   return [...kept.values()];
 }

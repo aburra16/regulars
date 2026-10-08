@@ -5,9 +5,11 @@ import { expect } from "vitest";
 
 import { copy } from "../../src/copy/en";
 import { HereProvider } from "../../src/location/HereProvider";
+import type { RelayReader } from "../../src/nostr/events";
 import { writeSaved } from "../../src/places/cache";
 import { PlacesProvider, usePlaces } from "../../src/places/store";
 import { routes } from "../../src/routes";
+import { ScoresProvider } from "../../src/score/ScoresProvider";
 import { createMemoryReader } from "./memoryReader";
 
 export const PHONE = 390;
@@ -45,21 +47,28 @@ export interface OpenOptions {
   entries?: InitialEntry[];
   /** How long the relay waits before it answers, in milliseconds. Default: no wait. */
   delayMs?: number;
+  /**
+   * The reader of each relay the scores store reads (reviews, the house's ranks, names). Default:
+   * the app's own, as main.tsx has it; tests open no socket (tests/setup.ts), so pass readers to read.
+   */
+  readers?: (url: string) => RelayReader;
 }
 
 /**
- * The app at `path`, with the places read from `events`. It resolves once the page is past the
- * "Finding places" line, which a page that needs no places never shows.
+ * The app at `path`, with the places read from `events`, and its providers as main.tsx has them. It
+ * resolves once the page is past the "Finding places" line, which a page that needs no places never shows.
  */
-export async function openApp(path: string, { px = PHONE, events, entries, delayMs }: OpenOptions) {
+export async function openApp(path: string, { px = PHONE, events, entries, delayMs, readers }: OpenOptions) {
   setWidth(px);
   const initialEntries = entries ?? [path];
   const router = createMemoryRouter(routes, { initialEntries, initialIndex: initialEntries.length - 1 });
   const view = render(
     <PlacesProvider reader={createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <ScoresProvider readers={readers}>
+        <HereProvider>
+          <RouterProvider router={router} />
+        </HereProvider>
+      </ScoresProvider>
     </PlacesProvider>,
   );
   await waitFor(() => expect(screen.queryByText(copy.load.loading)).not.toBeInTheDocument());
@@ -83,9 +92,11 @@ export async function openAppWithSaved(path: string, saved: NostrEvent[], latest
   const view = render(
     <PlacesProvider reader={createMemoryReader(latest, { delayMs: 200 })}>
       <Probe />
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <ScoresProvider>
+        <HereProvider>
+          <RouterProvider router={router} />
+        </HereProvider>
+      </ScoresProvider>
     </PlacesProvider>,
   );
   await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent(/^\d+ cache$/));
