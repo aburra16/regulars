@@ -30,6 +30,12 @@ import { type PlaceScore, scorePlace } from "./score.ts";
 /** Where the house's view stands: not needed yet, being read, read, or not to be had. */
 export type HouseState = "idle" | "loading" | "ready" | "unavailable";
 
+/**
+ * Where the reading of a place's reviews stands: being read (or waiting its turn), read, or failed
+ * (no review relay answered; `refresh` reads it again).
+ */
+export type ReadState = "reading" | "read" | "failed";
+
 /** The most places one request for reviews names. */
 const REVIEW_BATCH = 100;
 
@@ -41,6 +47,14 @@ const REVIEW_LIMIT = 500;
 
 /** The most people one request for profiles names. */
 const NAME_BATCH = 100;
+
+/**
+ * How many batches of reviews are read at once; the rest wait their turn. Each batch is two requests
+ * to every review relay, side by side: one by the places' `a`, one by their `d` (decision 16). So a
+ * relay has at most four of the store's review requests open at a time, however many places a page asks
+ * about. Names are read the same way, two batches at a time.
+ */
+export const BATCHES_IN_FLIGHT = 2;
 
 /**
  * How long the store gathers what pages ask for before it reads it, from the first ask: a list shown
@@ -86,6 +100,43 @@ function runsOf<T>(items: readonly T[], size: number): T[][] {
   const runs: T[][] = [];
   for (let start = 0; start < items.length; start += size) runs.push(items.slice(start, start + size));
   return runs;
+}
+
+/**
+ * Runs reads at most `capacity` at a time, in the order they are queued. A read whose signal has
+ * aborted by its turn is skipped; its places are read again in the next round.
+ */
+class Lane {
+  readonly #capacity: number;
+  #running = 0;
+  readonly #queue: { signal: AbortSignal; read: () => Promise<void> }[] = [];
+
+  constructor(capacity: number) {
+    this.#capacity = capacity;
+  }
+
+  /** Queues `read`, which starts once fewer than `capacity` reads are running. */
+  add(signal: AbortSignal, read: () => Promise<void>): void {
+    this.#queue.push({ signal, read });
+    this.#next();
+  }
+
+  /** Forgets every read that has not started. */
+  clear(): void {
+    this.#queue.length = 0;
+  }
+
+  #next(): void {
+    while (this.#running < this.#capacity && this.#queue.length > 0) {
+      const { signal, read } = this.#queue.shift()!;
+      if (signal.aborted) continue;
+      this.#running += 1;
+      void read().finally(() => {
+        this.#running -= 1;
+        this.#next();
+      });
+    }
+  }
 }
 
 /** Newest first; at the same time, the lowest id first, as `isNewer` orders them. */
@@ -172,10 +223,16 @@ export class ScoresStore {
 
   /** The places pages have asked for, and the other filings of each. */
   readonly #wanted = new Set<string>();
-  /** The places asked of the relays this round, answered or not. */
+  /** The places asked of the relays this round, answered or not, and those waiting their turn. */
   #asked = new Set<string>();
   /** The review events of each place, from the latest read of it that a relay answered. */
   readonly #read = new Map<string, NostrEvent[]>();
+  /** The places no review relay answered for, since the last `refresh`. */
+  readonly #failed = new Set<string>();
+  /** The review reads, two batches at a time. */
+  readonly #reviewLane = new Lane(BATCHES_IN_FLIGHT);
+  /** The name reads, two batches at a time. */
+  readonly #nameLane = new Lane(BATCHES_IN_FLIGHT);
   /** The person's own reviews, by `keyOf`: shown before the relays send them back (`noteOwnReview`). */
   readonly #own = new Map<string, NostrEvent>();
   /** The reviews the person removed, by `keyOf`: hidden up to the removal's time (`noteRemoval`). */
@@ -244,6 +301,9 @@ export class ScoresStore {
     this.#roundSignal = null;
     clearTimeout(this.#flushTimer);
     this.#flushTimer = undefined;
+    this.#reviewLane.clear();
+    this.#nameLane.clear();
+    this.#failed.clear();
     this.#asked = new Set([...this.#asked].filter((address) => this.#read.has(address)));
     this.#namesAsked = new Set(this.#namesKnown);
     this.#ranksAsked = new Set(this.#ranksKnown);
@@ -281,7 +341,10 @@ export class ScoresStore {
         added = true;
       }
     }
-    if (added) this.#queueFlush();
+    if (!added) return;
+    this.#queueFlush();
+    // The places asked for are being read now: pages say so (`readStateOf`), when there is anything to read.
+    if (config.reviewRelays.length > 0) this.#changed("scores");
   }
 
   /** Asks for the names of the people with `pubkeys`. */
@@ -307,6 +370,20 @@ export class ScoresStore {
   /** The place at `address`'s reviews, as `scoreOf` takes them, newest first. Empty until read. */
   reviewsOf(address: string): Review[] {
     return this.#viewOf(address)?.reviews ?? [];
+  }
+
+  /**
+   * Where the reading of the place at `address` stands, across all its filings: read once every
+   * filing has been; failed when no review relay answered for one of them; reading while it is asked
+   * for, or waits its turn. Undefined for a place no page has asked about, and always when there are
+   * no review relays: nothing is read, so nothing is being read either.
+   */
+  readStateOf(address: string): ReadState | undefined {
+    if (config.reviewRelays.length === 0) return undefined;
+    const filings = this.#filings.get(address) ?? [address];
+    if (filings.every((filing) => this.#read.has(filing))) return "read";
+    if (filings.some((filing) => this.#failed.has(filing))) return "failed";
+    return filings.some((filing) => this.#wanted.has(filing)) ? "reading" : undefined;
   }
 
   /**
@@ -347,6 +424,11 @@ export class ScoresStore {
     this.#newRound();
     this.#asked = new Set();
     this.#namesAsked = new Set(this.#namesKnown);
+    if (this.#failed.size > 0) {
+      // They are being read again.
+      this.#failed.clear();
+      this.#changed("scores");
+    }
     if (this.#house === "unavailable") {
       // Its scorer again if it named none or could not be read; the ranks the scorer did not give.
       if (this.#scorer === null) {
@@ -392,8 +474,9 @@ export class ScoresStore {
     this.#changed("reviews");
   };
 
-  /** Aborts the review reads of this round, and starts the next. */
+  /** Aborts the review reads of this round, forgets those waiting their turn, and starts the next. */
   #newRound(): void {
+    this.#reviewLane.clear();
     this.#round.abort();
     this.#round = new AbortController();
     this.#roundSignal = this.#life === null ? null : AbortSignal.any([this.#life.signal, this.#round.signal]);
@@ -425,16 +508,18 @@ export class ScoresStore {
     // With no review relays (development, unless set), nothing is read at all.
     if (life === null || round === null || config.reviewRelays.length === 0) return;
 
+    // Each batch is read from every review relay, by a and by d: two requests each. Two batches are
+    // read at a time (`BATCHES_IN_FLIGHT`); the rest wait their turn, and count as asked meanwhile.
     const places = [...this.#wanted].filter((address) => !this.#asked.has(address));
     for (const batch of runsOf(places, REVIEW_BATCH)) {
       for (const address of batch) this.#asked.add(address);
-      void this.#readReviews(batch, round);
+      this.#reviewLane.add(round, () => this.#readReviews(batch, round));
     }
 
     const people = [...this.#namesWanted].filter((pubkey) => !this.#namesAsked.has(pubkey));
     for (const batch of runsOf(people, NAME_BATCH)) {
       for (const pubkey of batch) this.#namesAsked.add(pubkey);
-      void this.#readNames(batch, life.signal);
+      this.#nameLane.add(life.signal, () => this.#readNames(batch, life.signal));
     }
   }
 
@@ -460,8 +545,12 @@ export class ScoresStore {
     const answered = reads.flatMap((read) => (read.status === "fulfilled" ? [read.value] : []));
     if (answered.length === 0) {
       debug("no review relay answered", reads);
+      // What these places had stays; they say their reading failed until `refresh` tries again.
+      for (const address of batch) this.#failed.add(address);
+      this.#changed("scores");
       return;
     }
+    for (const address of batch) this.#failed.delete(address);
 
     const byPlace = new Map(batch.map((address) => [address, [] as NostrEvent[]]));
     const events = new Map<string, NostrEvent>();

@@ -5,7 +5,7 @@ import { copy } from "../copy/en.ts";
 import type { Review } from "../reviews/review.ts";
 import type { PlaceScore } from "./score.ts";
 import { type HouseState, useScoresStore } from "./ScoresProvider.tsx";
-import type { ReviewCoordinate, ScoresStore } from "./store.ts";
+import type { ReadState, ReviewCoordinate, ScoresStore } from "./store.ts";
 
 /*
  * What pages ask the scores store for: places' scores and reviews, and reviewers' names. They give
@@ -45,11 +45,14 @@ function useSameList(items: readonly string[]): readonly string[] {
  * view stands. Asks for their reviews the first time each is asked for, all of them in one go: a
  * page asks for its whole list at once, not a card at a time. A place is missing from `scores` until
  * its reviews have been read, and always when there are no review relays. `pending` holds the
- * places that have reviews and no score yet, while the house is asked about their reviewers.
+ * places that have reviews and no score yet, while the house is asked about their reviewers. `reads`
+ * says where the reading of each place stands (`ScoresStore.readStateOf`); a place is missing from it
+ * when there are no review relays.
  */
 export function useScores(addresses: readonly string[]): {
   scores: Map<string, PlaceScore>;
   pending: ReadonlySet<string>;
+  reads: ReadonlyMap<string, ReadState>;
   house: HouseState;
 } {
   const store = useScoresStore("useScores");
@@ -62,20 +65,29 @@ export function useScores(addresses: readonly string[]): {
     void version; // What the store gives changes with it.
     const scores = new Map<string, PlaceScore>();
     const pending = new Set<string>();
+    const reads = new Map<string, ReadState>();
     for (const address of asked) {
       const score = store.scoreOf(address);
       if (score !== undefined) scores.set(address, score);
       else if (store.reviewsOf(address).length > 0) pending.add(address);
+      const read = store.readStateOf(address);
+      if (read !== undefined) reads.set(address, read);
     }
-    return { scores, pending, house: store.house };
+    return { scores, pending, reads, house: store.house };
   }, [store, asked, version]);
 }
 
 /**
  * One place's score, as `useScores` gives it, and its reviews: one per person, across all its
- * filings, newest first, whether they count in the score or are folded. Empty until read.
+ * filings, newest first, whether they count in the score or are folded. Empty until read. `read`
+ * says where the reading of them stands; undefined when there are no review relays.
  */
-export function useScore(address: string): { score: PlaceScore | undefined; reviews: Review[]; house: HouseState } {
+export function useScore(address: string): {
+  score: PlaceScore | undefined;
+  reviews: Review[];
+  read: ReadState | undefined;
+  house: HouseState;
+} {
   const store = useScoresStore("useScore");
   const version = useScoresVersion(store);
 
@@ -83,7 +95,12 @@ export function useScore(address: string): { score: PlaceScore | undefined; revi
 
   return useMemo(() => {
     void version; // What the store gives changes with it.
-    return { score: store.scoreOf(address), reviews: store.reviewsOf(address), house: store.house };
+    return {
+      score: store.scoreOf(address),
+      reviews: store.reviewsOf(address),
+      read: store.readStateOf(address),
+      house: store.house,
+    };
   }, [store, address, version]);
 }
 

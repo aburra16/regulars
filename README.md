@@ -70,6 +70,7 @@ Pull requests and other branches run the Test workflow (`.github/workflows/test.
 - **One request for the list.** The app reads the whole list in one request of up to 10,000 places (`DEFAULT_PAGE_SIZE` in `src/places/load.ts`), and assumes the relay's limit (its `max_limit`) allows that many. A relay with a lower limit sends a shorter answer, which the app takes for the whole list: a device that has a fuller copy keeps it, but a first visit shows only what came.
 - **No more than 10,000 places at one `created_at`.** Paging goes back by time, and cannot get past a second that holds more places than one request returns. The importer must spread a larger run over more than one second.
 - **The MapTiler key's allowed origins** must include `askregulars.world` and `localhost` (for development), or the map stays blank.
+- **Reviews are read in batches of 100 places, two batches at a time.** A page asks for all its places at once (`src/score/store.ts`). Each batch is two requests to every review relay, side by side: one by the places' `a` tag and one by their `d`, so reviews written by other apps with a `d` alone are found too (decision 16). A relay therefore has at most four of the app's review requests open at once (`BATCHES_IN_FLIGHT`); the other batches wait their turn. Each request asks for at most 500 reviews, and there is no paging yet: a batch of places with more reviews than that between them is cut short. Names are read 100 people to a request, two requests at a time.
 
 ## Data and licence
 

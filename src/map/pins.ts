@@ -50,7 +50,10 @@ export function entryAddress(entry: Entry): string {
   return isChain(entry) ? entry.nearby[0]!.place.address : entry.place.address;
 }
 
-/** What a place's pin says of its score to a screen reader, as the pill or the ring says it to the eye. */
+/**
+ * What a place's pin says of its score to a screen reader, as the pill or the ring says it to the
+ * eye: its score, or why it has none. Nothing while its reviews are being read.
+ */
 function scoreWords(score: ShownScore): string | undefined {
   switch (score.kind) {
     case "scored":
@@ -60,25 +63,56 @@ function scoreWords(score: ShownScore): string | undefined {
     case "unscored":
     case "unavailable":
       return copy.map.pinNoScore;
+    case "failed":
+      return copy.map.pinFailed;
     case "none":
+      return copy.map.unrated;
+    case "reading":
       return undefined;
   }
 }
 
-const NO_SCORE: ShownScore = { kind: "none" };
+/** The words a place's pin is named by, before its score: kept so a score can be put to them without working out the hours again. */
+const spokenParts = new WeakMap<Pin, { name: string; kind: string; hours: string }>();
+
+/** Each place's pin with its score put to it, by the pin it was put to: the same pin for the same score. */
+const withScore = new WeakMap<Pin, { score: ShownScore; pin: Pin }>();
+
+/**
+ * `pins` (from `pinsFor`) with each place's score from the house's view (`scoreOf`) put to it: a
+ * scored place is a pill with its score, any other a ring, and each says which to a screen reader.
+ * The hours are not worked out again, and a pin whose score is the same object as last time is the
+ * same pin, so a map is redrawn only where a score changed.
+ */
+export function scorePins(pins: readonly Pin[], scoreOf: (address: string) => ShownScore): Pin[] {
+  return pins.map((pin) => {
+    const parts = spokenParts.get(pin);
+    // A chain's pin has no score of its own.
+    if (parts === undefined) return pin;
+    const score = scoreOf(pin.address);
+    if (score.kind === "none") return pin;
+    const last = withScore.get(pin);
+    if (last?.score === score) return last.pin;
+    const scored: Pin = { ...pin, name: copy.map.placePin(parts.name, parts.kind, parts.hours, scoreWords(score)) };
+    if (score.kind === "scored") scored.label = formatScore(score.score);
+    withScore.set(pin, { score, pin: scored });
+    return scored;
+  });
+}
 
 /**
  * A pin for each entry of a list: a place's at the place, a chain's at its nearest place with how
- * many of its places are in the list. A place with a score from the house's view (`scoreOf`) is a
- * pill with the score; any other is a ring. `locale` and `now` give the hours a screen reader hears.
+ * many of its places are in the list. Each place is a ring that says nobody has reviewed it, until
+ * its score is put to it (`scorePins`, or `scoreOf` here). `locale` and `now` give the hours a
+ * screen reader hears.
  */
 export function pinsFor(
   entries: readonly Entry[],
   locale: string,
   now: Date,
-  scoreOf: (address: string) => ShownScore = () => NO_SCORE,
+  scoreOf?: (address: string) => ShownScore,
 ): Pin[] {
-  return entries.map((entry) => {
+  const pins = entries.map((entry): Pin => {
     if (isChain(entry)) {
       const nearest = entry.nearby[0]!.place;
       return {
@@ -91,22 +125,22 @@ export function pinsFor(
       };
     }
     const { place } = entry;
-    const score = scoreOf(place.address);
+    const parts = {
+      name: place.name,
+      kind: placeKindLabel(place.category, place.cuisine),
+      hours: openLine(openState(place, now), locale, "card"),
+    };
     const pin: Pin = {
       address: place.address,
       lat: place.lat,
       lon: place.lon,
       category: place.category,
-      name: copy.map.placePin(
-        place.name,
-        placeKindLabel(place.category, place.cuisine),
-        openLine(openState(place, now), locale, "card"),
-        scoreWords(score),
-      ),
+      name: copy.map.placePin(parts.name, parts.kind, parts.hours, copy.map.unrated),
     };
-    if (score.kind === "scored") pin.label = formatScore(score.score);
+    spokenParts.set(pin, parts);
     return pin;
   });
+  return scoreOf === undefined ? pins : scorePins(pins, scoreOf);
 }
 
 /** What the map's source holds: a point for each pin, longitude first, with the pin's address and nothing else. */

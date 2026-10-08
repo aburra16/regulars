@@ -2,6 +2,7 @@ import { type JSX, useId, useMemo, useState } from "react";
 
 import { copy } from "../copy/en.ts";
 import type { Review } from "../reviews/review.ts";
+import { whenWritten } from "../reviews/when.ts";
 import type { PlaceScore } from "../score/score.ts";
 import type { HouseState } from "../score/store.ts";
 import { useNames } from "../score/useScore.ts";
@@ -30,13 +31,13 @@ function initialOf(name: string): string {
 function ReviewItem({
   review,
   name,
-  nowSeconds,
+  now,
   wide,
   folded,
 }: {
   review: Review;
   name: string;
-  nowSeconds: number;
+  now: Date;
   wide: boolean;
   folded: boolean;
 }): JSX.Element {
@@ -55,7 +56,7 @@ function ReviewItem({
           <bdi lang={scriptLang(name)}>{name}</bdi>
         </h3>
         <time dateTime={new Date(review.createdAt * 1000).toISOString()} className="shrink-0 text-caption text-muted">
-          {copy.reviews.when(nowSeconds - review.createdAt)}
+          {whenWritten(review.createdAt, now)}
         </time>
       </div>
       {review.stars !== null && <Stars value={review.stars} tone={folded ? "muted" : "accent"} />}
@@ -78,13 +79,13 @@ function ReviewItem({
 function ReviewList({
   reviews,
   names,
-  nowSeconds,
+  now,
   wide,
   folded,
 }: {
   reviews: readonly Review[];
   names: Map<string, string>;
-  nowSeconds: number;
+  now: Date;
   wide: boolean;
   folded: boolean;
 }): JSX.Element {
@@ -95,7 +96,7 @@ function ReviewList({
           <ReviewItem
             review={review}
             name={names.get(review.reviewer) ?? copy.reviews.someone}
-            nowSeconds={nowSeconds}
+            now={now}
             wide={wide}
             folded={folded}
           />
@@ -113,25 +114,29 @@ function foldedTitle(count: number, house: HouseState, anyInside: boolean): stri
 
 /**
  * The reviews of a place with its score from the house's view (`score`; `house`, where the house's
- * view stands): those inside House picks under their heading, with "Rate this place" beside it on a
- * phone, and the folded ones in their box. `now` says how long ago each was written.
+ * view stands): those inside House picks under their heading, with "Rate this place" beside it when
+ * `rate` (a phone's page whose panel has no button), and the folded ones in their box. "Show them"
+ * opens and closes them: its one label stays, and `aria-expanded` says which. `now` says how long ago
+ * each was written.
  */
 export function Reviews({
   score,
   house,
   wide,
+  rate,
   now,
 }: {
   score: PlaceScore;
   house: HouseState;
   wide: boolean;
+  rate: boolean;
   now: Date;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const foldedId = useId();
+  const titleId = useId();
   const reviewers = useMemo(() => [...score.inside, ...score.folded].map((review) => review.reviewer), [score]);
   const names = useNames(reviewers);
-  const nowSeconds = Math.floor(now.getTime() / 1000);
   const { inside, folded } = score;
 
   return (
@@ -140,9 +145,9 @@ export function Reviews({
         <section className={`flex flex-col ${wide ? "gap-5" : "gap-[18px]"}`}>
           <div className="flex flex-wrap items-baseline justify-between gap-x-3">
             <h2 className={`m-0 font-display font-bold ${wide ? "text-[26px]" : "text-h2"}`}>{copy.reviews.heading}</h2>
-            {!wide && <RateLink />}
+            {rate && <RateLink />}
           </div>
-          <ReviewList reviews={inside} names={names} nowSeconds={nowSeconds} wide={wide} folded={false} />
+          <ReviewList reviews={inside} names={names} now={now} wide={wide} folded={false} />
         </section>
       )}
       {folded.length > 0 && (
@@ -153,22 +158,25 @@ export function Reviews({
             }`}
           >
             <div className={`flex min-w-0 flex-col gap-1.5 ${wide ? "flex-[1_1_320px]" : ""}`}>
-              <h2 className="m-0 text-body font-bold">{foldedTitle(folded.length, house, inside.length > 0)}</h2>
+              <h2 id={titleId} className="m-0 text-body font-bold">
+                {foldedTitle(folded.length, house, inside.length > 0)}
+              </h2>
               <p className="m-0 text-secondary leading-[1.45] text-muted">{copy.reviews.foldedNote}</p>
             </div>
             <button
               type="button"
               aria-expanded={open}
               aria-controls={foldedId}
+              aria-describedby={titleId}
               onClick={() => setOpen((was) => !was)}
               className="h-11 shrink-0 cursor-pointer self-start rounded-chip border-0 bg-surface px-4 font-text text-secondary font-bold text-ink wide:self-center"
             >
-              {open ? copy.reviews.hide : copy.reviews.show}
+              {copy.reviews.show}
             </button>
           </section>
           {/* Always on the page, so the button can name it as what it opens; empty and hidden while closed. */}
           <div id={foldedId} hidden={!open}>
-            {open && <ReviewList reviews={folded} names={names} nowSeconds={nowSeconds} wide={wide} folded />}
+            {open && <ReviewList reviews={folded} names={names} now={now} wide={wide} folded />}
           </div>
         </div>
       )}

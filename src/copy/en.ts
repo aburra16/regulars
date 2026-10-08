@@ -52,8 +52,8 @@ const peopleHave = (n: number) => `${people(n)} ${n === 1 ? "has" : "have"}`;
 /** How many reviews: "1 review", "4 reviews". */
 const reviewCount = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "review" : "reviews"}`;
 
-/** "1 week ago", "3 weeks ago". */
-const ago = (n: number, unit: string) => `${n.toLocaleString("en")} ${unit}${n === 1 ? "" : "s"} ago`;
+/** "a week ago", "3 weeks ago". */
+const ago = (n: number, unit: string) => (n === 1 ? `a ${unit} ago` : `${n.toLocaleString("en")} ${unit}s ago`);
 
 /** The point of view a place's score comes from before sign in, as a reviews line names it. */
 const houseTrusts = "the house trusts";
@@ -108,6 +108,8 @@ export const copy = {
     joiner: dot,
     /** The link beside where the place details come from, to the page that says more. */
     aboutData: "About this data",
+    /** A line of copy as a sentence on its own, in a panel: "2 other people have rated it." */
+    sentence: (text: string) => `${text}.`,
   },
   /** The tabs on a phone, and the links in the desktop top bar. */
   nav: {
@@ -216,8 +218,14 @@ export const copy = {
     /** A place with reviews while House picks can't be worked out: "2 people have rated it". */
     peopleRated: (n: number) => `${peopleHave(n)} rated it`,
     // DRAFT for Avi
+    /** A place with reviews by people inside House picks, none of them with stars: no score, and why. */
+    starless: (n: number) => `${people(n)} ${houseTrusts} reviewed it without stars`,
+    // DRAFT for Avi
     /** A place with reviews whose reviewers are still being looked up: no score yet, and nothing folded. */
     counting: "Reviews are being counted",
+    // DRAFT for Avi
+    /** No review relay answered for a place: said quietly, on its card and its page (which offers Try again). */
+    failed: "Reviews couldn't be loaded",
     // DRAFT for Avi
     /** One quiet line, when the house's view can't be read: every review is folded, and nothing is scored. */
     houseUnavailable: "House picks can't be worked out right now.",
@@ -245,17 +253,18 @@ export const copy = {
     /** The button that opens the folded reviews, and closes them again. */
     show: "Show them",
     // DRAFT for Avi
-    hide: "Hide them",
-    // DRAFT for Avi
-    /** When a review was written, from how many seconds ago: "Today", "Yesterday", "3 days ago", "2 weeks ago". */
-    when: (seconds: number) => {
-      const days = Math.floor(Math.max(0, seconds) / 86_400);
-      if (days === 0) return "Today";
+    /**
+     * When a review was written, from how many calendar days and whole calendar months ago:
+     * "Today", "Yesterday", "3 days ago", "a week ago", "2 weeks ago", "a month ago", "11 months ago",
+     * and "a year ago" once a full year has passed.
+     */
+    when: (days: number, months: number) => {
+      if (days <= 0) return "Today";
       if (days === 1) return "Yesterday";
       if (days < 7) return ago(days, "day");
       if (days < 30) return ago(Math.floor(days / 7), "week");
-      if (days < 365) return ago(Math.floor(days / 30), "month");
-      return ago(Math.floor(days / 365), "year");
+      if (months < 12) return ago(Math.max(1, months), "month");
+      return ago(Math.floor(months / 12), "year");
     },
   },
   /**
@@ -418,12 +427,6 @@ export const copy = {
     /** The dashed panel where the score goes, before anyone has reviewed the place (PlaceNew.dc.html). */
     beFirst: "Be the first in your circle",
     nobodyYet: (name: string) => `Nobody has reviewed ${name} yet. Yours is the one the people who trust you will see.`,
-    // DRAFT for Avi
-    /** Under "No score yet", in the panel of a place only people outside House picks have rated. */
-    othersRated: (n: number) => `${othersHave(n)} rated it.`,
-    // DRAFT for Avi
-    /** Under "No score yet", while House picks can't be worked out: how many have rated it. */
-    peopleRated: (n: number) => `${peopleHave(n)} rated it.`,
     rate: "Rate this place",
     /** The buttons under it: directions, a call, the website. One on its own is "Get directions". */
     go: "Go",
@@ -567,7 +570,10 @@ export const copy = {
      * A place's pin, for a screen reader: its name, what it is and its hours, then its score, as the
      * pill says it to the eye, or what the ring stands for: "Dose, Cafe, Open until 6 pm, no reviews yet".
      */
-    placePin: (name: string, kind: string, hours: string, score = "no reviews yet") => `${name}, ${kind}, ${hours}, ${score}`,
+    placePin: (name: string, kind: string, hours: string, score?: string) =>
+      score === undefined ? `${name}, ${kind}, ${hours}` : `${name}, ${kind}, ${hours}, ${score}`,
+    /** The score part of the pin of a place nobody has reviewed, which the ring says to the eye. */
+    unrated: "no reviews yet",
     // DRAFT for Avi
     /** The score part of a scored place's pin: "4.6 out of 5, rated by 3 people the house trusts". */
     pinScored: (score: string, n: number) => `${score} out of 5, rated by ${people(n)} ${houseTrusts}`,
@@ -577,6 +583,9 @@ export const copy = {
     // DRAFT for Avi
     /** The same, for a place with reviews and no score. */
     pinNoScore: "no score yet",
+    // DRAFT for Avi
+    /** The same, for a place whose reviews couldn't be loaded. */
+    pinFailed: "reviews couldn't be loaded",
     /** A chain's one pin, for a screen reader: "Copper Kettle Coffee, a chain, 3 locations nearby". */
     chainPin: (name: string, n: number) => `${name}, a chain, ${n.toLocaleString("en")} locations nearby`,
     /** What a chain's pin says beside its icon: "×3". */

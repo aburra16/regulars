@@ -101,6 +101,34 @@ function HouseScore({ score, counted, wide }: { score: number; counted: number; 
 }
 
 /**
+ * While the place's reviews are being read: the panel's place, waiting quietly. Nothing is said, so
+ * nothing is said that turns out untrue ("Be the first" of a place with reviews).
+ */
+function Reading({ wide }: { wide: boolean }): JSX.Element {
+  return <section aria-busy="true" className={`${filledPanel(wide)} ${wide ? "min-h-[108px]" : "min-h-[90px]"}`} />;
+}
+
+/**
+ * No review relay answered for the place: one quiet line where the score goes, and Try again, which
+ * reads the reviews of every place asked for again (`onRetry`).
+ */
+function Failed({ wide, onRetry }: { wide: boolean; onRetry(): void }): JSX.Element {
+  return (
+    <section className={filledPanel(wide)}>
+      <p className="m-0 text-[15px] font-semibold text-muted">{copy.score.failed}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="h-11 cursor-pointer self-start rounded-chip border-token border-line-strong bg-ground px-4 font-text text-secondary font-bold text-ink"
+      >
+        {copy.load.retry}
+      </button>
+      {!wide && <RateButton />}
+    </section>
+  );
+}
+
+/**
  * A place with reviews whose reviewers the house is still being asked about: a quiet line where the
  * score will be. Not "Be the first", which would be untrue, and nothing folded yet: nobody is
  * outside House picks before the house has said so.
@@ -116,17 +144,25 @@ function Counting({ wide }: { wide: boolean }): JSX.Element {
 
 /**
  * A place with reviews and no score: "No score yet", in the dashed panel of a place with none, and
- * how many have rated it. Their reviews are folded below. When House picks can't be worked out,
- * one quiet line under the panel says so.
+ * why: people the house trusts reviewed it without stars, or how many others have rated it (their
+ * reviews are folded below). When House picks can't be worked out, how many have rated it, and one
+ * quiet line under the panel says why there is no score.
  */
 function NoScore({ shown, wide }: { shown: Extract<ShownScore, { kind: "unscored" | "unavailable" }>; wide: boolean }): JSX.Element {
-  let body: string | undefined;
-  if (shown.kind === "unavailable") body = copy.place.peopleRated(shown.reviewers);
-  else if (shown.others > 0) body = copy.place.othersRated(shown.others);
+  const lines: string[] = [];
+  if (shown.kind === "unavailable") lines.push(copy.score.peopleRated(shown.reviewers));
+  else {
+    if (shown.starless > 0) lines.push(copy.score.starless(shown.starless));
+    if (shown.others > 0) lines.push(copy.score.othersRated(shown.others));
+  }
   const panel = (
     <section className={dashedPanel(wide)}>
       <h2 className="m-0 font-display text-[26px] leading-[1.1] font-extrabold tracking-display">{copy.score.noScoreYet}</h2>
-      {body !== undefined && <p className="m-0 max-w-measure text-[15px] leading-[1.45] text-ink-soft">{body}</p>}
+      {lines.map((line) => (
+        <p key={line} className="m-0 max-w-measure text-[15px] leading-[1.45] text-ink-soft">
+          {copy.common.sentence(line)}
+        </p>
+      ))}
       {!wide && <RateButton />}
     </section>
   );
@@ -142,13 +178,29 @@ function NoScore({ shown, wide }: { shown: Extract<ShownScore, { kind: "unscored
 /**
  * Where the place's score goes, under its name, by what there is to show (`ShownScore`): the house's
  * score; the reviews being counted; no score yet; or, before anyone has reviewed it, the dashed panel
- * that asks the person to be the first. On a phone "Rate this place" is in a panel with no score
- * (beside the reviews' heading when it has one); on a desktop it heads the rail (DeskPlace.dc.html).
+ * that asks the person to be the first. While the reviews are read it waits quietly; when they
+ * couldn't be, it says so, with Try again (`onRetry`). On a phone "Rate this place" is in a panel
+ * with no score (beside the reviews' heading when it has one); on a desktop it heads the rail
+ * (DeskPlace.dc.html).
  */
-export function ScorePanel({ name, wide, shown }: { name: string; wide: boolean; shown: ShownScore }): JSX.Element {
+export function ScorePanel({
+  name,
+  wide,
+  shown,
+  onRetry,
+}: {
+  name: string;
+  wide: boolean;
+  shown: ShownScore;
+  onRetry(): void;
+}): JSX.Element {
   switch (shown.kind) {
     case "scored":
       return <HouseScore score={shown.score} counted={shown.counted} wide={wide} />;
+    case "reading":
+      return <Reading wide={wide} />;
+    case "failed":
+      return <Failed wide={wide} onRetry={onRetry} />;
     case "pending":
       return <Counting wide={wide} />;
     case "unscored":

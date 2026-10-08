@@ -1120,9 +1120,12 @@ describe("Search: the order", () => {
       expect(copy.search.sortedBy.name).toBe("A to Z");
     });
 
-    it("is the page's own order for House picks' score while no place has one, and the line says it is by the score", async () => {
+    it("is nearest first for House picks' score while no place has one, and the line says it is by the score", async () => {
+      // A place with no score follows those with one, nearest first, whatever order the words found them in.
       await openSearch("/search?q=restaurante&sort=score");
-      expect(names()).toEqual(listed("restaurante"));
+      const found = names();
+      expect(found).toHaveLength(listed("restaurante").length);
+      expect(byDistance(found)).toBe(true);
       expect(
         screen.getByText(copy.search.summary(counted("restaurante"), "Funchal", copy.search.sortedBy.score)),
       ).toBeInTheDocument();

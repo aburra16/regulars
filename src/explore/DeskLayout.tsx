@@ -3,7 +3,7 @@ import { type JSX, type ReactNode, type RefObject, useId, useLayoutEffect, useMe
 import { useHere } from "../location/useLocation.ts";
 import type { Bbox } from "../map/area.ts";
 import { BaseMap, type ChosenBy, type LngLat } from "../map/BaseMap.tsx";
-import { type Entry, pinsFor } from "../map/pins.ts";
+import { type Entry, pinsFor, scorePins } from "../map/pins.ts";
 import type { Place } from "../places/place.ts";
 import type { ListScores } from "../score/useListScores.ts";
 import { useLocale } from "../shell/useLocale.ts";
@@ -125,7 +125,9 @@ export function DeskLayout({
   const listId = useId();
   // Each pin chosen from the keyboard: the focus goes to its card in the list.
   const [focusRequest, setFocusRequest] = useState(0);
-  const pins = useMemo(() => pinsFor(entries, locale, now, scores?.of), [entries, locale, now, scores]);
+  // The pins' hours are worked out when the places or the minute change; their scores, when the scores do.
+  const unscored = useMemo(() => pinsFor(entries, locale, now), [entries, locale, now]);
+  const pins = useMemo(() => (scores === undefined ? unscored : scorePins(unscored, scores.of)), [unscored, scores]);
   const [selected, setSelected] = useState(() => focus?.address);
   const [highlighted, setHighlighted] = useState<string>();
   const column = useRef<HTMLElement>(null);

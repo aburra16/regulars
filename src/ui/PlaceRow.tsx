@@ -1,4 +1,4 @@
-import { type JSX, useId, useMemo } from "react";
+import { type JSX, memo, useId, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
@@ -30,9 +30,9 @@ export interface PlaceRowProps {
 
 /**
  * What goes at the top right of a row, where a score goes (Search.dc.html, Chain.dc.html): the
- * score; "No score yet" for a place only others have rated; "No reviews yet" for one nobody has;
- * nothing while its reviews are being counted, or House picks can't be worked out, which the line
- * under it says.
+ * score; "No score yet" for a place with reviews and no score; "No reviews yet" for one nobody has;
+ * nothing while its reviews are being read or counted, when they couldn't be loaded, or when House
+ * picks can't be worked out, which the line under it says.
  */
 export function RowScore({ id, score }: { id: string; score: ShownScore }): JSX.Element | null {
   if (score.kind === "scored") return <ScoreFigure id={id} score={score.score} size="row" />;
@@ -45,16 +45,25 @@ export function RowScore({ id, score }: { id: string; score: ShownScore }): JSX.
 }
 
 /** Whether `RowScore` draws anything for `score`. */
-export const hasRowScore = (score: ShownScore): boolean => score.kind !== "pending" && score.kind !== "unavailable";
+export const hasRowScore = (score: ShownScore): boolean =>
+  score.kind === "scored" || score.kind === "none" || score.kind === "unscored";
 
 /**
  * A place in the search results (Search.dc.html): the compact form of the card, a row with a line
  * under it. Its kind on a small tile, its name (two lines at most), what it is, how far and whether
  * it is open on one line, at the top right where a score goes its score (or that it has none), and
  * under it who the score comes from. The whole row is one link to the place; the link is named by
- * the place's name, and the rest is its description.
+ * the place's name, and the rest is its description. It is `memo`: a list drawn again for another
+ * place's score does not draw this row again unless its own changed.
  */
-export function PlaceRow({ place, km, from = "list", locale, now, score = NO_SCORE }: PlaceRowProps): JSX.Element {
+export const PlaceRow = memo(function PlaceRow({
+  place,
+  km,
+  from = "list",
+  locale,
+  now,
+  score = NO_SCORE,
+}: PlaceRowProps): JSX.Element {
   const id = useId();
   const state = useMemo(() => openState(place, now), [place, now]);
   const distance = formatDistance(km, locale);
@@ -108,4 +117,4 @@ export function PlaceRow({ place, km, from = "list", locale, now, score = NO_SCO
       </div>
     </Link>
   );
-}
+});

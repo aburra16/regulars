@@ -5,7 +5,7 @@ import { copy } from "../copy/en.ts";
 import { LocationNotice } from "../location/LocationNotice.tsx";
 import { useHere } from "../location/useLocation.ts";
 import { BaseMap, type ChosenBy, type LngLat } from "../map/BaseMap.tsx";
-import { entryAddress, pinsFor } from "../map/pins.ts";
+import { entryAddress, pinsFor, scorePins } from "../map/pins.ts";
 import { useListScores } from "../score/useListScores.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
@@ -62,7 +62,9 @@ export function MapPage(): JSX.Element {
   const { entries } = useAreaEntries(searched.area);
   // The scores of every place on the map, asked for in one go: its pins and the card of the one chosen.
   const { scores } = useListScores(entries);
-  const pins = useMemo(() => pinsFor(entries, locale, now, scores.of), [entries, locale, now, scores]);
+  // The pins' hours are worked out when the places or the minute change; their scores, when the scores do.
+  const unscored = useMemo(() => pinsFor(entries, locale, now), [entries, locale, now]);
+  const pins = useMemo(() => scorePins(unscored, scores.of), [unscored, scores]);
   // Opened at a place ("See on map"): the map starts there, unless it was left somewhere else, and its pin is chosen.
   const focused = useMapFocus();
   const [selected, setSelected] = useState(() => focused?.address);

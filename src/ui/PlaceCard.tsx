@@ -1,4 +1,4 @@
-import { type JSX, useId, useMemo } from "react";
+import { type JSX, memo, useId, useMemo } from "react";
 import { Link } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
@@ -83,9 +83,10 @@ function HoursLine({ id, state, line }: { id: string; state: OpenState; line: st
  * A place in a list (Main.dc.html): its kind on a tile, its name and its score, what it is and how
  * far, and whether it is open; then the line about who rated it, or that nobody has yet. The whole
  * card is one link to the place; the link is named by the place's name, and the rest is its
- * description.
+ * description. It is `memo`: a list drawn again for another place's score does not draw this card
+ * again unless its own changed.
  */
-export function PlaceCard({
+export const PlaceCard = memo(function PlaceCard({
   place,
   km,
   variant,
@@ -150,4 +151,4 @@ export function PlaceCard({
       </div>
     </Link>
   );
-}
+});

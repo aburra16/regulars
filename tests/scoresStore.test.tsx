@@ -6,10 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import type { RelayReader } from "../src/nostr/events";
+import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
 import { REVIEW_KIND } from "../src/reviews/review";
 import { ScoresProvider } from "../src/score/ScoresProvider";
 import { FLUSH_WINDOW_MS } from "../src/score/store";
+import { useListScores } from "../src/score/useListScores";
 import { useNames, useScore, useScoreActions, useScores } from "../src/score/useScore";
 import raw from "./fixtures/funchal-items.json";
 import { DESKTOP, PHONE, resetWidth } from "./support/app";
@@ -107,6 +109,58 @@ function heldReader(events: NostrEvent[], { from = 0 }: { from?: number } = {}):
         });
       });
       yield* memory.req(filter, signal);
+    },
+  };
+}
+
+/**
+ * A reader whose every request waits until the test lets it go (`release`), and which counts how
+ * many requests for reviews by place address (`#a`) were waiting or being answered at once: the
+ * batches it had in flight.
+ */
+interface GatedReader extends MemoryReader {
+  /** Lets go of every request waiting now. Returns how many there were. */
+  release(): number;
+  /** The most `#a` requests in flight at one time. */
+  readonly mostBatches: number;
+  /** The `#a` of every request, in the order they were sent. */
+  readonly sent: (string[] | undefined)[];
+}
+
+function gatedReader(events: NostrEvent[]): GatedReader {
+  const memory = createMemoryReader(events);
+  const waiting: (() => void)[] = [];
+  const sent: (string[] | undefined)[] = [];
+  let inFlight = 0;
+  let most = 0;
+  return {
+    requests: memory.requests,
+    sent,
+    get mostBatches() {
+      return most;
+    },
+    release() {
+      const now = waiting.splice(0);
+      for (const go of now) go();
+      return now.length;
+    },
+    async *req(filter, signal) {
+      const batch = filter["#a"] !== undefined;
+      sent.push(filter["#a"]);
+      if (batch) {
+        inFlight += 1;
+        most = Math.max(most, inFlight);
+      }
+      try {
+        await new Promise<void>((resolve, reject) => {
+          if (signal.aborted) return reject(signal.reason);
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          waiting.push(resolve);
+        });
+        yield* memory.req(filter, signal);
+      } finally {
+        if (batch) inFlight -= 1;
+      }
     },
   };
 }
@@ -373,6 +427,95 @@ describe("ScoresProvider: what it reads", () => {
   });
 });
 
+describe("ScoresProvider: how much it reads at once", () => {
+  it("has at most two batches in flight to each relay, and sends the rest as those finish (a and d count as one)", async () => {
+    config.reviewRelays = [SEARCH, MIRROR];
+    const search = gatedReader([]);
+    const mirror = gatedReader([]);
+    const { readers } = network({ [SEARCH]: search, [MIRROR]: mirror });
+    const addresses = Array.from({ length: 500 }, (_, n) => placeNo(n));
+    const { result } = renderStore(() => useScores(addresses), { readers });
+
+    // Two batches go out to each relay, by a and by d; the other three wait.
+    await waitFor(() => expect(search.sent).toHaveLength(4));
+    await settle();
+    expect(search.sent).toHaveLength(4);
+    expect(mirror.sent).toHaveLength(4);
+    // Let each relay answer what it has, until every batch has been sent and answered.
+    for (let round = 0; round < 10 && (search.sent.length < 10 || result.current.scores.size < 500); round++) {
+      search.release();
+      mirror.release();
+      await settle();
+    }
+    expect(search.sent.filter((batch) => batch !== undefined)).toHaveLength(5);
+    expect(mirror.sent.filter((batch) => batch !== undefined)).toHaveLength(5);
+    expect(search.mostBatches).toBe(2);
+    expect(mirror.mostBatches).toBe(2);
+    expect(result.current.scores.size).toBe(500);
+  });
+});
+
+describe("ScoresProvider: where each place's reading stands", () => {
+  it("says a place is reading, then read; failed when no relay answers; and reading again on refresh", async () => {
+    config.reviewRelays = [SEARCH];
+    const memory = createMemoryReader([reviewOf(ALICE, JACAFE, 5)]);
+    let answer: "hold" | "fail" | "answer" = "hold";
+    let letGo: () => void = () => {};
+    const search: RelayReader = {
+      async *req(filter, signal) {
+        if (answer === "hold") {
+          await new Promise<void>((resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+            letGo = resolve;
+          });
+        }
+        if (answer === "fail") throw new Error("The relay is down");
+        yield* memory.req(filter, signal);
+      },
+    };
+    const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
+    const { result } = renderStore(
+      () => ({ list: useScores([JACAFE, OTHER]), one: useScore(JACAFE), actions: useScoreActions() }),
+      { readers },
+    );
+
+    await waitFor(() => expect(result.current.one.read).toBe("reading"));
+    expect(result.current.list.reads.get(OTHER)).toBe("reading");
+    answer = "fail";
+    act(() => letGo());
+    await waitFor(() => expect(result.current.one.read).toBe("failed"));
+    expect(result.current.list.reads.get(OTHER)).toBe("failed");
+    expect(result.current.one.score).toBeUndefined();
+
+    answer = "answer";
+    act(() => result.current.actions.refresh());
+    expect(result.current.one.read).toBe("reading");
+    await waitFor(() => expect(result.current.one.read).toBe("read"));
+    expect(result.current.list.reads.get(OTHER)).toBe("read");
+    await waitFor(() => expect(result.current.one.score?.counted).toBe(1));
+  });
+
+  it("is failed only when no relay answers: one that answers is enough", async () => {
+    config.reviewRelays = [SEARCH, MIRROR];
+    const down: RelayReader = {
+      async *req() {
+        throw new Error("The relay is down");
+      },
+    };
+    const { readers } = houseNetwork([reviewOf(ALICE, JACAFE, 5)], [rankOf(ALICE, 80)], { [MIRROR]: down });
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+    await waitFor(() => expect(result.current.read).toBe("read"));
+  });
+
+  it("has no reading to say anything about when there are no review relays", async () => {
+    const { readers } = houseNetwork([reviewOf(ALICE, JACAFE, 5)], []);
+    const { result } = renderStore(() => ({ list: useScores([JACAFE]), one: useScore(JACAFE) }), { readers });
+    await settle();
+    expect(result.current.one.read).toBeUndefined();
+    expect(result.current.list.reads.size).toBe(0);
+  });
+});
+
 describe("ScoresProvider: scores", () => {
   it("gives no score, and folds nobody, until the ranks arrive; then it scores the place", async () => {
     config.reviewRelays = [SEARCH];
@@ -595,6 +738,24 @@ describe("ScoresProvider: scores", () => {
     act(() => result.current.actions.refresh());
     await waitFor(() => expect(scoreOf(JACAFE)?.counted).toBe(2));
     expect(scoreOf(OTHER)).toBe(other);
+  });
+
+  it("gives a list's place the same thing to show while its score is the same, when another place's score changes", async () => {
+    config.reviewRelays = [SEARCH];
+    const events: NostrEvent[] = [reviewOf(ALICE, JACAFE, 5), reviewOf(BOB, OTHER, 3)];
+    const { readers } = houseNetwork(events, [rankOf(ALICE, 80), rankOf(BOB, 30)]);
+    // Only the places' addresses are read from a list's entries.
+    const entries = [JACAFE, OTHER].map((address, i) => ({ place: { address } as Place, km: i + 1 }));
+    const { result } = renderStore(() => ({ ...useListScores(entries), actions: useScoreActions() }), { readers });
+    await waitFor(() => expect(result.current.scores.of(JACAFE).kind).toBe("scored"));
+    await waitFor(() => expect(result.current.scores.of(OTHER).kind).toBe("scored"));
+    const other = result.current.scores.of(OTHER);
+
+    // A new review of Jacafé: its score changes, Other's does not, and nor does what Other shows.
+    events.push(reviewOf(BOB, JACAFE, 1));
+    act(() => result.current.actions.refresh());
+    await waitFor(() => expect(result.current.scores.of(JACAFE)).toMatchObject({ kind: "scored", counted: 2 }));
+    expect(result.current.scores.of(OTHER)).toBe(other);
   });
 
   it("does not render what shows scores again when only names come in", async () => {

@@ -15,7 +15,7 @@ import type { PlaceScore } from "../score/score.ts";
 import { type ShownScore, shownScore } from "../score/shown.ts";
 import type { HouseState } from "../score/store.ts";
 import { type ListScores, useListScores } from "../score/useListScores.ts";
-import { useScore } from "../score/useScore.ts";
+import { useScore, useScoreActions } from "../score/useScore.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
@@ -270,6 +270,8 @@ interface View {
   house: HouseState;
   nearby: PlaceDistance[];
   nearbyScores: ListScores;
+  /** Reads the reviews again, after a read no relay answered. */
+  retry(): void;
   locale: string;
   now: Date;
 }
@@ -277,10 +279,11 @@ interface View {
 /** The reviews, once the place's score is worked out and it has some. Nothing while they are counted, or when there are none. */
 function PlaceReviews({ view, wide, className = "" }: { view: View; wide: boolean; className?: string }): JSX.Element | null {
   const { shown, score, house, now } = view;
-  if (score === undefined || shown.kind === "none" || shown.kind === "pending") return null;
+  if (score === undefined || (shown.kind !== "scored" && shown.kind !== "unscored" && shown.kind !== "unavailable")) return null;
   return (
     <div className={className}>
-      <Reviews score={score} house={house} wide={wide} now={now} />
+      {/* On a phone, "Rate this place" goes beside the reviews' heading when the panel, with its score, has no button. */}
+      <Reviews score={score} house={house} wide={wide} rate={!wide && shown.kind === "scored"} now={now} />
     </div>
   );
 }
@@ -299,7 +302,7 @@ function PhonePlace({ view }: { view: View }): JSX.Element {
       </div>
       <PhoneHeader {...view} />
       <div className="px-gutter-phone pt-[18px]">
-        <ScorePanel name={place.name} wide={false} shown={view.shown} />
+        <ScorePanel name={place.name} wide={false} shown={view.shown} onRetry={view.retry} />
       </div>
       <div className="flex flex-col gap-2 px-gutter-phone pt-4">
         <PhoneActions actions={actions} />
@@ -333,7 +336,7 @@ function DeskPlace({ view }: { view: View }): JSX.Element {
       <div className="flex items-start gap-10">
         <div className="flex min-w-0 flex-1 flex-col gap-[26px]">
           <DeskHeader {...view} />
-          <ScorePanel name={place.name} wide shown={view.shown} />
+          <ScorePanel name={place.name} wide shown={view.shown} onRetry={view.retry} />
           <PlaceReviews view={view} wide />
           <Nearby rows={nearby} scores={nearbyScores} locale={locale} now={now} wide />
         </div>
@@ -371,7 +374,8 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
   const actions = useMemo(() => actionsOf(place), [place]);
   const nearby = useMemo(() => nearbyOf(indexes, place), [indexes, place]);
   // The place's score and reviews from the house's view; the places nearby ask for theirs in one go.
-  const { score, reviews, house } = useScore(place.address);
+  const { score, reviews, read, house } = useScore(place.address);
+  const { refresh } = useScoreActions();
   const { scores: nearbyScores } = useListScores(nearby);
   // How far away is said only from where the device says the person is. From the default city, or a
   // town they picked, it would be how far the place is from somewhere they may not be.
@@ -383,11 +387,12 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
     // The phone's line is its own; the desktop's sits inside one that dots join (DeskPlace.dc.html).
     line: openLine(state, locale, wide ? "placeInline" : "place"),
     actions,
-    shown: shownScore(score, reviews.length > 0, house),
+    shown: shownScore(score, reviews.length > 0, house, read),
     score,
     house,
     nearby,
     nearbyScores,
+    retry: refresh,
     locale,
     now,
   };

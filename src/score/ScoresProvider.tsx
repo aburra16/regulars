@@ -4,7 +4,7 @@ import type { RelayReader } from "../nostr/events.ts";
 import { usePlaces } from "../places/store.tsx";
 import { ScoresStore } from "./store.ts";
 
-export type { HouseState } from "./store.ts";
+export type { HouseState, ReadState } from "./store.ts";
 
 const ScoresContext = createContext<ScoresStore | null>(null);
 

@@ -1,19 +1,22 @@
-import type { NostrEvent } from "@nostrify/nostrify";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import type { RelayReader } from "../src/nostr/events";
-import { pinsFor } from "../src/map/pins";
+import { pinsFor, scorePins } from "../src/map/pins";
+import * as distanceModule from "../src/places/distance";
 import { distanceKm } from "../src/places/distance";
+import * as hoursModule from "../src/places/hours";
 import { openLine, openState } from "../src/places/hours";
 import { buildIndexes, chainSlug, type PlaceDistance } from "../src/places/indexes";
 import { placeKindLabel } from "../src/places/kinds";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { REVIEW_KIND } from "../src/reviews/review";
+import { whenWritten } from "../src/reviews/when";
 import type { ShownScore } from "../src/score/shown";
 import { ScoresStore } from "../src/score/store";
 import raw from "./fixtures/funchal-items.json";
@@ -81,6 +84,36 @@ const reviewOf = (reviewer: string, place: Place, stars: number, text = "", days
     ],
   });
 
+/** `reviewer`'s review of `place` with words and no stars: no `s`, no `rating`. */
+const starlessReviewOf = (reviewer: string, place: Place, text: string) =>
+  shapedEvent({
+    kind: REVIEW_KIND,
+    pubkey: reviewer,
+    created_at: NOW_S - 2 * DAY,
+    content: text,
+    tags: [
+      ["d", `place:${place.address}`],
+      ["a", place.address],
+      ["m", "place"],
+    ],
+  });
+
+/** A review relay that fails every read until it is brought up (`bringUp`), and then answers from `events`. */
+function flakyReader(events: NostrEvent[]): MemoryReader & { bringUp(): void } {
+  const memory = createMemoryReader(events);
+  let up = false;
+  return {
+    requests: memory.requests,
+    bringUp() {
+      up = true;
+    },
+    async *req(filter, signal) {
+      if (!up) throw new Error("The relay is down");
+      yield* memory.req(filter, signal);
+    },
+  };
+}
+
 /** `pubkey`'s profile (kind 0), naming them `name`. */
 const profileOf = (pubkey: string, name: string) =>
   shapedEvent({ kind: 0, pubkey, content: JSON.stringify({ name }) });
@@ -95,14 +128,17 @@ interface HeldReader extends MemoryReader {
 
 function heldReader(events: NostrEvent[]): HeldReader {
   const memory = createMemoryReader(events);
+  // Each request as it comes, before it is held.
+  const requests: NostrFilter[] = [];
   let open!: () => void;
   const opened = new Promise<void>((resolve) => {
     open = resolve;
   });
   return {
-    requests: memory.requests,
+    requests,
     open,
     async *req(filter, signal) {
+      requests.push(filter);
       await new Promise<void>((resolve, reject) => {
         const onAbort = () => reject(signal.reason);
         if (signal.aborted) return onAbort();
@@ -251,6 +287,86 @@ describe("a place's card", () => {
   });
 });
 
+describe("a place's card while its reviews are read, and when they can't be", () => {
+  it("has no line about reviews while they are being read, never 'No reviews yet', then the score", async () => {
+    const search = heldReader([...jacafeScored(), ...PROFILES]);
+    const { readers } = houseNetwork([], HOUSE_RANKS, { [SEARCH]: search });
+    await openApp("/", { events: places, readers });
+    await waitFor(() => expect(search.requests.length).toBeGreaterThan(0));
+
+    for (const name of ["Jacafé", "Museu Café"]) {
+      const link = card(name);
+      expect(link).not.toHaveTextContent(copy.score.noReviewsYet);
+      expect(link).not.toHaveTextContent(copy.score.counting);
+      // What it is, how far, and its hours: nothing about reviews.
+      expect(link.getAttribute("aria-describedby")!.split(" ")).toHaveLength(2);
+    }
+
+    search.open();
+    await waitFor(() => expect(card("Jacafé")).toHaveTextContent("4.6"));
+    expect(card("Museu Café")).toHaveTextContent(copy.score.noReviewsYet);
+  });
+
+  it("says quietly that the reviews couldn't be loaded when no review relay answers", async () => {
+    const search = flakyReader(jacafeScored());
+    const { readers } = houseNetwork([], HOUSE_RANKS, { [SEARCH]: search });
+    await openApp("/", { events: places, readers });
+
+    await waitFor(() => expect(card("Jacafé")).toHaveTextContent(copy.score.failed));
+    expect(within(card("Jacafé")).getByText(copy.score.failed)).toHaveClass("text-muted");
+    expect(card("Jacafé")).not.toHaveTextContent(copy.score.noReviewsYet);
+    expect(card("Museu Café")).toHaveTextContent(copy.score.failed);
+    expect(copy.score.failed).toBe("Reviews couldn't be loaded");
+  });
+
+  it("says 'No score yet' for reviews by people the house trusts that give no stars, and never leaves the line empty", async () => {
+    const { readers } = houseNetwork([...jacafeScored(), starlessReviewOf(ALICE, MAIA, "Lovely terrace.")], HOUSE_RANKS);
+    await openApp("/", { events: places, readers });
+
+    await waitFor(() => expect(card("Maia")).toHaveTextContent(copy.score.starless(1)));
+    expect(card("Maia")).toHaveTextContent(copy.score.noScoreYet);
+    expect(card("Maia")).toHaveClass("border-dashed");
+    expect(copy.score.starless(1)).toBe("1 person the house trusts reviewed it without stars");
+    expect(copy.score.starless(2)).toBe("2 people the house trusts reviewed it without stars");
+  });
+
+  it("draws a card again only when its own score changes", async () => {
+    const scorer = heldReader(HOUSE_RANKS);
+    const { readers } = houseNetwork(jacafeScored(), [], { [SCORER_RELAY]: scorer });
+    await openApp("/", { events: places, readers });
+    await waitFor(() => expect(card("Jacafé")).toHaveTextContent(copy.score.counting));
+
+    // Explore lists the places near the middle of Funchal, each with how far it is: a card draws its distance each time it is drawn.
+    const { lat, lon, radiusKm } = config.defaultCity;
+    const kmOf = (place: Place) => idx.near(lat, lon, radiusKm).find((row) => row.place.address === place.address)!.km;
+    const drawn = vi.spyOn(distanceModule, "formatDistance");
+    scorer.open();
+    await waitFor(() => expect(card("Jacafé")).toHaveTextContent("4.6"));
+
+    const drawnAt = (place: Place) => drawn.mock.calls.filter(([km]) => km === kmOf(place)).length;
+    expect(drawnAt(JACAFE)).toBeGreaterThan(0);
+    for (const other of [MUSEU, MAIA]) expect(drawnAt(other)).toBe(0);
+  });
+
+  it("draws a search row again only when its own score changes", async () => {
+    const scorer = heldReader(HOUSE_RANKS);
+    const { readers } = houseNetwork(jacafeScored(), [], { [SCORER_RELAY]: scorer });
+    await openApp("/search?q=cafe", { events: places, readers });
+    await waitFor(() => expect(card("Jacafé")).toHaveTextContent(copy.score.counting));
+
+    // The search lists the cafes within the widest distance (15 miles, 24 km), each row with how far it is.
+    const { lat, lon } = config.defaultCity;
+    const kmOf = (place: Place) => idx.search("cafe", { lat, lon, radiusKm: 24 }).find((row) => row.place.address === place.address)!.km;
+    const drawn = vi.spyOn(distanceModule, "formatDistance");
+    scorer.open();
+    await waitFor(() => expect(card("Jacafé")).toHaveTextContent("4.6"));
+
+    const drawnAt = (place: Place) => drawn.mock.calls.filter(([km]) => km === kmOf(place)).length;
+    expect(drawnAt(JACAFE)).toBeGreaterThan(0);
+    for (const other of [MUSEU, MAIA]) expect(drawnAt(other)).toBe(0);
+  });
+});
+
 describe("Explore, when House picks can't be worked out", () => {
   it("says so once, under the line about whose scores they are, and each card says how many have rated it", async () => {
     const { readers } = houseNetwork(jacafeScored(), HOUSE_RANKS, { [TRUST]: downReader });
@@ -288,7 +404,7 @@ describe("the pins", () => {
   it("are a score pill for a scored place, and a ring for any other, each said in words", () => {
     const shown = new Map<string, ShownScore>([
       [JACAFE.address, { kind: "scored", score: 4.571, counted: 2 }],
-      [MAIA.address, { kind: "unscored", others: 1 }],
+      [MAIA.address, { kind: "unscored", others: 1, starless: 0 }],
       [MUSEU.address, { kind: "pending" }],
     ]);
     const pins = pinsFor(near(JACAFE, MAIA, MUSEU, CONFEITARIA.places[0]!), "en-US", AFTERNOON, (address) =>
@@ -302,6 +418,36 @@ describe("the pins", () => {
     expect(pins[2]!.name).toBe(`Museu Café, ${kindOf(MUSEU)}, ${hoursOf(MUSEU)}, reviews being counted`);
     expect(pins[3]).not.toHaveProperty("label");
     expect(pins[3]!.name).toMatch(/, no reviews yet$/);
+  });
+
+  it("say nothing of reviews while they are read, and that they couldn't be loaded when that failed", () => {
+    const shown = new Map<string, ShownScore>([
+      [JACAFE.address, { kind: "reading" }],
+      [MAIA.address, { kind: "failed" }],
+    ]);
+    const pins = pinsFor(near(JACAFE, MAIA), "en-US", AFTERNOON, (address) => shown.get(address) ?? { kind: "none" });
+    expect(pins[0]!.name).toBe(`Jacafé, ${kindOf(JACAFE)}, ${hoursOf(JACAFE)}`);
+    expect(pins[1]!.name).toBe(`Maia, ${kindOf(MAIA)}, ${hoursOf(MAIA)}, reviews couldn't be loaded`);
+    expect(pins.map((pin) => pin.label)).toEqual([undefined, undefined]);
+  });
+
+  it("take their scores without working out their hours again, and keep the pins whose score is the same", () => {
+    const base = pinsFor(near(JACAFE, MAIA), "en-US", AFTERNOON);
+    const none: ShownScore = { kind: "none" };
+    const pending: ShownScore = { kind: "pending" };
+    const scored: ShownScore = { kind: "scored", score: 4.571, counted: 2 };
+    const hours = vi.spyOn(hoursModule, "openLine");
+    const state = vi.spyOn(hoursModule, "openState");
+
+    const before = scorePins(base, (address) => (address === JACAFE.address ? pending : none));
+    const after = scorePins(base, (address) => (address === JACAFE.address ? scored : none));
+    expect(hours).not.toHaveBeenCalled();
+    expect(state).not.toHaveBeenCalled();
+    expect(after[1]).toBe(before[1]);
+    expect(after[0]).not.toBe(before[0]);
+    expect(after[0]!.label).toBe("4.6");
+    // The same scores again: the same pins.
+    expect(scorePins(base, (address) => (address === JACAFE.address ? scored : none))[0]).toBe(after[0]);
   });
 
   it("are a ring for every place when no scores are given, as in M1", () => {
@@ -353,13 +499,44 @@ describe("one ask of the store per list", () => {
 
 // ---- The place page ----
 
-/** The section the score panel is, found by the words of its line. */
-const panelWith = (text: string) => screen.getByText(text).closest("section")!;
 /** The reviews listed under the heading of the house's reviews. */
 const insideReviews = () =>
   within(screen.getByRole("heading", { level: 2, name: copy.reviews.heading }).closest("section")!).getAllByRole("article");
 /** A review's reviewer, as its heading names them. */
 const reviewerOf = (article: HTMLElement) => within(article).getByRole("heading", { level: 3 }).textContent;
+
+/**
+ * Ranks that would be easy to spot: Alice 87.37 and Bob 63.41 inside House picks, Carol 4.38 below the
+ * line. No place, distance, hour or address in the fixtures has these numbers, whole or not.
+ */
+const NUMBER_RANKS = [rankOf(ALICE, 87.37), rankOf(BOB, 63.41), rankOf(CAROL, 4.38)];
+/** Jacafé reviewed by all three; a location of A Confeitaria by Alice and Carol. */
+const numbersReviews = () => [
+  ...jacafeScored(),
+  reviewOf(CAROL, JACAFE, 2, "Too sweet.", 5),
+  reviewOf(ALICE, CONFEITARIA.places[0]!, 4),
+  reviewOf(CAROL, CONFEITARIA.places[0]!, 3),
+];
+
+/**
+ * That nothing on the page says a number about a person: not in its text, not in any attribute a
+ * screen reader may read, and not in any element's accessible name or description. Each rank, its
+ * weight, their roundings (to whole numbers too), a percentage, and the words for them.
+ */
+function expectNoNumbersAboutPeople(): void {
+  const aboutPeople =
+    /87\.37|63\.41|4\.38|87\.4|63\.4|4\.4\b|0\.8737|0\.6341|0\.0438|0\.87|0\.63|0\.04|\b87\b|\b63\b|%|\brank|\bweight|\bcounts? for|trust score/i;
+  expect(document.body.textContent).not.toMatch(aboutPeople);
+  for (const element of document.body.querySelectorAll("*")) {
+    for (const attribute of ["aria-label", "aria-description", "title", "alt", "aria-valuetext", "aria-valuenow"]) {
+      expect(element.getAttribute(attribute) ?? "").not.toMatch(aboutPeople);
+    }
+    expect(element).not.toHaveAccessibleName(aboutPeople);
+    expect(element).not.toHaveAccessibleDescription(aboutPeople);
+  }
+  expect(screen.queryAllByRole("meter")).toEqual([]);
+  expect(screen.queryAllByRole("progressbar")).toEqual([]);
+}
 
 describe("the place page, scored", () => {
   it("has the score panel: the big number, its stars, and who it comes from", async () => {
@@ -444,13 +621,15 @@ describe("the place page, scored", () => {
 
     const show = within(box).getByRole("button", { name: copy.reviews.show });
     expect(show).toHaveAttribute("aria-expanded", "false");
+    expect(show).toHaveAccessibleDescription(copy.reviews.foldedMore(1));
     expect(copy.reviews.show).toBe("Show them");
     await user.click(show);
 
     const carol = (await screen.findByText("Too sweet.")).closest("article")!;
     await waitFor(() => expect(reviewerOf(carol)).toBe("Carol"));
+    // One label: whether they are shown is the button's state, not its words.
     expect(show).toHaveAttribute("aria-expanded", "true");
-    expect(show).toHaveAccessibleName(copy.reviews.hide);
+    expect(show).toHaveAccessibleName(copy.reviews.show);
     expect(document.getElementById(show.getAttribute("aria-controls")!)).toContainElement(carol);
     expect(reviewerOf(carol)).toBe("Carol");
     expect(within(carol).getByRole("img", { name: "2 out of 5" })).toBeInTheDocument();
@@ -463,34 +642,54 @@ describe("the place page, scored", () => {
     expect(insideReviews()).not.toContain(carol);
 
     await user.click(show);
+    expect(show).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("Too sweet.")).not.toBeInTheDocument();
   });
 
-  it("never shows a number about a person: no rank, weight or share, in the text or in what a screen reader hears", async () => {
+  it("does not name a person's rank in a sentence about the reviews", () => {
+    // The lines that name people say how many, and that the house trusts them: never by how much.
+    for (const n of [1, 2, 12]) {
+      for (const line of [copy.score.ratedByHouse(n), copy.score.fromHouse(n), copy.score.starless(n), copy.map.pinScored("4.6", n)]) {
+        expect(line).not.toMatch(/%|\brank|\bweight|\bcounts? for|trust score/i);
+      }
+    }
+  });
+
+  it("never shows a number about a person on the place page: no rank, weight or share, in the text or in what a screen reader hears", async () => {
     const user = userEvent.setup();
-    const ranks = [rankOf(ALICE, 83.17), rankOf(BOB, 56.29), rankOf(CAROL, 4.71)];
-    const { readers } = houseNetwork([...jacafeScored(), reviewOf(CAROL, JACAFE, 2, "Too sweet.", 5)], ranks);
+    const { readers } = houseNetwork(numbersReviews(), NUMBER_RANKS);
     await openApp(placePath(JACAFE), { events: places, readers });
     await screen.findByText("Alice Bento");
     await user.click(screen.getByRole("button", { name: copy.reviews.show }));
     await screen.findByText("Too sweet.");
 
-    // Each rank, its weight, and their roundings; a percentage; and the words for them.
-    const aboutPeople =
-      /83\.17|56\.29|4\.71|83\.2|56\.3|4\.7|0\.8317|0\.5629|0\.0471|0\.83|0\.56|0\.05|%|\brank|\bweight|\bcounts? for|trust score/i;
-    // What the page says: its text, every attribute a screen reader may read, and every name and description it hears.
-    expect(document.body.textContent).not.toMatch(aboutPeople);
-    for (const element of document.body.querySelectorAll("*")) {
-      for (const attribute of ["aria-label", "aria-description", "title", "alt", "aria-valuetext", "aria-valuenow"]) {
-        expect(element.getAttribute(attribute) ?? "").not.toMatch(aboutPeople);
-      }
-      expect(element).not.toHaveAccessibleName(aboutPeople);
-      expect(element).not.toHaveAccessibleDescription(aboutPeople);
-    }
-    expect(screen.queryAllByRole("meter")).toEqual([]);
-    expect(screen.queryAllByRole("progressbar")).toEqual([]);
-    // The place's own rating is there: (0.8317 × 5 + 0.5629 × 4) / 1.3946.
+    expectNoNumbersAboutPeople();
+    // The place's own rating is there: (0.8737 × 5 + 0.6341 × 4) / 1.5078.
     expect(screen.getByRole("img", { name: "4.6 out of 5" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["Explore's cards", "/", DESKTOP],
+    ["the map's pins", "/map", undefined],
+  ])("never shows a number about a person in %s", async (_, path, px) => {
+    const { readers } = houseNetwork(numbersReviews(), NUMBER_RANKS);
+    await openApp(path, { events: places, readers, ...(px === undefined ? {} : { px }) });
+    if (path === "/") await waitFor(() => expect(card("Jacafé")).toHaveTextContent("4.6"));
+    await screen.findByRole("button", { name: /^Jacafé, .*4\.6 out of 5/ });
+    expectNoNumbersAboutPeople();
+  });
+
+  it("never shows a number about a person in a chain's rows", async () => {
+    const { readers } = houseNetwork(numbersReviews(), NUMBER_RANKS);
+    const location = CONFEITARIA.places[0]!;
+    await openApp(`/chain/${chainSlug(CONFEITARIA)}`, { events: places, readers });
+    const row = await waitFor(() => {
+      const found = screen.getAllByRole("link").find((link) => link.getAttribute("href") === placePath(location))!;
+      expect(found).toHaveTextContent(copy.score.ratedByHouse(1));
+      return found;
+    });
+    expect(row).toHaveTextContent("4.0");
+    expectNoNumbersAboutPeople();
   });
 
   it("on a desktop, has the panel in the column and Rate this place heading the rail", async () => {
@@ -517,13 +716,10 @@ describe("the place page, scored", () => {
 
 describe("the place page, not scored", () => {
   it("keeps M1's dashed 'Be the first' panel for a place nobody has reviewed", async () => {
-    const { search, readers } = houseNetwork(jacafeScored(), HOUSE_RANKS);
+    const { readers } = houseNetwork(jacafeScored(), HOUSE_RANKS);
     await openApp(placePath(MUSEU), { events: places, readers });
-    // Its reviews have been asked for and read: there are none.
-    await waitFor(() => expect(search.requests.length).toBeGreaterThan(0));
-    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 100)));
-
-    const panel = panelWith(copy.place.beFirst);
+    // The panel waits while the reviews are read; then it says there are none.
+    const panel = (await screen.findByText(copy.place.beFirst)).closest("section")!;
     expect(panel).toHaveClass("border-dashed");
     expect(within(panel).getByRole("link", { name: copy.place.rate })).toBeInTheDocument();
     expect(screen.queryByText(copy.score.noScoreYet)).not.toBeInTheDocument();
@@ -537,13 +733,59 @@ describe("the place page, not scored", () => {
     const title = await screen.findByRole("heading", { level: 2, name: copy.score.noScoreYet });
     const panel = title.closest("section")!;
     expect(panel).toHaveClass("border-dashed");
-    expect(within(panel).getByText(copy.place.othersRated(1))).toBeInTheDocument();
-    expect(copy.place.othersRated(1)).toBe("1 other person has rated it.");
+    expect(within(panel).getByText(`${copy.score.othersRated(1)}.`)).toBeInTheDocument();
     expect(within(panel).getByRole("link", { name: copy.place.rate })).toBeInTheDocument();
     expect(screen.queryByText(copy.place.beFirst)).not.toBeInTheDocument();
     expect(screen.getByText(copy.reviews.foldedAll(1))).toBeInTheDocument();
     expect(copy.reviews.foldedAll(1)).toBe("1 review from outside House picks");
     expect(screen.queryByRole("heading", { name: copy.reviews.heading })).not.toBeInTheDocument();
+  });
+
+  it("waits quietly while the reviews are read: no 'Be the first', no score, nothing said", async () => {
+    const search = heldReader([...jacafeScored(), ...PROFILES]);
+    const { readers } = houseNetwork([], HOUSE_RANKS, { [SEARCH]: search });
+    await openApp(placePath(JACAFE), { events: places, readers });
+    await waitFor(() => expect(search.requests.length).toBeGreaterThan(0));
+
+    const waiting = document.querySelector("section[aria-busy='true']");
+    expect(waiting).not.toBeNull();
+    expect(waiting!.textContent).toBe("");
+    expect(screen.queryByText(copy.place.beFirst)).not.toBeInTheDocument();
+    expect(screen.queryByText(copy.score.noReviewsYet)).not.toBeInTheDocument();
+
+    search.open();
+    expect(await screen.findByText(copy.score.fromHouse(2))).toBeInTheDocument();
+    expect(document.querySelector("[aria-busy='true']")).toBeNull();
+  });
+
+  it("says the reviews couldn't be loaded, and Try again reads them again", async () => {
+    const user = userEvent.setup();
+    const search = flakyReader([...jacafeScored(), ...PROFILES]);
+    const { readers } = houseNetwork([], HOUSE_RANKS, { [SEARCH]: search });
+    await openApp(placePath(JACAFE), { events: places, readers });
+
+    const retry = await screen.findByRole("button", { name: copy.load.retry });
+    expect(within(retry.closest("section")!).getByText(copy.score.failed)).toHaveClass("text-muted");
+    expect(screen.queryByText(copy.place.beFirst)).not.toBeInTheDocument();
+
+    search.bringUp();
+    await user.click(retry);
+    expect(await screen.findByText(copy.score.fromHouse(2))).toBeInTheDocument();
+    expect(screen.queryByText(copy.score.failed)).not.toBeInTheDocument();
+  });
+
+  it("says 'No score yet' for reviews by people the house trusts with no stars, and lists them", async () => {
+    const { readers } = houseNetwork([starlessReviewOf(ALICE, MAIA, "Lovely terrace.")], HOUSE_RANKS);
+    await openApp(placePath(MAIA), { events: places, readers });
+
+    const title = await screen.findByRole("heading", { level: 2, name: copy.score.noScoreYet });
+    expect(within(title.closest("section")!).getByText(`${copy.score.starless(1)}.`)).toBeInTheDocument();
+    const [alice] = insideReviews() as [HTMLElement];
+    expect(insideReviews()).toHaveLength(1);
+    expect(within(alice).getByText("Lovely terrace.")).toBeInTheDocument();
+    expect(within(alice).queryByRole("img")).not.toBeInTheDocument();
+    // One way to rate it: the panel's button. No second one beside the heading.
+    expect(screen.getAllByRole("link", { name: copy.place.rate })).toHaveLength(1);
   });
 
   it("says the reviews are being counted while their reviewers are ranked: no score, nothing folded", async () => {
@@ -578,8 +820,7 @@ describe("the place page, not scored", () => {
     expect(screen.queryByText("4.6")).not.toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /out of 5/ })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: copy.score.noScoreYet })).toBeInTheDocument();
-    expect(screen.getByText(copy.place.peopleRated(2))).toBeInTheDocument();
-    expect(copy.place.peopleRated(2)).toBe("2 people have rated it.");
+    expect(screen.getByText(`${copy.score.peopleRated(2)}.`)).toBeInTheDocument();
 
     const box = screen.getByText(copy.reviews.uncounted(2)).closest("section")!;
     expect(copy.reviews.uncounted(2)).toBe("2 reviews, not counted right now");
@@ -672,14 +913,22 @@ describe("sorting by House picks' score", () => {
     expect(before.indexOf(placePath(MAIA))).toBeGreaterThan(0);
   });
 
-  it("puts the best of House picks first when the search asks for it, by the damped score", async () => {
-    // Maia: 5 stars from Alice, damped to 4.0. Jacafé: 2 from Bob, damped to 3.1, below the
-    // places nobody has reviewed, which sit at the prior's 3.5 in the order they came in.
-    const { readers } = houseNetwork([reviewOf(ALICE, MAIA, 5), reviewOf(BOB, JACAFE, 2)], HOUSE_RANKS);
-    await openApp("/search?sort=score", { events: places, readers });
+  it("puts the places with a score first, best first by the damped score, then every other place by distance", async () => {
+    // Maia: 5 stars from Alice, damped to 4.0. Jacafé: 2 from Bob, damped to 3.1: still above every
+    // place with no score. Museu Café has a review only from outside House picks: no score.
+    const reviews = [reviewOf(ALICE, MAIA, 5), reviewOf(BOB, JACAFE, 2), reviewOf(CAROL, MUSEU, 5)];
+    const { readers } = houseNetwork(reviews, HOUSE_RANKS);
+    await openApp("/search?q=cafe&sort=score", { events: places, readers });
 
-    await waitFor(() => expect(placeLinks()[0]).toHaveAttribute("href", placePath(MAIA)));
-    await waitFor(() => expect(placeLinks().at(-1)).toHaveAttribute("href", placePath(JACAFE)));
+    await waitFor(() => expect(placeLinks()[1]).toHaveAttribute("href", placePath(JACAFE)));
+    const hrefs = placeLinks().map((link) => link.getAttribute("href"));
+    expect(hrefs.slice(0, 2)).toEqual([placePath(MAIA), placePath(JACAFE)]);
+    // The rest, nearest first: "cafe" lists cafes, and these rows are the places alone, not chains.
+    const { lat, lon } = config.defaultCity;
+    const rest = hrefs.slice(2).map((href) => idx.byD.get(decodeURIComponent(href!.slice("/place/".length)))!);
+    const kms = rest.map((place) => distanceKm(lat, lon, place.lat, place.lon));
+    expect(kms).toEqual([...kms].sort((a, b) => a - b));
+    expect(rest).toContain(MUSEU);
     expect(document.body).toHaveTextContent(`${copy.search.sortedBy.score}.`);
     expect(copy.search.sortedBy.score).toBe("Best in House picks first");
   });
@@ -712,20 +961,35 @@ describe("sorting by House picks' score", () => {
 // ---- When a review was written ----
 
 describe("when a review was written", () => {
-  it.each<[number, string]>([
-    [0, "Today"],
-    [DAY - 1, "Today"],
-    [DAY, "Yesterday"],
-    [2 * DAY, "2 days ago"],
-    [6 * DAY, "6 days ago"],
-    [7 * DAY, "1 week ago"],
-    [14 * DAY, "2 weeks ago"],
-    [30 * DAY, "1 month ago"],
-    [200 * DAY, "6 months ago"],
-    [365 * DAY, "1 year ago"],
-    [800 * DAY, "2 years ago"],
-    [-3600, "Today"],
-  ])("is %i seconds ago: %s", (seconds, words) => {
-    expect(copy.reviews.when(seconds)).toBe(words);
+  /** A moment on the calendar of the machine the test runs on: the review's day and the person's. */
+  const at = (year: number, month: number, day: number, hour = 12) => new Date(year, month - 1, day, hour);
+  const NOW = at(2026, 10, 7, 9);
+  const written = (when: Date) => whenWritten(Math.floor(when.getTime() / 1000), NOW);
+
+  it.each<[string, string, Date]>([
+    ["earlier the same day", "Today", at(2026, 10, 7, 1)],
+    ["late the day before, under a day ago", "Yesterday", at(2026, 10, 6, 23)],
+    ["two calendar days back", "2 days ago", at(2026, 10, 5, 20)],
+    ["six days back", "6 days ago", at(2026, 10, 1)],
+    ["a week back", "a week ago", at(2026, 9, 30)],
+    ["two weeks back", "2 weeks ago", at(2026, 9, 23)],
+    ["29 days back", "4 weeks ago", at(2026, 9, 8)],
+    ["a calendar month back", "a month ago", at(2026, 9, 7)],
+    ["six months back", "6 months ago", at(2026, 4, 7)],
+    ["360 days back", "11 months ago", at(2025, 10, 12)],
+    ["364 days back", "11 months ago", at(2025, 10, 8)],
+    ["a full year back", "a year ago", at(2025, 10, 7)],
+    ["two years back", "2 years ago", at(2024, 10, 1)],
+    ["a moment in the future (a clock ahead)", "Today", at(2026, 10, 7, 11)],
+  ])("for a review written %s says %s", (_, words, when) => {
+    expect(written(when)).toBe(words);
+  });
+
+  it("words each age in copy", () => {
+    expect(copy.reviews.when(0, 0)).toBe("Today");
+    expect(copy.reviews.when(1, 0)).toBe("Yesterday");
+    expect(copy.reviews.when(364, 11)).toBe("11 months ago");
+    expect(copy.reviews.when(365, 12)).toBe("a year ago");
+    expect(copy.reviews.when(800, 26)).toBe("2 years ago");
   });
 });
