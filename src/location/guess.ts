@@ -1,18 +1,20 @@
-import tzLookup from "@photostructure/tz-lookup";
-
 import type { City } from "../places/indexes.ts";
+import { distanceKm } from "../places/distance.ts";
+import { ZONE_POINTS } from "./zones.ts";
 
 /**
  * Where a first visit starts when the person has picked no town and the browser does not already
- * allow the device's location (docs/decisions.md #24): the town with the most places in the
- * device's time zone, or else in the country of the browser's language. It is worked out on the
- * device from what the browser says of itself; nothing is sent anywhere.
+ * allow the device's location (docs/decisions.md #24): the town nearest the place the device's
+ * time zone is named for (Lisbon for Europe/Lisbon), however far. When the zone is no place
+ * (Etc/UTC, or a name the time zone database does not have), the town with the most places in
+ * the country of the browser's language. It is worked out on the device from what the browser
+ * says of itself; nothing is sent anywhere.
  */
 
 /**
- * Time zones a browser may still call by an old name, by the name tz-lookup gives them. Chrome and
- * Node name them as CLDR does ("Asia/Calcutta"); tz-lookup, as the time zone database now does
- * ("Asia/Kolkata"). These are the zones tz-lookup gives that Chrome names otherwise.
+ * Time zones a browser may still call by an old name, by the name the time zone database now
+ * gives them. Chrome and Node name them as CLDR does ("Asia/Calcutta"); `zones.ts`, as the
+ * database does ("Asia/Kolkata").
  */
 const RENAMED: Readonly<Record<string, string>> = {
   "Africa/Asmera": "Africa/Asmara",
@@ -36,7 +38,7 @@ const RENAMED: Readonly<Record<string, string>> = {
   "Pacific/Ponape": "Pacific/Pohnpei",
 };
 
-/** The device's time zone as tz-lookup names it ("Europe/Lisbon"); undefined when the browser will not say. */
+/** The device's time zone as the time zone database names it ("Europe/Lisbon"); undefined when the browser will not say. */
 export function deviceTimeZone(): string | undefined {
   try {
     const zone: unknown = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -61,33 +63,52 @@ export function languageCountry(): string | undefined {
   }
 }
 
-/** Each town's time zone, by its coordinates, once worked out; null for coordinates that have none. */
-const zones = new Map<string, string | null>();
-
-/** The time zone of a town's middle, worked out once for each town. Undefined when the coordinates are not a place on Earth. */
-export function townZone({ lat, lon }: Pick<City, "lat" | "lon">): string | undefined {
-  const key = `${lat},${lon}`;
-  let zone = zones.get(key);
-  if (zone === undefined) {
-    try {
-      zone = tzLookup(lat, lon);
-    } catch {
-      // tz-lookup throws for coordinates off the Earth.
-      zone = null;
+/** The zones' points as `tools/zone-points.ts` packs them, read back: each zone's latitude and longitude, in degrees. */
+export function unpackZones(packed: string): Map<string, [lat: number, lon: number]> {
+  const points = new Map<string, [number, number]>();
+  for (const area of packed.split(";")) {
+    const colon = area.indexOf(":");
+    for (const entry of area.slice(colon + 1).split(",")) {
+      const [rest, lat, lon] = entry.split(" ");
+      points.set(`${area.slice(0, colon)}/${rest}`, [Number(lat) / 10, Number(lon) / 10]);
     }
-    zones.set(key, zone);
   }
-  return zone ?? undefined;
+  return points;
+}
+
+/** The zones' points, read the first time a guess needs them. */
+let zonePoints: Map<string, [number, number]> | undefined;
+
+/**
+ * Where the place a time zone is named for is, to a tenth of a degree: Lisbon for Europe/Lisbon.
+ * Undefined for a zone that is no place (Etc/UTC, UTC, Etc/GMT+5) or one the time zone database
+ * does not have.
+ */
+export function zonePoint(zone: string | undefined): { lat: number; lon: number } | undefined {
+  if (zone === undefined) return undefined;
+  zonePoints ??= unpackZones(ZONE_POINTS);
+  const point = zonePoints.get(zone);
+  return point === undefined ? undefined : { lat: point[0], lon: point[1] };
 }
 
 /**
- * The town with the most places in `zone`, or else the one with the most in `country`; undefined
- * when there is neither. `cities` is in the order `Indexes.cities` has, those with the most places
- * first, so the first town that matches is the one, and only the towns before it are looked up.
+ * The town nearest the place `zone` is named for, however far; when the zone is no place, the
+ * town with the most places in `country`; undefined when there is neither. `cities` is in the
+ * order `Indexes.cities` has, those with the most places first.
  */
 export function guessTown(cities: readonly City[], zone: string | undefined, country: string | undefined): City | undefined {
-  if (zone !== undefined) {
-    for (const city of cities) if (townZone(city) === zone) return city;
+  const point = zonePoint(zone);
+  if (point !== undefined) {
+    let nearest: City | undefined;
+    let nearestKm = Number.POSITIVE_INFINITY;
+    for (const city of cities) {
+      const km = distanceKm(point.lat, point.lon, city.lat, city.lon);
+      if (km < nearestKm) {
+        nearest = city;
+        nearestKm = km;
+      }
+    }
+    return nearest;
   }
   if (country !== undefined) {
     for (const city of cities) if (city.country === country) return city;

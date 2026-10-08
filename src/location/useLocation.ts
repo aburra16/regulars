@@ -16,8 +16,9 @@ export interface Here {
   source: "default" | "city" | "device" | "guess";
   /**
    * Where to start is not known yet: no town was picked, and the towns to guess from have not
-   * loaded. Until it is, `label`, `lat` and `lon` are the default city's, and nothing shows them:
-   * the pages wait for the places, and the header names no town. Absent: false.
+   * loaded, or the device the browser already allows is answering (for `DEVICE_WAIT_MS` at most).
+   * Until it is known, nothing shows `label`, `lat` and `lon`: the pages that list places wait,
+   * and the header names no town but offers "Use my location". Absent: false.
    */
   settling?: boolean;
   /** The person said no to the device's location. The place shown is the one it was before. */
@@ -56,6 +57,18 @@ export const HERE_STORAGE_KEY = "regulars.here";
 
 /** What to ask the browser for: an answer within ten seconds, from a position up to five minutes old. */
 export const DEVICE_OPTIONS = { timeout: 10_000, maximumAge: 300_000 } as const;
+
+/**
+ * What to ask for on load, when the browser already allows it and the person did not ask: an
+ * answer within five seconds. The guess is on screen by then, so a slow fix moves it only so late.
+ */
+export const QUIET_DEVICE_OPTIONS = { timeout: 5_000, maximumAge: 300_000 } as const;
+
+/**
+ * How long, at most, the pages wait on load for the device the browser already allows, before
+ * they show the guess: long enough for a recent or quick fix, so the list opens near the person.
+ */
+export const DEVICE_WAIT_MS = 1_500;
 
 /** The code of a `GeolocationPositionError` for a person who said no. */
 export const PERMISSION_DENIED = 1;

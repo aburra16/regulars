@@ -2,6 +2,7 @@ import type { JSX } from "react";
 import { Outlet, ScrollRestoration, useMatches } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
+import { useHere } from "../location/useLocation.ts";
 import { type PlacesValue, usePlaces } from "../places/store.tsx";
 import { Banner, LoadFailed, PageMessage } from "../ui/Banner.tsx";
 import { ViewProvider } from "../view/ViewProvider.tsx";
@@ -45,14 +46,18 @@ function useChrome(): Omit<Required<Chrome>, "fill"> & Pick<Chrome, "fill"> {
  * What the places allow the page to show: the page itself, perhaps under a quiet line, or a
  * message in its place. No places yet: a calm loading line, then the error with Try again if
  * they could not be loaded; or, when the browser says it has no connection, that it is offline,
- * at once (the places load again when it is back: see PlacesProvider). A list that may be short
- * says nothing, to keep the page calm.
+ * at once (the places load again when it is back: see PlacesProvider). With places, the loading
+ * line stays while where they are near is still `settling`: the device the browser already allows
+ * is answering, for a moment at most, so the list does not open on a guess and jump. A list that
+ * may be short says nothing, to keep the page calm.
  */
 function loadState(
   { status, places, source, error }: PlacesValue,
   online: boolean,
+  settling: boolean,
 ): { page: "loading" | "failed" | "offline" } | { page?: undefined; banner?: string } {
   if (places.length === 0) return { page: !online ? "offline" : status === "error" ? "failed" : "loading" };
+  if (settling) return { page: "loading" };
   // Offline with places that came from this device's saved copy: say so. Otherwise the places
   // on screen are fresh, and all there is to say is that the connection is gone.
   if (!online) return { banner: source === "cache" ? copy.offline : copy.offlineNoCache };
@@ -65,7 +70,8 @@ function Frame(): JSX.Element {
   const chrome = useChrome();
   const places = usePlaces();
   const online = useOnline();
-  const state = chrome.needsPlaces ? loadState(places, online) : {};
+  const settling = useHere().settling === true;
+  const state = chrome.needsPlaces ? loadState(places, online, settling) : {};
   const fill = chrome.fill === "always" || (chrome.fill === "wide" && wide);
 
   let content: JSX.Element;

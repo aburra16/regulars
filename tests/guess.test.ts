@@ -1,22 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { deviceTimeZone, guessTown, languageCountry, startGuesser, townZone } from "../src/location/guess";
+import { deviceTimeZone, guessTown, languageCountry, startGuesser, unpackZones, zonePoint } from "../src/location/guess";
+import { TZDATA_VERSION, ZONE_POINTS } from "../src/location/zones";
 import type { City } from "../src/places/indexes";
+import { pack, pointsOf } from "../tools/zone-points";
 
-// tz-lookup as it is, counted: a town's zone is worked out once, however often the towns are asked about.
-const lookups = vi.hoisted(() => ({ count: 0 }));
-vi.mock("@photostructure/tz-lookup", async (importOriginal) => {
-  const actual = (await importOriginal<{ default: (lat: number, lon: number) => string }>()).default;
-  return {
-    default: (lat: number, lon: number) => {
-      lookups.count += 1;
-      return actual(lat, lon);
-    },
-  };
-});
-
-const town = (name: string, country: string, lat: number, lon: number, count: number, region?: string): City =>
-  region === undefined ? { name, country, lat, lon, count } : { name, region, country, lat, lon, count };
+const town = (name: string, country: string, lat: number, lon: number, count: number): City => ({ name, country, lat, lon, count });
 
 // The towns as the indexes list them: those with the most places first.
 const lisbon = town("Lisbon", "PT", 38.7223, -9.1393, 120);
@@ -27,13 +16,17 @@ const chiangMai = town("Chiang Mai", "TH", 18.7883, 98.9853, 45);
 const funchal = town("Funchal", "PT", 32.6507, -16.9084, 37);
 const bangkok = town("Bangkok", "TH", 13.7563, 100.5018, 30);
 const kolkata = town("Kolkata", "IN", 22.5726, 88.3639, 12);
+const minato = town("Minato", "JP", 35.6581, 139.7516, 3);
 const towns = [lisbon, miami, porto, newYork, chiangMai, funchal, bangkok, kolkata];
+
+// The real `resolvedOptions`, taken once, before any test stands in for it: a test that sets the
+// zone twice wraps this, not its own stand-in, which would call itself until the stack ran out.
+const realResolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
 
 /** The device's time zone, as `Intl` says it; everything else `Intl` says is as it is. */
 function zoneIs(zone: string | undefined) {
-  const real = Intl.DateTimeFormat.prototype.resolvedOptions;
   vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockImplementation(function (this: Intl.DateTimeFormat) {
-    return { ...real.call(this), timeZone: zone as string };
+    return { ...realResolvedOptions.call(this), timeZone: zone as string };
   });
 }
 
@@ -47,57 +40,72 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, "language");
 });
 
-describe("townZone", () => {
-  it("is the time zone of the town's coordinates", () => {
-    expect(townZone(lisbon)).toBe("Europe/Lisbon");
-    expect(townZone(funchal)).toBe("Atlantic/Madeira");
-    expect(townZone(newYork)).toBe("America/New_York");
-    expect(townZone(chiangMai)).toBe("Asia/Bangkok");
-  });
-
-  it("is worked out once for each town", () => {
-    const athens = town("Athens", "GR", 37.9838, 23.7275, 5);
-    const before = lookups.count;
-    expect(townZone(athens)).toBe("Europe/Athens");
-    expect(townZone(athens)).toBe("Europe/Athens");
-    expect(townZone({ lat: athens.lat, lon: athens.lon })).toBe("Europe/Athens");
-    expect(lookups.count - before).toBe(1);
-  });
-
-  it("is undefined for coordinates that are not a place on Earth", () => {
-    expect(townZone(town("Nowhere", "", 95, 0, 3))).toBeUndefined();
+describe("the test's stand-in for the device's zone", () => {
+  it("can be set again in the same test, and says what was set last", () => {
+    zoneIs("Europe/Lisbon");
+    expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe("Europe/Lisbon");
+    zoneIs("Asia/Tokyo");
+    expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe("Asia/Tokyo");
+    // Only the zone: the rest is what the browser says.
+    expect(Intl.DateTimeFormat().resolvedOptions().locale).toBe(realResolvedOptions.call(Intl.DateTimeFormat()).locale);
   });
 });
 
+describe("zonePoint", () => {
+  it.each<[string, number, number]>([
+    ["Europe/Lisbon", 38.7, -9.1],
+    ["America/New_York", 40.7, -74],
+    ["Asia/Tokyo", 35.7, 139.7],
+    ["Australia/Sydney", -33.9, 151.2],
+    ["Atlantic/Madeira", 32.6, -16.9],
+    // Zones that zone1970.tab folds into another are where they are: Amsterdam, not Brussels.
+    ["Europe/Amsterdam", 52.4, 4.9],
+    ["Atlantic/Reykjavik", 64.2, -21.8],
+  ])("is where %s's principal place is, to a tenth of a degree", (zone, lat, lon) => {
+    expect(zonePoint(zone)).toEqual({ lat, lon });
+  });
+
+  it.each([["Etc/UTC"], ["Etc/GMT+5"], ["UTC"], ["GMT"], ["Mars/Olympus"], ["Europe"], [""], [undefined]])(
+    "is undefined for %s, which is no place",
+    (zone) => {
+      expect(zonePoint(zone)).toBeUndefined();
+    },
+  );
+});
+
 describe("guessTown", () => {
-  it("is the town with the most places in the device's time zone", () => {
-    expect(guessTown(towns, "Europe/Lisbon", undefined)).toBe(lisbon);
-    expect(guessTown(towns, "America/New_York", undefined)).toBe(miami);
-    expect(guessTown(towns, "Asia/Bangkok", undefined)).toBe(chiangMai);
-  });
-
-  it("goes by the zone, not the country: Madeira's zone is Funchal, though Lisbon has more places", () => {
+  it("is the town nearest the place the device's zone is named for, not the one with the most places", () => {
+    expect(guessTown(towns, "America/New_York", undefined)).toBe(newYork);
+    expect(guessTown(towns, "Asia/Bangkok", undefined)).toBe(bangkok);
     expect(guessTown(towns, "Atlantic/Madeira", "PT")).toBe(funchal);
+    expect(guessTown(towns, "Europe/Lisbon", undefined)).toBe(lisbon);
   });
 
-  it("is the town with the most places in the language's country when no town is in the zone", () => {
-    expect(guessTown(towns, "Asia/Tokyo", "PT")).toBe(lisbon);
-    expect(guessTown(towns, "Asia/Tokyo", "TH")).toBe(chiangMai);
+  it("goes as far as it takes: the zone need have no town of its own", () => {
+    expect(guessTown(towns, "Asia/Kathmandu", undefined)).toBe(kolkata);
+    expect(guessTown(towns, "Australia/Sydney", undefined)).toBe(bangkok);
+    expect(guessTown(towns, "America/Chicago", undefined)).toBe(newYork);
+  });
+
+  it("goes by the zone, not the language, when the zone is a place", () => {
+    expect(guessTown(towns, "Asia/Bangkok", "PT")).toBe(bangkok);
+    expect(guessTown([...towns, minato], "Asia/Tokyo", "PT")).toBe(minato);
+  });
+
+  it("is the town with the most places in the language's country when the zone is no place", () => {
+    expect(guessTown(towns, "Etc/UTC", "PT")).toBe(lisbon);
+    expect(guessTown(towns, "Mars/Olympus", "TH")).toBe(chiangMai);
     expect(guessTown(towns, undefined, "US")).toBe(miami);
   });
 
-  it("is undefined when no town is in the zone or the country", () => {
-    expect(guessTown(towns, "Asia/Tokyo", "JP")).toBeUndefined();
-    expect(guessTown(towns, "Asia/Tokyo", undefined)).toBeUndefined();
+  it("is undefined when the zone is no place and no town is in the language's country", () => {
+    expect(guessTown(towns, "Etc/UTC", "JP")).toBeUndefined();
+    expect(guessTown(towns, "UTC", undefined)).toBeUndefined();
     expect(guessTown(towns, undefined, undefined)).toBeUndefined();
-    expect(guessTown([], "Europe/Lisbon", "PT")).toBeUndefined();
   });
 
-  it("stops at the first town in the zone, so a common zone looks up few towns", () => {
-    const fresh = towns.map((each) => ({ ...each, lat: each.lat + 1e-7 }));
-    const before = lookups.count;
-    expect(guessTown(fresh, "Europe/Lisbon", undefined)?.name).toBe("Lisbon");
-    expect(lookups.count - before).toBe(1);
+  it("is undefined when there are no towns", () => {
+    expect(guessTown([], "Europe/Lisbon", "PT")).toBeUndefined();
   });
 });
 
@@ -113,20 +121,23 @@ describe("deviceTimeZone", () => {
     ["Europe/Kiev", "Europe/Kyiv"],
     ["America/Buenos_Aires", "America/Argentina/Buenos_Aires"],
     ["America/Indianapolis", "America/Indiana/Indianapolis"],
-  ])("reads the old name %s as %s, the name the towns' zones have", (old, current) => {
+  ])("reads the old name %s as %s, the name the zones' points have", (old, current) => {
     zoneIs(old);
     expect(deviceTimeZone()).toBe(current);
+    expect(zonePoint(deviceTimeZone())).toBeDefined();
   });
 
-  it("finds a town in India from a browser that names the zone Asia/Calcutta", () => {
+  it("finds Kolkata from a browser that names the zone Asia/Calcutta", () => {
     zoneIs("Asia/Calcutta");
     expect(guessTown(towns, deviceTimeZone(), undefined)).toBe(kolkata);
   });
 
-  it("is undefined when the browser does not say", () => {
-    zoneIs(undefined);
-    expect(deviceTimeZone()).toBeUndefined();
+  it("is undefined when the browser says no zone, or an empty one", () => {
+    zoneIs("Europe/Lisbon");
+    expect(deviceTimeZone()).toBe("Europe/Lisbon");
     zoneIs("");
+    expect(deviceTimeZone()).toBeUndefined();
+    zoneIs(undefined);
     expect(deviceTimeZone()).toBeUndefined();
   });
 
@@ -163,13 +174,16 @@ describe("languageCountry", () => {
 });
 
 describe("startGuesser", () => {
-  it("guesses from the device's zone, then the language's country", () => {
-    zoneIs("Asia/Bangkok");
+  it("guesses from the device's zone, and from the language's country only when the zone is no place", () => {
     languageIs("pt-PT");
-    expect(startGuesser()(towns)).toBe(chiangMai);
+    zoneIs("Asia/Bangkok");
+    expect(startGuesser()([...towns, minato])).toBe(bangkok);
 
     zoneIs("Asia/Tokyo");
-    expect(startGuesser()(towns)).toBe(lisbon);
+    expect(startGuesser()([...towns, minato])).toBe(minato);
+
+    zoneIs("Etc/UTC");
+    expect(startGuesser()([...towns, minato])).toBe(lisbon);
 
     languageIs("ja-JP");
     expect(startGuesser()(towns)).toBeUndefined();
@@ -190,13 +204,13 @@ describe("startGuesser", () => {
     const guess = startGuesser();
     expect(guess(towns)).toBe(lisbon);
 
-    // A new town elsewhere: the guess is Lisbon still, where it was, so the screen does not move.
+    // A new town far away: the guess is Lisbon still, where it was, so the screen does not move.
     const grown = [...towns, town("Faro", "PT", 37.0194, -7.9322, 4)];
     expect(guess(grown)).toBe(lisbon);
 
-    // A town in the zone with more places than Lisbon: that one now.
-    const sintra = town("Sintra", "PT", 38.8029, -9.3817, 500);
-    expect(guess([sintra, ...towns])).toBe(sintra);
+    // A town nearer the zone's point than Lisbon's middle is: that one now.
+    const graca = town("Graça", "PT", 38.7163, -9.1305, 2);
+    expect(guess([...towns, graca])).toBe(graca);
   });
 
   it("guesses again when the device's zone changes", () => {
@@ -204,6 +218,44 @@ describe("startGuesser", () => {
     const guess = startGuesser();
     expect(guess(towns)).toBe(lisbon);
     zoneIs("America/New_York");
-    expect(guess(towns)).toBe(miami);
+    // New York, which only the zone gives: the language's country (US) would give Miami.
+    expect(guess(towns)).toBe(newYork);
+  });
+});
+
+describe("the zones' points", () => {
+  it("come from a named version of the time zone database", () => {
+    expect(TZDATA_VERSION).toMatch(/^\d{4}[a-z]$/);
+  });
+
+  it("are a few hundred zones, in a few kilobytes", () => {
+    const points = unpackZones(ZONE_POINTS);
+    expect(points.size).toBeGreaterThan(400);
+    expect(ZONE_POINTS.length).toBeLessThan(10_000);
+  });
+
+  it("are read from zone.tab and zone1970.tab lines, both ways of writing a point", () => {
+    const text = [
+      "# A comment",
+      "PT\t+3843-00908\tEurope/Lisbon\tPortugal (mainland)",
+      "US\t+404251-0740023\tAmerica/New_York\tEastern (most areas)",
+      "BE,LU,NL\t+5050+00420\tEurope/Brussels",
+      "AR\t-3436-05827\tAmerica/Argentina/Buenos_Aires\tBuenos Aires (BA, CF)",
+      "",
+    ].join("\n");
+    const points = pointsOf(text);
+    expect([...points.keys()]).toEqual(["Europe/Lisbon", "America/New_York", "Europe/Brussels", "America/Argentina/Buenos_Aires"]);
+    expect(points.get("Europe/Lisbon")![0]).toBeCloseTo(38 + 43 / 60, 6);
+    expect(points.get("America/New_York")![1]).toBeCloseTo(-(74 + 0 / 60 + 23 / 3600), 6);
+
+    // Packed, then read back as the app reads it: to a tenth of a degree.
+    const unpacked = unpackZones(pack(points));
+    expect(unpacked.get("Europe/Lisbon")).toEqual([38.7, -9.1]);
+    expect(unpacked.get("America/New_York")).toEqual([40.7, -74]);
+    expect(unpacked.get("America/Argentina/Buenos_Aires")).toEqual([-34.6, -58.4]);
+  });
+
+  it("throw on a line that is not a zone", () => {
+    expect(() => pointsOf("PT\tsomewhere\tEurope/Lisbon")).toThrow(/Cannot read/);
   });
 });

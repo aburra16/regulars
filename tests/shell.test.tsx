@@ -1012,3 +1012,76 @@ describe("the copy", () => {
     expect(copy.location.finding).toBe("Finding your location…");
   });
 });
+
+describe("a device whose location the browser already allows", () => {
+  // The page waits, for at most 1.5 s, for the device to answer, so the list does not open on the
+  // guessed town and then jump to the person. The clock is the test's.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    Object.defineProperty(navigator, "permissions", {
+      configurable: true,
+      value: { query: async () => ({ state: "granted" }) as PermissionStatus },
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    Reflect.deleteProperty(navigator, "permissions");
+    Reflect.deleteProperty(navigator, "geolocation");
+  });
+
+  const exploreHeading = () => screen.queryByRole("heading", { name: copy.pages.explore });
+
+  /** A device whose position comes when the test says. */
+  function slowDevice() {
+    let deliver: (position: GeolocationPosition) => void = () => {};
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition: (ok: (position: GeolocationPosition) => void) => {
+          deliver = ok;
+        },
+      },
+    });
+    return (latitude: number, longitude: number) =>
+      act(() => deliver({ coords: { latitude, longitude, accuracy: 20 }, timestamp: 0 } as unknown as GeolocationPosition));
+  }
+
+  it("keeps the page's loading line while the device answers, then lists the places near the person", async () => {
+    const deliver = slowDevice();
+    renderApp("/");
+    await act(async () => {});
+    const main = screen.getByRole("main");
+    expect(within(main).getByText(copy.load.loading)).toBeInTheDocument();
+    expect(exploreHeading()).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.location.finding })).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(1_000));
+    deliver(32.6507, -16.9084);
+    expect(within(main).queryByText(copy.load.loading)).not.toBeInTheDocument();
+    expect(exploreHeading()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Near you" })).toBeInTheDocument();
+  });
+
+  it("waits no more than 1.5 s, then lists the places where it guessed, and the person's when they come", async () => {
+    const deliver = slowDevice();
+    renderApp("/");
+    await act(async () => {});
+    act(() => vi.advanceTimersByTime(1_499));
+    expect(screen.getByText(copy.load.loading)).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByText(copy.load.loading)).not.toBeInTheDocument();
+    expect(exploreHeading()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.location.finding })).toBeInTheDocument();
+
+    deliver(32.6507, -16.9084);
+    expect(screen.getByRole("button", { name: "Near you" })).toBeInTheDocument();
+  });
+
+  it("does not hold a page that needs no places", async () => {
+    slowDevice();
+    renderApp("/you");
+    await act(async () => {});
+    expect(screen.getByRole("heading", { name: copy.pages.you })).toBeInTheDocument();
+    expect(screen.queryByText(copy.load.loading)).not.toBeInTheDocument();
+  });
+});

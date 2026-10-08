@@ -2,7 +2,7 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, StrictMode, useLayoutEffect } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
@@ -78,11 +78,14 @@ const saved = () => window.localStorage.getItem(STORAGE_KEY);
 
 // ---- The device's time zone and language, and what the browser allows, for the tests ----
 
+// The real `resolvedOptions`, taken once, before any test stands in for it: a test that sets the
+// zone twice wraps this, not its own stand-in, which would call itself until the stack ran out.
+const realResolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
+
 /** The device's time zone, as `Intl` says it; everything else `Intl` says is as it is. */
 function zoneIs(zone: string) {
-  const real = Intl.DateTimeFormat.prototype.resolvedOptions;
   vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockImplementation(function (this: Intl.DateTimeFormat) {
-    return { ...real.call(this), timeZone: zone };
+    return { ...realResolvedOptions.call(this), timeZone: zone };
   });
 }
 
@@ -104,8 +107,8 @@ const permissionIs = (state: PermissionState) => installPermissions(async () => 
 const settle = () => act(async () => {});
 
 describe("useHere", () => {
-  it("is Funchal, the default, on a first visit when no town is in the device's zone or the language's country", () => {
-    // The tests' device is in UTC, in English for the United States: no town here is either.
+  it("is Funchal, the default, on a first visit when the device's zone is no place and no town is in the language's country", () => {
+    // The tests' device is in UTC, which is no place, in English for the United States: no town here is in the US.
     override.cities = [lisbon, porto];
     const { result } = renderHere();
     expect(result.current).toMatchObject({
@@ -538,14 +541,14 @@ describe("where a first visit starts", () => {
   const bangkok: City = { name: "Bangkok", country: "TH", lat: 13.7563, lon: 100.5018, count: 30 };
 
   describe("with no town picked, and the device's location not allowed", () => {
-    it("is the town with the most places in the device's time zone", () => {
+    it("is the town nearest the place the device's time zone is named for, though another has more places", () => {
       zoneIs("Asia/Bangkok");
       override.cities = [lisbon, porto, chiangMai, bangkok];
       const { result } = renderHere();
       expect(result.current).toMatchObject({
-        label: "Chiang Mai",
-        lat: chiangMai.lat,
-        lon: chiangMai.lon,
+        label: "Bangkok",
+        lat: bangkok.lat,
+        lon: bangkok.lon,
         source: "guess",
         settling: false,
         pending: false,
@@ -555,23 +558,24 @@ describe("where a first visit starts", () => {
     it("names the town as the picker does, with where it is when another town has its name", () => {
       zoneIs("America/New_York");
       override.cities = [lisbon, lexingtonKY, lexingtonMA];
-      expect(renderHere().result.current).toMatchObject({ label: "Lexington, KY", source: "guess" });
+      expect(renderHere().result.current).toMatchObject({ label: "Lexington, MA", source: "guess" });
     });
 
-    it("is the town with the most places in the language's country when no town is in the zone", () => {
-      zoneIs("Asia/Tokyo");
+    it("is the town with the most places in the language's country when the zone is no place", () => {
+      zoneIs("Etc/GMT-9");
       languageIs("pt-PT");
       override.cities = [newYork, lisbon, porto];
       expect(renderHere().result.current).toMatchObject({ label: "Lisbon", lat: lisbon.lat, source: "guess" });
     });
 
-    it.each([
-      ["no town is in the zone or the country", "ja-JP"],
-      ["no town is in the zone and the language names no country", "en"],
-    ])("is Funchal, the default, when %s", (_why, tag) => {
-      zoneIs("Asia/Tokyo");
+    it.each<[string, string, City[]]>([
+      ["the zone is no place and no town is in the language's country", "ja-JP", [newYork, lisbon, porto]],
+      ["the zone is no place and the language names no country", "en", [newYork, lisbon, porto]],
+      ["the places have no towns", "pt-PT", []],
+    ])("is Funchal, the default, when %s", (_why, tag, cities) => {
+      zoneIs(cities.length === 0 ? "Europe/Lisbon" : "Etc/GMT-9");
       languageIs(tag);
-      override.cities = [newYork, lisbon, porto];
+      override.cities = cities;
       expect(renderHere().result.current).toMatchObject({
         label: config.defaultCity.name,
         lat: config.defaultCity.lat,
@@ -641,10 +645,9 @@ describe("where a first visit starts", () => {
           <NearButton />
         </HereProvider>,
       );
-      // The page says it is finding places; the header has nothing to name yet, and keeps its place.
-      expect(screen.queryByRole("button")).not.toBeInTheDocument();
+      // The page says it is finding places; the header has no town to name yet, and offers the device.
+      expect(screen.getByRole("button", { name: copy.location.useMine })).toBeInTheDocument();
       expect(document.body).not.toHaveTextContent(/Funchal|Near/);
-      expect(view.container.firstElementChild).toHaveClass("min-h-touch");
 
       override.cities = [lisbon, porto];
       view.rerender(
@@ -696,7 +699,7 @@ describe("where a first visit starts", () => {
           </HereProvider>
         </PlacesProvider>,
       );
-      expect(screen.queryByRole("button")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: copy.location.useMine })).toBeInTheDocument();
 
       expect(await screen.findByRole("button", { name: "Near Lisboa" })).toBeInTheDocument();
       expect(shown[0]).toMatchObject({ settling: true });
@@ -716,8 +719,9 @@ describe("where a first visit starts", () => {
       await waitFor(() => expect(result.current).toMatchObject({ label: "you", lat: 38.7001, lon: -9.1002, source: "device" }));
       expect(query).toHaveBeenCalledWith({ name: "geolocation" });
       expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+      // With the ask on load's own, shorter, timeout.
       expect(getCurrentPosition).toHaveBeenCalledWith(expect.any(Function), expect.any(Function), {
-        timeout: 10_000,
+        timeout: 5_000,
         maximumAge: 300_000,
       });
       expect(result.current).toMatchObject({ pending: false, settling: false });
@@ -901,6 +905,216 @@ describe("where a first visit starts", () => {
   });
 });
 
+describe("a device the browser already allows, while the page waits for it", () => {
+  // The page holds "Finding places…" for at most 1.5 s while the device answers, so the list does
+  // not show the guess and then jump to the person. The clock is the test's.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A device whose position comes when the test says. */
+  function slowDevice() {
+    let deliver: Succeed = () => {};
+    const { getCurrentPosition } = installGeolocation((ok) => {
+      deliver = ok;
+    });
+    return { getCurrentPosition, deliver: (lat: number, lon: number) => act(() => deliver(position(lat, lon))) };
+  }
+
+  it("is settling while the device answers, for 1.5 s at most, then the guess, and the device when it comes", async () => {
+    permissionIs("granted");
+    const device = slowDevice();
+    zoneIs("Europe/Lisbon");
+    override.cities = [lisbon, porto];
+    const { result } = renderHere();
+    await settle();
+    expect(result.current).toMatchObject({ settling: true, pending: true });
+
+    act(() => vi.advanceTimersByTime(1_499));
+    expect(result.current.settling).toBe(true);
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current).toMatchObject({ settling: false, pending: true, label: "Lisbon", source: "guess" });
+
+    device.deliver(38.7, -9.1);
+    expect(result.current).toMatchObject({ settling: false, pending: false, label: "you", source: "device" });
+  });
+
+  it("goes straight to the device when it answers in time, and the guess never shows", async () => {
+    permissionIs("granted");
+    const device = slowDevice();
+    zoneIs("Europe/Lisbon");
+    // As in the app: the places are still loading when the browser says it allows the location.
+    override.cities = null;
+    const shown: Here[] = [];
+    const view = renderHook(
+      () => {
+        const here = useHere();
+        useLayoutEffect(() => {
+          shown.push(here);
+        });
+        return here;
+      },
+      { wrapper: ({ children }: { children: ReactNode }) => <HereProvider>{children}</HereProvider> },
+    );
+    await settle();
+    act(() => vi.advanceTimersByTime(300));
+    override.cities = [lisbon, porto];
+    view.rerender();
+    act(() => vi.advanceTimersByTime(500));
+    device.deliver(38.7, -9.1);
+    act(() => vi.advanceTimersByTime(5_000));
+
+    expect(shown.at(-1)).toMatchObject({ source: "device", settling: false });
+    // The guess was worked out, but only ever behind the page's wait: never on screen.
+    expect(shown.filter((here) => here.source === "guess" && !here.settling)).toEqual([]);
+  });
+
+  it("asks with a timeout of its own, shorter than when the person asks", async () => {
+    permissionIs("granted");
+    const { getCurrentPosition } = slowDevice();
+    override.cities = [lisbon];
+    renderHere();
+    await settle();
+    expect(getCurrentPosition).toHaveBeenCalledWith(expect.any(Function), expect.any(Function), {
+      timeout: 5_000,
+      maximumAge: 300_000,
+    });
+  });
+
+  it("stops the wait at once when the device cannot answer", async () => {
+    permissionIs("granted");
+    refusedWith(2);
+    zoneIs("Europe/Lisbon");
+    override.cities = [lisbon, porto];
+    const { result } = renderHere();
+    await settle();
+    expect(result.current).toMatchObject({ settling: false, pending: false, label: "Lisbon", source: "guess" });
+    expect(result.current.unavailable).toBeFalsy();
+  });
+
+  it("does not wait when the browser would ask the person", async () => {
+    permissionIs("prompt");
+    slowDevice();
+    zoneIs("Europe/Lisbon");
+    override.cities = [lisbon, porto];
+    const { result } = renderHere();
+    await settle();
+    expect(result.current).toMatchObject({ settling: false, pending: false, label: "Lisbon" });
+  });
+
+  it("stops the wait when the person picks a town", async () => {
+    permissionIs("granted");
+    slowDevice();
+    override.cities = [lisbon, porto];
+    const { result } = renderHere();
+    await settle();
+    expect(result.current.settling).toBe(true);
+    act(() => result.current.pickCity(porto));
+    expect(result.current).toMatchObject({ settling: false, label: "Porto", source: "city" });
+    act(() => vi.advanceTimersByTime(1_500));
+    expect(result.current).toMatchObject({ settling: false, label: "Porto", source: "city" });
+  });
+
+  it("leaves no timer behind when the page goes during the wait", async () => {
+    permissionIs("granted");
+    slowDevice();
+    override.cities = [lisbon];
+    const view = renderHere();
+    await settle();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("the header while the places load", () => {
+  it("offers only 'Use my location', which asks the browser in one tap", async () => {
+    const user = userEvent.setup();
+    const { getCurrentPosition } = locatedAt(38.7, -9.1);
+    override.cities = null;
+    render(
+      <HereProvider>
+        <NearButton />
+      </HereProvider>,
+    );
+    const button = screen.getByRole("button", { name: copy.location.useMine });
+    expect(button).not.toHaveAttribute("aria-haspopup");
+    expect(button).toHaveClass("min-h-touch");
+    await user.click(button);
+    expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Near you" })).toBeInTheDocument();
+  });
+
+  it("offers it in the search field's pill on a desktop too", async () => {
+    const user = userEvent.setup();
+    const { getCurrentPosition } = locatedAt(38.7, -9.1);
+    override.cities = null;
+    render(
+      <HereProvider>
+        <NearButton variant="pill" />
+      </HereProvider>,
+    );
+    const button = screen.getByRole("button", { name: copy.location.useMine });
+    expect(button).toHaveClass("min-h-touch");
+    expect(within(button).getByText(copy.location.useMine)).toHaveClass("truncate");
+    await user.click(button);
+    expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Near you" })).toBeInTheDocument();
+  });
+
+  it("reads 'Finding your location…' while the device has not answered", async () => {
+    const user = userEvent.setup();
+    installGeolocation(() => {});
+    override.cities = null;
+    render(
+      <HereProvider>
+        <NearButton />
+      </HereProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: copy.location.useMine }));
+    expect(screen.getByRole("button", { name: copy.location.finding })).toBeInTheDocument();
+  });
+
+  it("names no town when the person says no before the towns are known, and the guess once they are", async () => {
+    const user = userEvent.setup();
+    refusedWith(1);
+    zoneIs("Europe/Lisbon");
+    override.cities = null;
+    // A new element each time, so the rerender reads the towns again.
+    const page = () => (
+      <HereProvider>
+        <NearButton />
+        <LocationNotice />
+      </HereProvider>
+    );
+    const view = render(page());
+    await user.click(screen.getByRole("button", { name: copy.location.useMine }));
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(document.body).not.toHaveTextContent(/Funchal/);
+
+    override.cities = [lisbon, porto];
+    view.rerender(page());
+    expect(screen.getByRole("status")).toHaveTextContent(copy.location.denied("Lisbon"));
+  });
+
+  it("says at once when the position cannot be found, since that names no town", async () => {
+    const user = userEvent.setup();
+    override.cities = null;
+    render(
+      <HereProvider>
+        <NearButton />
+        <LocationNotice />
+      </HereProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: copy.location.useMine }));
+    expect(screen.getByRole("status")).toHaveTextContent(copy.location.unavailable);
+  });
+});
+
 describe("the copy", () => {
   it("is the draft, word for word", () => {
     expect(copy.explore.near("Funchal")).toBe("Near Funchal");
@@ -920,6 +1134,8 @@ describe("the copy", () => {
 
 describe("LocationNotice", () => {
   function renderNotice() {
+    // Towns that are none of them in the tests' language's country: the places are near Funchal, the default.
+    override.cities = [lisbon, porto];
     return renderHook(() => ({ here: useHere() }), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <HereProvider>
