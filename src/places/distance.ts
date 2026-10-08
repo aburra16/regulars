@@ -28,13 +28,27 @@ export function usesMiles(locale: string): boolean {
   return miles;
 }
 
+const tenthsFormats = new Map<string, Intl.NumberFormat>();
+
+/** A number to one decimal place, with the language's decimal mark, in Latin digits: "1.5", "1,5". */
+function formatTenths(n: number, locale: string): string {
+  const tag = safeLocale(locale);
+  let format = tenthsFormats.get(tag);
+  if (format === undefined) {
+    format = new Intl.NumberFormat(tag, { minimumFractionDigits: 1, maximumFractionDigits: 1, numberingSystem: "latn" });
+    tenthsFormats.set(tag, format);
+  }
+  return format.format(n);
+}
+
 /**
- * `value` to one decimal place, or, when that is ten or more, to a whole number, which is grouped
- * the way the language groups ("3,494 mi", "3.494 km").
+ * `value` to one decimal place, or, when that is ten or more, to a whole number. Both are written the
+ * way the language writes numbers, so its decimal mark and its grouping never read as each other:
+ * "1.5 mi" and "3,494 mi" in the US, "1,5 km" and "3.494 km" in Germany.
  */
 function tenths(value: number, unit: string, locale: string): string {
   const rounded = Math.round(value * 10) / 10;
-  return rounded < 10 ? `${rounded.toFixed(1)} ${unit}` : `${formatInteger(Math.round(value), locale)} ${unit}`;
+  return rounded < 10 ? `${formatTenths(rounded, locale)} ${unit}` : `${formatInteger(Math.round(value), locale)} ${unit}`;
 }
 
 /**

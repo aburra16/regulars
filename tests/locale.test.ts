@@ -75,8 +75,17 @@ describe("a distance as far as a person can go", () => {
     expect(formatDistance(km, locale)).toBe(shown);
   });
 
-  it("keeps its decimals as they were: only the grouping follows the language", () => {
-    expect(formatDistance(1.1, "pt-PT")).toBe("1.1 km");
+  it("writes its decimals the way the language does, as it groups the thousands, so neither reads as the other", () => {
+    expect(formatDistance(1.5, "de-DE")).toBe("1,5 km");
+    expect(formatDistance(3494.4, "de-DE")).toBe("3.494 km");
+    expect(formatDistance(1.5 * 1.609344, "en-US")).toBe("1.5 mi");
+    expect(formatDistance(5623.1, "en-US")).toBe("3,494 mi");
+    expect(formatDistance(1.1, "pt-PT")).toBe("1,1 km");
     expect(formatDistance(0.97, "en-US")).toBe("0.6 mi");
+  });
+
+  it("writes the decimals in Latin digits, as every number the app writes, with the marks that go with them", () => {
+    expect(formatDistance(1.5, "ar-EG")).toBe("1.5 km");
+    expect(formatDistance(3494.4, "ar-EG")).toBe("3,494 km");
   });
 });

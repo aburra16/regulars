@@ -1706,7 +1706,7 @@ describe("byD", () => {
 describe("formatDistance", () => {
   it.each<[number, string, string]>([
     [0.97, "en-US", "0.6 mi"],
-    [1.1, "pt-PT", "1.1 km"],
+    [1.1, "pt-PT", "1,1 km"],
     [0.25, "pt-PT", "250 m"],
   ])("shows %s km in %s as %s", (km, locale, shown) => {
     expect(formatDistance(km, locale)).toBe(shown);
@@ -1730,7 +1730,7 @@ describe("formatDistance", () => {
     it("is the same on every call for a locale", () => {
       for (let i = 0; i < 3; i += 1) {
         expect(formatDistance(1.609344, "en")).toBe("1.0 mi");
-        expect(formatDistance(1.609344, "pt")).toBe("1.6 km");
+        expect(formatDistance(1.609344, "pt")).toBe("1,6 km");
       }
     });
 
@@ -1753,12 +1753,22 @@ describe("formatDistance", () => {
   });
 
   describe("in kilometres", () => {
-    it.each<string>(["pt-PT", "en-GB", "de-DE", "fr-CA", "ja-JP", "pt", "de", "en-AU", "", "not a locale", "en_US"])(
-      "for %j",
-      (locale) => {
-        expect(formatDistance(2.3, locale)).toBe("2.3 km");
-      },
-    );
+    it.each<[string, string]>([
+      ["pt-PT", "2,3 km"],
+      ["en-GB", "2.3 km"],
+      ["de-DE", "2,3 km"],
+      ["fr-CA", "2,3 km"],
+      ["ja-JP", "2.3 km"],
+      ["pt", "2,3 km"],
+      ["de", "2,3 km"],
+      ["en-AU", "2.3 km"],
+      // Not a locale: English as the world reads it.
+      ["", "2.3 km"],
+      ["not a locale", "2.3 km"],
+      ["en_US", "2.3 km"],
+    ])("for %j, with the language's decimal mark", (locale, shown) => {
+      expect(formatDistance(2.3, locale)).toBe(shown);
+    });
 
     it.each<[number, string]>([
       [0, "50 m"],
@@ -1768,10 +1778,10 @@ describe("formatDistance", () => {
       [0.25, "250 m"],
       [0.97, "950 m"],
       // Rounds up to a kilometre, so it reads as one and not as "1000 m".
-      [0.99, "1.0 km"],
-      [1, "1.0 km"],
-      [1.1, "1.1 km"],
-      [9.94, "9.9 km"],
+      [0.99, "1,0 km"],
+      [1, "1,0 km"],
+      [1.1, "1,1 km"],
+      [9.94, "9,9 km"],
       // Rounds up to ten kilometres, so it reads as ten and not as "10.0".
       [9.96, "10 km"],
       [10, "10 km"],
