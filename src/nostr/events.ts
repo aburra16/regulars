@@ -33,11 +33,17 @@ export type ReadExtras = Readonly<Pick<NostrFilter, "search">>;
 
 /**
  * `reader`, adding `extras` to every filter it sends: what its relay is asked on top of what a read
- * asks for. With no extras it is `reader` itself.
+ * asks for. Search words are put together, the relay's first ("include:spam bolo"), so that neither
+ * replaces the other. With no extras it is `reader` itself.
  */
 export function withReadExtras(reader: RelayReader, extras: ReadExtras | undefined): RelayReader {
   if (extras === undefined) return reader;
-  return { req: (filter, signal) => reader.req({ ...filter, ...extras }, signal) };
+  return {
+    req(filter, signal) {
+      const search = [extras.search, filter.search].map((words) => words?.trim()).filter(Boolean).join(" ");
+      return reader.req({ ...filter, ...extras, ...(search === "" ? {} : { search }) }, signal);
+    },
+  };
 }
 
 const HEX_128 = /^[0-9a-f]{128}$/;

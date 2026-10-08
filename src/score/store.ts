@@ -5,7 +5,15 @@ import { asEvent, isNewer, type RelayReader, readAll, withReadExtras } from "../
 import { fetchNames } from "../nostr/profiles.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import type { Place } from "../places/place.ts";
-import { latestReviews, newestPerReviewer, parseReview, REVIEW_KIND, type Review } from "../reviews/review.ts";
+import {
+  latestReviews,
+  newestPerReviewer,
+  parseReview,
+  placeInD,
+  REVIEW_KIND,
+  type Review,
+  reviewD,
+} from "../reviews/review.ts";
 import { fetchRanks, resolveScorer, type Scorer, weightOf } from "../trust/houseWeights.ts";
 import { type PlaceScore, scorePlace } from "./score.ts";
 
@@ -34,18 +42,36 @@ const REVIEW_LIMIT = 500;
 /** The most people one request for profiles names. */
 const NAME_BATCH = 100;
 
+/**
+ * How long the store gathers what pages ask for before it reads it, from the first ask: a list shown
+ * a few cards at a time, or a map panned, asks in one go rather than a request each time.
+ */
+export const FLUSH_WINDOW_MS = 50;
+
 /** A reader for each relay, by its URL. */
 type Readers = (url: string) => RelayReader;
 
+/** The load of the relay code, once started; forgotten if it fails, so a later read tries again. */
+let relayCode: Promise<typeof import("../nostr/relayReader.ts")> | undefined;
+
+/** Loads the relay code once, however many reads start at the same time. */
+function loadRelayCode(): Promise<typeof import("../nostr/relayReader.ts")> {
+  relayCode ??= import("../nostr/relayReader.ts").catch((error: unknown) => {
+    relayCode = undefined;
+    throw error;
+  });
+  return relayCode;
+}
+
 /**
- * The app's readers. Each loads the relay code when it first reads, so that neither it nor Nostrify
- * is in the first screen's code, and a session in which no page asks for reviews never loads it.
+ * The app's readers. The first read loads the relay code, so that neither it nor Nostrify is in the
+ * first screen's code, and a session in which no page asks for reviews never loads it.
  * `readerFor` checks each event's signature.
  */
 const appReaders: Readers = (url) => ({
   async *req(filter, signal) {
     signal.throwIfAborted();
-    const { readerFor } = await import("../nostr/relayReader.ts");
+    const { readerFor } = await loadRelayCode();
     yield* readerFor(url).req(filter, signal);
   },
 });
@@ -83,21 +109,54 @@ function reviewKey(address: string): string | undefined {
   return isHex64(pubkey) ? keyOf(pubkey, address.slice(second + 1)) : undefined;
 }
 
+/** A review as its removal names it (`34259:<reviewer>:<d>`, NIP-09), with its id and its time. */
+export interface ReviewCoordinate {
+  id: string;
+  d: string;
+  createdAt: number;
+}
+
 /** One place's reviews, one per person, newest first, and its score from the house's view. */
 interface PlaceView {
-  score: PlaceScore;
   reviews: Review[];
+  /** Undefined while any of its reviewers is still to be ranked. */
+  score: PlaceScore | undefined;
+  /** Each reviewer's weight, in the order of `reviews`: what the score was made of. Kept in the store. */
+  weights: number[] | undefined;
+}
+
+/** Whether `a` and `b` are the same reviews (by id), in the same order. */
+const sameReviews = (a: readonly Review[], b: readonly Review[]) =>
+  a.length === b.length && a.every((review, i) => review.id === b[i]?.id);
+
+/** Whether `a` and `b` are the same weights, or both none. */
+const sameWeights = (a: readonly number[] | undefined, b: readonly number[] | undefined) =>
+  a === undefined || b === undefined
+    ? a === b
+    : a.length === b.length && a.every((weight, i) => Object.is(weight, b[i]));
+
+/** Whether two indexes of places filed more than once hold the same filings. */
+function sameFilings(a: ReadonlyMap<string, readonly string[]>, b: ReadonlyMap<string, readonly string[]>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [address, filings] of a) {
+    const other = b.get(address);
+    if (other?.length !== filings.length || filings.some((filing, i) => filing !== other[i])) return false;
+  }
+  return true;
 }
 
 /**
  * The session's store, which ScoresProvider holds. Pages ask for places (`want`) and names
- * (`wantNames`); what they ask for in one go is read together, in batches, once the code that asked
- * has run (a microtask later). Reads happen between `start` and `stop`, which abort them.
+ * (`wantNames`); what they ask for within `FLUSH_WINDOW_MS` is read together, in batches. Reads
+ * happen between `start` and `stop`, which abort them.
  */
 export class ScoresStore {
   readonly #readers: Readers;
   readonly #listeners = new Set<() => void>();
-  #version = 0;
+  /** Changes when places' reviews or scores may have. */
+  #scoresVersion = 0;
+  /** Changes when names have. */
+  #namesVersion = 0;
 
   /** Aborts every read when the provider unmounts. Null while it is not mounted. */
   #life: AbortController | null = null;
@@ -105,7 +164,8 @@ export class ScoresStore {
   #round = new AbortController();
   /** Aborts when the round or the store's life does; null while it is not mounted. */
   #roundSignal: AbortSignal | null = null;
-  #flushQueued = false;
+  /** The read of what has been asked for, waiting out its window. */
+  #flushTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** For a place filed more than once (the same OSM id under two addresses): each address → all of them. */
   #filings = new Map<string, readonly string[]>();
@@ -122,8 +182,11 @@ export class ScoresStore {
   readonly #removed = new Map<string, number>();
   /** Each place address's reviews, worked out from the above; null when they have changed since. */
   #reviews: Map<string, Review[]> | null = null;
-  /** Each place's view, as worked out since the last change. */
-  #views = new Map<string, PlaceView | undefined>();
+  /**
+   * Each place's view as last worked out, and at which version of the scores: one made of the same
+   * reviews and weights as the last is the last, the same object, so a page holding it need not change.
+   */
+  readonly #views = new Map<string, { at: number; view: PlaceView | undefined }>();
 
   #house: HouseState = "idle";
   /** The read of the house's scorer, once started. */
@@ -156,8 +219,11 @@ export class ScoresStore {
     };
   };
 
-  /** A number that changes with each change, for `useSyncExternalStore`. */
-  readonly version = (): number => this.#version;
+  /** A number that changes when places' reviews or scores may have, for `useSyncExternalStore`. */
+  readonly scoresVersion = (): number => this.#scoresVersion;
+
+  /** A number that changes when names have, for `useSyncExternalStore`. */
+  readonly namesVersion = (): number => this.#namesVersion;
 
   get house(): HouseState {
     return this.#house;
@@ -176,6 +242,8 @@ export class ScoresStore {
     this.#life?.abort();
     this.#life = null;
     this.#roundSignal = null;
+    clearTimeout(this.#flushTimer);
+    this.#flushTimer = undefined;
     this.#asked = new Set([...this.#asked].filter((address) => this.#read.has(address)));
     this.#namesAsked = new Set(this.#namesKnown);
     this.#ranksAsked = new Set(this.#ranksKnown);
@@ -196,10 +264,11 @@ export class ScoresStore {
     for (const addresses of byOsmId.values()) {
       if (addresses.length > 1) for (const address of addresses) filings.set(address, addresses);
     }
+    if (sameFilings(filings, this.#filings)) return;
     this.#filings = filings;
     // The other filings of the places asked for so far are wanted too.
     this.want([...this.#wanted]);
-    this.#changed();
+    this.#changed("scores");
   }
 
   /** Asks for the reviews of the places at `addresses`, and of the other filings of each. */
@@ -228,7 +297,8 @@ export class ScoresStore {
 
   /**
    * The place at `address`'s score from the house's view: across all its filings, one review per
-   * person. Undefined until its reviews have been read.
+   * person. Undefined until its reviews have been read, and while any of its reviewers is still to
+   * be ranked. The same object for as long as what it is made of is the same.
    */
   scoreOf(address: string): PlaceScore | undefined {
     return this.#viewOf(address)?.score;
@@ -238,6 +308,30 @@ export class ScoresStore {
   reviewsOf(address: string): Review[] {
     return this.#viewOf(address)?.reviews ?? [];
   }
+
+  /**
+   * Every review `pubkey` has of the place at `address`, under any `d` and in any of its filings
+   * (brief § 4.3), newest first: what removing their review of it must name, all of it (Task 7).
+   * The page shows one of them (`reviewsOf`); a removed one is not here; a held own review is.
+   */
+  readonly ownCoordinates = (pubkey: string, address: string): ReviewCoordinate[] => {
+    const filings = new Set(this.#filings.get(address) ?? [address]);
+    const standing = new Map<string, NostrEvent>();
+    for (const ev of this.#shownEvents()) {
+      if (ev.pubkey !== pubkey) continue;
+      const key = eventKey(ev);
+      const kept = standing.get(key);
+      if (kept === undefined || isNewer(ev, kept)) standing.set(key, ev);
+    }
+    const coordinates: ReviewCoordinate[] = [];
+    for (const ev of standing.values()) {
+      const review = parseReview(ev);
+      if (review !== null && filings.has(review.address)) {
+        coordinates.push({ id: review.id, d: review.d, createdAt: review.createdAt });
+      }
+    }
+    return coordinates.sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  };
 
   /** The person's name, from their profile; undefined when it has none, or it has not been read. */
   nameOf(pubkey: string): string | undefined {
@@ -261,7 +355,7 @@ export class ScoresStore {
       }
       this.#ranksAsked = new Set(this.#ranksKnown);
       this.#house = this.#ranksKnown.size > 0 ? "ready" : "idle";
-      this.#changed();
+      this.#changed("scores");
     }
     this.#queueFlush();
     this.#weigh();
@@ -278,7 +372,7 @@ export class ScoresStore {
     const held = this.#own.get(key);
     if (held !== undefined && !isNewer(ev, held)) return;
     this.#own.set(key, ev);
-    this.#changed({ reviews: true });
+    this.#changed("reviews");
     this.#weigh();
   };
 
@@ -295,7 +389,7 @@ export class ScoresStore {
     this.#removed.set(key, createdAt);
     const held = this.#own.get(key);
     if (held !== undefined && held.created_at <= createdAt) this.#own.delete(key);
-    this.#changed({ reviews: true });
+    this.#changed("reviews");
   };
 
   /** Aborts the review reads of this round, and starts the next. */
@@ -305,22 +399,24 @@ export class ScoresStore {
     this.#roundSignal = this.#life === null ? null : AbortSignal.any([this.#life.signal, this.#round.signal]);
   }
 
-  /** Notes a change, and tells the listeners. */
-  #changed({ reviews = false }: { reviews?: boolean } = {}): void {
-    if (reviews) this.#reviews = null;
-    this.#views = new Map();
-    this.#version += 1;
+  /**
+   * Notes a change, and tells the listeners: to the review events read or held ("reviews"), to what
+   * places' scores are made of otherwise ("scores": the house, ranks, filings), or to names.
+   */
+  #changed(what: "reviews" | "scores" | "names"): void {
+    if (what === "reviews") this.#reviews = null;
+    if (what === "names") this.#namesVersion += 1;
+    else this.#scoresVersion += 1;
     for (const listener of this.#listeners) listener();
   }
 
-  /** Reads what has been asked for since, once the code that asked has run. */
+  /** Reads what has been asked for, at the end of the window that the first ask since opens. */
   #queueFlush(): void {
-    if (this.#flushQueued) return;
-    this.#flushQueued = true;
-    queueMicrotask(() => {
-      this.#flushQueued = false;
+    if (this.#flushTimer !== undefined) return;
+    this.#flushTimer = setTimeout(() => {
+      this.#flushTimer = undefined;
       this.#flush();
-    });
+    }, FLUSH_WINDOW_MS);
   }
 
   #flush(): void {
@@ -343,15 +439,22 @@ export class ScoresStore {
   }
 
   /**
-   * Reads the reviews of the places at `batch` from every review relay, side by side, by their `a`
-   * tags, and puts them in place of what was read of those places before. A place no relay
-   * answered for keeps what it had: `refresh` asks again.
+   * Reads the reviews of the places at `batch` from every review relay, side by side: by their `a`,
+   * and by their `d`, bare or after `place:`, for reviews other apps wrote with no `a` (decision 16).
+   * What comes is put in place of what was read of those places before. A place no relay answered
+   * for keeps what it had: `refresh` asks again.
    */
   async #readReviews(batch: readonly string[], signal: AbortSignal): Promise<void> {
-    const filter: NostrFilter = { kinds: [REVIEW_KIND], "#a": [...batch], limit: REVIEW_LIMIT };
-    // A reader that cannot be made fails its relay's read, as a read that fails does.
+    const byA: NostrFilter = { kinds: [REVIEW_KIND], "#a": [...batch], limit: REVIEW_LIMIT };
+    const byD: NostrFilter = { kinds: [REVIEW_KIND], "#d": [...batch, ...batch.map(reviewD)], limit: REVIEW_LIMIT };
     const reads = await Promise.allSettled(
-      config.reviewRelays.map(async (url) => readAll(this.#readers(url), filter, signal)),
+      // A reader that cannot be made fails its relay's read, as a read that fails does. A relay
+      // answers both requests or neither: half its answer must not replace what was read before.
+      config.reviewRelays.map(async (url) => {
+        const reader = this.#readers(url);
+        const [named, filed] = await Promise.all([readAll(reader, byA, signal), readAll(reader, byD, signal)]);
+        return [...named, ...filed];
+      }),
     );
     if (signal.aborted) return;
     const answered = reads.flatMap((read) => (read.status === "fulfilled" ? [read.value] : []));
@@ -366,12 +469,17 @@ export class ScoresStore {
       const ev = asEvent(value);
       if (ev === null || ev.kind !== REVIEW_KIND || events.has(ev.id)) continue;
       events.set(ev.id, ev);
-      const places = new Set(ev.tags.flatMap((tag) => (tag[0] === "a" && tag[1] !== undefined ? [tag[1]] : [])));
-      for (const address of places) byPlace.get(address)?.push(ev);
+      // The places it was sent for: those its a tags name, or its d.
+      const named = new Set<string | undefined>();
+      for (const [name, value] of ev.tags) {
+        if (name === "a") named.add(value);
+        else if (name === "d") named.add(placeInD(value));
+      }
+      for (const address of named) if (address !== undefined) byPlace.get(address)?.push(ev);
     }
     for (const [address, read] of byPlace) this.#read.set(address, read);
     this.#release(events.values());
-    this.#changed({ reviews: true });
+    this.#changed("reviews");
     this.#weigh();
   }
 
@@ -399,7 +507,7 @@ export class ScoresStore {
     for (const pubkey of unknown) this.#ranksAsked.add(pubkey);
     if (this.#house === "idle") {
       this.#house = "loading";
-      this.#changed();
+      this.#changed("scores");
     }
     void this.#readRanks([...unknown], life.signal);
   }
@@ -423,7 +531,7 @@ export class ScoresStore {
         if (rank !== undefined) this.#ranks.set(pubkey, rank);
       }
       if (this.#house === "loading") this.#house = "ready";
-      this.#changed();
+      this.#changed("scores");
     } catch (error) {
       if (signal.aborted) return;
       debug("the house's ranks could not be read", error);
@@ -435,7 +543,7 @@ export class ScoresStore {
   #unavailable(): void {
     if (this.#house === "unavailable") return;
     this.#house = "unavailable";
-    this.#changed();
+    this.#changed("scores");
   }
 
   async #readNames(people: readonly string[], signal: AbortSignal): Promise<void> {
@@ -454,25 +562,28 @@ export class ScoresStore {
       const name = names.get(pubkey);
       if (name !== undefined) this.#names.set(pubkey, name);
     }
-    this.#changed();
+    this.#changed("names");
   }
 
-  /**
-   * Each place address's reviews: of every review event read and held, minus the removed ones,
-   * each person's newest at each `d`, then of each place (`latestReviews`).
-   */
-  #reviewsByAddress(): Map<string, Review[]> {
-    if (this.#reviews !== null) return this.#reviews;
+  /** Every review event read or held, but those the person removed. */
+  #shownEvents(): NostrEvent[] {
     const events: NostrEvent[] = [];
     for (const read of this.#read.values()) events.push(...read);
     events.push(...this.#own.values());
-    const shown = events.filter((ev) => {
+    return events.filter((ev) => {
       const removedAt = this.#removed.get(eventKey(ev));
       return removedAt === undefined || ev.created_at > removedAt;
     });
+  }
 
+  /**
+   * Each place address's reviews: of every review event shown, each person's newest at each `d`,
+   * then of each place (`latestReviews`).
+   */
+  #reviewsByAddress(): Map<string, Review[]> {
+    if (this.#reviews !== null) return this.#reviews;
     const byAddress = new Map<string, Review[]>();
-    for (const review of latestReviews(shown)) {
+    for (const review of latestReviews(this.#shownEvents())) {
       const reviews = byAddress.get(review.address);
       if (reviews === undefined) byAddress.set(review.address, [review]);
       else reviews.push(review);
@@ -482,33 +593,42 @@ export class ScoresStore {
   }
 
   #viewOf(address: string): PlaceView | undefined {
-    if (this.#views.has(address)) return this.#views.get(address);
-    const view = this.#workOut(address);
-    this.#views.set(address, view);
+    const last = this.#views.get(address);
+    if (last !== undefined && last.at === this.#scoresVersion) return last.view;
+    const view = this.#workOut(address, last?.view);
+    this.#views.set(address, { at: this.#scoresVersion, view });
     return view;
   }
 
   /**
    * The place's reviews across its filings, one per person, the newest winning (brief § 4.3), and
-   * its score. Undefined until every filing has been read, unless the person's own review is there.
+   * its score; `last`, or its reviews, when they are made of the same. Undefined until every filing
+   * has been read, unless the person's own review is there. The score is undefined while any of its
+   * reviewers is still to be ranked: nobody is shown as outside House picks before the house has
+   * said so. When the house's view is unavailable, every review is folded, and the page says why.
    */
-  #workOut(address: string): PlaceView | undefined {
+  #workOut(address: string, last: PlaceView | undefined): PlaceView | undefined {
     const filings = this.#filings.get(address) ?? [address];
     const byAddress = this.#reviewsByAddress();
     const reviews = newestPerReviewer(filings.flatMap((filing) => byAddress.get(filing) ?? [])).sort(newestFirst);
     const read = filings.every((filing) => this.#read.has(filing));
     const own = reviews.some((review) => this.#own.get(keyOf(review.reviewer, review.d))?.id === review.id);
     if (!read && !own) return undefined;
-    return { score: scorePlace(reviews, this.#weightFor(reviews), config.scoring), reviews };
-  }
 
-  /**
-   * How much each of `reviews`' reviewers counts in House picks. Until the house's view is ready and
-   * every one of them has been ranked, nobody counts: no score from unweighted or partial ranks.
-   */
-  #weightFor(reviews: readonly Review[]): (pubkey: string) => number {
-    if (this.#house !== "ready" || reviews.some((review) => !this.#ranksKnown.has(review.reviewer))) return () => 0;
-    const { line } = config.scoring;
-    return (pubkey) => weightOf(this.#ranks.get(pubkey), line);
+    let weights: number[] | undefined;
+    if (this.#house === "unavailable") {
+      weights = reviews.map(() => 0);
+    } else if (reviews.every((review) => this.#ranksKnown.has(review.reviewer))) {
+      const { line } = config.scoring;
+      weights = reviews.map((review) => weightOf(this.#ranks.get(review.reviewer), line));
+    }
+
+    const same = last !== undefined && sameReviews(last.reviews, reviews);
+    if (same && sameWeights(last.weights, weights)) return last;
+    const shown = same ? last.reviews : reviews;
+    if (weights === undefined) return { reviews: shown, score: undefined, weights };
+    const weightOfReviewer = new Map(shown.map((review, i) => [review.reviewer, weights[i] ?? 0]));
+    const score = scorePlace(shown, (pubkey) => weightOfReviewer.get(pubkey) ?? 0, config.scoring);
+    return { reviews: shown, score, weights };
   }
 }

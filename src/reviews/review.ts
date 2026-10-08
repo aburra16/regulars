@@ -52,8 +52,11 @@ export function reviewD(address: string): string {
   return `${PLACE_PREFIX}${address}`;
 }
 
-/** The place a review's `d` names: a place's address, with or without the `place:` before it. */
-function placeInD(d: string | undefined): string | undefined {
+/**
+ * The place a review's `d` names, if it names one: what follows `place:`, or the `d` itself. Not
+ * checked to be a place's address.
+ */
+export function placeInD(d: string | undefined): string | undefined {
   return d?.startsWith(PLACE_PREFIX) ? d.slice(PLACE_PREFIX.length) : d;
 }
 

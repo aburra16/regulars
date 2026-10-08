@@ -1,26 +1,43 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { copy } from "../copy/en.ts";
 import type { Review } from "../reviews/review.ts";
 import type { PlaceScore } from "./score.ts";
 import { type HouseState, useScoresStore } from "./ScoresProvider.tsx";
-import type { ScoresStore } from "./store.ts";
+import type { ReviewCoordinate, ScoresStore } from "./store.ts";
 
 /*
  * What pages ask the scores store for: places' scores and reviews, and reviewers' names. They give
  * reviews, place scores and names, and never a number about a person (decision 19).
  */
 
-/** Re-renders the component when the store changes, and gives the store's version for memos. */
-function useVersion(store: ScoresStore): number {
-  return useSyncExternalStore(store.subscribe, store.version);
+/** Re-renders the component when places' reviews or scores may have changed; their version, for memos. */
+function useScoresVersion(store: ScoresStore): number {
+  return useSyncExternalStore(store.subscribe, store.scoresVersion);
 }
 
-/** `items` as one array for as long as they are the same, whatever array they come in. */
+/** Re-renders the component when names have changed; their version, for memos. */
+function useNamesVersion(store: ScoresStore): number {
+  return useSyncExternalStore(store.subscribe, store.namesVersion);
+}
+
+/** Whether `a` and `b` hold the same items in the same order. */
+function sameItems(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((item, i) => item === b[i]);
+}
+
+/**
+ * `items` as one array for as long as they are the same, item by item, whatever array they come in,
+ * so that effects and memos keyed on it run when the list changes, not when the array does.
+ */
 function useSameList(items: readonly string[]): readonly string[] {
-  const key = JSON.stringify(items);
-  return useMemo(() => JSON.parse(key) as string[], [key]);
+  const [kept, keep] = useState<readonly string[]>(() => [...items]);
+  if (sameItems(kept, items)) return kept;
+  // React's way to update state from props: this render is thrown away and done again at once.
+  const fresh = [...items];
+  keep(fresh);
+  return fresh;
 }
 
 /**
@@ -30,7 +47,7 @@ function useSameList(items: readonly string[]): readonly string[] {
  */
 export function useScores(addresses: readonly string[]): { scores: Map<string, PlaceScore>; house: HouseState } {
   const store = useScoresStore("useScores");
-  const version = useVersion(store);
+  const version = useScoresVersion(store);
   const asked = useSameList(addresses);
 
   useEffect(() => store.want(asked), [store, asked]);
@@ -52,7 +69,7 @@ export function useScores(addresses: readonly string[]): { scores: Map<string, P
  */
 export function useScore(address: string): { score: PlaceScore | undefined; reviews: Review[]; house: HouseState } {
   const store = useScoresStore("useScore");
-  const version = useVersion(store);
+  const version = useScoresVersion(store);
 
   useEffect(() => store.want([address]), [store, address]);
 
@@ -69,7 +86,7 @@ export function useScore(address: string): { score: PlaceScore | undefined; revi
  */
 export function useNames(pubkeys: readonly string[]): Map<string, string> {
   const store = useScoresStore("useNames");
-  const version = useVersion(store);
+  const version = useNamesVersion(store);
   const asked = useSameList(pubkeys);
 
   useEffect(() => store.wantNames(asked), [store, asked]);
@@ -88,13 +105,24 @@ export interface ScoreActions {
   noteOwnReview(event: NostrEvent): void;
   /** Hides the person's review at `address`, removed at `createdAt` (`ScoresStore.noteRemoval`). */
   noteRemoval(address: string, createdAt: number): void;
+  /**
+   * Every review `pubkey` has of the place at `address`, under any `d` and in any filing, newest
+   * first: what a removal of their review of it must name (`ScoresStore.ownCoordinates`). It reads
+   * the store as it is when called.
+   */
+  ownCoordinates(pubkey: string, address: string): ReviewCoordinate[];
 }
 
 /** The store's actions, the same functions for the whole session. */
 export function useScoreActions(): ScoreActions {
   const store = useScoresStore("useScoreActions");
   return useMemo(
-    () => ({ refresh: store.refresh, noteOwnReview: store.noteOwnReview, noteRemoval: store.noteRemoval }),
+    () => ({
+      refresh: store.refresh,
+      noteOwnReview: store.noteOwnReview,
+      noteRemoval: store.noteRemoval,
+      ownCoordinates: store.ownCoordinates,
+    }),
     [store],
   );
 }

@@ -6,17 +6,26 @@ import { isHex64 } from "./shapes.ts";
 /** The kind of a person's profile (NIP-01): its content is JSON, with their names in it (NIP-24). */
 export const PROFILE_KIND = 0;
 
-/** Text that is a code standing for a person or a thing (NIP-19), which is never shown as a name. */
-const NIP19_CODE = /^(?:npub|nsec|nprofile|note|nevent|naddr|nrelay)1[0-9a-z]+$/i;
+/**
+ * Text that is a code standing for a person or a thing (NIP-19), which is never shown as a name: a
+ * prefix, a 1, and at least 50 characters of bech32's alphabet (an npub has 58), so that a short
+ * name that only begins like one, such as "Note12", is a name.
+ */
+const NIP19_CODE = /^(?:npub|nsec|nprofile|note|nevent|naddr|nrelay)1[02-9ac-hj-np-z]{50,}$/i;
 
 /**
- * `value` as a name to show: text, with its runs of space and control characters made one space
- * and none at either end. Undefined when that leaves nothing, or a code or a key (64 hex digits):
- * a name that is a key would put the key on screen (Review Focus 4).
+ * `value` as a name to show: text, with its format characters taken out (those that turn the text
+ * around, or hide in it), its runs of space and control characters made one space, and none at
+ * either end. Undefined when that leaves nothing, or a code or a key (64 hex digits): a name that
+ * is a key would put the key on screen (Review Focus 4). Pages show names in a <bdi>, so that one
+ * written right to left keeps to itself.
  */
 function shownName(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const text = value.replace(/[\s\p{Cc}]+/gu, " ").trim();
+  const text = value
+    .replace(/\p{Cf}/gu, "")
+    .replace(/[\s\p{Cc}]+/gu, " ")
+    .trim();
   if (text === "" || NIP19_CODE.test(text) || isHex64(text.toLowerCase())) return undefined;
   return text;
 }

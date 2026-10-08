@@ -1,6 +1,6 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { act, renderHook, screen, waitFor } from "@testing-library/react";
-import { type ReactNode, StrictMode } from "react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { memo, type ReactNode, StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
@@ -9,6 +9,7 @@ import type { RelayReader } from "../src/nostr/events";
 import { PlacesProvider } from "../src/places/store";
 import { REVIEW_KIND } from "../src/reviews/review";
 import { ScoresProvider } from "../src/score/ScoresProvider";
+import { FLUSH_WINDOW_MS } from "../src/score/store";
 import { useNames, useScore, useScoreActions, useScores } from "../src/score/useScore";
 import raw from "./fixtures/funchal-items.json";
 import { DESKTOP, PHONE, resetWidth } from "./support/app";
@@ -158,13 +159,25 @@ function renderStore<P, T>(
   });
 }
 
-/** Lets every queued step run: effects, the store's coalescing, and reads that answer at once. */
+/**
+ * Lets every queued step run: effects, the store's window for gathering what pages ask (so that a
+ * check that nothing was asked for means something), and reads that answer at once.
+ */
 async function settle(): Promise<void> {
+  await act(() => new Promise<void>((resolve) => setTimeout(resolve, FLUSH_WINDOW_MS + 10)));
   for (let i = 0; i < 5; i++) await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 }
 
-/** The `#a` of every request a reader was sent, in order. */
-const batchesOf = (reader: MemoryReader) => reader.requests.map((filter) => filter["#a"]);
+/** The requests a review relay was sent for reviews by place address (`#a`), in order. */
+const byA = (reader: MemoryReader) => reader.requests.filter((filter) => filter["#a"] !== undefined);
+/** The requests a review relay was sent for reviews by their `d`, in order. */
+const byD = (reader: MemoryReader) => reader.requests.filter((filter) => filter["#d"] !== undefined);
+/** The `#a` of every request for reviews by place address, in order. */
+const batchesOf = (reader: MemoryReader) => byA(reader).map((filter) => filter["#a"]);
+/** The `d` a review of each of `batch` may have: the bare address, or after `place:` (decision 16). */
+const dsOf = (batch: readonly string[]) => [...batch, ...batch.map((address) => `place:${address}`)];
+/** The ids of `reviews`, in order. */
+const idsOf = (reviews: readonly { id: string }[]) => reviews.map((review) => review.id);
 
 afterEach(() => {
   vi.doUnmock("../src/nostr/relayReader");
@@ -185,26 +198,79 @@ describe("ScoresProvider: what it reads", () => {
     expect(result.current.house).toBe("idle");
   });
 
-  it("asks for reviews by #a, 100 places to a request, with include:spam on the search relay only", async () => {
+  it("asks for reviews by #a and by #d, 100 places to a request, with include:spam on the search relay only", async () => {
     config.reviewRelays = [SEARCH, MIRROR];
     const mirror = createMemoryReader([]);
     const { readers, search } = houseNetwork([], [], { [MIRROR]: mirror });
     const addresses = Array.from({ length: 250 }, (_, n) => placeNo(n));
     renderStore(() => useScores(addresses), { readers });
 
-    await waitFor(() => expect(search.requests).toHaveLength(3));
-    expect(search.requests.map((filter) => filter["#a"]?.length)).toEqual([100, 100, 50]);
-    expect(search.requests.flatMap((filter) => filter["#a"])).toEqual(addresses);
+    await waitFor(() => expect(search.requests).toHaveLength(6));
+    expect(batchesOf(search).map((batch) => batch?.length)).toEqual([100, 100, 50]);
+    expect(batchesOf(search).flat()).toEqual(addresses);
+    // The same places by the d of their reviews: the bare address and place: (decision 16).
+    expect(byD(search).map((filter) => filter["#d"])).toEqual(batchesOf(search).map((batch) => dsOf(batch ?? [])));
     for (const filter of search.requests) {
-      expect(filter).toMatchObject({ kinds: [REVIEW_KIND], search: "include:spam" });
-      expect(filter).not.toHaveProperty("#d");
+      expect(filter).toMatchObject({ kinds: [REVIEW_KIND], limit: 500, search: "include:spam" });
+      expect(filter["#a"] === undefined).not.toBe(filter["#d"] === undefined);
     }
 
-    await waitFor(() => expect(mirror.requests).toHaveLength(3));
+    await waitFor(() => expect(mirror.requests).toHaveLength(6));
     expect(batchesOf(mirror)).toEqual(batchesOf(search));
+    expect(byD(mirror).map((filter) => filter["#d"])).toEqual(byD(search).map((filter) => filter["#d"]));
     for (const filter of mirror.requests) {
       expect(filter).toMatchObject({ kinds: [REVIEW_KIND] });
       expect(filter).not.toHaveProperty("search");
+    }
+  });
+
+  it("finds reviews that name the place by their d alone, bare or after place: (decision 16)", async () => {
+    config.reviewRelays = [SEARCH];
+    // Reviews written by other apps, with no a tag.
+    const bare = shapedEvent({ kind: REVIEW_KIND, pubkey: ALICE, tags: [["d", JACAFE], ["s", "5"]] });
+    const prefixed = shapedEvent({ kind: REVIEW_KIND, pubkey: BOB, tags: [["d", `place:${JACAFE}`], ["s", "3"]] });
+    const { readers, search } = houseNetwork([bare, prefixed], [rankOf(ALICE, 80), rankOf(BOB, 30)]);
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+
+    await waitFor(() => expect(result.current.score?.counted).toBe(2));
+    expect(result.current.score?.score).toBeCloseTo((0.8 * 5 + 0.3 * 3) / 1.1, 10);
+    expect(byD(search)).toEqual([
+      { kinds: [REVIEW_KIND], "#d": [JACAFE, `place:${JACAFE}`], limit: 500, search: "include:spam" },
+    ]);
+    expect(byA(search)).toEqual([{ kinds: [REVIEW_KIND], "#a": [JACAFE], limit: 500, search: "include:spam" }]);
+  });
+
+  it("asks in one go for what pages ask within 50 ms, and for what they ask later in the next", async () => {
+    config.reviewRelays = [SEARCH];
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { readers, search } = houseNetwork([], []);
+      const { rerender } = renderStore(({ addresses }: { addresses: string[] }) => useScores(addresses), {
+        readers,
+        initialProps: { addresses: [placeNo(1)] },
+      });
+      const pass = (ms: number) =>
+        act(async () => {
+          await vi.advanceTimersByTimeAsync(ms);
+        });
+
+      // A list shown a few cards at a time, and a map panned: three asks inside the window.
+      await pass(20);
+      rerender({ addresses: [placeNo(1), placeNo(2)] });
+      await pass(20);
+      rerender({ addresses: [placeNo(1), placeNo(2), placeNo(3)] });
+      await pass(9);
+      expect(search.requests).toEqual([]);
+      await pass(1);
+      expect(batchesOf(search)).toEqual([[placeNo(1), placeNo(2), placeNo(3)]]);
+
+      rerender({ addresses: [placeNo(1), placeNo(4)] });
+      await pass(49);
+      expect(batchesOf(search)).toHaveLength(1);
+      await pass(1);
+      expect(batchesOf(search)).toEqual([[placeNo(1), placeNo(2), placeNo(3)], [placeNo(4)]]);
+    } finally {
+      vi.useRealTimers();
     }
   });
 
@@ -231,7 +297,8 @@ describe("ScoresProvider: what it reads", () => {
 
     await waitFor(() => expect(result.current.scores.size).toBe(1));
     await settle();
-    expect(search.requests).toHaveLength(1);
+    expect(byA(search)).toHaveLength(1);
+    expect(byD(search)).toHaveLength(1);
   });
 
   it("asks nothing of the house while no place it asked for has a review", async () => {
@@ -241,7 +308,7 @@ describe("ScoresProvider: what it reads", () => {
 
     await waitFor(() => expect(result.current.scores.get(JACAFE)).toMatchObject({ score: null, counted: 0, outside: 0 }));
     await settle();
-    expect(search.requests).toHaveLength(1);
+    expect(byA(search)).toHaveLength(1);
     expect(trust.requests).toEqual([]);
     expect(scorer.requests).toEqual([]);
     expect(result.current.house).toBe("idle");
@@ -277,6 +344,22 @@ describe("ScoresProvider: what it reads", () => {
     expect(result.current.scores.get(JACAFE)?.score).toBeCloseTo((0.8 * 5 + 0.3 * 3) / 1.1, 10);
   });
 
+  it("does not ask again about a reviewer the scorer gave no rank", async () => {
+    config.reviewRelays = [SEARCH];
+    const reviews = [reviewOf(DAVE, JACAFE, 4), reviewOf(DAVE, OTHER, 2), reviewOf(ALICE, OTHER, 5)];
+    const { readers, scorer } = houseNetwork(reviews, [rankOf(ALICE, 80)]);
+    const { result, rerender } = renderStore(({ addresses }: { addresses: string[] }) => useScores(addresses), {
+      readers,
+      initialProps: { addresses: [JACAFE] },
+    });
+    // Dave has no rank: he is outside, and his review is folded.
+    await waitFor(() => expect(result.current.scores.get(JACAFE)).toMatchObject({ score: null, counted: 0, outside: 1 }));
+
+    rerender({ addresses: [JACAFE, OTHER] });
+    await waitFor(() => expect(result.current.scores.get(OTHER)).toMatchObject({ score: 5, counted: 1, outside: 1 }));
+    expect(scorer.requests.map((filter) => filter["#d"])).toEqual([[DAVE], [ALICE]]);
+  });
+
   it("adds a relay's read extras to every filter sent to it, and only to it", async () => {
     config.reviewRelays = [SEARCH];
     config.relayReadExtras = { ...config.relayReadExtras, [TRUST]: { search: "trust-extra" } };
@@ -291,7 +374,7 @@ describe("ScoresProvider: what it reads", () => {
 });
 
 describe("ScoresProvider: scores", () => {
-  it("folds every review until the ranks arrive, then scores the place", async () => {
+  it("gives no score, and folds nobody, until the ranks arrive; then it scores the place", async () => {
     config.reviewRelays = [SEARCH];
     const scorer = heldReader([rankOf(ALICE, 80), rankOf(BOB, 30)]);
     const { readers } = houseNetwork([reviewOf(ALICE, JACAFE, 5), reviewOf(BOB, JACAFE, 3)], [], {
@@ -301,7 +384,8 @@ describe("ScoresProvider: scores", () => {
 
     await waitFor(() => expect(scorer.signals).toHaveLength(1));
     expect(result.current.house).toBe("loading");
-    expect(result.current.score).toMatchObject({ score: null, counted: 0, outside: 2 });
+    // Not a score with both folded: nobody is shown as outside House picks before the house has said so.
+    expect(result.current.score).toBeUndefined();
     expect(result.current.reviews).toHaveLength(2);
 
     act(() => scorer.open());
@@ -310,7 +394,7 @@ describe("ScoresProvider: scores", () => {
     expect(result.current.score?.score).toBeCloseTo((0.8 * 5 + 0.3 * 3) / 1.1, 10);
   });
 
-  it("does not score a place from some of its reviewers while another's rank is being read", async () => {
+  it("gives no score for a place while one of its reviewers' rank is being read, and folds nobody", async () => {
     config.reviewRelays = [SEARCH];
     // The first rank request (Alice's) answers; the second (Carol's) waits.
     const scorer = heldReader([rankOf(ALICE, 80), rankOf(CAROL, 60)], { from: 1 });
@@ -326,12 +410,36 @@ describe("ScoresProvider: scores", () => {
     rerender({ addresses: [JACAFE, OTHER] });
     await waitFor(() => expect(scorer.signals).toHaveLength(2));
     expect(result.current.house).toBe("ready");
-    expect(result.current.scores.get(OTHER)).toMatchObject({ score: null, counted: 0, outside: 2 });
+    expect(result.current.scores.has(OTHER)).toBe(false);
     expect(result.current.scores.get(JACAFE)?.score).toBe(5);
 
     act(() => scorer.open());
     await waitFor(() => expect(result.current.scores.get(OTHER)?.counted).toBe(2));
     expect(result.current.scores.get(OTHER)?.score).toBeCloseTo((0.8 * 5 + 0.6 * 1) / 1.4, 10);
+  });
+
+  it("gives no score for a place while a reviewer new to it is ranked, after the house is ready, then the right one", async () => {
+    config.reviewRelays = [SEARCH];
+    // The first rank request (Alice's) answers; the second (Carol's) waits.
+    const scorer = heldReader([rankOf(ALICE, 80), rankOf(CAROL, 60)], { from: 1 });
+    const reviews = [reviewOf(ALICE, JACAFE, 5)];
+    const { readers } = houseNetwork(reviews, [], { [SCORER_RELAY]: scorer });
+    const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
+    await waitFor(() => expect(result.current.score).toMatchObject({ score: 5, counted: 1, outside: 0 }));
+
+    // Carol reviews it; the place is read again, and her rank is asked for.
+    const carol = reviewOf(CAROL, JACAFE, 1);
+    reviews.push(carol);
+    act(() => result.current.actions.refresh());
+    await waitFor(() => expect(scorer.signals).toHaveLength(2));
+    expect(result.current.house).toBe("ready");
+    expect(result.current.score).toBeUndefined();
+    expect(idsOf(result.current.reviews).sort()).toEqual([carol.id, reviews[0]!.id].sort());
+
+    act(() => scorer.open());
+    await waitFor(() => expect(result.current.score?.counted).toBe(2));
+    expect(result.current.score?.score).toBeCloseTo((0.8 * 5 + 0.6 * 1) / 1.4, 10);
+    expect(result.current.score?.outside).toBe(0);
   });
 
   it("folds every place's reviews once the house's view is unavailable, the places it had ranked too", async () => {
@@ -397,7 +505,7 @@ describe("ScoresProvider: scores", () => {
     await waitFor(() => expect(result.current.again.score?.score).toBeCloseTo(expected, 10));
     expect(result.current.again.reviews.map((review) => review.id)).toEqual([aliceNewer.id, bob.id]);
     // Both filings were asked for, whichever a page named.
-    expect(new Set(search.requests.flatMap((filter) => filter["#a"]))).toEqual(new Set([JACAFE, JACAFE_AGAIN]));
+    expect(new Set(batchesOf(search).flat())).toEqual(new Set([JACAFE, JACAFE_AGAIN]));
   });
 
   it("refresh() reads the places again and replaces what it had: a review the relay no longer sends is gone", async () => {
@@ -423,10 +531,10 @@ describe("ScoresProvider: scores", () => {
     const { readers } = network({ [SEARCH]: search });
     const { unmount } = renderStore(() => useScores([JACAFE]), { readers });
 
-    await waitFor(() => expect(search.signals).toHaveLength(1));
-    expect(search.signals[0]!.aborted).toBe(false);
+    await waitFor(() => expect(search.signals).toHaveLength(2));
+    expect(search.signals.map((signal) => signal.aborted)).toEqual([false, false]);
     unmount();
-    expect(search.signals[0]!.aborted).toBe(true);
+    expect(search.signals.map((signal) => signal.aborted)).toEqual([true, true]);
   });
 
   it("aborts its rank reads when it unmounts", async () => {
@@ -458,33 +566,105 @@ describe("ScoresProvider: scores", () => {
       "useScores",
     ]);
   });
+
+  it("keeps each place's score the same object while nothing it is made of changes", async () => {
+    config.reviewRelays = [SEARCH];
+    const events: NostrEvent[] = [reviewOf(ALICE, JACAFE, 5), reviewOf(BOB, OTHER, 3), profileOf(ALICE, { name: "Alice" })];
+    const { readers } = houseNetwork(events, [rankOf(ALICE, 80), rankOf(BOB, 30)]);
+    const { result, rerender } = renderStore(
+      ({ people }: { people: string[] }) => ({
+        ...useScores([JACAFE, OTHER]),
+        names: useNames(people),
+        actions: useScoreActions(),
+      }),
+      { readers, initialProps: { people: [] as string[] } },
+    );
+    const scoreOf = (address: string) => result.current.scores.get(address);
+    await waitFor(() => expect(scoreOf(JACAFE)?.counted).toBe(1));
+    await waitFor(() => expect(scoreOf(OTHER)?.counted).toBe(1));
+    const [jacafe, other] = [scoreOf(JACAFE), scoreOf(OTHER)];
+
+    // Names come in: no place's score is new.
+    rerender({ people: [ALICE, BOB] });
+    await waitFor(() => expect(result.current.names.get(ALICE)).toBe("Alice"));
+    expect(scoreOf(JACAFE)).toBe(jacafe);
+    expect(scoreOf(OTHER)).toBe(other);
+
+    // A new review of Jacafé, by someone ranked already. Both places are read again; only Jacafé's score is new.
+    events.push(reviewOf(BOB, JACAFE, 1));
+    act(() => result.current.actions.refresh());
+    await waitFor(() => expect(scoreOf(JACAFE)?.counted).toBe(2));
+    expect(scoreOf(OTHER)).toBe(other);
+  });
+
+  it("does not render what shows scores again when only names come in", async () => {
+    config.reviewRelays = [SEARCH];
+    const { readers } = houseNetwork(
+      [reviewOf(ALICE, JACAFE, 5), profileOf(ALICE, { name: "Alice" })],
+      [rankOf(ALICE, 80)],
+    );
+    let renders = 0;
+    const Score = memo(function Score() {
+      renders += 1;
+      const { scores } = useScores([JACAFE]);
+      return <p>{`Score ${scores.get(JACAFE)?.score ?? "none"}`}</p>;
+    });
+    function Names({ people }: { people: string[] }) {
+      const names = useNames(people);
+      return <p>{people.map((pubkey) => names.get(pubkey)).join(", ")}</p>;
+    }
+    const placesReader = createMemoryReader(places);
+    const app = (people: string[]) => (
+      <PlacesProvider reader={placesReader}>
+        <ScoresProvider readers={readers}>
+          <Score />
+          <Names people={people} />
+        </ScoresProvider>
+      </PlacesProvider>
+    );
+    const { rerender } = render(app([]));
+    await screen.findByText("Score 5");
+    await settle();
+    const before = renders;
+
+    rerender(app([ALICE]));
+    await screen.findByText("Alice");
+    expect(renders).toBe(before);
+  });
 });
 
 describe("ScoresProvider: the person's own reviews (for writing and removing them)", () => {
   it("shows an own review at once, and holds it until a read returns it", async () => {
     config.reviewRelays = [SEARCH];
-    const reviews: NostrEvent[] = [reviewOf(BOB, JACAFE, 3)];
-    const { readers } = houseNetwork(reviews, [rankOf(ALICE, 80), rankOf(BOB, 30)]);
+    const events: NostrEvent[] = [reviewOf(BOB, JACAFE, 3, { created_at: 1_700_000_000 })];
+    const { readers } = houseNetwork(events, [rankOf(ALICE, 80), rankOf(BOB, 30)]);
     const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
     await waitFor(() => expect(result.current.score?.counted).toBe(1));
 
     const own = reviewOf(ALICE, JACAFE, 5, { created_at: 1_700_000_500 });
     act(() => result.current.actions.noteOwnReview(own));
-    expect(result.current.reviews.map((review) => review.id)).toContain(own.id);
+    expect(idsOf(result.current.reviews)).toContain(own.id);
     await waitFor(() => expect(result.current.score?.counted).toBe(2));
 
+    /** Bob edits his review and the place is read again: once his edit shows, that read has landed. */
+    const readAgainWithBobsEdit = async (createdAt: number) => {
+      const edit = reviewOf(BOB, JACAFE, 4, { created_at: createdAt });
+      events.push(edit);
+      act(() => result.current.actions.refresh());
+      await waitFor(() => expect(idsOf(result.current.reviews)).toContain(edit.id));
+      return edit;
+    };
+
     // A read that does not return it yet (the relay lags): still shown.
-    act(() => result.current.actions.refresh());
-    await settle();
-    expect(result.current.reviews.map((review) => review.id)).toContain(own.id);
+    await readAgainWithBobsEdit(1_700_000_010);
+    expect(idsOf(result.current.reviews)).toContain(own.id);
 
     // A read returns it: it is the relay's now, and goes when the relay drops it.
-    reviews.push(own);
+    events.push(own);
+    const bob = await readAgainWithBobsEdit(1_700_000_020);
+    events.splice(events.indexOf(own), 1);
     act(() => result.current.actions.refresh());
-    await settle();
-    reviews.splice(reviews.indexOf(own), 1);
-    act(() => result.current.actions.refresh());
-    await waitFor(() => expect(result.current.reviews.map((review) => review.id)).toEqual([reviews[0]!.id]));
+    await waitFor(() => expect(idsOf(result.current.reviews)).toEqual([bob.id]));
   });
 
   it("shows an own review for a place it has not read yet", async () => {
@@ -492,7 +672,7 @@ describe("ScoresProvider: the person's own reviews (for writing and removing the
     const search = heldReader([]);
     const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
     const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
-    await waitFor(() => expect(search.signals).toHaveLength(1));
+    await waitFor(() => expect(search.signals).toHaveLength(2));
 
     const own = reviewOf(ALICE, JACAFE, 4);
     act(() => result.current.actions.noteOwnReview(own));
@@ -504,7 +684,7 @@ describe("ScoresProvider: the person's own reviews (for writing and removing the
     config.reviewRelays = [SEARCH];
     const older = reviewOf(ALICE, JACAFE, 2, { created_at: 1_700_000_000 });
     const removed = reviewOf(ALICE, JACAFE, 4, { created_at: 1_700_000_100 });
-    const bob = reviewOf(BOB, JACAFE, 3);
+    const bob = reviewOf(BOB, JACAFE, 3, { created_at: 1_700_000_000 });
     const reviews = [removed, bob];
     const { readers } = houseNetwork(reviews, [rankOf(ALICE, 80), rankOf(BOB, 30)]);
     const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
@@ -514,17 +694,19 @@ describe("ScoresProvider: the person's own reviews (for writing and removing the
     expect(result.current.reviews.map((review) => review.id)).toEqual([bob.id]);
     expect(result.current.score).toMatchObject({ score: 3, counted: 1 });
 
-    // A lagging relay still sends the removed review, and the older one it replaced.
-    reviews.push(older);
+    // A lagging relay still sends the removed review, and the older one it replaced. Bob's edit,
+    // read in the same go, shows when that read has landed.
+    const bobEdited = reviewOf(BOB, JACAFE, 2, { created_at: 1_700_000_050 });
+    reviews.push(older, bobEdited);
     act(() => result.current.actions.refresh());
-    await settle();
-    expect(result.current.reviews.map((review) => review.id)).toEqual([bob.id]);
+    await waitFor(() => expect(idsOf(result.current.reviews)).toEqual([bobEdited.id]));
+    expect(result.current.score).toMatchObject({ score: 2, counted: 1 });
 
     // A review written after the removal shows.
     const again = reviewOf(ALICE, JACAFE, 5, { created_at: 1_700_000_300 });
     reviews.push(again);
     act(() => result.current.actions.refresh());
-    await waitFor(() => expect(result.current.reviews.map((review) => review.id)).toEqual([again.id, bob.id]));
+    await waitFor(() => expect(idsOf(result.current.reviews)).toEqual([again.id, bobEdited.id]));
   });
 
   it("drops a held own review when it is removed", async () => {
@@ -555,6 +737,44 @@ describe("ScoresProvider: the person's own reviews (for writing and removing the
     act(() => result.current.actions.noteRemoval(`${REVIEW_KIND}:${BOB}:place:${JACAFE}`, 1_800_000_000));
     expect(result.current.here.reviews.map((review) => review.id)).toEqual([alice.id]);
     expect(result.current.there.reviews.map((review) => review.id)).toEqual([aliceElsewhere.id]);
+  });
+
+  it("lists every review a person has of a place, under any d and any filing, for removing them all", async () => {
+    config.reviewRelays = [SEARCH];
+    const placeD = reviewOf(ALICE, JACAFE, 5, { created_at: 1_700_000_300 });
+    // Written by another app: the bare address as its d, and no a.
+    const bareD = shapedEvent({ kind: REVIEW_KIND, pubkey: ALICE, created_at: 1_700_000_200, tags: [["d", JACAFE], ["s", "2"]] });
+    const otherFiling = reviewOf(ALICE, JACAFE_AGAIN, 4, { created_at: 1_700_000_100 });
+    const elsewhere = reviewOf(ALICE, OTHER, 3);
+    const bob = reviewOf(BOB, JACAFE, 3);
+    const { readers } = houseNetwork([placeD, bareD, otherFiling, elsewhere, bob], [rankOf(ALICE, 80), rankOf(BOB, 30)]);
+    const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), {
+      readers,
+      placeEvents: [...places, jacafeAgain()],
+    });
+    const coordinates = (pubkey: string, address: string) => result.current.actions.ownCoordinates(pubkey, address);
+
+    const all = [
+      { id: placeD.id, d: `place:${JACAFE}`, createdAt: 1_700_000_300 },
+      { id: bareD.id, d: JACAFE, createdAt: 1_700_000_200 },
+      { id: otherFiling.id, d: `place:${JACAFE_AGAIN}`, createdAt: 1_700_000_100 },
+    ];
+    await waitFor(() => expect(coordinates(ALICE, JACAFE)).toEqual(all));
+    // The page shows one voice for her; the list has all three, whichever filing is asked about.
+    expect(idsOf(result.current.reviews)).toEqual([placeD.id, bob.id]);
+    expect(coordinates(ALICE, JACAFE_AGAIN)).toEqual(all);
+    expect(coordinates(BOB, JACAFE)).toEqual([{ id: bob.id, d: `place:${JACAFE}`, createdAt: bob.created_at }]);
+    expect(coordinates(CAROL, JACAFE)).toEqual([]);
+
+    // A removed one is not listed; an own review held, newer at its d, is, in place of the one it replaces.
+    act(() => result.current.actions.noteRemoval(`${REVIEW_KIND}:${ALICE}:${JACAFE}`, 1_700_000_250));
+    expect(coordinates(ALICE, JACAFE)).toEqual([all[0], all[2]]);
+    const own = reviewOf(ALICE, JACAFE_AGAIN, 1, { created_at: 1_700_000_400 });
+    act(() => result.current.actions.noteOwnReview(own));
+    expect(coordinates(ALICE, JACAFE)).toEqual([
+      { id: own.id, d: `place:${JACAFE_AGAIN}`, createdAt: 1_700_000_400 },
+      all[0],
+    ]);
   });
 });
 
@@ -627,12 +847,14 @@ describe("the relay code, kept out of the first screen", () => {
    * keeps what it loaded, whatever a later test mocks, so each test needs copies of its own. Their
    * config is set as tests/setup.ts sets the shared one, with the production review relay.
    */
-  async function withRelayCode(relays: Record<string, RelayReader>) {
+  async function withRelayCode(relays: Record<string, RelayReader>, { failFirst = false } = {}) {
     const loaded = vi.fn();
     const opened = vi.fn((url: string) => relays[url] ?? createMemoryReader([]));
     vi.resetModules();
     vi.doMock("../src/nostr/relayReader", () => {
       loaded();
+      // As a chunk that does not come (the connection dropped) fails its import.
+      if (failFirst && loaded.mock.calls.length === 1) throw new Error("Failed to fetch the relay chunk");
       return { readerFor: opened };
     });
     const { config: fresh } = await import("../src/config");
@@ -663,7 +885,34 @@ describe("the relay code, kept out of the first screen", () => {
     await waitFor(() => expect(result.current.scores.get(JACAFE)?.outside).toBe(1));
     expect(loaded).toHaveBeenCalledTimes(1);
     expect(opened).toHaveBeenCalledWith(SEARCH);
-    expect(search.requests[0]).toMatchObject({ "#a": [JACAFE], search: "include:spam" });
+    expect(byA(search)).toEqual([{ kinds: [REVIEW_KIND], "#a": [JACAFE], limit: 500, search: "include:spam" }]);
+  });
+
+  it("is loaded once for reads that start together, and again after a load that failed", async () => {
+    const search = createMemoryReader([reviewOf(ALICE, JACAFE, 4)]);
+    const { loaded } = await withRelayCode({ [SEARCH]: search }, { failFirst: true });
+    const { PlacesProvider: Places } = await import("../src/places/store");
+    const { ScoresProvider: Scores } = await import("../src/score/ScoresProvider");
+    const { useScore: use, useScoreActions: useActions } = await import("../src/score/useScore");
+    const placesReader = createMemoryReader(places);
+    const { result } = renderHook(() => ({ ...use(JACAFE), actions: useActions() }), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <Places reader={placesReader}>
+          <Scores>{children}</Scores>
+        </Places>
+      ),
+    });
+
+    // Two reads of the place start together (by a and by d); the one load fails, and so do both.
+    await waitFor(() => expect(loaded).toHaveBeenCalledTimes(1));
+    await settle();
+    expect(search.requests).toEqual([]);
+    expect(result.current.reviews).toEqual([]);
+
+    act(() => result.current.actions.refresh());
+    await waitFor(() => expect(result.current.reviews).toHaveLength(1));
+    expect(loaded).toHaveBeenCalledTimes(2);
+    expect(search.requests).toHaveLength(2);
   });
 
   it.each([
