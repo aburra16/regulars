@@ -136,7 +136,7 @@ export function FiltersPage(): JSX.Element {
           disabled={count === 0}
           onClick={apply}
           className={`flex h-14 flex-1 items-center justify-center rounded-[18px] border-0 font-text text-[17px] font-bold ${
-            count === 0 ? "cursor-not-allowed bg-surface text-muted" : "cursor-pointer bg-accent text-on-accent"
+            count === 0 ? "cursor-not-allowed bg-surface text-muted" : "cursor-pointer bg-accent-solid text-on-accent"
           }`}
         >
           {copy.filters.show(count)}

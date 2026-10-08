@@ -28,7 +28,7 @@ export function SearchAreaButton({ onClick, className = "" }: { onClick(): void;
     <button
       type="button"
       onClick={onClick}
-      className={`pointer-events-auto h-11 cursor-pointer rounded-chip border-0 bg-ink font-text text-secondary font-bold text-ground shadow-map-button ${className}`}
+      className={`pointer-events-auto h-11 cursor-pointer rounded-chip border-0 bg-emphasis font-text text-secondary font-bold text-on-emphasis shadow-map-button ${className}`}
     >
       {copy.map.searchArea}
     </button>

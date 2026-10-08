@@ -71,6 +71,25 @@ export function PersonIcon(props: IconProps): JSX.Element {
   );
 }
 
+/** The crescent moon: the dark mode switch, while the page is light. */
+export function MoonIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <path d="M19.5 14.5A7.5 7.5 0 1 1 9.5 4.5a8 8 0 0 0 10 10z" />
+    </Icon>
+  );
+}
+
+/** The sun and its rays: the dark mode switch, while the page is dark. */
+export function SunIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" />
+    </Icon>
+  );
+}
+
 /** The chevron pointing right: a card that opens a list of places. */
 export function ChevronRightIcon(props: IconProps): JSX.Element {
   return (

@@ -25,11 +25,11 @@ const SIZE = {
   page: { tile: "size-14 rounded-[16px] wide:size-16 wide:rounded-[18px]", icon: "size-7 wide:size-8" },
 } as const;
 
-/** The tile's colour: grey on a white card, white on a tinted card, and dark on a chain row. */
+/** The tile's colour: grey on a white card, white on a tinted card, and the emphasis fill (dark, in the light theme) on a chain row. */
 const TONE = {
   surface: "bg-surface text-ink",
   ground: "bg-ground text-ink",
-  ink: "bg-ink text-ground",
+  ink: "bg-emphasis text-on-emphasis",
 } as const;
 
 /** The icon of a family of kinds, at the size of its box: the filters' kind buttons. It is decoration, and takes the text colour. */

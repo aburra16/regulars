@@ -101,6 +101,9 @@ export const copy = {
     you: "You",
     /** The round account button, for a screen reader. */
     account: "Your account and your circle",
+    // DRAFT for Avi
+    /** The moon and sun beside it, for a screen reader (pressed while the page is dark), and the words of its switch on You. */
+    darkMode: "Dark mode",
   },
   search: {
     /** The search field's name, for a screen reader. */

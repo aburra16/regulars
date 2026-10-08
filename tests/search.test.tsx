@@ -616,7 +616,7 @@ describe("a chain row", () => {
     renderChain();
     const link = screen.getByRole("link", { name: "Loft Brunch & Cocktails" });
     expect(link).toHaveAttribute("href", `/chain/${chainSlug(chain)}`);
-    expect(link.querySelector("span[aria-hidden='true']")).toHaveClass("bg-ink", "text-ground", "size-11");
+    expect(link.querySelector("span[aria-hidden='true']")).toHaveClass("bg-emphasis", "text-on-emphasis", "size-11");
     expect(link.querySelector("svg path[d='M9 5l7 7-7 7']")).not.toBeNull();
     // The kind is the nearest location's.
     const kind = placeKindLabel(nearby[0]!.place.category, nearby[0]!.place.cuisine);
@@ -1144,7 +1144,7 @@ describe("Search: the filters that are on", () => {
     for (const button of pressed) {
       expect(button).toHaveAttribute("aria-pressed", "true");
       expect(button).toHaveAttribute("type", "button");
-      expect(button).toHaveClass("bg-ink", "text-ground", "h-11", "rounded-chip");
+      expect(button).toHaveClass("bg-emphasis", "text-on-emphasis", "h-11", "rounded-chip");
     }
   });
 
@@ -1966,7 +1966,7 @@ describe("Filters", () => {
     it("draws the chips as the design does: pressed is filled with no edge, the rest have one", async () => {
       await openFilters("/filters?sort=distance");
       const pressed = within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Distance" });
-      expect(pressed).toHaveClass("bg-ink", "text-ground", "h-11", "rounded-chip");
+      expect(pressed).toHaveClass("bg-emphasis", "text-on-emphasis", "h-11", "rounded-chip");
       expect(within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Name" })).toHaveClass("border-token", "border-line-strong", "bg-ground");
     });
   });
@@ -2084,7 +2084,7 @@ describe("Filters", () => {
       await openFilters("/filters?kinds=cafes");
       const group = groupNamed(copy.filters.kinds);
       expect(within(group).getByRole("button", { name: "Cafes" })).toHaveAttribute("aria-pressed", "true");
-      expect(within(group).getByRole("button", { name: "Cafes" })).toHaveClass("bg-ink", "text-ground", "border-ink");
+      expect(within(group).getByRole("button", { name: "Cafes" })).toHaveClass("bg-emphasis", "text-on-emphasis", "border-emphasis");
       await user.click(within(group).getByRole("button", { name: "Bars and pubs" }));
       expect(within(group).getByRole("button", { name: "Bars and pubs" })).toHaveAttribute("aria-pressed", "true");
       expect(within(group).getByRole("button", { name: "Cafes" })).toHaveAttribute("aria-pressed", "true");

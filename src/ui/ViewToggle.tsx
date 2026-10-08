@@ -55,7 +55,7 @@ export function ViewToggle({ value, onChange, scores, variant = "bar" }: ViewTog
               if (!chosen) onChange(view);
             }}
             className={`cursor-pointer border-0 font-text font-bold ${look.button} ${
-              chosen ? "bg-ink text-ground" : "bg-transparent text-ink"
+              chosen ? "bg-emphasis text-on-emphasis" : "bg-transparent text-ink"
             }`}
           >
             {score === undefined ? label : copy.view.withScore(label, copy.score.value(score))}

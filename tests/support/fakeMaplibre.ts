@@ -83,7 +83,8 @@ export class FakeMap {
   readonly handlers = new Map<string, Set<Handler>>();
   readonly sources = new Map<string, FakeSource>();
   readonly addedLayers: Record<string, unknown>[] = [];
-  readonly layers: Map<string, FakeLayer>;
+  /** The layers of the style it has now: MapTiler's for a style fetched by its address, none for one given whole. */
+  layers: Map<string, FakeLayer>;
   removed = false;
   bounds: FakeBounds = { west: -16.95, south: 32.62, east: -16.87, north: 32.68 };
   /** Where the map looks and how far in, as the app's moves and the person's leave them. */
@@ -113,9 +114,7 @@ export class FakeMap {
     this.canvas.setAttribute("role", "region");
     this.canvas.setAttribute("aria-label", (options.locale as Record<string, string> | undefined)?.["Map.Title"] ?? "Map");
     this.container.append(this.canvas);
-    this.layers = new Map(
-      (typeof options.style === "string" ? FakeMap.styleLayers : []).map((layer) => [layer.id, layer]),
-    );
+    this.layers = FakeMap.layersOf(options.style);
     FakeMap.instances.push(this);
     // The style arrives a moment later, as it does over the network, and then the first tiles.
     const arrives = FakeMap.arrives;
@@ -148,9 +147,29 @@ export class FakeMap {
     queueMicrotask(() => this.fire("render"));
   }
 
+  /** The layers a style has once it has loaded. */
+  private static layersOf(style: unknown): Map<string, FakeLayer> {
+    return new Map((typeof style === "string" ? FakeMap.styleLayers : []).map((layer) => [layer.id, layer]));
+  }
+
   getLayer = vi.fn((id: string) => this.layers.get(id));
   setPaintProperty = vi.fn((_id: string, _property: string, _value: unknown) => this);
-  setStyle = vi.fn((_style: unknown) => this);
+  /**
+   * A new style in place of the old one, built afresh (`diff: false`), as MapLibre does: it has its own
+   * layers and none of the sources the app added, and it arrives a moment later, as the first did,
+   * unless `FakeMap.arrives` is "none" when it is asked for: then a test fires what it wants.
+   */
+  setStyle = vi.fn((style: unknown, _options?: { diff?: boolean }) => {
+    this.layers = FakeMap.layersOf(style);
+    this.sources.clear();
+    if (FakeMap.arrives !== "none") {
+      queueMicrotask(() => {
+        this.fire("style.load");
+        this.fire("render");
+      });
+    }
+    return this;
+  });
   addSource = vi.fn((id: string, spec: Record<string, unknown>) => {
     this.sources.set(id, new FakeSource(this, spec));
     return this;

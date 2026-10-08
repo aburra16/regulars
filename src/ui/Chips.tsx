@@ -9,7 +9,7 @@ import { FilterIcon } from "./icons.tsx";
  * chosen or let go.
  */
 const CHIP = "inline-flex h-11 items-center rounded-chip font-text text-[15px] font-semibold";
-const CHIP_ON = "border-0 bg-ink px-[calc(1rem+var(--border))] text-ground";
+const CHIP_ON = "border-0 bg-emphasis px-[calc(1rem+var(--border))] text-on-emphasis";
 const CHIP_OFF = "border-token border-line-strong bg-ground px-4 text-ink";
 /** A chip that cannot be chosen: the lighter edge and the muted words. */
 const CHIP_DISABLED = "cursor-not-allowed border-token border-line bg-ground px-4 text-muted";

@@ -785,7 +785,7 @@ describe("KindTile", () => {
     const ground = render(<KindTile category="cafe" size="card" tone="ground" />);
     expect(ground.container.firstElementChild).toHaveClass("bg-ground", "text-ink");
     const ink = render(<KindTile category="cafe" size="row" tone="ink" />);
-    expect(ink.container.firstElementChild).toHaveClass("bg-ink", "text-ground");
+    expect(ink.container.firstElementChild).toHaveClass("bg-emphasis", "text-on-emphasis");
   });
 });
 
