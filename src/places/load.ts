@@ -1,21 +1,8 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
 import { config } from "../config.ts";
-import { isHex64 } from "../nostr/shapes.ts";
+import { asEvent, isNewer, type RelayReader } from "../nostr/events.ts";
 import { parsePlace, type Place, PLACE_KIND } from "./place.ts";
-
-/**
- * Reads stored events from a relay. The app's are made by `readerFor` (./relayReader.ts), and the
- * places relay's is `relayReader`; tests pass `createMemoryReader` (tests/support/memoryReader.ts),
- * so no test opens a socket.
- */
-export interface RelayReader {
-  /**
-   * Yields the stored events that match `filter`, at most `filter.limit` of them, and ends
-   * when the relay has sent them all. Throws if the read fails or `signal` aborts.
-   */
-  req(filter: NostrFilter, signal: AbortSignal): AsyncIterable<NostrEvent>;
-}
 
 /** The most events the places relay sends for one request (its `max_limit`). */
 export const DEFAULT_PAGE_SIZE = 10_000;
@@ -28,36 +15,6 @@ export interface HouseEvents {
   events: NostrEvent[];
   /** False when the list may hold more than these: the paging stopped before a short page. */
   complete: boolean;
-}
-
-const HEX_128 = /^[0-9a-f]{128}$/;
-
-const isText = (value: unknown): value is string => typeof value === "string";
-
-/**
- * The event in `value`, with exactly NIP-01's seven fields, or null if it does not have their
- * shape. The same check as Nostrify's `NSchema.event()` (tests/load.test.ts holds them to it),
- * written out so the first screen does not wait for zod: Nostrify loads with ./relayReader.ts.
- */
-export function asEvent(value: unknown): NostrEvent | null {
-  if (typeof value !== "object" || value === null) return null;
-  const { id, pubkey, created_at, kind, tags, content, sig } = value as Record<string, unknown>;
-  const ok =
-    isText(id) &&
-    isHex64(id) &&
-    isText(pubkey) &&
-    isHex64(pubkey) &&
-    isText(sig) &&
-    HEX_128.test(sig) &&
-    Number.isSafeInteger(kind) &&
-    (kind as number) >= 0 &&
-    (kind as number) <= 65_535 &&
-    Number.isSafeInteger(created_at) &&
-    (created_at as number) >= 0 &&
-    isText(content) &&
-    Array.isArray(tags) &&
-    tags.every((tag) => Array.isArray(tag) && tag.every(isText));
-  return ok ? { id, pubkey, created_at, kind, tags, content, sig } as NostrEvent : null;
 }
 
 /** The request for one page of the house's places, newest first, from `until` back. */
@@ -120,11 +77,6 @@ class Latest {
   report(source: string): void {
     if (this.dropped > 0) debug(`dropped ${this.dropped} events from ${source}: malformed, or not the house's`);
   }
-}
-
-/** NIP-01's rule for two versions of one address: the later wins; at the same time, the lowest id. */
-export function isNewer(a: Pick<NostrEvent, "id" | "created_at">, b: Pick<NostrEvent, "id" | "created_at">): boolean {
-  return a.created_at > b.created_at || (a.created_at === b.created_at && a.id < b.id);
 }
 
 /**

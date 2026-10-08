@@ -2,14 +2,9 @@ import type { NostrEvent, NRelay1Opts } from "@nostrify/nostrify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
-import type { RelayReader } from "../src/places/load";
-import {
-  CONNECT_TIMEOUT_MS,
-  IDLE_TIMEOUT_MS,
-  readerFor,
-  relayReader,
-  TOTAL_TIMEOUT_MS,
-} from "../src/places/relayReader";
+import type { RelayReader } from "../src/nostr/events";
+import { CONNECT_TIMEOUT_MS, IDLE_TIMEOUT_MS, readerFor, TOTAL_TIMEOUT_MS } from "../src/nostr/relayReader";
+import { relayReader } from "../src/places/relayReader";
 
 // A stand-in for Nostrify's relay, with no socket: the test plays the relay's part, message by
 // message, and the reader's limits run on fake timers.

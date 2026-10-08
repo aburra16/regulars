@@ -18,9 +18,9 @@ import { finalizeEvent, generateSecretKey, getEventHash, getPublicKey, verifyEve
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { config } from "../../src/config";
-import type { RelayReader } from "../../src/places/load";
+import type { RelayReader } from "../../src/nostr/events";
+import { CONNECT_TIMEOUT_MS, readerFor } from "../../src/nostr/relayReader";
 import { parsePlace, type Place } from "../../src/places/place";
-import { CONNECT_TIMEOUT_MS, readerFor } from "../../src/places/relayReader";
 import { latestReviews, REVIEW_KIND, type Review } from "../../src/reviews/review";
 import { formatScore, type PlaceScore, scorePlace } from "../../src/score/score";
 import { fetchRanks, type Scorer, scorerFrom, weightOf } from "../../src/trust/houseWeights";
@@ -248,7 +248,7 @@ describe(`house scores on ${RELAY}`, () => {
     expect(formatScore(result.score!)).toBe("4.5");
     expect(result.counted).toBe(2);
     expect(reviewersOf(result.inside)).toEqual(sorted(a.pk, b.pk));
-    // C is below the line (rank 1 of a line of 2); D has no rank.
+    // C is below the line (rank 1, under the line of 5); D has no rank.
     expect(result.outside).toBe(2);
     expect(reviewersOf(result.folded)).toEqual(sorted(c.pk, d.pk));
     // B reviewed it twice: only the newer review, of 3 stars, counts.

@@ -11,17 +11,9 @@ import {
   useState,
 } from "react";
 
+import type { RelayReader } from "../nostr/events.ts";
 import { readSaved, writeSaved } from "./cache.ts";
-import {
-  debug,
-  fetchHouseEvents,
-  parsePlaces,
-  type RelayReader,
-  sameStamps,
-  savedEvents,
-  type Stamps,
-  stampsOf,
-} from "./load.ts";
+import { debug, fetchHouseEvents, parsePlaces, sameStamps, savedEvents, type Stamps, stampsOf } from "./load.ts";
 import type { Place } from "./place.ts";
 
 /** Why the places could not be refreshed: a code, never a message. The screens choose the words. */

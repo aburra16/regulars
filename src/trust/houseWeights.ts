@@ -1,8 +1,8 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
 import { config } from "../config.ts";
+import { asEvent, isNewer, type RelayReader } from "../nostr/events.ts";
 import { isHex64, isRelayUrl } from "../nostr/shapes.ts";
-import { asEvent, isNewer, type RelayReader } from "../places/load.ts";
 
 /** The kind of the list in which an account names its scorers (NIP-85). */
 const TRUST_LIST_KIND = 10040;

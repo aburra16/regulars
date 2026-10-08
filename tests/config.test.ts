@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
+import { weightOf } from "../src/trust/houseWeights";
 
 /** Loads a fresh copy of the config module under the given VITE_MAPTILER_KEY. */
 async function configWithMapTilerKey(value: string | undefined) {
@@ -24,6 +25,9 @@ async function configWith(env: { reviewRelays?: string; devScorer?: string; prod
 
 // A made-up scorer: the house's real one is never written into the app or its tests.
 const SCORER = "5c0e".repeat(16);
+
+/** Brainstorm's search relay, where reviews are kept (docs/decisions.md #16). */
+const SEARCH_RELAY = "wss://search.brainstorm.world";
 
 describe("config", () => {
   afterEach(() => {
@@ -71,8 +75,19 @@ describe("config", () => {
     expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
   });
 
-  it("counts a reviewer from rank 2, and orders lists with 1.5 votes of 3.5 stars", () => {
-    expect(config.scoring).toEqual({ line: 2, priorWeight: 1.5, priorMean: 3.5 });
+  it("counts a reviewer from rank 5 (decision 18), and orders lists with 1.5 votes of 3.5 stars", () => {
+    expect(config.scoring).toEqual({ line: 5, priorWeight: 1.5, priorMean: 3.5 });
+  });
+
+  it("gives a reviewer ranked 4 no weight at the house line, and one ranked 5 a weight of 0.05", () => {
+    expect(weightOf(4, config.scoring.line)).toBe(0);
+    expect(weightOf(5, config.scoring.line)).toBe(0.05);
+  });
+
+  it("asks the search relay for reviews flagged as spam too, and asks no other relay that", async () => {
+    const extras = { [SEARCH_RELAY]: { search: "include:spam" } };
+    expect(config.relayReadExtras).toEqual(extras);
+    expect((await configWith({ production: true })).relayReadExtras).toEqual(extras);
   });
 
   it("reads no reviews when VITE_REVIEW_RELAYS is unset or blank", async () => {
@@ -88,9 +103,10 @@ describe("config", () => {
     ]);
   });
 
-  it("reads no reviews in a production build, whatever VITE_REVIEW_RELAYS says", async () => {
+  it("reads reviews from the search relay in a production build, whatever VITE_REVIEW_RELAYS says", async () => {
+    expect((await configWith({ production: true })).reviewRelays).toEqual([SEARCH_RELAY]);
     const reviewRelays = "wss://relay.example.test";
-    expect((await configWith({ reviewRelays, production: true })).reviewRelays).toEqual([]);
+    expect((await configWith({ reviewRelays, production: true })).reviewRelays).toEqual([SEARCH_RELAY]);
   });
 
   it("takes a scorer from VITE_DEV_SCORER in development", async () => {
@@ -129,6 +145,7 @@ describe("each test's config (tests/setup.ts)", () => {
     config.devScorer = { pubkey: SCORER, relay: "ws://localhost:10547" };
     config.houseTrustRelays = ["ws://localhost:10547"];
     config.scoring = { line: 50, priorWeight: 0, priorMean: 1 };
+    config.relayReadExtras = { "ws://localhost:10547": { search: "spam" } };
   });
 
   it("is back at its defaults for the next test, with no map key, review relays or scorer override", () => {
@@ -136,6 +153,7 @@ describe("each test's config (tests/setup.ts)", () => {
     expect(config.reviewRelays).toEqual([]);
     expect(config.devScorer).toBeUndefined();
     expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
-    expect(config.scoring).toEqual({ line: 2, priorWeight: 1.5, priorMean: 3.5 });
+    expect(config.scoring).toEqual({ line: 5, priorWeight: 1.5, priorMean: 3.5 });
+    expect(config.relayReadExtras).toEqual({ [SEARCH_RELAY]: { search: "include:spam" } });
   });
 });

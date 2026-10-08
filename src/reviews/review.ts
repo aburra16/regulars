@@ -1,7 +1,7 @@
 import type { NostrEvent } from "@nostrify/nostrify";
 
+import { asEvent, isNewer } from "../nostr/events.ts";
 import { isHex64 } from "../nostr/shapes.ts";
-import { asEvent, isNewer } from "../places/load.ts";
 import { PLACE_KIND } from "../places/place.ts";
 
 /** The event kind of a review: a rating of a thing, from nostr-protocol/nips PR #1914 (brief § 4). */
@@ -34,6 +34,23 @@ function isPlaceAddress(text: string | undefined): text is string {
   return kind === String(PLACE_KIND) && pubkey !== undefined && isHex64(pubkey) && d.join(":").trim() !== "";
 }
 
+/** What a review's `d` starts with, before the address of the place it reviews (decision 17). */
+const PLACE_PREFIX = "place:";
+
+/**
+ * The `d` of a review of the place at `address`: `place:39999:<filer>:<d>`, after the existing 34259
+ * convention of `<type>:<id>` (decision 17). One `d` per place, so a person's next review of it
+ * replaces the last.
+ */
+export function reviewD(address: string): string {
+  return `${PLACE_PREFIX}${address}`;
+}
+
+/** The place a review's `d` names: a place's address, with or without the `place:` before it. */
+function placeInD(d: string | undefined): string | undefined {
+  return d?.startsWith(PLACE_PREFIX) ? d.slice(PLACE_PREFIX.length) : d;
+}
+
 /** The value of an event's first tag called `name`. */
 const firstTag = (ev: NostrEvent, name: string) => ev.tags.find((tag) => tag[0] === name)?.[1];
 
@@ -63,11 +80,12 @@ export function starsOf(tags: readonly string[][]): number | null {
 
 /**
  * The review in `ev`, a well-formed event of the review kind, or null when it reviews no place. The
- * place is the `a` tag when that is a place's address, else the `d` tag (brief § 4.1).
+ * place is the `a` tag when that is a place's address, else the `d` tag: the place's address, or
+ * `place:` and the address (brief § 4.1, decisions 16 and 17). Reviews written either way are read.
  */
 function reviewIn(ev: NostrEvent): Review | null {
   const a = firstTag(ev, "a");
-  const address = isPlaceAddress(a) ? a : firstTag(ev, "d");
+  const address = isPlaceAddress(a) ? a : placeInD(firstTag(ev, "d"));
   if (!isPlaceAddress(address)) return null;
   return {
     id: ev.id,

@@ -8,8 +8,8 @@ import { type ReactNode, StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
+import type { RelayReader } from "../src/nostr/events";
 import { CACHE_KEY } from "../src/places/cache";
-import type { RelayReader } from "../src/places/load";
 import * as defaultStore from "../src/places/store";
 import { useIndexes } from "../src/places/useIndexes";
 import raw from "./fixtures/funchal-items.json";

@@ -5,6 +5,9 @@ import { isHex64, isRelayUrl } from "./nostr/shapes.ts";
 /** The Mise en Place account that publishes the places. Everything below derives from it. */
 const houseNpub = "npub1f00dy9eqw53patfe8g96ajw9xq3casvjc25umw78w4963se40djqwxgrq8";
 
+/** Brainstorm's search relay (NIP-50), which keeps the reviews (docs/decisions.md #16). */
+const searchRelay = "wss://search.brainstorm.world";
+
 function npubToHex(npub: string): string {
   const decoded = nip19.decode(npub);
   if (decoded.type !== "npub") throw new Error(`Expected an npub, got ${decoded.type}`);
@@ -51,14 +54,21 @@ interface Config {
   mapTilerKey: string | undefined;
   features: { signIn: boolean };
   /**
-   * Where reviews (kind 34259) are read from. None in production until review storage is settled
-   * (docs/decisions.md #14), so no review is fetched there; in development, VITE_REVIEW_RELAYS.
+   * Where reviews (kind 34259) are read from. In production, Brainstorm's search relay
+   * (docs/decisions.md #16); in development, VITE_REVIEW_RELAYS, and none when it is unset.
    */
   reviewRelays: string[];
+  /**
+   * What a read from a relay adds to its filter, by the relay's URL. The search relay leaves out what
+   * it takes for spam unless asked with `search: "include:spam"`; the app draws its own line
+   * (docs/decisions.md #16). Only that relay is asked so: another NIP-50 relay would take the words
+   * as a search.
+   */
+  relayReadExtras: Record<string, { search?: string }>;
   /** Where the house's kind 10040 is read, which names the scorer whose ranks are House picks. */
   houseTrustRelays: string[];
   /**
-   * `line`: the lowest rank that counts, out of 100 (Brainstorm's line of 0.02). A list is ordered as
+   * `line`: the lowest rank that counts, out of 100 (docs/decisions.md #18). A list is ordered as
    * if each place also had `priorWeight` of a vote of `priorMean` stars, so one five-star review
    * does not top it (brief § 5). Tunable.
    */
@@ -83,8 +93,9 @@ export const config: Config = {
   mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
   features: { signIn: false },
   // In a production build `import.meta.env.DEV` is false, so neither variable is read there.
-  reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [],
+  reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay],
+  relayReadExtras: { [searchRelay]: { search: "include:spam" } },
   houseTrustRelays: ["wss://scores.brainstorm.world"],
-  scoring: { line: 2, priorWeight: 1.5, priorMean: 3.5 },
+  scoring: { line: 5, priorWeight: 1.5, priorMean: 3.5 },
   devScorer: import.meta.env.DEV ? scorerOverride(import.meta.env.VITE_DEV_SCORER) : undefined,
 };

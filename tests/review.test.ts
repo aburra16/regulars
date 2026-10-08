@@ -110,6 +110,19 @@ describe("parseReview", () => {
     expect(parseReview(review({ tags: [["d", PLACE], ["a", other], ["s", "4"]] }))?.address).toBe(PLACE);
   });
 
+  it("takes the place from a d with no a: the bare address, or the address after place: (decision 17)", () => {
+    expect(parseReview(review({ tags: [["d", PLACE], ["s", "4"]] }))?.address).toBe(PLACE);
+    expect(parseReview(review({ tags: [["d", `place:${PLACE}`], ["s", "4"]] }))?.address).toBe(PLACE);
+  });
+
+  it("rejects a place: d whose rest is not a place's address", () => {
+    expect(parseReview(review({ tags: [["d", "place:"], ["s", "4"]] }))).toBeNull();
+    expect(parseReview(review({ tags: [["d", "place:osm-way-993221389"], ["s", "4"]] }))).toBeNull();
+    expect(parseReview(review({ tags: [["d", `place:30040:${FILER}:a-list`], ["s", "4"]] }))).toBeNull();
+    expect(parseReview(review({ tags: [["d", `place:place:${PLACE}`], ["s", "4"]] }))).toBeNull();
+    expect(parseReview(review({ tags: [["d", `Place:${PLACE}`], ["s", "4"]] }))).toBeNull();
+  });
+
   it("rejects a review whose subject is not a place's address", () => {
     expect(parseReview(review({ tags: [["d", `30040:${FILER}:a-list`], ["s", "4"]] }))).toBeNull();
     expect(parseReview(review({ tags: [["d", "39999:not-a-key:osm-way-1"], ["s", "4"]] }))).toBeNull();
@@ -190,6 +203,17 @@ describe("latestReviews (Review Focus 2)", () => {
     const older = review({ created_at: 1_700_000_000, tags: [["d", "first"], ["a", PLACE], ["s", "2"]] });
     const newer = review({ created_at: 1_700_000_100, tags: [["d", "second"], ["a", PLACE], ["s", "5"]] });
     expect(latestReviews([newer, older]).map((r) => r.id)).toEqual([newer.id]);
+  });
+
+  it("keeps the newer review of one place filed under its bare address and under place: (decision 16)", () => {
+    const older = review({ created_at: 1_700_000_000, tags: [["d", PLACE], ["s", "2"]] });
+    const newer = review({ created_at: 1_700_000_100, tags: [["d", `place:${PLACE}`], ["s", "5"]] });
+    for (const values of [
+      [older, newer],
+      [newer, older],
+    ]) {
+      expect(latestReviews(values).map((r) => r.id)).toEqual([newer.id]);
+    }
   });
 
   it("forgets a review the relays no longer send, such as one its reviewer deleted", () => {
