@@ -519,7 +519,9 @@ export function BaseMap({
   const source = points ?? pins;
   const pointAt = useMemo(() => byAddressOf(source), [source]);
   const without = points === undefined && selected !== undefined && pointAt.has(selected) ? selected : undefined;
-  const signature = `${signatureOf(source)}\n-${without ?? ""}`;
+  // Made once for each source and chosen one: it is as long as the source (most of a megabyte for every
+  // place), so not on every drawing of the map, which a pan does many times.
+  const signature = useMemo(() => `${signatureOf(source)}\n-${without ?? ""}`, [source, without]);
 
   // What the map's handlers read when they run: the latest of each, not those it was made with.
   const latestProps = {

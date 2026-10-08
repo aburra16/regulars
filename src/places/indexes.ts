@@ -60,7 +60,10 @@ export interface Indexes {
   /**
    * The `limit` places nearest a point that `keep` keeps, nearest first, walking out from the point:
    * `keep` is asked about the places the walk reaches, not every place, so a costly test (whether a
-   * place is open) is asked of few when many pass. Nothing for a point that is not a place on Earth.
+   * place is open) is asked of few when many pass. It is asked once of each place of each part of the
+   * tree the walk opens (up to 64 at a time), as it opens it: of more places than it keeps, and, when
+   * fewer than `limit` pass, of every place. A caller with a costly test counts, and stops asking.
+   * Nothing for a point that is not a place on Earth.
    */
   nearestWhere(lat: number, lon: number, limit: number, keep: (place: Place) => boolean): Place[];
   /**

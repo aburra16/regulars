@@ -1,4 +1,4 @@
-import { type JSX, useCallback, useMemo, useState } from "react";
+import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
 
 import { BaseMap, type BaseMapProps } from "../map/BaseMap.tsx";
 import { type Pin, pinsFor, scorePins } from "../map/pins.ts";
@@ -42,7 +42,8 @@ export interface MapFilters {
  * narrow the source itself, which is sent again only when they change. Open now is not: whether a
  * place is open needs its hours, which the map works out for the pins it draws and no others. So Open
  * now leaves out the closed pins drawn on their own, and a bubble's count still has the closed places
- * in it. The chosen pin is drawn whatever it is.
+ * in it. The chosen pin is drawn whether it is open or not; a kind or a distance that leaves its place
+ * out lets it go, as a tap away from the pins does, and its card goes with it.
  */
 export function EveryPlaceMap({
   filters,
@@ -52,7 +53,7 @@ export function EveryPlaceMap({
   const indexes = useIndexes();
   const locale = useLocale();
   const now = useNow();
-  const { selected } = props;
+  const { selected, onSelect } = props;
 
   // The places of the kinds and within the distance chosen: the same array while those are the same.
   const kindsKey = filters?.kinds?.join(",") ?? "";
@@ -69,6 +70,21 @@ export function EveryPlaceMap({
         (withinFrom === "" || distanceKm(fromLat!, fromLon!, place.lat, place.lon) <= withinKm),
     );
   }, [places, kindsKey, withinKm, withinFrom]);
+
+  // The chosen pin's place left out by the kinds or the distance: let it go. (Not while the places are
+  // still to come, nor for an address that is no place.)
+  const chosenLeftOut = useMemo(
+    () =>
+      selected !== undefined &&
+      points !== places &&
+      indexes?.byAddress.has(selected) === true &&
+      !points.some((point) => point.address === selected),
+    [selected, points, places, indexes],
+  );
+  useEffect(() => {
+    if (chosenLeftOut) onSelect?.(undefined);
+    // Once, when the filter leaves it out; `onSelect` is the page's of that moment.
+  }, [chosenLeftOut]);
 
   // The pins the map draws now, by address, as the map says each time they change.
   const [drawn, setDrawn] = useState<readonly string[]>(NOTHING_DRAWN);

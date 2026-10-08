@@ -805,6 +805,15 @@ export const copy = {
      * places, open or not: counting the open ones would need every place's hours.
      */
     inArea: (n: number) => `${places(n)} in this area. Zoom in to see the rest.`,
+    // DRAFT for Avi
+    /**
+     * In place of that, with Open now, when the list stopped reading places' hours (it reads so many and
+     * no more) before it found as many open places as it holds: there may be more farther out.
+     */
+    nearestOpen: "Showing the open places nearest the middle of this area. Zoom in to see more.",
+    // DRAFT for Avi
+    /** In place of the list, when that found none. */
+    noneOpenNearMiddle: "No open places near the middle of this area. Zoom in to see more.",
     /** The kinds menu, by what is chosen: none, one ("Cafes"), or several ("Kind of place · 2"). */
     kinds: (n: number, only: string) => (n === 0 ? kindOfPlace : n === 1 ? only : `${kindOfPlace} · ${n.toLocaleString("en")}`),
     /** The sort menu, by the order the list is in: nearest first, A to Z, or, for words, best match first. */

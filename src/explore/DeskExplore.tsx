@@ -40,7 +40,7 @@ export function DeskExplore(): JSX.Element {
   const memoryKey = `desk:${historyKey}`;
   const searched = useSearchedArea(memoryKey);
   const { area } = searched;
-  const { inArea, entries: filtered, inView, from } = useAreaEntries(area, filters);
+  const { placesInArea, entries: filtered, inArea, nearestOnly, from } = useAreaEntries(area, filters);
   const sort = sortInUse(filters);
   // The scores of the whole list, asked for in one go for the cards and the pins; best first when asked.
   const { entries, scores } = useListScores(filtered, sort === "score");
@@ -71,9 +71,16 @@ export function DeskExplore(): JSX.Element {
   // A filter is a step the Back button undoes, as on the search page.
   const setFilters = (next: Filters) => setParams((current) => withFilters(current, next, locale));
 
+  // What the list is: its filters, and its area. A new one is a new list, which starts from its first
+  // cards at its top, and whose count a screen reader hears; the minutes passing do not make one.
+  const list = `desk|${params.toString()}|${area.lat}|${area.lon}|${area.box?.join(",") ?? area.radiusKm}`;
+
   let instead: JSX.Element | undefined;
-  if (inArea === 0) {
+  if (placesInArea === 0) {
     instead = searched.fromMap ? <PageMessage>{copy.map.noneInArea}</PageMessage> : <NoneNearby />;
+  } else if (entries.length === 0 && nearestOnly === true) {
+    // Open now stopped reading hours before it found an open place: there may be some farther out.
+    instead = <PageMessage>{copy.deskExplore.noneOpenNearMiddle}</PageMessage>;
   } else if (entries.length === 0) {
     instead = (
       <PageMessage>
@@ -86,8 +93,7 @@ export function DeskExplore(): JSX.Element {
     <DeskLayout
       title={copy.pages.explore}
       historyKey={historyKey}
-      // A new filter, or a new area, is a new list, which starts from its first cards at its top.
-      list={`desk|${params.toString()}|${area.lat}|${area.lon}|${area.box?.join(",") ?? area.radiusKm}`}
+      list={list}
       head={
         <>
           {/* Explore has no words to match: its list is nearest first, by name, or best first by House picks. */}
@@ -99,7 +105,10 @@ export function DeskExplore(): JSX.Element {
           />
           <HouseLine
             count={placeCount(entries)}
-            inView={inView}
+            inArea={inArea}
+            nearestOnly={nearestOnly}
+            // The places arriving are news too: the list's count is first said once they are in.
+            announceKey={`${list}|${placesInArea}`}
             unavailable={scores.house === "unavailable"}
             onRetry={refresh}
             className="gap-3.5"

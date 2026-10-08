@@ -8,7 +8,7 @@ import houseBadge64 from "../src/assets/house/house-64.png";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { HereProvider } from "../src/location/HereProvider";
-import { LIST_LIMIT } from "../src/explore/useArea";
+import { LIST_LIMIT, OPEN_NOW_HOURS_LIMIT } from "../src/explore/useArea";
 import { areaOf, placesInBox } from "../src/map/area";
 import { BaseMap } from "../src/map/BaseMap";
 import { CLUSTER_OPTIONS, MAX_MARKERS, type Pin, PIN_SOURCE, pinsFor, pinsGeoJSON } from "../src/map/pins";
@@ -1646,6 +1646,44 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       }
     });
 
+    it("says the town's count with Open now when the person changes the list, and not as the minutes pass", async () => {
+      const user = userEvent.setup();
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      try {
+        // A time later in the day when the town has another number of places open.
+        const town = idx.near(HERE.lat, HERE.lon, HERE.radiusKm);
+        const openAt = (at: Date) => town.filter(({ place: each }) => openState(each, at).kind !== "closed").length;
+        let later = MORNING;
+        for (let minutes = 15; openAt(later) === openAt(MORNING) && minutes < 24 * 60; minutes += 15) {
+          later = new Date(MORNING.getTime() + minutes * 60_000);
+        }
+        expect(openAt(later)).not.toBe(openAt(MORNING));
+
+        await openApp("/?open=1", { px: DESKTOP });
+        const status = within(houseLine()).getByRole("status");
+        expect(status).toHaveTextContent(new RegExp(`^${literal(copy.deskExplore.count(openAt(MORNING)))}$`));
+
+        // The minutes pass: the line shows the new count, and the status has nothing new to say.
+        const changes: MutationRecord[] = [];
+        const watch = new MutationObserver((records) => changes.push(...records));
+        watch.observe(status, { subtree: true, childList: true, characterData: true });
+        vi.setSystemTime(later);
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+        await act(async () => {});
+        watch.disconnect();
+        expect(houseLine()).toHaveTextContent(copy.deskExplore.count(openAt(later)));
+        expect(within(houseLine()).getByRole("status")).toBe(status);
+        expect(changes).toEqual([]);
+
+        // The person turns Open now off: the status says the town's count.
+        const menus = screen.getByRole("group", { name: copy.explore.filtersLabel });
+        await user.click(within(menus).getByRole("button", { name: "Open now" }));
+        expect(within(houseLine()).getByRole("status")).toHaveTextContent(new RegExp(`^${literal(copy.deskExplore.count(fixturePlaces.length))}$`));
+      } finally {
+        Reflect.deleteProperty(document, "visibilityState");
+      }
+    });
+
     it("lists, with Open now, the 50 open places nearest the middle, working out the hours of only those it reaches", async () => {
       const user = userEvent.setup();
       const events = [...everyone, ...crowd, ...many];
@@ -1672,6 +1710,55 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       const shownKm = cards().map((card) => all.find((each) => each.name === nameOf(card))!).map((each) => distanceKm(0, 0, each.lat, each.lon));
       expect(shownKm).toEqual([...shownKm].sort((a, b) => a - b));
       expect(houseLine()).toHaveTextContent(copy.deskExplore.inArea(all.length));
+    });
+
+    /** 2,400 places closed all morning round (10.3°N, 10.2°E), on Lagos's clock: more than Open now reads the hours of. */
+    const shut = Array.from({ length: 2400 }, (_, i) =>
+      variant(nameOnly, {
+        d: `shut-${i}`,
+        name: `Shut place ${i}`,
+        lat: String(10 + (i % 60) * 0.01),
+        lon: String(10 + Math.floor(i / 60) * 0.01),
+        "opening-hours": "Mo-Su 20:00-22:00",
+      }),
+    );
+    /** Open places at the edge of the box, farther from its middle than every closed one. */
+    const openFar = [0, 1, 2].map((i) =>
+      variant(nameOnly, { d: `far-open-${i}`, name: `Far open ${i}`, lat: String(10.98 - i * 0.002), lon: "10.98", "opening-hours": "24/7" }),
+    );
+    const SHUT_BOX = { west: 9.5, south: 9.5, east: 11, north: 11 };
+
+    /** Searches `SHUT_BOX` with Open now, the map drawing no pin on its own; the spy has the hours read by the search. */
+    async function searchShutBox(events: NostrEvent[]) {
+      const user = userEvent.setup();
+      const { map } = await openApp("/?open=1", { px: DESKTOP, events });
+      map.features = [bubbleOf(10.25, 10.25, events.length)];
+      act(() => map.dragTo(SHUT_BOX, 7));
+      const hours = vi.spyOn(hoursModule, "openState");
+      await user.click(searchArea());
+      return hours;
+    }
+
+    it("reads the hours of no more places than Open now allows, and says no open place is near the middle", async () => {
+      const hours = await searchShutBox([...fixtures, ...shut, ...openFar]);
+      expect(hours.mock.calls.length).toBeGreaterThan(OPEN_NOW_HOURS_LIMIT / 2);
+      expect(hours.mock.calls.length).toBeLessThanOrEqual(OPEN_NOW_HOURS_LIMIT);
+      // It stopped before the open places at the edge, so it cannot say there are none: it says none is near the middle.
+      expect(screen.queryByRole("list")).not.toBeInTheDocument();
+      expect(screen.getByText(copy.deskExplore.noneOpenNearMiddle)).toBeInTheDocument();
+      expect(copy.deskExplore.noneOpenNearMiddle).toBe("No open places near the middle of this area. Zoom in to see more.");
+    });
+
+    it("lists the open places it found nearest the middle when it stops reading hours, and says so", async () => {
+      const openNear = Array.from({ length: 10 }, (_, i) =>
+        variant(nameOnly, { d: `near-open-${i}`, name: `Near open ${i}`, lat: String(10.25 + i * 0.001), lon: "10.25", "opening-hours": "24/7" }),
+      );
+      const hours = await searchShutBox([...fixtures, ...shut, ...openFar, ...openNear]);
+      expect(hours.mock.calls.length).toBeLessThanOrEqual(OPEN_NOW_HOURS_LIMIT + openNear.length);
+      expect(cards().map(nameOf).sort()).toEqual(openNear.map((_, i) => `Near open ${i}`).sort());
+      const status = within(houseLine()).getByRole("status");
+      expect(status).toHaveTextContent(new RegExp(`^${literal(copy.deskExplore.nearestOpen)}$`));
+      expect(copy.deskExplore.nearestOpen).toBe("Showing the open places nearest the middle of this area. Zoom in to see more.");
     });
 
     it("is nearest the middle of the map as drawn", async () => {
@@ -1884,6 +1971,25 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
         expect(card).toHaveClass("border-2", "border-ink");
         expect(cards()).toHaveLength(1);
         expect(card.compareDocumentPosition(screen.getByText(copy.map.noneInArea)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      } finally {
+        Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+      }
+    });
+
+    it("on a desktop, lets the chosen pin go when a filter leaves its place out: its card goes with its pin", async () => {
+      const user = userEvent.setup();
+      Element.prototype.scrollIntoView = vi.fn();
+      try {
+        await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisbon] });
+        // One beyond the list, at its top; then the kinds menu leaves it out (it is a restaurant).
+        await user.click(await findPin("Lisbon place 1"));
+        expect(within(list()).getByRole("link", { name: "Lisbon place 1" })).toBeInTheDocument();
+        const menus = screen.getByRole("group", { name: copy.explore.filtersLabel });
+        await user.click(within(menus).getByRole("button", { name: "Kind of place" }));
+        await user.click(within(screen.getByRole("group", { name: copy.filters.kinds })).getByRole("button", { name: "Cafes" }));
+        await waitFor(() => expect(within(list()).queryByRole("link", { name: "Lisbon place 1" })).not.toBeInTheDocument());
+        expect(screen.queryByRole("button", { name: /^Lisbon place 1,/ })).not.toBeInTheDocument();
+        expect(screen.queryAllByRole("button", { pressed: true, name: /, (Restaurant|Cafe|Coffee)/ })).toEqual([]);
       } finally {
         Reflect.deleteProperty(Element.prototype, "scrollIntoView");
       }

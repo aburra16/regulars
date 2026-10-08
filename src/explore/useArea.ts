@@ -21,6 +21,14 @@ import { recallMapPage, rememberMapPage, type SearchState } from "./mapMemory.ts
  */
 export const LIST_LIMIT = 50;
 
+/**
+ * The most places whose hours a searched area's list reads with Open now, each time it is worked out
+ * (a search, a filter, every minute). A place's hours take tens of microseconds to read (some places'
+ * many more), so this keeps a pass within about a tenth of a second on a desktop, however many places
+ * near the middle are closed (the middle of the night there).
+ */
+export const OPEN_NOW_HOURS_LIMIT = 2000;
+
 /** What a map page lists, and how the person moves it to where the map is. */
 export interface SearchedArea {
   /** The places listed: where the person is near, until they search an area of the map; then the box it showed. */
@@ -83,7 +91,7 @@ export function useSearchedArea(memoryKey: string): SearchedArea {
 /** What an area lists. */
 export interface AreaEntries {
   /** How many places the area has, before the filters: none says there is nothing in it at all. */
-  inArea: number;
+  placesInArea: number;
   /** The list: chains as one entry, and, for an area searched on the map, the `LIST_LIMIT` places nearest its middle. */
   entries: Entry[];
   /**
@@ -91,7 +99,12 @@ export interface AreaEntries {
    * of the kinds, and within the distance, chosen. Open now is not counted: that would need every
    * place's hours, so the count is of places, open or not.
    */
-  inView?: number;
+  inArea?: number;
+  /**
+   * With Open now, the list stopped reading hours (`OPEN_NOW_HOURS_LIMIT`) before it found as many open
+   * places as it holds: it has the open places nearest the middle, and there may be more farther out.
+   */
+  nearestOnly?: boolean;
   /** Where each distance is from: the device, when it has said where the person is; otherwise the area's centre. */
   from: { lat: number; lon: number };
 }
@@ -119,8 +132,9 @@ function cheapFilter(families: readonly FamilyId[], withinKm: number, from: { la
  * An area searched on the map lists no more than `LIST_LIMIT` places: those nearest the middle of the
  * map that pass the filters, found by walking out from the middle and stopping at the first that many,
  * so Open now asks the hours of the places the walk reaches and not of every place in the area (the
- * whole world, zoomed out). When there are more, it says how many places the area has (`inView`), of
- * the kinds and within the distance chosen. A chain counts only the locations listed.
+ * whole world, zoomed out), and no more than `OPEN_NOW_HOURS_LIMIT` of them (`nearestOnly` says when it
+ * stopped there). When there are more, it says how many places the area has (`inArea`), of the kinds
+ * and within the distance chosen. A chain counts only the locations listed.
  */
 export function useAreaEntries(area: Area, filters?: Filters): AreaEntries {
   const indexes = useIndexes();
@@ -159,17 +173,27 @@ export function useAreaEntries(area: Area, filters?: Filters): AreaEntries {
   // The minute matters to the list only when it is asked which places are open.
   const openAt = filters?.open === true ? now : null;
   return useMemo(() => {
-    if (indexes === undefined) return { inArea: 0, entries: [], from };
+    if (indexes === undefined) return { placesInArea: 0, entries: [], from };
     if (boxed === undefined) {
       // Filter first, then group: a chain counts only the locations that stay.
       const rows = filters === undefined ? nearby : applyFilters(nearby, { ...filters, withinKm }, now).rows;
-      return { inArea: nearby.length, entries: groupForList(rows, indexes), from };
+      return { placesInArea: nearby.length, entries: groupForList(rows, indexes), from };
     }
     // Walk out from the middle of the map, one more than the list holds, to know whether it holds them all.
+    // The walk asks the test of each place it reaches: `around` asks it of every place of each part of
+    // the tree it opens, as it opens it, so it is asked of more places than it keeps. Hence a count of the
+    // hours read, and a limit: past it, a place is not read, and not kept, and the walk goes on through
+    // the rest at the cost of the box and the cheap filters alone.
     const { keeps, holds } = boxed;
-    const found = indexes.nearestWhere(lat, lon, LIST_LIMIT + 1, (place) =>
-      holds(place.lat, place.lon) && keeps(place) && (openAt === null || openState(place, openAt).kind !== "closed"),
-    );
+    let hoursRead = 0;
+    const found = indexes.nearestWhere(lat, lon, LIST_LIMIT + 1, (place) => {
+      if (!holds(place.lat, place.lon) || !keeps(place)) return false;
+      if (openAt === null) return true;
+      if (hoursRead >= OPEN_NOW_HOURS_LIMIT) return false;
+      hoursRead += 1;
+      return openState(place, openAt).kind !== "closed";
+    });
+    const stopped = openAt !== null && hoursRead >= OPEN_NOW_HOURS_LIMIT && found.length <= LIST_LIMIT;
     const rows = found
       .slice(0, LIST_LIMIT)
       .map((place) => ({ place, km: distanceKm(fromLat, fromLon, place.lat, place.lon) }))
@@ -177,7 +201,8 @@ export function useAreaEntries(area: Area, filters?: Filters): AreaEntries {
     // Nearest first, as the walk found them, unless the sort says otherwise (A to Z; House picks' is the page's).
     const sorted = filters?.sort === "name" ? applyFilters(rows, { open: false, families: [], withinKm: Number.POSITIVE_INFINITY, sort: "name" }, now).rows : rows;
     const entries = groupForList(sorted, indexes);
-    return found.length > LIST_LIMIT ? { inArea: boxed.places, entries, inView: boxed.passing, from } : { inArea: boxed.places, entries, from };
+    if (found.length > LIST_LIMIT) return { placesInArea: boxed.places, entries, inArea: boxed.passing, from };
+    return stopped ? { placesInArea: boxed.places, entries, nearestOnly: true, from } : { placesInArea: boxed.places, entries, from };
     // `now` is a dependency through `openAt`: it changes the list only while Open now is on.
   }, [indexes, nearby, boxed, filters, withinKm, openAt, lat, lon, fromLat, fromLon, from]);
 }
