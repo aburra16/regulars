@@ -637,7 +637,8 @@ describe("the routes", () => {
     ["/filters", copy.pages.filters],
     ["/place/osm-node-11330857543", "Jacafé"],
     ["/place/osm-node-123", copy.place.noLongerListed],
-    ["/chain/copper-kettle-pt", copy.pages.chain],
+    // No chain has this key: the page says so.
+    ["/chain/copper-kettle-pt", copy.place.noLongerListed],
     ["/about", copy.pages.about],
     ["/signin", copy.pages.signin],
     ["/saved", copy.pages.saved],
@@ -795,7 +796,7 @@ describe("the document title", () => {
     ["/filters", "Filters · Regulars"],
     ["/place/osm-node-11330857543", "Jacafé · Regulars"],
     ["/place/osm-node-123", "No longer listed · Regulars"],
-    ["/chain/copper-kettle-pt", "All locations · Regulars"],
+    ["/chain/copper-kettle-pt", "No longer listed · Regulars"],
     ["/about", "About · Regulars"],
     ["/signin", "Sign in · Regulars"],
     ["/saved", "Saved · Regulars"],

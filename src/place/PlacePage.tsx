@@ -1,9 +1,8 @@
 import { type JSX, useMemo } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
-import { stepsBackToExplore } from "../explore/returnPoint.ts";
 import { useHere } from "../location/useLocation.ts";
 import { BaseMap, type LngLat, type Pin } from "../map/BaseMap.tsx";
 import { distanceKm, formatDistance } from "../places/distance.ts";
@@ -11,19 +10,18 @@ import { type OpenState, openLine, openState } from "../places/hours.ts";
 import type { Indexes, PlaceDistance } from "../places/indexes.ts";
 import { placeKindLabel } from "../places/kinds.ts";
 import type { Place } from "../places/place.ts";
-import { usePlaces } from "../places/store.tsx";
 import { useIndexes } from "../places/useIndexes.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
 import { useWide } from "../shell/useWide.ts";
 import { Attribution } from "../ui/Attribution.tsx";
-import { PageMessage, primaryButton } from "../ui/Banner.tsx";
-import { BackIcon, SavedIcon } from "../ui/icons.tsx";
+import { BackLink } from "../ui/BackLink.tsx";
+import { SavedIcon } from "../ui/icons.tsx";
 import { KindTile } from "../ui/KindTile.tsx";
 import { NewTabHint } from "../ui/NewTab.tsx";
+import { NotListedOrLoading } from "../ui/NotListed.tsx";
 import { PlaceRow } from "../ui/PlaceRow.tsx";
-import { isPlainClick } from "../ui/plainClick.ts";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { actionsOf, PhoneActions, type PlaceActions, RailActions } from "./Actions.tsx";
 import { Facts } from "./Facts.tsx";
@@ -43,37 +41,6 @@ function OutLink({ href, className, children }: { href: string; className: strin
       {children}
       <NewTabHint />
     </a>
-  );
-}
-
-/**
- * The way back: the page the person came from, when they came from one in the app; Explore when
- * the place was the first page opened (a shared link). On a phone it is the arrow alone
- * (PlaceNew.dc.html); on a desktop the arrow and its words (DeskPlace.dc.html).
- */
-function BackLink({ wide }: { wide: boolean }): JSX.Element {
-  const navigate = useNavigate();
-  const { key } = useLocation();
-  const inApp = key !== "default";
-  const words = inApp ? copy.place.back : copy.place.backHome;
-  return (
-    <Link
-      to="/"
-      aria-label={wide ? undefined : words}
-      onClick={(event) => {
-        if (!inApp || !isPlainClick(event)) return;
-        event.preventDefault();
-        void navigate(-1);
-      }}
-      className={
-        wide
-          ? "inline-flex min-h-touch items-center gap-1.5 self-start text-[15px] font-semibold text-ink no-underline hover:text-accent"
-          : "flex size-11 items-center justify-center rounded-full text-ink"
-      }
-    >
-      <BackIcon size={wide ? 18 : 22} />
-      {wide && words}
-    </Link>
   );
 }
 
@@ -382,34 +349,6 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
 }
 
 /**
- * A place that is not on the list: it came off the map at the monthly refresh, or the link is
- * wrong. The way back goes to the Explore the person left, when there is one behind this page.
- */
-function NotListed(): JSX.Element {
-  useDocumentTitle(copy.titles.notListed);
-  const navigate = useNavigate();
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-gutter-phone py-16 text-center wide:px-gutter-desktop">
-      <h1 className="m-0 font-display text-h2 font-bold">{copy.place.noLongerListed}</h1>
-      <p className="m-0 max-w-[36ch] text-body leading-[1.5] text-ink-soft">{copy.place.noLongerListedDetail}</p>
-      <Link
-        to="/"
-        onClick={(event) => {
-          if (!isPlainClick(event)) return;
-          const steps = stepsBackToExplore();
-          if (steps === undefined) return;
-          event.preventDefault();
-          void navigate(steps);
-        }}
-        className={`${primaryButton} mt-2`}
-      >
-        {copy.place.backToExplore}
-      </Link>
-    </div>
-  );
-}
-
-/**
  * A place's page (screens 6 and 7, D2), at `/place/:d`. Before sign in nobody's reviews can be
  * shown, so every place is in its no-reviews state (PlaceNew.dc.html): the facts carry the page.
  * A `d` the places do not have is a place that came off the list, said once the latest list is in.
@@ -417,12 +356,7 @@ function NotListed(): JSX.Element {
 export function PlacePage(): JSX.Element {
   const { d = "" } = useParams();
   const indexes = useIndexes();
-  const { source, error } = usePlaces();
   const place = indexes?.byD.get(d);
   if (place !== undefined && indexes !== undefined) return <PlaceView key={place.address} place={place} indexes={indexes} />;
-  // The places on screen are the ones saved on this device, and the latest, still on its way, may have it.
-  if (indexes === undefined || (source === "cache" && error === undefined)) {
-    return <PageMessage>{copy.load.loading}</PageMessage>;
-  }
-  return <NotListed />;
+  return <NotListedOrLoading />;
 }

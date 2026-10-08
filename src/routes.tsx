@@ -1,10 +1,11 @@
 import type { JSX } from "react";
 import type { RouteObject } from "react-router-dom";
 
+import { ChainPage } from "./chain/ChainPage.tsx";
 import { DeskExplore } from "./explore/DeskExplore.tsx";
 import { ExploreList } from "./explore/ExploreList.tsx";
 import { MapPage } from "./explore/MapPage.tsx";
-import { AboutPage, ChainPage, SavedPage, SignInPage, YouPage } from "./pages/placeholders.tsx";
+import { AboutPage, SavedPage, SignInPage, YouPage } from "./pages/placeholders.tsx";
 import { PlacePage } from "./place/PlacePage.tsx";
 import { FiltersPage } from "./search/FiltersPage.tsx";
 import { SearchPage } from "./search/SearchPage.tsx";

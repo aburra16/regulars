@@ -49,6 +49,12 @@ const pageTitle = (page: string) => `${page} · ${config.appName}`;
 /** What joins the parts of a line: "Cafe · 0.3 mi", "Closed · opens 7 am". */
 const dot = " · ";
 
+/** A chain's kind and size (Main.dc.html): "Coffee shop · 74 locations". */
+const chainKind = (kind: string, n: number) => `${kind}${dot}${locations(n)}`;
+
+/** How many of a chain's places are near, in the line under its name: "3 near you". */
+const nearYou = (n: number) => `${n === 0 ? "none" : n.toLocaleString("en")} near you`;
+
 /** What joins the two parts of the hours inside a line that dots join already (DeskPlace.dc.html): "Open now, closes 10 pm". */
 const comma = ", ";
 
@@ -222,7 +228,8 @@ export const copy = {
     // DRAFT for Avi
     /** The page of a place that is not on the list any more. */
     notListed: pageTitle("No longer listed"),
-    chain: pageTitle(pages.chain),
+    /** A chain's page is named after the chain: "A Confeitaria Coffee & Bakery · Regulars". */
+    chain: (name: string) => pageTitle(name),
     about: pageTitle(pages.about),
     signin: pageTitle(pages.signin),
     saved: pageTitle(pages.saved),
@@ -326,8 +333,7 @@ export const copy = {
     chips: { all: "All", open: "Open now", more: "More" },
     /** What a place is and how far it is: "Mexican restaurant · 1.1 mi". */
     kindLine: (kind: string, distance: string) => (distance === "" ? kind : `${kind}${dot}${distance}`),
-    /** A chain's kind and size (Main.dc.html): "Coffee shop · 74 locations". */
-    chainKind: (kind: string, n: number) => `${kind} · ${locations(n)}`,
+    chainKind,
     /** How many of a chain are around: "3 near you, the closest 0.6 mi". */
     chainNearby: (n: number, distance: string) => `${n.toLocaleString("en")} near you, the closest ${distance}`,
     /** The button after the last card shown, when there are more. */
@@ -344,6 +350,32 @@ export const copy = {
     // DRAFT for Avi
     /** The button under that, which clears the chip. */
     showAll: "Show all places",
+  },
+  /** A chain's page (Chain.dc.html): the places that share a name, and which of them are near. */
+  chain: {
+    /** Under the chain's name (Chain.dc.html): what it is, how many places have its name and how many are near: "Coffee shop · 74 locations · 3 near you". */
+    line: (kind: string, n: number, near: number) => `${chainKind(kind, n)}${dot}${nearYou(near)}`,
+    // DRAFT for Avi: "none near you" is not drawn; the design has a chain with three near.
+    nearYou,
+    eachScored: "Each location is scored on its own",
+    // DRAFT for Avi: the design's second sentence goes on "Near you, your circle rates them from 3.6 to 4.4", which needs scores.
+    eachScoredDetail: "A good one here says little about the one across town.",
+    /** The heading over the locations that are near. */
+    near: "Near you",
+    // DRAFT for Avi: the heading over the nearest three, when none is near.
+    nearest: "Nearest locations",
+    /** The link beside "Near you", on a phone, to the map. */
+    seeOnMap: "See on map",
+    /** The button under the locations that are near, when the chain has more (Chain.dc.html): "Show all 74 locations". */
+    showAll: (n: number) => `Show all ${locations(n)}`,
+    // DRAFT for Avi: the design adds "Not the same business? Tell us", a link to a form this version does not have.
+    grouped: "Places with the same name are grouped.",
+    // DRAFT for Avi
+    /** The map of the locations, which does not move, as one picture for a screen reader. */
+    mapLabel: (name: string) => `Map showing the nearest ${name} locations`,
+    // DRAFT for Avi
+    /** The desktop's side rail, for a screen reader. */
+    railLabel: "Map and where the details come from",
   },
   /** The map (Map.dc.html, DeskExplore.dc.html). */
   map: {

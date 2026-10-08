@@ -15,7 +15,7 @@ import { scriptLang } from "./scriptLang.ts";
  * What most of a chain's places are, in words, and the category that gives its tile. When two
  * kinds are as common, the one the nearest place is wins.
  */
-function commonKind(chain: Chain, nearby: readonly PlaceDistance[]): { label: string; category: string } {
+export function commonKind(chain: Chain, nearby: readonly PlaceDistance[]): { label: string; category: string } {
   const rank = new Map<Place, number>(nearby.map((row, i) => [row.place, i]));
   const nearestFirst = [...chain.places].sort(
     (a, b) => (rank.get(a) ?? nearby.length) - (rank.get(b) ?? nearby.length),
