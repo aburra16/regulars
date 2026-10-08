@@ -6,7 +6,7 @@ import { expect } from "vitest";
 import { AccountProvider } from "../../src/account/AccountProvider";
 import { copy } from "../../src/copy/en";
 import { HereProvider } from "../../src/location/HereProvider";
-import type { RelayReader } from "../../src/nostr/events";
+import type { RelayReader, RelayWriter } from "../../src/nostr/events";
 import { writeSaved } from "../../src/places/cache";
 import { PlacesProvider, usePlaces } from "../../src/places/store";
 import { routes } from "../../src/routes";
@@ -54,6 +54,11 @@ export interface OpenOptions {
    */
   readers?: (url: string) => RelayReader;
   /**
+   * The writer of each relay a review is sent to. Default: the app's own, which opens a socket
+   * (tests/setup.ts forbids it), so pass writers to post.
+   */
+  writers?: (url: string) => RelayWriter;
+  /**
    * The NIP-46 meeting point at each address, for signing in with an app on a phone. Default: the
    * app's own, which opens a socket (tests/setup.ts forbids it), so pass one to connect.
    */
@@ -65,13 +70,13 @@ export interface OpenOptions {
  * person is signed in if `sessionStorage` says so. It resolves once the page is past the "Finding
  * places" line, which a page that needs no places never shows.
  */
-export async function openApp(path: string, { px = PHONE, events, entries, delayMs, readers, relays }: OpenOptions) {
+export async function openApp(path: string, { px = PHONE, events, entries, delayMs, readers, writers, relays }: OpenOptions) {
   setWidth(px);
   const initialEntries = entries ?? [path];
   const router = createMemoryRouter(routes, { initialEntries, initialIndex: initialEntries.length - 1 });
   const view = render(
     <PlacesProvider reader={createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
-      <ScoresProvider readers={readers}>
+      <ScoresProvider readers={readers} writers={writers}>
         <AccountProvider relays={relays}>
           <HereProvider>
             <RouterProvider router={router} />

@@ -21,6 +21,18 @@ export interface RelayReader {
   req(filter: NostrFilter, signal: AbortSignal): AsyncIterable<NostrEvent>;
 }
 
+/**
+ * Sends events to one relay. The app's is made by `writerFor` (./relayReader.ts); tests pass one held in
+ * memory (tests/support/memoryWriter.ts), so no test opens a socket.
+ */
+export interface RelayWriter {
+  /**
+   * Sends `event`, and resolves once the relay has taken it (NIP-01's `OK` true). Throws with the
+   * relay's reason when it refuses it, or with the signal's reason when `signal` aborts.
+   */
+  publish(event: NostrEvent, signal: AbortSignal): Promise<void>;
+}
+
 /** Every value `reader` sends for `filter`, once it has sent them all. Throws as `req` does. */
 export async function readAll(reader: RelayReader, filter: NostrFilter, signal: AbortSignal): Promise<unknown[]> {
   const values: unknown[] = [];

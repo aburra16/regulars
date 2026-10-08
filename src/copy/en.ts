@@ -55,6 +55,12 @@ const reviewCount = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "revie
 /** "a week ago", "3 weeks ago". */
 const ago = (n: number, unit: string) => (n === 1 ? `a ${unit} ago` : `${n.toLocaleString("en")} ${unit}s ago`);
 
+/** Over the place's name in the review form (Review.dc.html), and in its page's title. */
+const yourReviewOf = "Your review of";
+
+/** The word for each number of stars in the review form, from one to five (Review.dc.html). */
+const starWords = ["Would not go back", "Below average", "Fine", "Good", "One of the best"] as const;
+
 /** The point of view a place's score comes from before sign in, as a reviews line names it. */
 const houseTrusts = "the house trusts";
 
@@ -342,6 +348,9 @@ export const copy = {
     you: pageTitle(pages.you),
     // DRAFT for Avi
     missing: pageTitle("Not found"),
+    // DRAFT for Avi
+    /** The review form is named after the place it reviews: "Your review of Jacafé · Regulars". */
+    review: (name: string) => pageTitle(`${yourReviewOf} ${name}`),
   },
   /** The sign-in page (SignIn.dc.html, DeskSignIn.dc.html), and the button that leads to it. */
   signin: {
@@ -461,6 +470,60 @@ export const copy = {
     yoursHeading: "Your reviews are yours",
     yoursBody:
       "Places, reviews and lists are public records that don't live inside this app. Other apps can read the same ones, and yours stay with you if you leave.",
+  },
+  /**
+   * Writing a review (Review.dc.html; DeskReview.dc.html, a dialog over the place's page). The tags
+   * the design draws ("Anything worth flagging?") are left out while tags are off (brief § 4.4).
+   */
+  review: {
+    // DRAFT for Avi
+    /** The dialog on a desktop, for a screen reader (DeskReview.dc.html). */
+    dialogLabel: "Write a review",
+    // DRAFT for Avi
+    /** At the top, who the review will carry the name of (the design's). */
+    reviewingAs: (name: string) => `Reviewing as ${name}`,
+    // DRAFT for Avi
+    /** Over the place's name (the design's). */
+    yourReviewOf,
+    // DRAFT for Avi
+    /** Over the stars (the design's). */
+    howWasIt: "How was it?",
+    // DRAFT for Avi
+    /** The word under the stars for each number of them, from one to five (the design's). */
+    starWords: [...starWords],
+    // DRAFT for Avi
+    /** A star button, for a screen reader: how many stars, and their word. "4 stars, Good". */
+    star: (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "star" : "stars"}, ${starWords[n - 1] ?? ""}`,
+    // DRAFT for Avi
+    /** The text box's label (the design's). */
+    textLabel: "What should a friend know?",
+    // DRAFT for Avi
+    /** In the empty text box (the design's). */
+    textPlaceholder: "What to order, when to go, what to skip.",
+    // DRAFT for Avi
+    /** Under the text box (the design's). */
+    textHint: "Optional. A rating on its own still counts.",
+    // DRAFT for Avi
+    /**
+     * Over Post (the design's). The phone's design adds "You can remove it later.", which waits until
+     * removing a review opens.
+     */
+    notice: "Reviews are public and carry your name. One review per place: posting again replaces this one.",
+    // DRAFT for Avi
+    /** The button that posts it (the design's). */
+    post: "Post review",
+    // DRAFT for Avi
+    /** The same button while the review is being posted. */
+    posting: "Posting…",
+    // DRAFT for Avi
+    /** No relay took the review, or there was nowhere to send it; what was typed stays (a state the design does not draw). */
+    failed: "Your review didn't post. Try again.",
+    // DRAFT for Avi
+    /** The arrow at the top left of the phone's form, for a screen reader: back to the place. */
+    back: "Back",
+    // DRAFT for Avi
+    /** The cross at the top right of the desktop's dialog, for a screen reader. */
+    close: "Close",
   },
   /** A place's page (Place.dc.html, PlaceNew.dc.html, DeskPlace.dc.html). */
   place: {

@@ -10,7 +10,7 @@ import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
 import { REVIEW_KIND } from "../src/reviews/review";
 import { ScoresProvider } from "../src/score/ScoresProvider";
-import { FLUSH_WINDOW_MS } from "../src/score/store";
+import { FLUSH_WINDOW_MS, HELD_REVIEWS_KEY } from "../src/score/store";
 import { useListScores } from "../src/score/useListScores";
 import { useNames, useScore, useScoreActions, useScores } from "../src/score/useScore";
 import raw from "./fixtures/funchal-items.json";
@@ -936,6 +936,91 @@ describe("ScoresProvider: the person's own reviews (for writing and removing the
       { id: own.id, d: `place:${JACAFE_AGAIN}`, createdAt: 1_700_000_400 },
       all[0],
     ]);
+  });
+});
+
+describe("ScoresProvider: the person's own reviews, held through a reload (Review Focus 1)", () => {
+  /** What this tab keeps of the reviews held, as JSON. */
+  const heldText = () => window.sessionStorage.getItem(HELD_REVIEWS_KEY);
+
+  it("keeps a held own review in this tab, and a new store (a reload) shows it before any read returns it", async () => {
+    config.reviewRelays = [SEARCH];
+    const reviews: NostrEvent[] = [];
+    const { readers } = houseNetwork(reviews, [rankOf(ALICE, 80)]);
+    const first = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
+    await waitFor(() => expect(first.result.current.read).toBe("read"));
+
+    const own = reviewOf(ALICE, JACAFE, 4, { created_at: 1_700_000_500 });
+    act(() => first.result.current.actions.noteOwnReview(own));
+    expect(JSON.parse(heldText() ?? "[]")).toEqual([own]);
+    expect(window.localStorage.length).toBe(0);
+    first.unmount();
+
+    // The page is reloaded, and the relay still lags: the review shows, from what the tab kept.
+    const search = heldReader(reviews);
+    const again = houseNetwork(reviews, [rankOf(ALICE, 80)], { [SEARCH]: search });
+    const second = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers: again.readers });
+    expect(idsOf(second.result.current.reviews)).toEqual([own.id]);
+    await waitFor(() => expect(second.result.current.score).toMatchObject({ score: 4, counted: 1 }));
+
+    // A read returns it: it is the relay's now, and the tab keeps it no longer.
+    reviews.push(own);
+    search.open();
+    await waitFor(() => expect(heldText()).toBeNull());
+    expect(idsOf(second.result.current.reviews)).toEqual([own.id]);
+  });
+
+  it("lets go of a held review in this tab when it is removed", async () => {
+    config.reviewRelays = [SEARCH];
+    const { readers } = houseNetwork([], [rankOf(ALICE, 80)]);
+    const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
+    const own = reviewOf(ALICE, JACAFE, 4, { created_at: 1_700_000_000 });
+    act(() => result.current.actions.noteOwnReview(own));
+    expect(heldText()).not.toBeNull();
+    act(() => result.current.actions.noteRemoval(`${REVIEW_KIND}:${ALICE}:place:${JACAFE}`, 1_700_000_000));
+    expect(heldText()).toBeNull();
+  });
+
+  it("keeps only the newest held review at each d, and ignores what is not a review", async () => {
+    config.reviewRelays = [SEARCH];
+    const older = reviewOf(ALICE, JACAFE, 2, { created_at: 1_700_000_000 });
+    const newer = reviewOf(ALICE, JACAFE, 5, { created_at: 1_700_000_100 });
+    window.sessionStorage.setItem(
+      HELD_REVIEWS_KEY,
+      JSON.stringify([older, { kind: REVIEW_KIND, pubkey: "not a key" }, profileOf(ALICE, { name: "Alice" }), newer]),
+    );
+    const search = heldReader([]);
+    const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+    expect(idsOf(result.current.reviews)).toEqual([newer.id]);
+  });
+
+  it.each([
+    ["not JSON", "{"],
+    ["not a list", JSON.stringify({ id: "x" })],
+  ])("starts with nothing held when what the tab kept is %s", async (_, text) => {
+    config.reviewRelays = [SEARCH];
+    window.sessionStorage.setItem(HELD_REVIEWS_KEY, text);
+    const search = heldReader([]);
+    const { readers } = houseNetwork([], [], { [SEARCH]: search });
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+    expect(result.current.reviews).toEqual([]);
+  });
+
+  it("says when the person last removed a review of a place, across its filings, for the next review's time", async () => {
+    config.reviewRelays = [SEARCH];
+    const { readers } = houseNetwork([], []);
+    const { result } = renderStore(() => useScoreActions(), { readers, placeEvents: [...places, jacafeAgain()] });
+    await waitFor(() => expect(result.current.ownRemovedAt(ALICE, JACAFE)).toBeUndefined());
+
+    act(() => result.current.noteRemoval(`${REVIEW_KIND}:${ALICE}:place:${JACAFE}`, 1_700_000_100));
+    act(() => result.current.noteRemoval(`${REVIEW_KIND}:${ALICE}:${JACAFE_AGAIN}`, 1_700_000_300));
+    act(() => result.current.noteRemoval(`${REVIEW_KIND}:${ALICE}:place:${OTHER}`, 1_700_000_900));
+    act(() => result.current.noteRemoval(`${REVIEW_KIND}:${BOB}:place:${JACAFE}`, 1_700_000_800));
+    await waitFor(() => expect(result.current.ownRemovedAt(ALICE, JACAFE)).toBe(1_700_000_300));
+    expect(result.current.ownRemovedAt(ALICE, JACAFE_AGAIN)).toBe(1_700_000_300);
+    expect(result.current.ownRemovedAt(BOB, JACAFE)).toBe(1_700_000_800);
+    expect(result.current.ownRemovedAt(CAROL, JACAFE)).toBeUndefined();
   });
 });
 

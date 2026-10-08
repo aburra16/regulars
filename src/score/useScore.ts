@@ -136,6 +136,11 @@ export interface ScoreActions {
    * the store as it is when called.
    */
   ownCoordinates(pubkey: string, address: string): ReviewCoordinate[];
+  /**
+   * When `pubkey` last removed a review of the place at `address`, in any filing, this session: what
+   * their next review of it must be later than (`ScoresStore.ownRemovedAt`). Undefined when never.
+   */
+  ownRemovedAt(pubkey: string, address: string): number | undefined;
 }
 
 /** The store's actions, the same functions for the whole session. */
@@ -147,6 +152,7 @@ export function useScoreActions(): ScoreActions {
       noteOwnReview: store.noteOwnReview,
       noteRemoval: store.noteRemoval,
       ownCoordinates: store.ownCoordinates,
+      ownRemovedAt: store.ownRemovedAt,
     }),
     [store],
   );

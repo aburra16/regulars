@@ -11,7 +11,7 @@ import { CloseIcon } from "../ui/icons.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
 import type { ChooseHow as ChooseHowPanel, Tone } from "./ChooseHow.tsx";
 import { loadChooseHow } from "./loadChooseHow.ts";
-import { cameFrom } from "./returnTo.ts";
+import { cameFrom, goingTo } from "./returnTo.ts";
 
 /**
  * How the page is left, by "Keep House picks", the cross and Escape, and once the person is signed
@@ -20,11 +20,16 @@ import { cameFrom } from "./returnTo.ts";
  * sign-in page in it. Where the history has nothing behind this page (a reload, a link opened in a
  * new tab) the page they came from replaces this one, or `fallback` does when there is none: Explore
  * for a person who leaves, You for one who has signed in. `to` is where the links go.
+ *
+ * `signedIn` is how it is left once the person has signed in: on to the page they were on their way
+ * to, when the link that sent them here names one (`goingTo`), in place of this page; else as `leave`.
+ * The page they came from stays behind it, as the way back from there.
  */
-function useLeave(): { to: To; leave(fallback?: To): void } {
+function useLeave(): { to: To; leave(fallback?: To): void; signedIn(): void } {
   const navigate = useNavigate();
   const { key, state } = useLocation();
   const from = useMemo(() => cameFrom(state), [state]);
+  const next = useMemo(() => goingTo(state), [state]);
   const leave = useCallback(
     (fallback: To = "/") => {
       if (from !== undefined && key !== "default") void navigate(-1);
@@ -32,7 +37,12 @@ function useLeave(): { to: To; leave(fallback?: To): void } {
     },
     [navigate, from, key],
   );
-  return { to: from ?? "/", leave };
+  const signedIn = useCallback(() => {
+    if (next === undefined) return leave("/you");
+    // The page behind this one, if there is one, is where the next page goes back to.
+    void navigate(next, { replace: true, state: from !== undefined && key !== "default" ? { from } : undefined });
+  }, [navigate, leave, next, from, key]);
+  return { to: from ?? "/", leave, signedIn };
 }
 
 /**
@@ -284,14 +294,15 @@ function DeskSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
  * which on its dark ground are the ones it was drawn in.
  * Continue opens the choice of how to sign in; once the person is signed in, as when they Keep House
  * picks, close it or press Escape, they go back to where they were (or, signed in, to You when the
- * page does not know). A person already signed in is taken back at once. "Sign in" links across the
+ * page does not know), unless the link that sent them names where they were going: signed in, they
+ * go on there (Rate this place's review form). A person already signed in is taken back at once. "Sign in" links across the
  * app lead here, each with the page they were on in `state.from`. Before signing in opens
  * (`config.features.signIn`) it is a display: Continue is off and says so.
  */
 export function SignInPage(): JSX.Element {
   useDocumentTitle(copy.titles.signin);
   const wide = useWide();
-  const { to, leave } = useLeave();
+  const { to, leave, signedIn } = useLeave();
   const { account } = useAccount();
   const headlineRef = useRef<HTMLHeadingElement>(null);
   const left = useRef(false);
@@ -306,13 +317,13 @@ export function SignInPage(): JSX.Element {
     if (config.features.signIn) loadChooseHow().catch(() => {});
   }, []);
 
-  // Once the person is signed in, here or before they came, the page takes them back where they were,
-  // or to You. Once: the effect may run again before the page is gone.
+  // Once the person is signed in, here or before they came, the page takes them on to where they were
+  // going, or back where they were, or to You. Once: the effect may run again before the page is gone.
   useEffect(() => {
     if (account === undefined || left.current) return;
     left.current = true;
-    leave("/you");
-  }, [account, leave]);
+    signedIn();
+  }, [account, signedIn]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

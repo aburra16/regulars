@@ -1,11 +1,11 @@
 import { type NostrRelayMsg, NRelay1, type NRelay1Opts } from "@nostrify/nostrify";
 
-import type { RelayReader } from "./events.ts";
+import type { RelayReader, RelayWriter } from "./events.ts";
 
 /*
- * Reading a relay over its socket. This loads Nostrify and what it brings (zod, websocket-ts,
+ * Reading a relay over its socket, and sending it a review. This loads Nostrify and what it brings (zod, websocket-ts,
  * nostr-tools), so the first screen's code reaches it only through a dynamic import() (as
- * src/places/store.tsx does, Ruling R2): it stays a chunk of its own, out of the entry.
+ * src/places/store.tsx and ./relayCode.ts do, Ruling R2): it stays a chunk of its own, out of the entry.
  */
 
 /** How long the relay has to answer at all: to connect, and send the first message of the request. */
@@ -86,6 +86,29 @@ export function readerFor(url: string, { verify = true }: { verify?: boolean } =
         throw stop?.aborted ? stop.reason : error;
       } finally {
         limits.stop();
+        void relay?.close().catch(() => {});
+      }
+    },
+  };
+}
+
+/**
+ * Sends events to the relay at `url`, one connection for each, closed once the relay has answered:
+ * done when it takes the event (`OK` true), an error with its reason when it refuses it. A relay that
+ * never answers is waited on until `signal` aborts, which the caller bounds (src/review/post.ts).
+ */
+export function writerFor(url: string): RelayWriter {
+  return {
+    async publish(event, signal) {
+      signal.throwIfAborted();
+      let relay: NRelay1 | undefined;
+      try {
+        relay = new NRelay1(url);
+        await relay.event(event, { signal });
+      } catch (error) {
+        // NRelay1 ends an aborted send with a bare AbortError; pass on the reason instead.
+        throw signal.aborted ? signal.reason : error;
+      } finally {
         void relay?.close().catch(() => {});
       }
     },

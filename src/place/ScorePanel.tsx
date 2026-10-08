@@ -1,9 +1,12 @@
 import type { JSX } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, type LinkProps, useLocation, useParams } from "react-router-dom";
 
+import { useAccount } from "../account/AccountProvider.tsx";
 import { copy } from "../copy/en.ts";
+import { reviewPath } from "../review/paths.ts";
 import { formatScore } from "../score/score.ts";
 import type { ShownScore } from "../score/shown.ts";
+import { useWide } from "../shell/useWide.ts";
 import { primaryButton } from "../ui/Banner.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Stars } from "../ui/Stars.tsx";
@@ -12,15 +15,29 @@ import { Stars } from "../ui/Stars.tsx";
 const NAME_MARK = "\u0000";
 
 /**
+ * Where "Rate this place" goes, from the place's page: the review form (`/place/:d/review`), for a
+ * person who has signed in, or is about to be (a session this tab kept being restored); for a person
+ * signed out, sign in first, and then the form, in its place (ruling R12). Either way the place is
+ * where they come back to. On a desktop the form is a dialog over the page, which stays where it was
+ * scrolled to.
+ */
+function useRateLink(): Pick<LinkProps, "to" | "state" | "preventScrollReset"> {
+  const location = useLocation();
+  const { d = "" } = useParams();
+  const { account, restoring } = useAccount();
+  const wide = useWide();
+  const form = reviewPath(d);
+  if (account !== undefined || restoring) return { to: form, state: { from: location }, preventScrollReset: wide };
+  return { to: "/signin", state: { from: location, next: { pathname: form } } };
+}
+
+/**
  * "Rate this place": the accent button, 52 px, the width of what it is in (PlaceNew.dc.html,
- * DeskPlace.dc.html). Writing a review needs sign in, which is not open yet, so it goes to the
- * sign-in page, which can come back here.
+ * DeskPlace.dc.html). It opens the review form, after sign in for a person signed out (`useRateLink`).
  */
 export function RateButton(): JSX.Element {
-  const location = useLocation();
-  // While `config.features.signIn` is off. When it opens, the review form (M2) takes this link for a person who has signed in.
   return (
-    <Link to="/signin" state={{ from: location }} className={`${primaryButton} w-full`}>
+    <Link {...useRateLink()} className={`${primaryButton} w-full`}>
       {copy.place.rate}
     </Link>
   );
@@ -31,13 +48,8 @@ export function RateButton(): JSX.Element {
  * has "Write a review" there): a place with a score has no button in its panel.
  */
 export function RateLink(): JSX.Element {
-  const location = useLocation();
   return (
-    <Link
-      to="/signin"
-      state={{ from: location }}
-      className="inline-flex min-h-touch shrink-0 items-center text-[15px] font-bold text-accent underline"
-    >
+    <Link {...useRateLink()} className="inline-flex min-h-touch shrink-0 items-center text-[15px] font-bold text-accent underline">
       {copy.place.rate}
     </Link>
   );

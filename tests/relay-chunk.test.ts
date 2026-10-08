@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 // screen must not wait for. src/nostr/relayReader.ts holds that code, and the places store and the
 // scores store each reach it only through a dynamic import() (src/places/store.tsx,
 // src/score/store.ts), so the build gives it a chunk of its own, fetched when a relay is first read.
+// Posting a review sends it through the same relay code, loaded the same way (src/review/post.ts).
 // Signing in loads Nostrify too, and the keys of nostr-tools: src/account/connect.ts holds that code,
 // which the account provider reaches only through a dynamic import() (src/account/AccountProvider.tsx),
 // and Nostrify is then a chunk the two share. What Continue opens on the sign-in page, with the QR
@@ -19,6 +20,7 @@ const RELAY_READER = /[\\/]src[\\/]nostr[\\/]relayReader\.ts$/;
 const NOSTRIFY = /[\\/]node_modules[\\/]@nostrify[\\/]/;
 const SCORES_STORE = /[\\/]src[\\/]score[\\/]store\.ts$/;
 const ACCOUNT_PROVIDER = /[\\/]src[\\/]account[\\/]AccountProvider\.tsx$/;
+const POST = /[\\/]src[\\/]review[\\/]post\.ts$/;
 const CONNECT = /[\\/]src[\\/]account[\\/]connect\.ts$/;
 const QR_LIBRARY = /[\\/]node_modules[\\/]uqr[\\/]/;
 
@@ -72,6 +74,8 @@ describe("the relay chunk", () => {
     // so this checks what they import.
     expect(entry.moduleIds.some((id) => SCORES_STORE.test(id))).toBe(true);
     expect(entry.moduleIds.some((id) => ACCOUNT_PROVIDER.test(id))).toBe(true);
+    // So is the review form, which posts through the relay code it loads when the person posts.
+    expect(entry.moduleIds.some((id) => POST.test(id))).toBe(true);
     expect(lazyCode(entry)).toEqual([]);
 
     // Everything the entry loads before it runs: none of it is the relay code, Nostrify, the signing code or the QR library.

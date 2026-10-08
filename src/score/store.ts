@@ -3,6 +3,7 @@ import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { config } from "../config.ts";
 import { asEvent, isNewer, type RelayReader, readAll, withReadExtras } from "../nostr/events.ts";
 import { fetchNames } from "../nostr/profiles.ts";
+import { appReaders } from "../nostr/relayCode.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import type { Place } from "../places/place.ts";
 import {
@@ -24,7 +25,7 @@ import { type PlaceScore, scorePlace } from "./score.ts";
  * reviews, place scores and names, never a person's rank or weight (decision 19).
  *
  * Nothing here loads the relay code: the app's readers import it when they first read
- * (src/nostr/relayReader.ts says why), so the store can be on the first screen.
+ * (src/nostr/relayCode.ts), so the store can be on the first screen.
  */
 
 /** Where the house's view stands: not needed yet, being read, read, or not to be had. */
@@ -65,30 +66,39 @@ export const FLUSH_WINDOW_MS = 50;
 /** A reader for each relay, by its URL. */
 type Readers = (url: string) => RelayReader;
 
-/** The load of the relay code, once started; forgotten if it fails, so a later read tries again. */
-let relayCode: Promise<typeof import("../nostr/relayReader.ts")> | undefined;
-
-/** Loads the relay code once, however many reads start at the same time. */
-function loadRelayCode(): Promise<typeof import("../nostr/relayReader.ts")> {
-  relayCode ??= import("../nostr/relayReader.ts").catch((error: unknown) => {
-    relayCode = undefined;
-    throw error;
-  });
-  return relayCode;
-}
+/**
+ * Where this tab keeps the person's own reviews that the store holds until a read returns them
+ * (`noteOwnReview`), so that a reload before then still shows them (Review Focus 1): in
+ * `sessionStorage`, gone when the tab closes. A review is a public, signed record, not a secret.
+ */
+export const HELD_REVIEWS_KEY = "regulars.heldReviews";
 
 /**
- * The app's readers. The first read loads the relay code, so that neither it nor Nostrify is in the
- * first screen's code, and a session in which no page asks for reviews never loads it.
- * `readerFor` checks each event's signature.
+ * The own reviews this tab keeps (`HELD_REVIEWS_KEY`): each a well-formed review of a place, and
+ * nothing else. None when there are none, or what is kept is not the app's own, or storage is blocked.
  */
-const appReaders: Readers = (url) => ({
-  async *req(filter, signal) {
-    signal.throwIfAborted();
-    const { readerFor } = await loadRelayCode();
-    yield* readerFor(url).req(filter, signal);
-  },
-});
+function readHeld(): NostrEvent[] {
+  try {
+    const kept: unknown = JSON.parse(window.sessionStorage.getItem(HELD_REVIEWS_KEY) ?? "[]");
+    if (!Array.isArray(kept)) return [];
+    return kept.flatMap((value) => {
+      const ev = asEvent(value);
+      return ev !== null && parseReview(ev) !== null ? [ev] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** Keeps `held` for this tab; with none, forgets what it kept. Where storage is blocked or full, they last until a reload. */
+function keepHeld(held: readonly NostrEvent[]): void {
+  try {
+    if (held.length === 0) window.sessionStorage.removeItem(HELD_REVIEWS_KEY);
+    else window.sessionStorage.setItem(HELD_REVIEWS_KEY, JSON.stringify(held));
+  } catch {
+    // Blocked or full: what is held still shows until the page is reloaded.
+  }
+}
 
 /** Prints a note for developers. Never shown to a person, and not in the production build. */
 function debug(message: string, ...details: unknown[]): void {
@@ -233,7 +243,10 @@ export class ScoresStore {
   readonly #reviewLane = new Lane(BATCHES_IN_FLIGHT);
   /** The name reads, two batches at a time. */
   readonly #nameLane = new Lane(BATCHES_IN_FLIGHT);
-  /** The person's own reviews, by `keyOf`: shown before the relays send them back (`noteOwnReview`). */
+  /**
+   * The person's own reviews, by `keyOf`: shown before the relays send them back (`noteOwnReview`),
+   * and kept for this tab (`HELD_REVIEWS_KEY`) until then, so that a reload shows them too.
+   */
   readonly #own = new Map<string, NostrEvent>();
   /** The reviews the person removed, by `keyOf`: hidden up to the removal's time (`noteRemoval`). */
   readonly #removed = new Map<string, number>();
@@ -263,9 +276,17 @@ export class ScoresStore {
   readonly #namesKnown = new Set<string>();
   readonly #names = new Map<string, string>();
 
-  /** `readers` gives each relay's reader; by default the app's. Each relay's read extras are added to it. */
+  /**
+   * `readers` gives each relay's reader; by default the app's. Each relay's read extras are added to
+   * it. The own reviews this tab keeps are held from the start, as before the reload.
+   */
   constructor(readers: Readers = appReaders) {
     this.#readers = (url) => withReadExtras(readers(url), config.relayReadExtras[url]);
+    for (const ev of readHeld()) {
+      const key = eventKey(ev);
+      const held = this.#own.get(key);
+      if (held === undefined || isNewer(ev, held)) this.#own.set(key, ev);
+    }
   }
 
   /** Calls `listener` after each change. Returns what stops it. */
@@ -410,6 +431,22 @@ export class ScoresStore {
     return coordinates.sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   };
 
+  /**
+   * When `pubkey` last removed a review of the place at `address`, under any `d` and in any of its
+   * filings: a review they write next must be later, or the removal would take it too (NIP-09).
+   * Undefined when they have removed none this session.
+   */
+  readonly ownRemovedAt = (pubkey: string, address: string): number | undefined => {
+    const filings = new Set(this.#filings.get(address) ?? [address]);
+    let latest: number | undefined;
+    for (const [key, removedAt] of this.#removed) {
+      if (!key.startsWith(pubkey)) continue;
+      const place = placeInD(key.slice(pubkey.length));
+      if (place !== undefined && filings.has(place) && (latest === undefined || removedAt > latest)) latest = removedAt;
+    }
+    return latest;
+  };
+
   /** The person's name, from their profile; undefined when it has none, or it has not been read. */
   nameOf(pubkey: string): string | undefined {
     return this.#names.get(pubkey);
@@ -444,8 +481,8 @@ export class ScoresStore {
   };
 
   /**
-   * Shows `event`, the person's own review just posted, before the relays send it back. It is held
-   * until a read returns it (or a newer review at its `d`), or it is removed.
+   * Shows `event`, the person's own review just posted, before the relays send it back. It is held,
+   * and kept for this tab, until a read returns it (or a newer review at its `d`), or it is removed.
    */
   readonly noteOwnReview = (event: NostrEvent): void => {
     const ev = asEvent(event);
@@ -454,6 +491,7 @@ export class ScoresStore {
     const held = this.#own.get(key);
     if (held !== undefined && !isNewer(ev, held)) return;
     this.#own.set(key, ev);
+    keepHeld([...this.#own.values()]);
     this.#changed("reviews");
     this.#weigh();
   };
@@ -470,7 +508,10 @@ export class ScoresStore {
     if (before !== undefined && before >= createdAt) return;
     this.#removed.set(key, createdAt);
     const held = this.#own.get(key);
-    if (held !== undefined && held.created_at <= createdAt) this.#own.delete(key);
+    if (held !== undefined && held.created_at <= createdAt) {
+      this.#own.delete(key);
+      keepHeld([...this.#own.values()]);
+    }
     this.#changed("reviews");
   };
 
@@ -572,13 +613,21 @@ export class ScoresStore {
     this.#weigh();
   }
 
-  /** Lets go of each own review that `events` hold, or hold a newer review at the same `d` than. */
+  /**
+   * Lets go of each own review that `events` hold, or hold a newer review at the same `d` than: the
+   * relays have it now. The tab keeps it no longer.
+   */
   #release(events: Iterable<NostrEvent>): void {
+    let released = false;
     for (const ev of events) {
       const key = eventKey(ev);
       const held = this.#own.get(key);
-      if (held !== undefined && (held.id === ev.id || isNewer(ev, held))) this.#own.delete(key);
+      if (held !== undefined && (held.id === ev.id || isNewer(ev, held))) {
+        this.#own.delete(key);
+        released = true;
+      }
     }
+    if (released) keepHeld([...this.#own.values()]);
   }
 
   /**

@@ -1,5 +1,5 @@
 import { type JSX, useMemo } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useLocation, useOutlet, useParams } from "react-router-dom";
 
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
@@ -404,11 +404,23 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
  * behind it (Place.dc.html), or, while nobody has reviewed it, its no-reviews state (PlaceNew.dc.html),
  * where the facts carry the page. A `d` the places do not have is a place that came off the list,
  * said once the latest list is in.
+ *
+ * At `/place/:d/review`, the form that reviews it, given the place: on a phone a page of its own, in
+ * place of the place's (Review.dc.html); on a desktop a dialog over it (DeskReview.dc.html), the page
+ * staying as it was, so the focus can go back to what opened the dialog.
  */
 export function PlacePage(): JSX.Element {
   const { d = "" } = useParams();
   const indexes = useIndexes();
   const place = indexes?.byD.get(d);
-  if (place !== undefined && indexes !== undefined) return <PlaceView key={place.address} place={place} indexes={indexes} />;
-  return <NotListedOrLoading />;
+  const wide = useWide();
+  const review = useOutlet(place);
+  if (place === undefined || indexes === undefined) return <NotListedOrLoading />;
+  if (review !== null && !wide) return review;
+  return (
+    <>
+      <PlaceView key={place.address} place={place} indexes={indexes} />
+      {review}
+    </>
+  );
 }

@@ -5,11 +5,14 @@ import { copy } from "../copy/en.ts";
 
 const STARS = [0, 1, 2, 3, 4] as const;
 
-/** How big each star is: 16 px in a line of a review, 20 px beside a place's big score in its panel (Place.dc.html). */
-const SIZE = { line: "size-4", panel: "size-5" } as const;
+/**
+ * How big each star is: 16 px in a line of a review, 20 px beside a place's big score in its panel
+ * (Place.dc.html), 30 px on a button of the review form (Review.dc.html).
+ */
+const SIZE = { line: "size-4", panel: "size-5", button: "size-[30px]" } as const;
 
 /** One star from the icon file, drawn in the text colour. */
-function Star({ size }: { size: keyof typeof SIZE }) {
+export function Star({ size }: { size: keyof typeof SIZE }): JSX.Element {
   return (
     <span
       className={`block ${SIZE[size]} [&>svg]:size-full`}
@@ -31,7 +34,7 @@ export function Stars({
   tone = "accent",
 }: {
   value: number;
-  size?: keyof typeof SIZE;
+  size?: "line" | "panel";
   tone?: "accent" | "muted";
 }): JSX.Element {
   const score = Number.isFinite(value) ? Math.min(5, Math.max(0, value)) : 0;
