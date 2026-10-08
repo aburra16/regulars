@@ -20,6 +20,7 @@ import { placeKindLabel } from "../src/places/kinds";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
+import { ScoresProvider } from "../src/score/ScoresProvider";
 import { routes } from "../src/routes";
 import raw from "./fixtures/funchal-items.json";
 import { type FakeFeature, FakeMap, FakeMarker, type FakeSource, MAPTILER_LAYERS } from "./support/fakeMaplibre";
@@ -98,9 +99,11 @@ async function openApp(path: string, { px = PHONE, events = fixtures }: { px?: n
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   const view = render(
     <PlacesProvider reader={createMemoryReader(events)}>
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <ScoresProvider>
+        <HereProvider>
+          <RouterProvider router={router} />
+        </HereProvider>
+      </ScoresProvider>
     </PlacesProvider>,
   );
   const map = await theMap();

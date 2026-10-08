@@ -18,18 +18,25 @@ import { resetFakeMaplibre } from "./support/fakeMaplibre";
 // map's part (tests/support/fakeMaplibre.ts).
 vi.mock("maplibre-gl", () => import("./support/fakeMaplibre"));
 
-// The house's trust relays and the scoring constants as the config module sets them.
-const defaults = structuredClone({ houseTrustRelays: config.houseTrustRelays, scoring: config.scoring });
+// The house's trust relays, the relay-list relays, the scoring constants and the relays' read extras as the config module sets them.
+const defaults = structuredClone({
+  relayListRelays: config.relayListRelays,
+  houseTrustRelays: config.houseTrustRelays,
+  scoring: config.scoring,
+  relayReadExtras: config.relayReadExtras,
+});
 
 // Every test starts with no map key, no review relays and no scorer override, whatever the machine's
-// .env.local says, and with the default trust relays and scoring, whatever a test before it set. A
-// test that wants something else sets it.
+// .env.local says, and with the default trust relays, relay-list relays, scoring and read extras, whatever a test before
+// it set. A test that wants something else sets it.
 beforeEach(() => {
   config.mapTilerKey = undefined;
   config.reviewRelays = [];
   config.devScorer = undefined;
+  config.relayListRelays = [...defaults.relayListRelays];
   config.houseTrustRelays = [...defaults.houseTrustRelays];
   config.scoring = { ...defaults.scoring };
+  config.relayReadExtras = structuredClone(defaults.relayReadExtras);
 });
 
 // Tests never open a network socket. Anything that tries fails here, loudly, instead of

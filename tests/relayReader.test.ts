@@ -2,19 +2,14 @@ import type { NostrEvent, NRelay1Opts } from "@nostrify/nostrify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
-import type { RelayReader } from "../src/places/load";
-import {
-  CONNECT_TIMEOUT_MS,
-  IDLE_TIMEOUT_MS,
-  readerFor,
-  relayReader,
-  TOTAL_TIMEOUT_MS,
-} from "../src/places/relayReader";
+import type { RelayReader } from "../src/nostr/events";
+import { CONNECT_TIMEOUT_MS, IDLE_TIMEOUT_MS, readerFor, TOTAL_TIMEOUT_MS, writerFor } from "../src/nostr/relayReader";
+import { relayReader } from "../src/places/relayReader";
 
 // A stand-in for Nostrify's relay, with no socket: the test plays the relay's part, message by
 // message, and the reader's limits run on fake timers.
 const fake = vi.hoisted(() => ({
-  relays: [] as { url: string; opts: unknown; send(msg: unknown[]): void; closed: boolean }[],
+  relays: [] as { url: string; opts: unknown; send(msg: unknown[]): void; closed: boolean; published: unknown[] }[],
 }));
 
 vi.mock("@nostrify/nostrify", () => {
@@ -22,6 +17,8 @@ vi.mock("@nostrify/nostrify", () => {
     private queue: unknown[][] = [];
     private wake: (() => void) | undefined;
     closed = false;
+    /** The events sent to it, in order. */
+    readonly published: unknown[] = [];
 
     constructor(
       readonly url: string,
@@ -52,6 +49,27 @@ vi.mock("@nostrify/nostrify", () => {
         await new Promise<void>((resolve) => {
           this.wake = resolve;
           signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      }
+    }
+
+    /**
+     * Sends an event, and waits for the relay's OK about it: resolves when it takes it, throws its
+     * reason when it refuses. Aborted, it ends with a bare AbortError, as NRelay1 does.
+     */
+    async event(ev: { id: string }, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
+      this.published.push(ev);
+      while (true) {
+        if (signal?.aborted) throw new DOMException("The signal has been aborted", "AbortError");
+        const at = this.queue.findIndex((msg) => msg[0] === "OK" && msg[1] === ev.id);
+        if (at >= 0) {
+          const [, , ok, reason] = this.queue.splice(at, 1)[0]!;
+          if (!ok) throw new Error(String(reason));
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          this.wake = resolve;
+          signal?.addEventListener("abort", () => resolve(), { once: true });
         });
       }
     }
@@ -289,5 +307,66 @@ describe("signatures (Ruling R3b)", () => {
 
   it("are not checked on the places relay, until Ruling R12's follow-up", async () => {
     expect((await optionsOf(relayReader)).verifyEvent?.(unsigned)).toBe(true);
+  });
+});
+
+describe("writerFor", () => {
+  const OWN = "wss://nos.example.test";
+  const review = { id: "1".repeat(64) } as NostrEvent;
+
+  /** Starts sending `review` to `OWN`, and how it ended once it has: done, or the error it threw. */
+  async function startPublish(signal = new AbortController().signal) {
+    let outcome: { done: true } | { error: unknown } | undefined;
+    writerFor(OWN)
+      .publish(review, signal)
+      .then(
+        () => (outcome = { done: true }),
+        (error: unknown) => (outcome = { error }),
+      );
+    await vi.advanceTimersByTimeAsync(0);
+    const relay = fake.relays.at(-1)!;
+    return {
+      relay,
+      get outcome() {
+        return outcome;
+      },
+    };
+  }
+
+  it("sends the event over a connection of its own, done when the relay takes it, and then closes it", async () => {
+    const sent = await startPublish();
+    expect(sent.relay.url).toBe(OWN);
+    expect(sent.relay.published).toEqual([review]);
+    expect(sent.outcome).toBeUndefined();
+    sent.relay.send(["OK", review.id, true, ""]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sent.outcome).toEqual({ done: true });
+    expect(sent.relay.closed).toBe(true);
+  });
+
+  it("fails with the relay's reason when it refuses the event, and closes the connection", async () => {
+    const sent = await startPublish();
+    sent.relay.send(["OK", review.id, false, "blocked: not on the list"]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect((sent.outcome as { error: Error }).error.message).toBe("blocked: not on the list");
+    expect(sent.relay.closed).toBe(true);
+  });
+
+  it("stops when its signal aborts, with the signal's reason in place of NRelay1's bare AbortError", async () => {
+    const controller = new AbortController();
+    const sent = await startPublish(controller.signal);
+    const reason = new DOMException("took too long", "TimeoutError");
+    controller.abort(reason);
+    await vi.advanceTimersByTimeAsync(0);
+    expect((sent.outcome as { error: unknown }).error).toBe(reason);
+    expect(sent.relay.closed).toBe(true);
+  });
+
+  it("does not start when its signal has aborted already", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("gone"));
+    const before = fake.relays.length;
+    await expect(writerFor(OWN).publish(review, controller.signal)).rejects.toThrow("gone");
+    expect(fake.relays).toHaveLength(before);
   });
 });

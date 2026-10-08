@@ -1,13 +1,16 @@
-import type { NostrEvent } from "@nostrify/nostrify";
+import type { NostrEvent, NRelay } from "@nostrify/nostrify";
 import { render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, type InitialEntry, RouterProvider } from "react-router-dom";
 import { expect } from "vitest";
 
+import { AccountProvider } from "../../src/account/AccountProvider";
 import { copy } from "../../src/copy/en";
 import { HereProvider } from "../../src/location/HereProvider";
+import type { RelayReader, RelayWriter } from "../../src/nostr/events";
 import { writeSaved } from "../../src/places/cache";
 import { PlacesProvider, usePlaces } from "../../src/places/store";
 import { routes } from "../../src/routes";
+import { ScoresProvider } from "../../src/score/ScoresProvider";
 import { createMemoryReader } from "./memoryReader";
 
 export const PHONE = 390;
@@ -15,9 +18,13 @@ export const DESKTOP = 1360;
 
 let width = PHONE;
 
+/** What hears each query list change: `resizeTo` calls them. */
+const onChanges = new Set<() => void>();
+
 /** Makes the window as wide as `px`, for `useWide` and every `wide:` rule that asks `matchMedia`. */
 export function setWidth(px: number): void {
   width = px;
+  onChanges.clear();
   window.matchMedia = ((query: string) => {
     const min = Number(/\(min-width:\s*(\d+)px\)/.exec(query)?.[1] ?? Number.NaN);
     return {
@@ -25,10 +32,19 @@ export function setWidth(px: number): void {
       get matches() {
         return width >= min;
       },
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      addEventListener: (_: string, onChange: () => void) => onChanges.add(onChange),
+      removeEventListener: (_: string, onChange: () => void) => onChanges.delete(onChange),
     };
   }) as unknown as typeof window.matchMedia;
+}
+
+/**
+ * Makes the open page's window as wide as `px` and tells what listens, as a browser does when the
+ * window is resized or a phone is turned: a page that crosses 900 px is laid out the other way.
+ */
+export function resizeTo(px: number): void {
+  width = px;
+  for (const onChange of [...onChanges]) onChange();
 }
 
 /** Puts the window back as jsdom has it (no `matchMedia`, so the phone's layout). Call it after each test. */
@@ -45,21 +61,41 @@ export interface OpenOptions {
   entries?: InitialEntry[];
   /** How long the relay waits before it answers, in milliseconds. Default: no wait. */
   delayMs?: number;
+  /**
+   * The reader of each relay the scores store reads (reviews, the house's ranks, names). Default:
+   * the app's own, as main.tsx has it; tests open no socket (tests/setup.ts), so pass readers to read.
+   */
+  readers?: (url: string) => RelayReader;
+  /**
+   * The writer of each relay a review is sent to. Default: the app's own, which opens a socket
+   * (tests/setup.ts forbids it), so pass writers to post.
+   */
+  writers?: (url: string) => RelayWriter;
+  /**
+   * The NIP-46 meeting point at each address, for signing in with an app on a phone. Default: the
+   * app's own, which opens a socket (tests/setup.ts forbids it), so pass one to connect.
+   */
+  relays?: (url: string) => NRelay;
 }
 
 /**
- * The app at `path`, with the places read from `events`. It resolves once the page is past the
- * "Finding places" line, which a page that needs no places never shows.
+ * The app at `path`, with the places read from `events`, and its providers as main.tsx has them: the
+ * person is signed in if `sessionStorage` says so. It resolves once the page is past the "Finding
+ * places" line, which a page that needs no places never shows.
  */
-export async function openApp(path: string, { px = PHONE, events, entries, delayMs }: OpenOptions) {
+export async function openApp(path: string, { px = PHONE, events, entries, delayMs, readers, writers, relays }: OpenOptions) {
   setWidth(px);
   const initialEntries = entries ?? [path];
   const router = createMemoryRouter(routes, { initialEntries, initialIndex: initialEntries.length - 1 });
   const view = render(
     <PlacesProvider reader={createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <ScoresProvider readers={readers} writers={writers}>
+        <AccountProvider relays={relays}>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </AccountProvider>
+      </ScoresProvider>
     </PlacesProvider>,
   );
   await waitFor(() => expect(screen.queryByText(copy.load.loading)).not.toBeInTheDocument());
@@ -83,9 +119,13 @@ export async function openAppWithSaved(path: string, saved: NostrEvent[], latest
   const view = render(
     <PlacesProvider reader={createMemoryReader(latest, { delayMs: 200 })}>
       <Probe />
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <ScoresProvider>
+        <AccountProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </AccountProvider>
+      </ScoresProvider>
     </PlacesProvider>,
   );
   await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent(/^\d+ cache$/));

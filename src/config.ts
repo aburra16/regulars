@@ -5,6 +5,9 @@ import { isHex64, isRelayUrl } from "./nostr/shapes.ts";
 /** The Mise en Place account that publishes the places. Everything below derives from it. */
 const houseNpub = "npub1f00dy9eqw53patfe8g96ajw9xq3casvjc25umw78w4963se40djqwxgrq8";
 
+/** Brainstorm's search relay (NIP-50), which keeps the reviews (docs/decisions.md #16). */
+const searchRelay = "wss://search.brainstorm.world";
+
 function npubToHex(npub: string): string {
   const decoded = nip19.decode(npub);
   if (decoded.type !== "npub") throw new Error(`Expected an npub, got ${decoded.type}`);
@@ -49,16 +52,38 @@ interface Config {
   defaultCity: { name: "Funchal"; lat: number; lon: number; radiusKm: number };
   /** From VITE_MAPTILER_KEY; undefined when unset, so there is no map. */
   mapTilerKey: string | undefined;
-  features: { signIn: boolean };
   /**
-   * Where reviews (kind 34259) are read from. None in production until review storage is settled
-   * (docs/decisions.md #14), so no review is fetched there; in development, VITE_REVIEW_RELAYS.
+   * What is open. `signIn`: signing in, with a browser add-on or an app on a phone (docs/decisions.md
+   * #21). `circle`: My circle, the person's own scores, which needs their circle worked out; until it
+   * is open, the toggle's My circle half reads "soon" for a person who has signed in.
+   */
+  features: { signIn: boolean; circle: boolean };
+  /**
+   * Where the app meets an app on a phone that signs for the person (NIP-46): the one relay it shows
+   * in its nostrconnect link, and reaches only to connect and to ask that app to sign.
+   */
+  connectRelay: string;
+  /**
+   * Where reviews (kind 34259) are read from. In production, Brainstorm's search relay
+   * (docs/decisions.md #16); in development, VITE_REVIEW_RELAYS, and none when it is unset.
    */
   reviewRelays: string[];
+  /**
+   * What a read from a relay adds to its filter, by the relay's URL. The search relay leaves out what
+   * it takes for spam unless asked with `search: "include:spam"`; the app draws its own line
+   * (docs/decisions.md #16). Only that relay is asked so: another NIP-50 relay would take the words
+   * as a search.
+   */
+  relayReadExtras: Record<string, { search?: string }>;
+  /**
+   * Where a person's relay list (kind 10002, NIP-65) is looked for, beside the review relays, when a
+   * review is posted: relays that keep people's lists and little else. A review goes to the relays it names.
+   */
+  relayListRelays: string[];
   /** Where the house's kind 10040 is read, which names the scorer whose ranks are House picks. */
   houseTrustRelays: string[];
   /**
-   * `line`: the lowest rank that counts, out of 100 (Brainstorm's line of 0.02). A list is ordered as
+   * `line`: the lowest rank that counts, out of 100 (docs/decisions.md #18). A list is ordered as
    * if each place also had `priorWeight` of a vote of `priorMean` stars, so one five-star review
    * does not top it (brief § 5). Tunable.
    */
@@ -81,10 +106,13 @@ export const config: Config = {
   placesRelay: "wss://dcosl.brainstorm.world",
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
   mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
-  features: { signIn: false },
+  features: { signIn: true, circle: false },
+  connectRelay: "wss://relay.nsec.app",
   // In a production build `import.meta.env.DEV` is false, so neither variable is read there.
-  reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [],
+  reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay],
+  relayReadExtras: { [searchRelay]: { search: "include:spam" } },
+  relayListRelays: ["wss://purplepag.es"],
   houseTrustRelays: ["wss://scores.brainstorm.world"],
-  scoring: { line: 2, priorWeight: 1.5, priorMean: 3.5 },
+  scoring: { line: 5, priorWeight: 1.5, priorMean: 3.5 },
   devScorer: import.meta.env.DEV ? scorerOverride(import.meta.env.VITE_DEV_SCORER) : undefined,
 };

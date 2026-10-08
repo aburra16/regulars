@@ -1,4 +1,4 @@
-import { type JSX, useLayoutEffect, useMemo, useState } from "react";
+import { type JSX, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { aboutAt, HOW_SCORES_WORK } from "../about/anchors.ts";
@@ -8,11 +8,13 @@ import { HereCityPicker } from "../location/CityPicker.tsx";
 import { useHere } from "../location/useLocation.ts";
 import { groupForList } from "../places/indexes.ts";
 import { useIndexes } from "../places/useIndexes.ts";
+import { useListScores } from "../score/useListScores.ts";
+import { useScoreActions } from "../score/useScore.ts";
 import { FROM_EXPLORE } from "../search/filters.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
-import { PageMessage, primaryButton } from "../ui/Banner.tsx";
+import { PageMessage, primaryButton, retryButton } from "../ui/Banner.tsx";
 import { ChipLink, Chips } from "../ui/Chips.tsx";
 import { DetailsCredit } from "../ui/DetailsCredit.tsx";
 import { HouseName } from "../ui/HouseName.tsx";
@@ -76,16 +78,52 @@ export function NoneNearby(): JSX.Element {
 /**
  * Whose scores the list shows, with the house's badge beside its name and a link to how that works
  * (Main.dc.html). The desktop's Explore says how many places there are first (DeskExplore.dc.html).
+ * When House picks can't be worked out (`unavailable`), one quiet line under it says so, with Try
+ * again, which asks again (`onRetry`). The focus goes to the lines then, where the button was: the
+ * button goes once House picks are back, and the focus would fall to the page. `className` spaces the
+ * two lines as the page around them spaces its own.
  */
-export function HouseLine({ count }: { count?: number }): JSX.Element {
+export function HouseLine({
+  count,
+  unavailable = false,
+  onRetry,
+  className,
+}: {
+  count?: number;
+  unavailable?: boolean;
+  onRetry(): void;
+  className: string;
+}): JSX.Element {
+  const lines = useRef<HTMLDivElement>(null);
+  const quietId = useId();
   return (
-    <p className="m-0 text-secondary leading-[1.4] text-muted">
-      {count !== undefined && `${copy.deskExplore.count(count)} `}
-      <HouseName text={copy.explore.houseLine} size="line" />{" "}
-      <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
-        {copy.explore.howThisWorks}
-      </Link>
-    </p>
+    <div ref={lines} tabIndex={-1} className={`flex flex-col outline-none ${className}`}>
+      <p className="m-0 text-secondary leading-[1.4] text-muted">
+        {count !== undefined && `${copy.deskExplore.count(count)} `}
+        <HouseName text={copy.explore.houseLine} size="line" />{" "}
+        <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
+          {copy.explore.howThisWorks}
+        </Link>
+      </p>
+      {unavailable && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <p id={quietId} className="m-0 text-secondary leading-[1.4] text-muted">
+            {copy.score.houseUnavailable}
+          </p>
+          <button
+            type="button"
+            aria-describedby={quietId}
+            onClick={() => {
+              lines.current?.focus({ preventScroll: true });
+              onRetry();
+            }}
+            className={retryButton}
+          >
+            {copy.load.retry}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -118,13 +156,16 @@ export function ExploreList(): JSX.Element {
   );
   // The minute matters to the list only when it is asked which places are open.
   const openAt = chip === "open" ? now : null;
-  const entries = useMemo(() => {
+  const grouped = useMemo(() => {
     if (indexes === undefined) return [];
     // Filter first, then group: a chain counts only the locations that stay.
     const kept = nearby.filter((row) => chipKeeps(chip, row.place, now));
     return groupForList(kept, indexes);
     // `now` is a dependency through `openAt`: it changes this list only while the chip asks about it.
   }, [indexes, nearby, chip, openAt]);
+  // The scores of the whole list, asked for in one go. The list stays nearest first.
+  const { entries, scores } = useListScores(grouped);
+  const { refresh } = useScoreActions();
 
   const choose = (next: ExploreChip) =>
     setParams((current) => {
@@ -157,7 +198,7 @@ export function ExploreList(): JSX.Element {
     const page = shownPageOf(historyKey, list);
     body = (
       <div className="px-gutter-phone pt-[18px]">
-        <Entries key={`${historyKey}|${list}`} page={page} entries={entries} locale={locale} now={now} />
+        <Entries key={`${historyKey}|${list}`} page={page} entries={entries} locale={locale} now={now} scores={scores} />
       </div>
     );
   }
@@ -169,7 +210,7 @@ export function ExploreList(): JSX.Element {
         <SearchLink />
         <div className="flex flex-col gap-2">
           <ViewSwitch variant="bar" />
-          <HouseLine />
+          <HouseLine unavailable={scores.house === "unavailable"} onRetry={refresh} className="gap-2" />
         </div>
         <Chips
           label={copy.explore.filtersLabel}

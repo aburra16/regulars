@@ -12,8 +12,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { HereProvider } from "../src/location/HereProvider";
-import { parsePlaces, type RelayReader } from "../src/places/load";
+import type { RelayReader } from "../src/nostr/events";
+import { parsePlaces } from "../src/places/load";
 import { PlacesProvider, type PlacesValue } from "../src/places/store";
+import { ScoresProvider } from "../src/score/ScoresProvider";
 import { routes } from "../src/routes";
 import { useDocumentTitle } from "../src/shell/useDocumentTitle";
 import { useWide, WIDE_QUERY } from "../src/shell/useWide";
@@ -105,7 +107,7 @@ afterEach(() => {
   widthListeners.clear();
   Reflect.deleteProperty(window, "matchMedia");
   Reflect.deleteProperty(navigator, "onLine");
-  config.features.signIn = false;
+  config.features.circle = false;
 });
 
 /** The whole app at `path`, as main.tsx puts it together, with a router that keeps its history in memory. */
@@ -113,9 +115,11 @@ function renderApp(path = "/", opts: { width?: number } = {}) {
   setWidth(opts.width ?? PHONE);
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   const view = render(
-    <HereProvider>
-      <RouterProvider router={router} />
-    </HereProvider>,
+    <ScoresProvider>
+      <HereProvider>
+        <RouterProvider router={router} />
+      </HereProvider>
+    </ScoresProvider>,
   );
   return { router, ...view };
 }
@@ -375,10 +379,10 @@ describe("ViewToggle", () => {
   });
 });
 
-describe("the toggle in M1, before sign in opens", () => {
-  it("goes to the sign-in page when My circle is tapped, and the view stays House picks", async () => {
+describe("the toggle while My circle is not open", () => {
+  it("goes to the sign-in page when My circle is tapped by someone not signed in, and the view stays House picks", async () => {
     const user = userEvent.setup();
-    expect(config.features.signIn).toBe(false);
+    expect(config.features.circle).toBe(false);
     // A page of its own on a desktop (the desktop's /map is Explore).
     const { router } = renderApp("/about", { width: DESKTOP });
 
@@ -393,9 +397,9 @@ describe("the toggle in M1, before sign in opens", () => {
     expect(within(toggle()).getByRole("button", { name: "My circle" })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("switches to My circle once sign in is on", async () => {
+  it("switches to My circle once My circle is open", async () => {
     const user = userEvent.setup();
-    config.features.signIn = true;
+    config.features.circle = true;
     const { router } = renderApp("/", { width: DESKTOP });
     await user.click(within(toggle()).getByRole("button", { name: "My circle" }));
     expect(router.state.location.pathname).toBe("/");
@@ -411,7 +415,7 @@ describe("ViewProvider", () => {
   });
 
   it("keeps the view for the session, under regulars.view", () => {
-    config.features.signIn = true;
+    config.features.circle = true;
     const first = renderView();
     act(() => first.result.current.setView("circle"));
     expect(first.result.current.view).toBe("circle");
@@ -422,19 +426,19 @@ describe("ViewProvider", () => {
     expect(window.localStorage.getItem("regulars.view")).toBeNull();
   });
 
-  it("is House picks while sign in is off, whatever the session says", () => {
+  it("is House picks while My circle is not open, whatever the session says", () => {
     window.sessionStorage.setItem(VIEW_STORAGE_KEY, "circle");
     expect(renderView().result.current.view).toBe("house");
   });
 
   it("is House picks when the session holds something else", () => {
-    config.features.signIn = true;
+    config.features.circle = true;
     window.sessionStorage.setItem(VIEW_STORAGE_KEY, "everyone");
     expect(renderView().result.current.view).toBe("house");
   });
 
   it("works when the browser will not give out its session storage", () => {
-    config.features.signIn = true;
+    config.features.circle = true;
     vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
       throw new DOMException("Blocked.", "SecurityError");
     });
@@ -630,9 +634,11 @@ describe("the load banners", () => {
     const router = createMemoryRouter(routes, { initialEntries: ["/"] });
     render(
       <PlacesProvider reader={flaky}>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <ScoresProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </ScoresProvider>
       </PlacesProvider>,
     );
 

@@ -1,7 +1,7 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { latestReviews, parseReview, REVIEW_KIND, starsOf } from "../src/reviews/review";
+import { latestReviews, newestPerReviewer, parseReview, REVIEW_KIND, type Review, starsOf } from "../src/reviews/review";
 import { hex64, shapedEvent } from "./support/events";
 
 const FILER = "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64";
@@ -87,16 +87,24 @@ describe("starsOf, as Brainstorm-UI reads stars", () => {
 });
 
 describe("parseReview", () => {
-  it("reads a review of a place: who, which place, the stars, the words and the time", () => {
+  it("reads a review of a place: who, which place, its d, the stars, the words and the time", () => {
     const ev = review();
     expect(parseReview(ev)).toEqual({
       id: ev.id,
       reviewer: ALICE,
       address: PLACE,
+      d: PLACE,
       stars: 4,
       text: "Get the grilled oysters and sit at the bar.",
       createdAt: ev.created_at,
     });
+  });
+
+  it("keeps the review's own d, which its removal names, whatever form it takes", () => {
+    expect(parseReview(review({ tags: [["d", `place:${PLACE}`], ["a", PLACE], ["s", "4"]] }))?.d).toBe(`place:${PLACE}`);
+    expect(parseReview(review({ tags: [["d", "my-review"], ["a", PLACE], ["s", "4"]] }))?.d).toBe("my-review");
+    // NIP-01: an addressable event with no d tag is at the empty d.
+    expect(parseReview(review({ tags: [["a", PLACE], ["s", "4"]] }))?.d).toBe("");
   });
 
   it("takes the place from a when it is a place's address", () => {
@@ -108,6 +116,19 @@ describe("parseReview", () => {
     expect(parseReview(review({ tags: [["d", PLACE], ["s", "4"]] }))?.address).toBe(PLACE);
     const other = `30023:${FILER}:an-article`;
     expect(parseReview(review({ tags: [["d", PLACE], ["a", other], ["s", "4"]] }))?.address).toBe(PLACE);
+  });
+
+  it("takes the place from a d with no a: the bare address, or the address after place: (decision 17)", () => {
+    expect(parseReview(review({ tags: [["d", PLACE], ["s", "4"]] }))?.address).toBe(PLACE);
+    expect(parseReview(review({ tags: [["d", `place:${PLACE}`], ["s", "4"]] }))?.address).toBe(PLACE);
+  });
+
+  it("rejects a place: d whose rest is not a place's address", () => {
+    expect(parseReview(review({ tags: [["d", "place:"], ["s", "4"]] }))).toBeNull();
+    expect(parseReview(review({ tags: [["d", "place:osm-way-993221389"], ["s", "4"]] }))).toBeNull();
+    expect(parseReview(review({ tags: [["d", `place:30040:${FILER}:a-list`], ["s", "4"]] }))).toBeNull();
+    expect(parseReview(review({ tags: [["d", `place:place:${PLACE}`], ["s", "4"]] }))).toBeNull();
+    expect(parseReview(review({ tags: [["d", `Place:${PLACE}`], ["s", "4"]] }))).toBeNull();
   });
 
   it("rejects a review whose subject is not a place's address", () => {
@@ -192,6 +213,17 @@ describe("latestReviews (Review Focus 2)", () => {
     expect(latestReviews([newer, older]).map((r) => r.id)).toEqual([newer.id]);
   });
 
+  it("keeps the newer review of one place filed under its bare address and under place: (decision 16)", () => {
+    const older = review({ created_at: 1_700_000_000, tags: [["d", PLACE], ["s", "2"]] });
+    const newer = review({ created_at: 1_700_000_100, tags: [["d", `place:${PLACE}`], ["s", "5"]] });
+    for (const values of [
+      [older, newer],
+      [newer, older],
+    ]) {
+      expect(latestReviews(values).map((r) => r.id)).toEqual([newer.id]);
+    }
+  });
+
   it("forgets a review the relays no longer send, such as one its reviewer deleted", () => {
     const kept = review();
     const deleted = review({ pubkey: BOB });
@@ -207,5 +239,69 @@ describe("latestReviews (Review Focus 2)", () => {
   it("passes over values that are not reviews of a place", () => {
     const ev = review();
     expect(latestReviews([null, review({ kind: 1 }), { ...ev, sig: "nope" }, ev]).map((r) => r.id)).toEqual([ev.id]);
+  });
+});
+
+describe("reviews from the future", () => {
+  /** Thursday 8 October 2026, 12:00 UTC, in seconds: the time on the device. */
+  const NOW = 1_791_460_800;
+  const DAY = 86_400;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("drops a review more than a day ahead of the device's clock: no date can be shown for it, nor trusted", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW * 1000);
+    expect(parseReview(review({ created_at: 9e12 }))).toBeNull();
+    expect(parseReview(review({ created_at: NOW + DAY + 1 }))).toBeNull();
+    // A clock a little ahead of the device's is a clock, not a forgery.
+    expect(parseReview(review({ created_at: NOW + DAY }))?.createdAt).toBe(NOW + DAY);
+    expect(parseReview(review({ created_at: NOW }))?.createdAt).toBe(NOW);
+  });
+
+  it("does not let one from the future stand in for the reviewer's real review at its d", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW * 1000);
+    const real = review({ created_at: NOW - DAY });
+    const future = review({ created_at: 9e12, content: "Pinned to the top forever" });
+    expect(latestReviews([real, future]).map((each) => each.id)).toEqual([real.id]);
+    expect(latestReviews([future])).toEqual([]);
+  });
+});
+
+describe("newestPerReviewer (one voice per person, brief § 4.3)", () => {
+  const FILED_TWICE = `39999:${FILER}:osm-way-993221389-again`;
+  let made = 0;
+  const at = (reviewer: string, address: string, createdAt: number, id?: string): Review => ({
+    id: id ?? `${"e".repeat(60)}${(made++).toString(16).padStart(4, "0")}`,
+    reviewer,
+    address,
+    d: `place:${address}`,
+    stars: 4,
+    text: "",
+    createdAt,
+  });
+
+  it("keeps each person's newest review across two filings of one place, in either order", () => {
+    const older = at(ALICE, PLACE, 1_700_000_000);
+    const newer = at(ALICE, FILED_TWICE, 1_700_000_100);
+    const bob = at(BOB, PLACE, 1_700_000_050);
+    expect(newestPerReviewer([older, newer, bob])).toEqual([newer, bob]);
+    expect(newestPerReviewer([bob, newer, older])).toEqual([bob, newer]);
+  });
+
+  it("keeps the lower id of two made in the same second", () => {
+    const low = at(ALICE, PLACE, 1_700_000_000, hex64("1"));
+    const high = at(ALICE, FILED_TWICE, 1_700_000_000, hex64("2"));
+    expect(newestPerReviewer([high, low])).toEqual([low]);
+    expect(newestPerReviewer([low, high])).toEqual([low]);
+  });
+
+  it("leaves one review per person as it is", () => {
+    const reviews = [at(ALICE, PLACE, 1_700_000_000), at(BOB, FILED_TWICE, 1_700_000_100)];
+    expect(newestPerReviewer(reviews)).toEqual(reviews);
+    expect(newestPerReviewer([])).toEqual([]);
   });
 });

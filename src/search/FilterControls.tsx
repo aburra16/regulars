@@ -19,11 +19,11 @@ import type { Order } from "./useResults.ts";
 const AUTO = "auto";
 
 /**
- * How to sort: My circle's score, which cannot be chosen before sign in and says why, Distance and
- * Name. With no sort chosen (`value` is undefined) the page picks the order, `order`, and this shows
- * it: Distance pressed when the list is nearest first, and none pressed, with a line that says so,
- * when it is best match first. Pressing a sort chooses it, and the one that only shows the order in
- * use too; pressing the one the person chose goes back to no sort.
+ * How to sort: House picks' score, which needs no sign in, Distance and Name. With no sort chosen
+ * (`value` is undefined) the page picks the order, `order`, and this shows it: Distance pressed when
+ * the list is nearest first, and none pressed, with a line that says so, when it is best match
+ * first. Pressing a sort chooses it, and the one that only shows the order in use too; pressing the
+ * one the person chose goes back to no sort.
  */
 export function SortOptions({
   value,
@@ -37,10 +37,8 @@ export function SortOptions({
   onChange(sort: Sort | undefined): void;
   labelledBy: string;
 }): JSX.Element {
-  const whyNot = useId();
   const inUse = useId();
-  // The score is not on offer: a sort asked for by an address that cannot have it is no sort.
-  const chosen = value === "score" ? undefined : value;
+  const chosen = value;
   const shown = chosen ?? (order === "distance" ? "distance" : AUTO);
   const bestMatch = chosen === undefined && order === "relevance";
   return (
@@ -49,7 +47,7 @@ export function SortOptions({
         labelledBy={labelledBy}
         describedBy={bestMatch ? inUse : undefined}
         options={[
-          { id: "score", label: copy.filters.sort.score, disabled: true, describedBy: whyNot },
+          { id: "score", label: copy.filters.sort.score },
           { id: "distance", label: copy.filters.sort.distance },
           { id: "name", label: copy.filters.sort.name },
         ]}
@@ -67,9 +65,6 @@ export function SortOptions({
           {copy.search.sortedBy.relevance}
         </p>
       )}
-      <p id={whyNot} className="m-0 text-caption text-muted">
-        {copy.filters.sortScoreSignedOut}
-      </p>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { matchFilter } from "nostr-tools/filter";
 
-import type { RelayReader } from "../../src/places/load.ts";
+import type { RelayReader } from "../../src/nostr/events.ts";
 
 export interface MemoryReaderOptions {
   /** Every request fails with this error, after the delay. */

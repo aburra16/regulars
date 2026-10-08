@@ -16,6 +16,7 @@ import { openState } from "../src/places/hours";
 import type { Place } from "../src/places/place";
 import { placeKindLabel } from "../src/places/kinds";
 import { PlacesProvider } from "../src/places/store";
+import { ScoresProvider } from "../src/score/ScoresProvider";
 import { routes } from "../src/routes";
 import { ChainCard } from "../src/ui/ChainCard";
 import { useLocale } from "../src/shell/useLocale";
@@ -89,9 +90,11 @@ async function openExplore(path = "/", events: NostrEvent[] = fixtures) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   const view = render(
     <PlacesProvider reader={createMemoryReader(events)}>
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <ScoresProvider>
+        <HereProvider>
+          <RouterProvider router={router} />
+        </HereProvider>
+      </ScoresProvider>
     </PlacesProvider>,
   );
   await screen.findByRole("heading", { level: 1, name: copy.pages.explore });

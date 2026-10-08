@@ -4,9 +4,9 @@ import { set } from "idb-keyval";
 import { type ReactNode, StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import type { RelayReader } from "../src/nostr/events";
 import { CACHE_KEY } from "../src/places/cache";
 import { buildIndexes, type Indexes } from "../src/places/indexes";
-import type { RelayReader } from "../src/places/load";
 import { PlacesProvider, usePlaces } from "../src/places/store";
 import { useIndexes } from "../src/places/useIndexes";
 import raw from "./fixtures/funchal-items.json";

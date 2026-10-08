@@ -5,8 +5,8 @@ import { config } from "../config.ts";
  * protocol vocabulary anywhere in it (nostr, relay, key, sign ...), and in the kind
  * labels in src/data/kinds.json. These two strings are the only exceptions, and only as
  * the entire text of copy.signin.continueButton and copy.place.bitcoinChip.
- * "Sign in" is the app's word for authenticating; "signed in" and "signed out" are
- * not allowed, so write "after you sign in".
+ * "Sign in" and "Sign out" are the app's words for starting and ending a session, and "signed in"
+ * and "signed out" may be said of the person (the M2b plan's ruling R7). No other "sign".
  */
 export const ALLOWED_PROTOCOL_STRINGS = {
   signInButton: "Continue with Nostr",
@@ -39,6 +39,30 @@ const locations = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "locatio
 
 /** How many places: "7 places", "1 place". */
 const places = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "place" : "places"}`;
+
+/** How many people: "3 people", "1 person". */
+const people = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "person" : "people"}`;
+
+/** "1 other person has", "3 other people have". */
+const othersHave = (n: number) => `${n.toLocaleString("en")} other ${n === 1 ? "person has" : "people have"}`;
+
+/** "1 person has", "3 people have". */
+const peopleHave = (n: number) => `${people(n)} ${n === 1 ? "has" : "have"}`;
+
+/** How many reviews: "1 review", "4 reviews". */
+const reviewCount = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "review" : "reviews"}`;
+
+/** "a week ago", "3 weeks ago". */
+const ago = (n: number, unit: string) => (n === 1 ? `a ${unit} ago` : `${n.toLocaleString("en")} ${unit}s ago`);
+
+/** Over the place's name in the review form (Review.dc.html), and in its page's title. */
+const yourReviewOf = "Your review of";
+
+/** The word for each number of stars in the review form, from one to five (Review.dc.html). */
+const starWords = ["Would not go back", "Below average", "Fine", "Good", "One of the best"] as const;
+
+/** The point of view a place's score comes from before sign in, as a reviews line names it. */
+const houseTrusts = "the house trusts";
 
 /** The heading of the kinds filter, and the name of the desktop's kinds menu while none is chosen. */
 const kindOfPlace = "Kind of place";
@@ -90,6 +114,8 @@ export const copy = {
     joiner: dot,
     /** The link beside where the place details come from, to the page that says more. */
     aboutData: "About this data",
+    /** A line of copy as a sentence on its own, in a panel: "2 other people have rated it." */
+    sentence: (text: string) => `${text}.`,
   },
   /** The tabs on a phone, and the links in the desktop top bar. */
   nav: {
@@ -99,8 +125,14 @@ export const copy = {
     map: "Map",
     saved: "Saved",
     you: "You",
-    /** The round account button, for a screen reader. */
+    /** The round account button, for a screen reader, before sign in. */
     account: "Your account and your circle",
+    // DRAFT for Avi
+    /** The account button after sign in, for a screen reader: "Sofia, your account". */
+    accountOf: (name: string) => `${name}, your account`,
+    // DRAFT for Avi
+    /** The account button after sign in, until the person's name is known. */
+    yourAccount: "Your account",
     // DRAFT for Avi
     /** The moon and sun beside it, for a screen reader (pressed while the page is dark), and the words of its switch on You. */
     darkMode: "Dark mode",
@@ -121,7 +153,8 @@ export const copy = {
     summary: (n: number, near: string, sort: string) => `${places(n)} near ${near}. ${sort}.`,
     /** What order the results are in, as the end of that line. */
     sortedBy: {
-      score: "Best in My circle first",
+      // DRAFT for Avi
+      score: "Best in House picks first",
       distance: "Nearest first",
       name: "A to Z",
       // DRAFT for Avi: words that are not a kind of place are listed best match first.
@@ -152,11 +185,8 @@ export const copy = {
     /** The cross at the top right, for a screen reader. */
     close: "Close filters",
     sortBy: "Sort by",
-    /** The ways to sort. */
-    sort: { score: "My circle's score", distance: "Distance", name: "Name" },
-    // DRAFT for Avi
-    /** Why the first of them cannot be chosen yet. */
-    sortScoreSignedOut: "Sign in to sort by your circle's scores",
+    /** The ways to sort. The first is by House picks' scores, which need no sign in (DRAFT for Avi). */
+    sort: { score: "House picks' score", distance: "Distance", name: "Name" },
     openNow: "Open now",
     openNowNote: "Keeps places with no hours listed.",
     distance: "Distance",
@@ -177,6 +207,12 @@ export const copy = {
     circle: "My circle",
     /** A half of the toggle with its score, on the place page: "House picks · 4.5". */
     withScore: (view: string, score: string) => `${view} · ${score}`,
+    // DRAFT for Avi
+    /**
+     * The My circle half while the person's circle cannot be had yet, after they sign in: off, and
+     * saying so (the brief's screen 11; Tuning.dc.html).
+     */
+    circleSoon: "My circle · soon",
   },
   score: {
     /** On a card with no score, under the hours, when nobody has reviewed the place (SCREENS.md, wording patterns). */
@@ -187,6 +223,112 @@ export const copy = {
     value: (n: number) => n.toLocaleString("en", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
     /** The stars, for a screen reader: "4.5 out of 5". */
     starsLabel: (n: number) => `${n.toLocaleString("en", { maximumFractionDigits: 1 })} out of 5`,
+    // DRAFT for Avi
+    /** Under a scored place's hours, who its score comes from (Main.dc.html): "Rated by 3 people the house trusts". */
+    ratedByHouse: (n: number) => `Rated by ${people(n)} ${houseTrusts}`,
+    // DRAFT for Avi
+    /** The same, in the place page's score panel (Place.dc.html): "From 3 people the house trusts". */
+    fromHouse: (n: number) => `From ${people(n)} ${houseTrusts}`,
+    // DRAFT for Avi
+    /** A place with reviews, none by people inside House picks (Main.dc.html's dashed card): "2 other people have rated it". */
+    othersRated: (n: number) => `${othersHave(n)} rated it`,
+    // DRAFT for Avi
+    /** A place with reviews while House picks can't be worked out: "2 people have rated it". */
+    peopleRated: (n: number) => `${peopleHave(n)} rated it`,
+    // DRAFT for Avi
+    /**
+     * A place with no score that the person signed in has reviewed, in place of counting them among
+     * the others ("1 other person has rated it"): never whether the house counts their review (ruling R15).
+     */
+    youRated: "You've rated it",
+    // DRAFT for Avi
+    /** A place with reviews by people inside House picks, none of them with stars: no score, and why. */
+    starless: (n: number) => `${people(n)} ${houseTrusts} reviewed it without stars`,
+    // DRAFT for Avi
+    /** A place with reviews whose reviewers are still being looked up: no score yet, and nothing folded. */
+    counting: "Reviews are being counted",
+    // DRAFT for Avi
+    /** No review relay answered for a place: said quietly, on its card and its page (which offers Try again). */
+    failed: "Reviews couldn't be loaded",
+    // DRAFT for Avi
+    /** One quiet line, when the house's view can't be read: every review is folded, and nothing is scored. */
+    houseUnavailable: "House picks can't be worked out right now.",
+  },
+  /** The reviews on a place's page (Place.dc.html, DeskPlace.dc.html), worded for House picks. */
+  reviews: {
+    // DRAFT for Avi
+    /** A reviewer whose profile gives no name, or none that can be shown (Review Focus 4): never a code. */
+    someone: "Someone",
+    // DRAFT for Avi
+    /** The heading over the reviews by people inside House picks (the design's "From your circle"). */
+    heading: "Rated by people the house trusts",
+    // DRAFT for Avi
+    /** The box of reviews from outside House picks, under the ones inside: "4 more reviews from outside House picks". */
+    foldedMore: (n: number) => `${n.toLocaleString("en")} more ${n === 1 ? "review" : "reviews"} from outside House picks`,
+    // DRAFT for Avi
+    /** The same box when no review is inside House picks: "4 reviews from outside House picks". */
+    foldedAll: (n: number) => `${reviewCount(n)} from outside House picks`,
+    // DRAFT for Avi
+    /** The same box while House picks can't be worked out: "4 reviews, not counted right now". */
+    uncounted: (n: number) => `${reviewCount(n)}, not counted right now`,
+    // DRAFT for Avi
+    /** Under it: the folded reviews are not a verdict on the people who wrote them. */
+    foldedNote: "Shown on request, never removed.",
+    /** The button that opens the folded reviews, and closes them again. */
+    show: "Show them",
+    // DRAFT for Avi
+    /**
+     * The heading over the review of the person signed in, on its own at the top of the place's
+     * reviews, whether the house counts it or not, which nothing here says (ruling R15).
+     */
+    yours: "Your review",
+    // DRAFT for Avi
+    /** Under it: opens the review form, filled in with it. */
+    edit: "Edit",
+    // DRAFT for Avi
+    /** Under it: asks whether to remove it (`removeQuestion`). */
+    remove: "Remove",
+    // DRAFT for Avi
+    /** What Remove asks, with the two buttons below. */
+    removeQuestion: "Remove your review? It comes off Regulars and the places it was sent to.",
+    // DRAFT for Avi
+    /** The button that removes it, once asked. */
+    removeConfirm: "Remove",
+    // DRAFT for Avi
+    /** The button that leaves it as it is. */
+    keep: "Keep it",
+    // DRAFT for Avi
+    /** The button while it is being removed, and said politely to a screen reader. */
+    removing: "Removing…",
+    // DRAFT for Avi
+    /** Said politely to a screen reader once it is removed (the section goes, a state the design does not draw). */
+    removed: "Your review is removed.",
+    // DRAFT for Avi
+    /** No review relay took the removal: the review stays, and says so (a state the design does not draw). */
+    removeFailed: "Your review didn't come off. Try again.",
+    // DRAFT for Avi
+    /**
+     * Only the person's own relays took the removal, not the ones Regulars reads reviews from (ruling
+     * R17): it is gone from their places, and still on Regulars. There is no keeping it then.
+     */
+    removePartial: "Removed from your own places, but not from Regulars yet. Try again.",
+    // DRAFT for Avi
+    /** The button that removes it again, after either. */
+    removeAgain: "Try again",
+    // DRAFT for Avi
+    /**
+     * When a review was written, from how many calendar days and whole calendar months ago:
+     * "Today", "Yesterday", "3 days ago", "a week ago", "2 weeks ago", "a month ago", "11 months ago",
+     * and "a year ago" once a full year has passed.
+     */
+    when: (days: number, months: number) => {
+      if (days <= 0) return "Today";
+      if (days === 1) return "Yesterday";
+      if (days < 7) return ago(days, "day");
+      if (days < 30) return ago(Math.floor(days / 7), "week");
+      if (months < 12) return ago(Math.max(1, months), "month");
+      return ago(Math.floor(months / 12), "year");
+    },
   },
   /**
    * Where the map and the place details come from. `mapTiler` and `openStreetMap` are the words in
@@ -251,6 +393,9 @@ export const copy = {
     you: pageTitle(pages.you),
     // DRAFT for Avi
     missing: pageTitle("Not found"),
+    // DRAFT for Avi
+    /** The review form is named after the place it reviews: "Your review of Jacafé · Regulars". */
+    review: (name: string) => pageTitle(`${yourReviewOf} ${name}`),
   },
   /** The sign-in page (SignIn.dc.html, DeskSignIn.dc.html), and the button that leads to it. */
   signin: {
@@ -278,15 +423,53 @@ export const copy = {
     // DRAFT for Avi
     /** The numbered list of steps, for a screen reader. */
     stepsLabel: "The three steps",
+    // DRAFT for Avi: from here to `cancel`, what Continue opens.
+    /** The choice Continue opens, for a screen reader. */
+    chooseLabel: "How to sign in",
+    /** Sign in with the add-on in this browser. Offered only where the browser has one. */
+    browser: "This browser",
+    /** Sign in with an app on the person's phone. */
+    phone: "An app on your phone",
+    /** In place of "This browser", where the browser has no add-on to sign in with. */
+    noAddOn: "To sign in with this browser, add a sign-in add-on to it, then reload this page.",
+    /** While the browser's add-on asks the person. */
+    browserWaiting: `Your browser add-on will ask you to allow ${config.appName}.`,
+    /** Over the code to scan. */
+    scan: "Scan this with the app, or copy the link",
+    /** The code to scan, for a screen reader. */
+    qrLabel: "Code to scan with the app on your phone",
+    copyLink: "Copy the link",
+    /** On a phone, beside the code: opens the app on the same phone with the link. */
+    openApp: "Open the app",
+    /** Said once the link is copied. */
+    copied: "Link copied",
+    /** Said when the browser would not copy it. */
+    notCopied: "The link didn't copy. Scan the code, or paste a link from your app.",
+    /** The field for a link the phone app gives, to paste here. */
+    paste: "Paste a link from your app",
+    /** The button that connects with the pasted link. */
+    connect: "Connect",
+    /** While it connects with the pasted link. */
+    connecting: "Connecting…",
+    /** The phone app or the add-on did not answer in time, said no, or stopped half-way (Review Focus 3). */
+    failed: "That didn't connect. Try again.",
+    tryAgain: "Try again",
+    /** Stops waiting and goes back to the choice. */
+    cancel: "Cancel",
   },
-  /** The pages that need a person, before sign in opens (Saved and You). The design draws neither signed out. */
+  /** The pages that need a person (Saved and You). The design draws neither signed out. */
   saved: {
     // DRAFT for Avi
     signedOut: "Sign in to save places and make lists you can share.",
+    // DRAFT for Avi
+    /** Saved after sign in, before saving opens. */
+    soon: "Saving places and lists opens soon.",
   },
   you: {
     // DRAFT for Avi
     signedOut: "Sign in to see your reviews and the people you trust.",
+    // DRAFT for Avi
+    signOut: "Sign out",
   },
   /** About and data (About.dc.html). */
   about: {
@@ -332,6 +515,66 @@ export const copy = {
     yoursHeading: "Your reviews are yours",
     yoursBody:
       "Places, reviews and lists are public records that don't live inside this app. Other apps can read the same ones, and yours stay with you if you leave.",
+  },
+  /**
+   * Writing a review (Review.dc.html; DeskReview.dc.html, a dialog over the place's page). The tags
+   * the design draws ("Anything worth flagging?") are left out while tags are off (brief § 4.4).
+   */
+  review: {
+    // DRAFT for Avi
+    /** The dialog on a desktop, for a screen reader (DeskReview.dc.html). */
+    dialogLabel: "Write a review",
+    // DRAFT for Avi
+    /** At the top, who the review will carry the name of (the design's). */
+    reviewingAs: (name: string) => `Reviewing as ${name}`,
+    // DRAFT for Avi
+    /** Over the place's name (the design's). */
+    yourReviewOf,
+    // DRAFT for Avi
+    /** Over the stars (the design's). */
+    howWasIt: "How was it?",
+    // DRAFT for Avi
+    /** The word under the stars for each number of them, from one to five (the design's). */
+    starWords: [...starWords],
+    // DRAFT for Avi
+    /** A star button, for a screen reader: how many stars, and their word. "4 stars, Good". */
+    star: (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "star" : "stars"}, ${starWords[n - 1] ?? ""}`,
+    // DRAFT for Avi
+    /** The text box's label (the design's). */
+    textLabel: "What should a friend know?",
+    // DRAFT for Avi
+    /** In the empty text box (the design's). */
+    textPlaceholder: "What to order, when to go, what to skip.",
+    // DRAFT for Avi
+    /** Under the text box (the design's). */
+    textHint: "Optional. A rating on its own still counts.",
+    // DRAFT for Avi
+    /** Over Post (the design's, Review.dc.html; DeskReview.dc.html leaves out its last sentence). */
+    notice: "Reviews are public and carry your name. One review per place: posting again replaces this one. You can remove it later.",
+    // DRAFT for Avi
+    /** The button that posts it (the design's). */
+    post: "Post review",
+    // DRAFT for Avi
+    /** The same button while the review is being posted. */
+    posting: "Posting…",
+    // DRAFT for Avi
+    /** No relay took the review, or there was nowhere to send it; what was typed stays (a state the design does not draw). */
+    failed: "Your review didn't post. Try again.",
+    // DRAFT for Avi
+    /**
+     * Only the person's own relays took the review, not the ones Regulars reads reviews from (ruling
+     * R13): it is out there, and not on Regulars. What was typed stays.
+     */
+    notOnRegulars: "Saved to your own places, but not to Regulars yet. Try again.",
+    // DRAFT for Avi
+    /** Post, once a post has failed: it posts again. */
+    tryAgain: "Try again",
+    // DRAFT for Avi
+    /** The arrow at the top left of the phone's form, for a screen reader: back to the place. */
+    back: "Back",
+    // DRAFT for Avi
+    /** The cross at the top right of the desktop's dialog, for a screen reader. */
+    close: "Close",
   },
   /** A place's page (Place.dc.html, PlaceNew.dc.html, DeskPlace.dc.html). */
   place: {
@@ -386,7 +629,7 @@ export const copy = {
     // DRAFT for Avi
     /** The desktop's side rail (DeskPlace.dc.html), for a screen reader. */
     railLabel: "Details and directions",
-    /** The places closest to this one. Before sign in nothing is rated, so not "Nearby, rated by your circle". */
+    /** The places closest to this one, each with its own score from House picks: not "Nearby, rated by your circle". */
     nearby: "Nearby",
     /** How far a place nearby is from this one: "0.3 mi from here". */
     fromHere: (distance: string) => `${distance} from here`,
@@ -456,8 +699,14 @@ export const copy = {
     // DRAFT for Avi: "none near you" is not drawn; the design has a chain with three near.
     nearYou,
     eachScored: "Each location is scored on its own",
-    // DRAFT for Avi: the design's second sentence goes on "Near you, your circle rates them from 3.6 to 4.4", which needs scores.
     eachScoredDetail: "A good one here says little about the one across town.",
+    // DRAFT for Avi
+    /** After it, when two or more locations near have scores (Chain.dc.html, worded for House picks): the lowest and the highest. */
+    houseRange: (low: string, high: string) =>
+      low === high ? `Near you, the house rates them ${low}.` : `Near you, the house rates them from ${low} to ${high}.`,
+    // DRAFT for Avi
+    /** The same, when one location near has a score. */
+    houseOne: (score: string) => `Near you, the house rates one ${score}.`,
     /** The heading over the locations that are near. */
     near: "Near you",
     // DRAFT for Avi: the heading over the nearest three, when none is near.
@@ -482,10 +731,25 @@ export const copy = {
     /** The map itself, for a screen reader. */
     label: "Map",
     /**
-     * A place's pin, for a screen reader: its name, what it is and its hours, then that nobody has
-     * reviewed it, which the ring says to the eye. "Dose, Cafe, Open until 6 pm, no reviews yet".
+     * A place's pin, for a screen reader: its name, what it is and its hours, then its score, as the
+     * pill says it to the eye, or what the ring stands for: "Dose, Cafe, Open until 6 pm, no reviews yet".
      */
-    placePin: (name: string, kind: string, hours: string) => `${name}, ${kind}, ${hours}, no reviews yet`,
+    placePin: (name: string, kind: string, hours: string, score?: string) =>
+      score === undefined ? `${name}, ${kind}, ${hours}` : `${name}, ${kind}, ${hours}, ${score}`,
+    /** The score part of the pin of a place nobody has reviewed, which the ring says to the eye. */
+    unrated: "no reviews yet",
+    // DRAFT for Avi
+    /** The score part of a scored place's pin: "4.6 out of 5, rated by 3 people the house trusts". */
+    pinScored: (score: string, n: number) => `${score} out of 5, rated by ${people(n)} ${houseTrusts}`,
+    // DRAFT for Avi
+    /** The same, for a place whose reviews are being counted. */
+    pinCounting: "reviews being counted",
+    // DRAFT for Avi
+    /** The same, for a place with reviews and no score. */
+    pinNoScore: "no score yet",
+    // DRAFT for Avi
+    /** The same, for a place whose reviews couldn't be loaded. */
+    pinFailed: "reviews couldn't be loaded",
     /** A chain's one pin, for a screen reader: "Copper Kettle Coffee, a chain, 3 locations nearby". */
     chainPin: (name: string, n: number) => `${name}, a chain, ${n.toLocaleString("en")} locations nearby`,
     /** What a chain's pin says beside its icon: "×3". */
@@ -531,6 +795,8 @@ export const copy = {
     kinds: (n: number, only: string) => (n === 0 ? kindOfPlace : n === 1 ? only : `${kindOfPlace} · ${n.toLocaleString("en")}`),
     /** The sort menu, by the order the list is in: nearest first, A to Z, or, for words, best match first. */
     sort: {
+      // DRAFT for Avi
+      score: "Sort: House picks' score",
       distance: "Sort: distance",
       name: "Sort: name",
       // DRAFT for Avi

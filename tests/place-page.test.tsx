@@ -23,6 +23,7 @@ import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { writeSaved } from "../src/places/cache";
 import { PlacesProvider, usePlaces } from "../src/places/store";
+import { ScoresProvider } from "../src/score/ScoresProvider";
 import { routes } from "../src/routes";
 import raw from "./fixtures/funchal-items.json";
 import { FakeMap, FakeMarker } from "./support/fakeMaplibre";
@@ -114,7 +115,9 @@ async function openPlace(
   const view = render(
     <PlacesProvider reader={createMemoryReader(events)}>
       {/* `here`: where the person is, given; otherwise where the app works it out, which starts at the default city. */}
-      {here === undefined ? <HereProvider>{page}</HereProvider> : <HereContext value={here}>{page}</HereContext>}
+      <ScoresProvider>
+        {here === undefined ? <HereProvider>{page}</HereProvider> : <HereContext value={here}>{page}</HereContext>}
+      </ScoresProvider>
     </PlacesProvider>,
   );
   await waitFor(() => expect(screen.queryByText(copy.load.loading)).not.toBeInTheDocument());
@@ -149,7 +152,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   Reflect.deleteProperty(window, "matchMedia");
-  config.features.signIn = false;
+  // Signing in is open in production; a test that turns it off turns it on again.
+  config.features.signIn = true;
 });
 
 // ---- The header ----
@@ -266,7 +270,7 @@ describe("the place page: the score panel, before anyone has reviewed it", () =>
 
   it("goes to sign in from Rate this place while sign in is off, and can come back", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    expect(config.features.signIn).toBe(false);
+    config.features.signIn = false;
     const { router } = await openPlace(`/place/${JACAFE.d}`);
     const rate = link("Rate this place");
     expect(rate).toHaveAttribute("href", "/signin");
@@ -844,9 +848,11 @@ describe("the place page: a place that is not listed", () => {
     render(
       <PlacesProvider reader={createMemoryReader(latest, { delayMs: 200, ...(failWith === undefined ? {} : { failWith }) })}>
         <Probe />
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <ScoresProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </ScoresProvider>
       </PlacesProvider>,
     );
     // The saved places are on screen, and the relay has not answered yet.
@@ -889,9 +895,11 @@ describe("the place page: a place that is not listed", () => {
     const router = createBrowserRouter(routes);
     render(
       <PlacesProvider reader={createMemoryReader(fixtures)}>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <ScoresProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </ScoresProvider>
       </PlacesProvider>,
     );
     await screen.findByRole("heading", { level: 1, name: copy.pages.explore });

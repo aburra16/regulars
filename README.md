@@ -24,7 +24,13 @@ npm run dev
 
 Open the app at <http://localhost:5173> (or the port Vite prints). Use `localhost`, not `127.0.0.1`: the MapTiler key only allows the origins it lists. Without a key the app still runs, on a plain ground with no map tiles.
 
-The app reads the places from `wss://dcosl.brainstorm.world` and the map from `api.maptiler.com`, and from no other host.
+The app reads the places from `wss://dcosl.brainstorm.world` and the map from `api.maptiler.com`. In production it also reads the reviews of the places on screen, and their reviewers' names, from `wss://search.brainstorm.world`; the house's choice of scorer from `wss://scores.brainstorm.world`; and the ranks from the relay that choice names. In development it reads no reviews unless `VITE_REVIEW_RELAYS` is set (see "House scores, locally"), so every place says "No reviews yet".
+
+A person who signs in brings three more, each only while they are needed:
+
+- `wss://purplepag.es`, read when posting or removing a review, for the person's relay list (kind 10002), beside the review relays (`config.relayListRelays`);
+- the person's own write relays, which that list names, sent the review when posting, and the removal when removing one;
+- `wss://relay.nsec.app` (`config.connectRelay`), or the relay a bunker link names, to sign in with an app on a phone, and to ask that app to sign.
 
 ## Test
 
@@ -55,7 +61,7 @@ npm run proof:house-scores
 The relay loads two forged reviews when it starts: it checks the signature of each event published to it, but not of the events it loads. The proof checks that the app's reader drops them.
 
 - `PROOF_RELAY=<url>` uses another relay on this machine.
-- `PROOF_KEEP=1` also prints the `.env.local` lines (`VITE_REVIEW_RELAYS`, `VITE_DEV_SCORER`) that point the dev app at the relay and the run's scorer. The relay keeps the events until it stops.
+- `PROOF_KEEP=1` also prints the `.env.local` lines (`VITE_REVIEW_RELAYS`, `VITE_DEV_SCORER`) that point the dev app at the relay and the run's scorer. The relay keeps the events until it stops. With them set, `npm run dev` shows Jacafé at 4.5 from 2 people, with 2 reviews folded, and Loft Brunch & Cocktails with no score and 1 folded.
 
 ## Deploy
 
@@ -70,6 +76,8 @@ Pull requests and other branches run the Test workflow (`.github/workflows/test.
 - **One request for the list.** The app reads the whole list in one request of up to 10,000 places (`DEFAULT_PAGE_SIZE` in `src/places/load.ts`), and assumes the relay's limit (its `max_limit`) allows that many. A relay with a lower limit sends a shorter answer, which the app takes for the whole list: a device that has a fuller copy keeps it, but a first visit shows only what came.
 - **No more than 10,000 places at one `created_at`.** Paging goes back by time, and cannot get past a second that holds more places than one request returns. The importer must spread a larger run over more than one second.
 - **The MapTiler key's allowed origins** must include `askregulars.world` and `localhost` (for development), or the map stays blank.
+- **Reviews are read in batches of 50 places, two batches at a time.** A page asks for all its places at once (`src/score/store.ts`). Each batch is two requests to every review relay, side by side: one by the places' `a` tag and one by their `d`, so reviews written by other apps with a `d` alone are found too (decision 16). A relay therefore has at most four of the app's review requests open at once (`BATCHES_IN_FLIGHT`); the other batches wait their turn. Each request asks for at most 500 reviews. One that comes back full is followed by the next page, back in time (`until` = the oldest review seen), so a place with hundreds of reviews (spam, say) can't push the other places' reviews in its batch out of the answer. A full page that gets no further back (more than 500 reviews in one second) is followed by one from the second before: the rest of that second is not read, and the older reviews are. A request reads at most 5 pages (`REVIEW_PAGES`, 2,500 reviews); past that, the batch is cut short. Names are read 100 people to a request, two requests at a time, and the house's ranks 500 people to a request, two requests at a time.
+- **The house's view recovers.** House picks are unavailable only when the house's choice of scorer (kind 10040) can't be read, or its scorer's relay fails before it has given any rank. A rank read that fails later lets go of only that read's reviewers, who are asked about again at the next try; the places already ranked keep their scores. Explore and the place page offer Try again beside "House picks can't be worked out right now.", and the app tries again by itself when the browser says it is back on line, at most once in 5 seconds (`ONLINE_CALM_MS`), so a connection that comes and goes doesn't keep stopping reads that are doing well.
 
 ## Data and licence
 

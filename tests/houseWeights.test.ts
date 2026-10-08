@@ -2,7 +2,7 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
-import type { RelayReader } from "../src/places/load";
+import type { RelayReader } from "../src/nostr/events";
 import { fetchRanks, ranksFrom, resolveScorer, scorerFrom, weightOf } from "../src/trust/houseWeights";
 import { hex64, shapedEvent } from "./support/events";
 import { createMemoryReader } from "./support/memoryReader";

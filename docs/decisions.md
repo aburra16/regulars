@@ -19,3 +19,15 @@ Avi's answers on 2026-10-07 to the questions in `handoff/START_HERE.md` and the 
 | 13 | Licences | The app is MIT (`LICENSE`). Dependencies are permissively licensed, except `opening_hours` (LGPL-3.0), which ships unmodified as its own chunk. |
 | 14 | Review storage and format details | Deferred to build step 4 (brief § 4.2); its own conversation. |
 | 15 | NosFabrica | Avi is a co-founder; Brainstorm API use and relay questions go to him directly. |
+
+## Avi's answers on 2026-10-08, after M1 went live
+
+| # | Topic | Decision |
+|---|---|---|
+| 16 | Review storage | Kind 34259 reviews go to `wss://search.brainstorm.world` and to the reviewer's own write relays. Reads from that relay carry `search: "include:spam"`, and the app applies its own line. "For now": the team may change the kind or shape later. Reviews already published then stay as they are, and the app reads both. |
+| 17 | Review shape | `d` = `place:39999:<filer>:<d>`, `a` = the place address, `m` = `place`, `rating` = stars ÷ 5, `s` = stars, `alt` = "Review of <name>: <n> of 5 stars". This follows the existing 34259 convention of a `d` in the form `<type>:<id>`. |
+| 18 | House line | A reviewer counts in House picks at rank 5 or more from Mise en Place's scorer (was 2). On 2026-10-08 that is 33,323 of the 60,700 people it ranks. |
+| 19 | No numbers on people | A place shows its rating. A person never shows a trust number, rank, weight or meter. Reviewers appear by name only. The handoff's "How much this person counts" meter is dropped. |
+| 20 | Place-page map | It can be zoomed and moved (Avi's request), and stays flat. This replaces the handoff's static map. |
+| 21 | Signing in | Browser extensions (NIP-07) and every phone signer app (NIP-46: nostrconnect and bunker links). The person's key never reaches the app. |
+| 22 | First reviewers | Avi seeds Funchal's first reviewers. People ranked 5 or more count at once; anyone else needs Mise en Place to follow them (or someone close), then a score recalculation. |

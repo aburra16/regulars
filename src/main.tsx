@@ -27,9 +27,11 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
+import { AccountProvider } from "./account/AccountProvider.tsx";
 import { HereProvider } from "./location/HereProvider.tsx";
 import { PlacesProvider } from "./places/store.tsx";
 import { routes } from "./routes.tsx";
+import { ScoresProvider } from "./score/ScoresProvider.tsx";
 import { forgetScrollOfFreshVisit } from "./shell/scrollKey.ts";
 import { followDevice } from "./theme/theme.ts";
 import { APP_ROOT_ID } from "./ui/lockPage.ts";
@@ -43,14 +45,24 @@ forgetScrollOfFreshVisit();
 followDevice();
 const router = createBrowserRouter(routes);
 
-// The places load once for the whole app; where they are near is named from their towns; the
-// pages, and the shell around them, come from the router.
+// The places load once for the whole app; the reviews, ranks and names of the places that pages ask
+// about are read once a session (nothing until a page asks); who is signed in is restored from what
+// this tab kept; where the places are near is named from their towns; the pages, and the shell around
+// them, come from the router.
+//
+// ScoresProvider must stay outside AccountProvider: it gives the account provider what to forget when
+// the person signs out (src/account/forgetOnSignOut.ts), their reviews held for the tab, and a provider
+// can only use what a provider around it gives.
 createRoot(root).render(
   <StrictMode>
     <PlacesProvider>
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <ScoresProvider>
+        <AccountProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </AccountProvider>
+      </ScoresProvider>
     </PlacesProvider>
   </StrictMode>,
 );

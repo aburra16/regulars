@@ -18,6 +18,7 @@ import { FAMILIES, type FamilyId, kindOf, placeKindLabel } from "../src/places/k
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
+import { ScoresProvider } from "../src/score/ScoresProvider";
 import { routes } from "../src/routes";
 import { SearchPage } from "../src/search/SearchPage";
 import {
@@ -102,9 +103,11 @@ function open(initialEntries: string[], events: NostrEvent[], initialIndex?: num
   const router = createMemoryRouter(routes, { initialEntries, initialIndex });
   const view = render(
     <PlacesProvider reader={createMemoryReader(events)}>
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <ScoresProvider>
+        <HereProvider>
+          <RouterProvider router={router} />
+        </HereProvider>
+      </ScoresProvider>
     </PlacesProvider>,
   );
   return { router, ...view };
@@ -121,9 +124,11 @@ function openInBrowser(path: string, events: NostrEvent[] = fixtures) {
   browserRouters.push(router);
   const view = render(
     <PlacesProvider reader={createMemoryReader(events)}>
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <ScoresProvider>
+        <HereProvider>
+          <RouterProvider router={router} />
+        </HereProvider>
+      </ScoresProvider>
     </PlacesProvider>,
   );
   return { router, ...view };
@@ -476,7 +481,7 @@ describe("applyFilters", () => {
       expect(filters().sort).toBeUndefined();
     });
 
-    it("is the order it was given for My circle's score too, in M1, when nobody has a score", () => {
+    it("is the order it was given for House picks' score too: the page orders by the scores it reads, ties in this order", () => {
       const asGiven = [row("Novo Tahiti", 3), row("Jacafé", 1), row("Maia", 2)];
       expect(applyFilters(asGiven, filters({ sort: "score" }), NOW).rows.map((each) => each.place.name)).toEqual([
         "Novo Tahiti",
@@ -1115,11 +1120,14 @@ describe("Search: the order", () => {
       expect(copy.search.sortedBy.name).toBe("A to Z");
     });
 
-    it("is the page's own order when the address asks for My circle's score, which nobody has yet", async () => {
+    it("is nearest first for House picks' score while no place has one, and the line says it is by the score", async () => {
+      // A place with no score follows those with one, nearest first, whatever order the words found them in.
       await openSearch("/search?q=restaurante&sort=score");
-      expect(names()).toEqual(listed("restaurante"));
+      const found = names();
+      expect(found).toHaveLength(listed("restaurante").length);
+      expect(byDistance(found)).toBe(true);
       expect(
-        screen.getByText(copy.search.summary(counted("restaurante"), "Funchal", copy.search.sortedBy.relevance)),
+        screen.getByText(copy.search.summary(counted("restaurante"), "Funchal", copy.search.sortedBy.score)),
       ).toBeInTheDocument();
     });
   });
@@ -1600,9 +1608,11 @@ describe("Search: the link to add a place", () => {
     const router = createMemoryRouter([{ path: "/search", element: <SearchPage /> }], { initialEntries: ["/search?q=pizza"] });
     render(
       <PlacesProvider reader={createMemoryReader(fixtures)}>
-        <HereContext.Provider value={here}>
-          <RouterProvider router={router} />
-        </HereContext.Provider>
+        <ScoresProvider>
+          <HereContext.Provider value={here}>
+            <RouterProvider router={router} />
+          </HereContext.Provider>
+        </ScoresProvider>
       </PlacesProvider>,
     );
     await screen.findByRole("heading", { level: 1, name: copy.pages.search });
@@ -1869,15 +1879,13 @@ describe("Filters", () => {
   });
 
   describe("sort", () => {
-    it("offers My circle's score, which cannot be chosen yet, Distance and Name", async () => {
+    it("offers House picks' score, which needs no sign in, Distance and Name", async () => {
       await openFilters();
       const sort = groupNamed(copy.filters.sortBy);
       const buttons = within(sort).getAllByRole("button");
-      expect(buttons.map((button) => button.textContent)).toEqual(["My circle's score", "Distance", "Name"]);
-      expect(buttons[0]).toBeDisabled();
-      expect(buttons[0]).toHaveAccessibleDescription(copy.filters.sortScoreSignedOut);
-      expect(screen.getByText(copy.filters.sortScoreSignedOut)).toBeVisible();
-      expect(copy.filters.sortScoreSignedOut).toBe("Sign in to sort by your circle's scores");
+      expect(buttons.map((button) => button.textContent)).toEqual(["House picks' score", "Distance", "Name"]);
+      expect(buttons[0]).toBeEnabled();
+      expect(buttons[0]).not.toHaveAccessibleDescription();
     });
 
     const sortButton = (name: string) => within(groupNamed(copy.filters.sortBy)).getByRole("button", { name });
@@ -1942,9 +1950,9 @@ describe("Filters", () => {
       expect(pressedSorts()).toEqual([pressed]);
     });
 
-    it("shows the order in use for an address that asks for the score, which cannot be had", async () => {
+    it("has House picks' score pressed for an address that asks for it", async () => {
       await openFilters("/filters?sort=score");
-      expect(pressedSorts()).toEqual(["Distance"]);
+      expect(pressedSorts()).toEqual(["House picks' score"]);
     });
 
     it("goes to the results with no sort in the address when none is pressed, and with the one that is", async () => {

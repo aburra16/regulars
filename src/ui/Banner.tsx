@@ -34,6 +34,10 @@ export function PageMessage({
 export const primaryButton =
   "inline-flex h-13 cursor-pointer items-center justify-center rounded-button border-0 bg-accent-solid px-7 font-text text-body font-bold text-on-accent no-underline";
 
+/** A quiet Try again beside a quiet line (a score, or House picks, that could not be read): a chip's shape, 44 px tall. */
+export const retryButton =
+  "h-11 shrink-0 cursor-pointer self-start rounded-chip border-token border-line-strong bg-ground px-4 font-text text-secondary font-bold text-ink";
+
 /** The places could not be loaded: said as an alert, with Try again. */
 export function LoadFailed({ retry }: { retry(): void }): JSX.Element {
   return (

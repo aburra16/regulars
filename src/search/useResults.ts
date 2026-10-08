@@ -12,7 +12,7 @@ export type Entry = PlaceDistance | ChainGroup<PlaceDistance>;
 export const isChain = (entry: Entry): entry is ChainGroup<PlaceDistance> => "chain" in entry;
 
 /** How the results are ordered, for the line that says so. */
-export type Order = "distance" | "name" | "relevance";
+export type Order = "score" | "distance" | "name" | "relevance";
 
 /**
  * What the search page lists for the words `q` (none: the places near) under `filters`, around the
@@ -22,7 +22,9 @@ export type Order = "distance" | "name" | "relevance";
  * counts with the same, so the button that says "Show 5 places" is right.
  *
  * With no sort chosen the order is the index's own: nearest first for nothing typed and for a kind
- * of place (it lists them by distance), best match first for any other words.
+ * of place (it lists them by distance), best match first for any other words. For House picks'
+ * score, the entries are in that order, which the page sorts by the scores it reads for them
+ * (`useListScores`); `order` says "score".
  */
 export function useResults(
   q: string,
@@ -38,7 +40,7 @@ export function useResults(
   );
   const chosen = sortInUse(filters);
   const order: Order = useMemo(() => {
-    if (chosen === "distance" || chosen === "name") return chosen;
+    if (chosen !== undefined) return chosen;
     return q !== "" && indexes !== undefined && !indexes.isKindQuery(q) ? "relevance" : "distance";
   }, [chosen, q, indexes]);
 

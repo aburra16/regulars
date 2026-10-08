@@ -2,7 +2,8 @@ import { type NostrEvent, NSchema } from "@nostrify/nostrify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
-import { asEvent, fetchHousePlaces, MAX_PAGES, type RelayReader } from "../src/places/load";
+import { asEvent, type RelayReader } from "../src/nostr/events";
+import { fetchHousePlaces, MAX_PAGES } from "../src/places/load";
 import raw from "./fixtures/funchal-items.json";
 import { createMemoryReader } from "./support/memoryReader";
 

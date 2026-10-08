@@ -6,6 +6,7 @@ import { DeskLayout } from "../explore/DeskLayout.tsx";
 import { FilterMenus } from "../explore/FilterMenus.tsx";
 import { useHere } from "../location/useLocation.ts";
 import { boundsOf } from "../map/area.ts";
+import { useListScores } from "../score/useListScores.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { type Filters, filterCount, filtersFromParams, withFilters } from "./filters.ts";
 import { AddMissingLink, EmptyHint, emptyMessage, HiddenClosedNote, ResultsLine } from "./ResultsParts.tsx";
@@ -26,7 +27,10 @@ export function DeskSearch(): JSX.Element {
 
   const query = (params.get("q") ?? "").trim();
   const filters = useMemo(() => filtersFromParams(params, locale), [params, locale]);
-  const { entries, count, hiddenClosed, order } = useResults(query, filters);
+  const results = useResults(query, filters);
+  const { count, hiddenClosed, order } = results;
+  // The scores of every result, asked for in one go for the cards and the pins; best first when asked.
+  const { entries, scores } = useListScores(results.entries, order === "score");
 
   // A filter is a step the Back button undoes, as on Explore.
   const setFilters = (next: Filters) => setParams((current) => withFilters(current, next, locale));
@@ -61,6 +65,7 @@ export function DeskSearch(): JSX.Element {
         </>
       }
       entries={entries}
+      scores={scores}
       instead={empty === undefined ? undefined : empty.hint !== undefined && <EmptyHint hint={empty.hint} />}
       after={
         hiddenClosed > 0 && <HiddenClosedNote count={hiddenClosed} onShowClosed={() => setFilters({ ...filters, open: false })} />

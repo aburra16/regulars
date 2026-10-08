@@ -1,8 +1,8 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
 import { config } from "../config.ts";
+import { asEvent, isNewer, type RelayReader, readAll } from "../nostr/events.ts";
 import { isHex64, isRelayUrl } from "../nostr/shapes.ts";
-import { asEvent, isNewer, type RelayReader } from "../places/load.ts";
 
 /** The kind of the list in which an account names its scorers (NIP-85). */
 const TRUST_LIST_KIND = 10040;
@@ -85,18 +85,6 @@ export function weightOf(rank: number | undefined, line: number): number {
   return rank !== undefined && rank >= line && rank <= 100 ? rank / 100 : 0;
 }
 
-/** Every event `url`'s relay sends for `filter`. */
-async function readAll(
-  readers: (url: string) => RelayReader,
-  url: string,
-  filter: NostrFilter,
-  signal: AbortSignal,
-): Promise<unknown[]> {
-  const values: unknown[] = [];
-  for await (const value of readers(url).req(filter, signal)) values.push(value);
-  return values;
-}
-
 /**
  * The scorer whose ranks are House picks: in development, `config.devScorer` when it is set,
  * with no request; otherwise the one the house's newest kind 10040 names, read from each of
@@ -112,7 +100,8 @@ export async function resolveScorer(
   // The list is replaceable: a relay keeps only the newest, so one is all there is to ask for.
   const filter: NostrFilter = { kinds: [TRUST_LIST_KIND], authors: [config.houseHex], limit: 1 };
   const reads = await Promise.allSettled(
-    config.houseTrustRelays.map((url) => readAll(readers, url, filter, signal)),
+    // A reader that cannot be made fails its relay's read, as a read that fails does.
+    config.houseTrustRelays.map(async (url) => readAll(readers(url), filter, signal)),
   );
   signal.throwIfAborted();
   const values = reads.flatMap((read) => (read.status === "fulfilled" ? read.value : []));

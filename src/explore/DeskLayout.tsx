@@ -3,8 +3,9 @@ import { type JSX, type ReactNode, type RefObject, useId, useLayoutEffect, useMe
 import { useHere } from "../location/useLocation.ts";
 import type { Bbox } from "../map/area.ts";
 import { BaseMap, type ChosenBy, type LngLat } from "../map/BaseMap.tsx";
-import { type Entry, pinsFor } from "../map/pins.ts";
+import { type Entry, pinsFor, scorePins } from "../map/pins.ts";
 import type { Place } from "../places/place.ts";
+import type { ListScores } from "../score/useListScores.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
 import { DetailsCredit } from "../ui/DetailsCredit.tsx";
@@ -72,6 +73,8 @@ export interface DeskLayoutProps {
   head: ReactNode;
   /** The places and chains, as cards and as pins. */
   entries: Entry[];
+  /** Their places' scores, which the page asked for in one go for the cards and the pins alike. */
+  scores?: ListScores;
   /** In place of the cards, when there are none to show: what the page says instead (nothing near, nothing matches), or nothing. */
   instead?: ReactNode;
   /** Under the cards. */
@@ -105,6 +108,7 @@ export function DeskLayout({
   list,
   head,
   entries,
+  scores,
   instead,
   after,
   foot,
@@ -121,7 +125,9 @@ export function DeskLayout({
   const listId = useId();
   // Each pin chosen from the keyboard: the focus goes to its card in the list.
   const [focusRequest, setFocusRequest] = useState(0);
-  const pins = useMemo(() => pinsFor(entries, locale, now), [entries, locale, now]);
+  // The pins' hours are worked out when the places or the minute change; their scores, when the scores do.
+  const unscored = useMemo(() => pinsFor(entries, locale, now), [entries, locale, now]);
+  const pins = useMemo(() => (scores === undefined ? unscored : scorePins(unscored, scores.of)), [unscored, scores]);
   const [selected, setSelected] = useState(() => focus?.address);
   const [highlighted, setHighlighted] = useState<string>();
   const column = useRef<HTMLElement>(null);
@@ -155,6 +161,7 @@ export function DeskLayout({
             onHighlight={setHighlighted}
             listId={listId}
             scrollRoot={column}
+            scores={scores}
           />
         )}
         {after}
