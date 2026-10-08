@@ -176,7 +176,7 @@ describe("the place page: header", () => {
 
   it("names the page after the place", async () => {
     await openPlace(`/place/${JACAFE.d}`);
-    expect(document.title).toBe(`${JACAFE.name} · ${config.appName}`);
+    await waitFor(() => expect(document.title).toBe(`${JACAFE.name} · ${config.appName}`));
     expect(copy.titles.place(JACAFE.name)).toBe(document.title);
   });
 
@@ -644,7 +644,7 @@ describe("the place page: a place that is not listed", () => {
     expect(heading()).toHaveTextContent(copy.place.noLongerListed);
     expect(screen.getByText(copy.place.noLongerListedDetail)).toBeInTheDocument();
     expect(link(copy.place.backToExplore)).toHaveAttribute("href", "/");
-    expect(document.title).toBe(copy.titles.notListed);
+    await waitFor(() => expect(document.title).toBe(copy.titles.notListed));
   });
 
   /** The app at `path`, with `saved` on the device and `latest` from the relay a moment later. */

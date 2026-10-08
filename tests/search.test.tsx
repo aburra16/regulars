@@ -659,7 +659,7 @@ describe("Search on a phone: the top of the page", () => {
   it("names the page for a screen reader and the browser's tab", async () => {
     await openSearch();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Search");
-    expect(document.title).toBe(copy.titles.search);
+    await waitFor(() => expect(document.title).toBe(copy.titles.search));
   });
 
   it("is a single search field, not a second one next to it", async () => {
@@ -1703,7 +1703,7 @@ describe("Filters", () => {
   it("is a page with a heading, a tab title and a cross that closes it", async () => {
     await openFilters("/filters?q=pizza&open=1");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Filters");
-    expect(document.title).toBe(copy.titles.filters);
+    await waitFor(() => expect(document.title).toBe(copy.titles.filters));
     expect(screen.getByRole("link", { name: copy.filters.close })).toHaveAttribute("href", "/search?q=pizza&open=1");
   });
 

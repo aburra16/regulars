@@ -164,7 +164,7 @@ describe("the about page: what it says", () => {
     // "Your reviews are yours" is the dark card, which is not a heading of the outline.
     expect(screen.getByText(copy.about.yoursHeading)).toBeInTheDocument();
     expect(screen.getByText(copy.about.yoursBody)).toBeInTheDocument();
-    expect(document.title).toBe(copy.titles.about);
+    await waitFor(() => expect(document.title).toBe(copy.titles.about));
   });
 
   it("explains House picks and My circle in plain words, where the reviews come from", async () => {
@@ -289,7 +289,7 @@ describe("the sign-in page on a phone", () => {
     expect(link(copy.signin.keepHousePicks)).toBeInTheDocument();
     expect(screen.getByText(copy.signin.notice)).toBeInTheDocument();
     expect(link(copy.signin.howItWorks)).toHaveAttribute("href", "/about#signing-in");
-    expect(document.title).toBe(copy.titles.signin);
+    await waitFor(() => expect(document.title).toBe(copy.titles.signin));
   });
 
   it("has nothing of the app around it: no tabs, no top bar", async () => {
@@ -513,7 +513,7 @@ describe.each([
     expect(screen.getByText(copy.saved.signedOut)).toBeInTheDocument();
     expect(copy.saved.signedOut).toBe("Sign in to save places and make lists you can share.");
     expect(screen.getByRole("link", { name: copy.signin.button })).toHaveAttribute("href", "/signin");
-    expect(document.title).toBe(title);
+    await waitFor(() => expect(document.title).toBe(title));
   });
 
   it("takes the person to sign in, which can bring them back here", async () => {

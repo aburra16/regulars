@@ -537,7 +537,7 @@ describe("the map on a phone", () => {
     expect(screen.getByRole("group", { name: copy.view.label })).toHaveClass("bg-ground", "shadow-float");
     expect(screen.getByRole("navigation", { name: copy.nav.label })).toBeInTheDocument();
     expect(mapAttribution()).toBeVisible();
-    expect(document.title).toBe(copy.titles.map);
+    await waitFor(() => expect(document.title).toBe(copy.titles.map));
   });
 
   it("starts at the place the list is near, at zoom 13, with a pin for each place and chain there", async () => {

@@ -154,7 +154,7 @@ describe("the chain page: header", () => {
 
   it("is named for the chain in the browser's tab", async () => {
     await openApp(confeitariaPath, { events: fixtures });
-    expect(document.title).toBe(`A Confeitaria Coffee & Bakery · ${config.appName}`);
+    await waitFor(() => expect(document.title).toBe(`A Confeitaria Coffee & Bakery · ${config.appName}`));
     expect(copy.titles.chain("A Confeitaria Coffee & Bakery")).toBe(document.title);
   });
 
@@ -500,7 +500,7 @@ describe("the chain page: a chain that is not listed", () => {
     expect(heading()).toHaveTextContent(copy.place.noLongerListed);
     expect(screen.getByText(copy.place.noLongerListedDetail)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: copy.place.backToExplore })).toHaveAttribute("href", "/");
-    expect(document.title).toBe(copy.titles.notListed);
+    await waitFor(() => expect(document.title).toBe(copy.titles.notListed));
   });
 
   it("waits for the latest list when the places on screen are the saved ones, before saying so", async () => {

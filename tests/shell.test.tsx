@@ -5,6 +5,7 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { act, render, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { createRoot } from "react-dom/client";
 import { createMemoryRouter, type RouteObject, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -875,6 +876,36 @@ describe("the document title", () => {
       expect(document.title).toBe("Two");
       unmount();
       expect(document.title).toBe("Before");
+    });
+
+    it("sets the title as the page is drawn, not after it", async () => {
+      // Outside `act`, as a page drawn after its places arrive is: the commit is one task, and the
+      // effects that wait for paint run in a later one. The page is on screen by the first microtask.
+      const actEnvironment = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+      (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      try {
+        document.title = "Before";
+        function Page() {
+          useDocumentTitle("Drawn");
+          return <h1>Page</h1>;
+        }
+        const seen = await new Promise<string>((resolve) => {
+          const observer = new MutationObserver(() => {
+            observer.disconnect();
+            resolve(document.title);
+          });
+          observer.observe(container, { childList: true, subtree: true });
+          root.render(<Page />);
+        });
+        expect(seen).toBe("Drawn");
+      } finally {
+        root.unmount();
+        container.remove();
+        (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = actEnvironment;
+      }
     });
   });
 });

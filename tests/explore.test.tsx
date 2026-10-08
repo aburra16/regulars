@@ -1,5 +1,5 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { act, render, renderHook, screen, within } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
@@ -208,7 +208,7 @@ describe("Explore on a phone: the top of the page", () => {
   it("names the page for a screen reader and the browser's tab", async () => {
     await openExplore();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Explore");
-    expect(document.title).toBe(copy.titles.explore);
+    await waitFor(() => expect(document.title).toBe(copy.titles.explore));
   });
 
   it("opens the search for its field, not a second text field", async () => {
