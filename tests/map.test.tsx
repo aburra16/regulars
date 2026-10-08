@@ -689,32 +689,45 @@ describe("the map on a phone", () => {
     expect(router.state.location.pathname).toBe(`/place/${place("Jacafé").d}`);
   });
 
-  it("docks a chain's place's own card for its pin; it opens the place", async () => {
+  it("docks a chain's place's card for its pin, under it the way to the chain; that opens the chain", async () => {
     const user = userEvent.setup();
-    await openApp("/map");
+    const { router } = await openApp("/map");
     await findPin("Jacafé");
     await user.click(screen.getAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ })[0]!);
-    const card = screen.getByRole("link", { name: "A Confeitaria Coffee & Bakery" });
+    const region = screen.getByRole("region", { name: copy.map.selected });
+    const card = within(region).getByRole("link", { name: "A Confeitaria Coffee & Bakery" });
     expect(card.getAttribute("href")).toMatch(/^\/place\//);
+    const chain = idx.chains.get("PT:a confeitaria coffee & bakery")!;
+    const toChain = within(region).getByRole("link", { name: copy.map.partOfChain(chain.name, chain.places.length) });
+    expect(toChain).toHaveTextContent("Part of A Confeitaria Coffee & Bakery · 4 locations");
+    expect(card.compareDocumentPosition(toChain) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(toChain);
+    expect(router.state.location.pathname).toMatch(/^\/chain\//);
   });
 
-  it("offers to search this area only after the person moves the map; the pins are every place either way", async () => {
+  it("docks a place's card with no way to a chain when the place is in none", async () => {
+    const user = userEvent.setup();
+    await openApp("/map");
+    await user.click(await findPin("Jacafé"));
+    const region = screen.getByRole("region", { name: copy.map.selected });
+    expect(within(region).getAllByRole("link")).toHaveLength(1);
+  });
+
+  it("has no Search this area: every place is a pin wherever the person moves the map, and its pin docks its card", async () => {
     const user = userEvent.setup();
     const { map } = await openApp("/map", { events: [...fixtures, ...lisbon] });
-    const button = () => screen.queryByRole("button", { name: copy.map.searchArea });
     const every = parsePlaces([...fixtures, ...lisbon]).map((each) => each.address).sort();
-    expect(button()).not.toBeInTheDocument();
     expect([...pinAddresses(map)].sort()).toEqual(every);
-
-    act(() => void map.easeTo({ center: [-9.14, 38.72] }));
-    expect(button()).not.toBeInTheDocument();
 
     act(() => map.dragTo(LISBON_VIEW));
-    expect(button()).toBeInTheDocument();
-
-    await user.click(button()!);
-    expect(button()).not.toBeInTheDocument();
+    act(() => map.dragTo({ west: -180, south: -85, east: 180, north: 85 }, 1));
+    expect(screen.queryByRole("button", { name: copy.map.searchArea })).not.toBeInTheDocument();
+    expect(screen.queryByText(copy.map.noneInArea)).not.toBeInTheDocument();
     expect([...pinAddresses(map)].sort()).toEqual(every);
+    expect(pinSource(map).setData).not.toHaveBeenCalled();
+
+    await user.click(await findPin("Lisbon place 1"));
+    expect(within(screen.getByRole("region", { name: copy.map.selected })).getByRole("link", { name: "Lisbon place 1" })).toBeInTheDocument();
   });
 
   it("asks for the device's location with Locate me, and goes there", async () => {
@@ -1115,7 +1128,7 @@ describe("the map and the keyboard", () => {
 });
 
 describe("distances on the map's pages, when the device has said where the person is", () => {
-  it("are from the device on the docked card, wherever the map searched", async () => {
+  it("are from the device on the docked card, wherever the map is", async () => {
     const user = userEvent.setup();
     deviceAt(HERE.lat, HERE.lon);
     const { map } = await openApp("/map");
@@ -1123,7 +1136,6 @@ describe("distances on the map's pages, when the device has said where the perso
     await screen.findByRole("img", { name: copy.map.youAreHere });
 
     act(() => map.dragTo(EAST_OF_FUNCHAL));
-    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
     await user.click(await findPin("Jacafé"));
     const jacafe = place("Jacafé");
     const fromDevice = formatDistance(distanceKm(HERE.lat, HERE.lon, jacafe.lat, jacafe.lon), "en-US");
@@ -1173,16 +1185,13 @@ describe("distances on the map's pages, when the device has said where the perso
 });
 
 describe("an area searched on the map with nothing to show", () => {
-  it("says so over the phone's map", async () => {
+  it("says so on a desktop, in place of the list", async () => {
     const user = userEvent.setup();
-    const { map } = await openApp("/map");
-    // The regions over the map are there before anything is said in them, so a screen reader hears it.
-    const regions = within(mapAttribution().closest<HTMLElement>(".bg-map-land")!).getAllByRole("status");
-    expect(screen.queryByText(copy.map.noneInArea)).not.toBeInTheDocument();
+    const { map } = await openApp("/", { px: DESKTOP });
     act(() => map.dragTo({ west: -20.1, south: 30, east: -20, north: 30.1 }));
     await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
-    const said = screen.getByText(copy.map.noneInArea);
-    expect(regions).toContain(said.closest("[role=status]"));
+    expect(screen.getByText(copy.map.noneInArea)).toBeInTheDocument();
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
     // The map still has every place on it, elsewhere.
     expect(pinAddresses(map)).toHaveLength(fixturePlaces.length);
   });
@@ -1198,11 +1207,10 @@ describe("an area searched on the map with nothing to show", () => {
 });
 
 describe("the map on Back", () => {
-  it("comes back on the phone where it was, at its zoom, with the area that was searched", async () => {
+  it("comes back on the phone where it was, at its zoom", async () => {
     const user = userEvent.setup();
     const { router, map } = await openApp("/map", { events: [...fixtures, ...lisbon] });
     act(() => map.dragTo(LISBON_VIEW, 15));
-    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
     await user.click(await findPin("Lisbon place 1"));
     await user.click(screen.getByRole("link", { name: "Lisbon place 1" }));
     expect(router.state.location.pathname).toBe("/place/lisbon-0");
@@ -1238,10 +1246,8 @@ describe("the map on Back", () => {
   });
 
   it("starts where the person is near on a new visit to the page", async () => {
-    const user = userEvent.setup();
     const { router, map } = await openApp("/map", { events: [...fixtures, ...lisbon] });
     act(() => map.dragTo(LISBON_VIEW, 15));
-    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
     await act(() => router.navigate("/saved"));
     await act(() => router.navigate("/map"));
     const fresh = await mapNumber(2);
@@ -1314,14 +1320,11 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
     spy.mock.calls.map(([addresses]) => [...(addresses as Iterable<string>)]).filter((addresses) => addresses.length > 0);
 
   describe("the pins", () => {
-    it("are every place, on the phone's map, before and after the person zooms out and searches the world", async () => {
-      const user = userEvent.setup();
+    it("are every place, on the phone's map, before and after the person zooms out to the world", async () => {
       const { map } = await openApp("/map", { events: everyone });
       expect(sortedPins(map)).toEqual(allAddresses);
 
       act(() => map.dragTo(WORLD, 1));
-      expect(sortedPins(map)).toEqual(allAddresses);
-      await user.click(searchArea());
       expect(sortedPins(map)).toEqual(allAddresses);
       // The same places: the map's source is never sent them again.
       expect(pinSource(map).setData).not.toHaveBeenCalled();
@@ -1444,15 +1447,6 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       await waitFor(() => expect(cards().length).toBeGreaterThan(20));
       expect(cards().map(nameOf)).not.toContain("Thirty km out");
       expect(houseLine()).toHaveTextContent(copy.deskExplore.count(fixturePlaces.length));
-    });
-
-    it("is searched at world zoom on a phone without a list to show, and says nothing is missing", async () => {
-      const user = userEvent.setup();
-      const { map } = await openApp("/map", { events: everyone });
-      act(() => map.dragTo(WORLD, 1));
-      await user.click(searchArea());
-      expect(screen.queryByText(copy.map.noneInArea)).not.toBeInTheDocument();
-      expect(sortedPins(map)).toEqual(allAddresses);
     });
   });
 
@@ -1587,10 +1581,17 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
         expect(chainCard.getAttribute("href")).toMatch(/^\/chain\//);
         const [first] = screen.getAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ });
         await user.click(first!);
-        const top = within(list().firstElementChild as HTMLElement).getByRole("link");
+        const item = within(list().firstElementChild as HTMLElement);
+        const top = item.getByRole("link", { name: "A Confeitaria Coffee & Bakery" });
         expect(top.getAttribute("href")).toMatch(/^\/place\//);
         expect(top).toHaveClass("border-2", "border-ink");
         expect(chainCard).not.toHaveClass("border-2");
+        // Under it, the way to its chain.
+        const chain = idx.chains.get("PT:a confeitaria coffee & bakery")!;
+        expect(item.getByRole("link", { name: copy.map.partOfChain(chain.name, chain.places.length) })).toHaveAttribute(
+          "href",
+          chainCard.getAttribute("href"),
+        );
       } finally {
         Reflect.deleteProperty(Element.prototype, "scrollIntoView");
       }

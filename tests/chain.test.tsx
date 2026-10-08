@@ -361,7 +361,21 @@ describe("the chain page: locations", () => {
 
 // ---- A chain's pin on the map, and a link to it ----
 
-describe("the chain page: reached from beside the map", () => {
+describe("the chain page: reached from the map", () => {
+  it("opens from the chain's pin on the map, through its place's card", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { router } = await openApp("/map", { events: fixtures });
+    // Each of the chain's places is a pin of its own (decision 25).
+    const pins = await screen.findAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ });
+    await user.click(pins[0]!);
+    const docked = screen.getByRole("region", { name: copy.map.selected });
+    await user.click(within(docked).getByRole("link", { name: copy.map.partOfChain(CONFEITARIA.name, CONFEITARIA.places.length) }));
+
+    expect(router.state.location.pathname).toBe(confeitariaPath);
+    expect(heading()).toHaveTextContent("A Confeitaria Coffee & Bakery");
+    expect(rows()).toHaveLength(4);
+  });
+
   it("opens from the chain's card in the list beside the desktop's map, whose pins are its places", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { router } = await openApp("/", { events: fixtures, px: DESKTOP });
@@ -409,6 +423,10 @@ describe("the chain page on a phone", () => {
       "href",
       `/place/${encodeURIComponent(nearest.d)}`,
     );
+    expect(within(docked).getByRole("link", { name: copy.map.partOfChain(CONFEITARIA.name, CONFEITARIA.places.length) })).toHaveAttribute(
+      "href",
+      confeitariaPath,
+    );
   });
 
   it("on a desktop, the same link opens Explore centred on the nearest location, its card chosen", async () => {
@@ -431,6 +449,10 @@ describe("the chain page on a phone", () => {
     expect(placeCard).toHaveAttribute("href", `/place/${encodeURIComponent(nearest.d)}`);
     expect(placeCard).toHaveClass("border-2", "border-ink");
     expect(placeCard!.closest("li")).toBe(screen.getByRole("list").firstElementChild);
+    // Under it, the way to its chain.
+    expect(
+      within(placeCard!.closest("li")!).getByRole("link", { name: copy.map.partOfChain(CONFEITARIA.name, CONFEITARIA.places.length) }),
+    ).toHaveAttribute("href", confeitariaPath);
     expect(chainCard).toHaveAttribute("href", `/chain/${chainSlug(CONFEITARIA)}`);
     expect(chainCard).not.toHaveClass("border-2");
   });

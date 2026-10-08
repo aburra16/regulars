@@ -1,4 +1,4 @@
-import { type JSX, type RefObject, useEffect, useRef } from "react";
+import { type JSX, type ReactNode, type RefObject, useEffect, useRef } from "react";
 
 import { copy } from "../copy/en.ts";
 import { type Entry, entryAddress } from "../map/pins.ts";
@@ -26,7 +26,8 @@ const shown = shownMemory("regulars.explore.shown", PAGE_SIZE);
  * Beside a map (the desktop), `selected` is the address of the chosen pin, whose card gets the dark
  * edge and is brought into view, however far down it is; a new `focusRequest` also moves the focus
  * to it (a pin chosen from the keyboard). `first` is a card before the list's own, and not one of
- * them: the place of a pin chosen on a map of every place that the list does not hold. `onHighlight`
+ * them: the place of a pin chosen on a map of every place that the list does not hold; `afterFirst`
+ * goes under its card, in the same item (the way to its chain). `onHighlight`
  * hears which card is pointed at or focused, to pick out its pin. `listId` is the list's id, which
  * the pins name as what they open. `scrollRoot` is the element the list scrolls in, when it is not
  * the page.
@@ -38,6 +39,7 @@ export function Entries({
   page,
   entries,
   first,
+  afterFirst,
   locale,
   now,
   selected,
@@ -50,6 +52,7 @@ export function Entries({
   page: ShownPage;
   entries: Entry[];
   first?: Entry;
+  afterFirst?: ReactNode;
   locale: string;
   now: Date;
   selected?: string;
@@ -145,6 +148,7 @@ export function Entries({
                 now={now}
                 selected={chosen}
               />
+              {i === 0 && first !== undefined && afterFirst}
             </li>
           );
         })}

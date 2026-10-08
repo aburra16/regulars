@@ -18,6 +18,7 @@ import { EveryPlaceMap } from "./EveryPlaceMap.tsx";
 import { viewAt } from "./mapFocus.ts";
 import { useRememberedView } from "./mapMemory.ts";
 import { START_ZOOM } from "./MapPage.tsx";
+import { PartOfChain } from "./PartOfChain.tsx";
 
 const NO_PINS: readonly Pin[] = [];
 const NO_ROWS: PlaceDistance[] = [];
@@ -115,8 +116,8 @@ export interface DeskLayoutProps {
  * and a pin chosen from the keyboard moves the focus to its card. On Explore the map has every place
  * (`everyPlace`): a pin whose place the list does not hold as a card of its own (a place beyond the
  * list, or one of a chain's places, whose card is the chain's) has its place's card put at the top
- * of the list for as long as it is chosen. The column keeps its scroll position, and the map where it
- * was, for Back.
+ * of the list for as long as it is chosen, with the way to its chain under it when it is one of a
+ * chain's. The column keeps its scroll position, and the map where it was, for Back.
  */
 export function DeskLayout({
   title,
@@ -215,6 +216,7 @@ export function DeskLayout({
             page={shownPageOf(historyKey, list)}
             entries={instead === undefined ? entries : []}
             first={first}
+            afterFirst={first !== undefined && <PartOfChain place={first.place} className="mt-1" />}
             locale={locale}
             now={now}
             selected={selected}

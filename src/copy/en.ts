@@ -773,6 +773,12 @@ export const copy = {
     // DRAFT for Avi
     /** The card of the pin chosen on the phone's map, for a screen reader: the region a pin opens. */
     selected: "Selected on the map",
+    // DRAFT for Avi
+    /**
+     * Under the card of a pin that is one of a chain's places (each is a pin of its own; decision 25):
+     * the way to the chain's page. "Part of Copper Kettle Coffee · 74 locations".
+     */
+    partOfChain: (name: string, n: number) => `Part of ${name}${dot}${locations(n)}`,
     /**
      * Over a map that the page scrolls past (a place's map), for a moment, when a scroll or one finger
      * moved the page and not the map: how to move the map instead. Ctrl on Windows and Linux, ⌘ on a
