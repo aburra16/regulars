@@ -152,6 +152,15 @@ function configuredRelayAddress(text: string): string | null {
   return sent === null ? null : addressOf(sent);
 }
 
+/**
+ * Whether the relay at `url` is one of the review relays (`config.reviewRelays`), where the app reads
+ * reviews from, however either is written: both are compared as `configuredRelayAddress` writes them.
+ */
+export function isReviewRelay(url: string): boolean {
+  const address = configuredRelayAddress(url);
+  return address !== null && config.reviewRelays.some((relay) => configuredRelayAddress(relay) === address);
+}
+
 /** `promise`, or the signal's reason as soon as it aborts, whichever is first. */
 export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {

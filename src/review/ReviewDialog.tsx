@@ -9,8 +9,8 @@ import { lockPage } from "../ui/lockPage.ts";
 import { useBackToPlace } from "./backToPlace.ts";
 import { ReviewForm, ReviewingAs, ReviewTitle } from "./ReviewForm.tsx";
 
-/** What the Tab key can reach inside the dialog. */
-const FOCUSABLE = "a[href], button:not([disabled]), textarea:not([disabled])";
+/** What the Tab key can reach inside the dialog: not the stars that are not the radio group's stop. */
+const FOCUSABLE = 'a[href], button:not([disabled]):not([tabindex="-1"]), textarea:not([disabled])';
 
 /**
  * The review form on a desktop (D3, DeskReview.dc.html): a dialog over the place's page, which is
@@ -28,11 +28,12 @@ export function ReviewDialog({ place }: { place: Place }): JSX.Element {
   // the time the focus goes back to it.
   useEffect(() => lockPage(), []);
 
-  // The focus goes to the stars chosen, or the first, when it opens, and back to what had it when it closes.
+  // The focus goes to the star chosen, or the first, when it opens, and back to what had it when it closes.
   useEffect(() => {
     const opener = document.activeElement;
     const dialog = dialogRef.current;
-    const start = dialog?.querySelector<HTMLElement>('[aria-pressed="true"]') ?? dialog?.querySelector<HTMLElement>("[aria-pressed]");
+    const start =
+      dialog?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') ?? dialog?.querySelector<HTMLElement>('[role="radio"]');
     start?.focus();
     return () => {
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();

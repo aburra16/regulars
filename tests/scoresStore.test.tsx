@@ -1,8 +1,10 @@
 import type { NostrEvent } from "@nostrify/nostrify";
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { memo, type ReactNode, StrictMode } from "react";
+import { memo, type ReactNode, StrictMode, useContext } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ForgetOnSignOut } from "../src/account/forgetOnSignOut";
+import { SESSION_KEY } from "../src/account/session";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import type { RelayReader } from "../src/nostr/events";
@@ -933,7 +935,8 @@ describe("ScoresProvider: the person's own reviews (for writing and removing the
     const own = reviewOf(ALICE, JACAFE_AGAIN, 1, { created_at: 1_700_000_400 });
     act(() => result.current.actions.noteOwnReview(own));
     expect(coordinates(ALICE, JACAFE)).toEqual([
-      { id: own.id, d: `place:${JACAFE_AGAIN}`, createdAt: 1_700_000_400 },
+      // Held, so it says where it went: nowhere it was told of, here.
+      { id: own.id, d: `place:${JACAFE_AGAIN}`, createdAt: 1_700_000_400, relays: [] },
       all[0],
     ]);
   });
@@ -942,25 +945,34 @@ describe("ScoresProvider: the person's own reviews (for writing and removing the
 describe("ScoresProvider: the person's own reviews, held through a reload (Review Focus 1)", () => {
   /** What this tab keeps of the reviews held, as JSON. */
   const heldText = () => window.sessionStorage.getItem(HELD_REVIEWS_KEY);
+  /** What this tab keeps of the reviews held, read. */
+  const heldKept = () => JSON.parse(heldText() ?? "[]") as unknown;
+  /** `pubkey` signed in with this browser in this tab, as the account provider keeps it. */
+  const signedInAs = (pubkey: string) => window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({ how: "browser", pubkey }));
 
-  it("keeps a held own review in this tab, and a new store (a reload) shows it before any read returns it", async () => {
+  it("keeps a held own review in this tab, with where it went, and a new store (a reload) shows it before any read returns it", async () => {
     config.reviewRelays = [SEARCH];
+    signedInAs(ALICE);
     const reviews: NostrEvent[] = [];
     const { readers } = houseNetwork(reviews, [rankOf(ALICE, 80)]);
     const first = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
     await waitFor(() => expect(first.result.current.read).toBe("read"));
 
     const own = reviewOf(ALICE, JACAFE, 4, { created_at: 1_700_000_500 });
-    act(() => first.result.current.actions.noteOwnReview(own));
-    expect(JSON.parse(heldText() ?? "[]")).toEqual([own]);
+    act(() => first.result.current.actions.noteOwnReview(own, [SEARCH, MIRROR]));
+    expect(heldKept()).toEqual([{ event: own, relays: [SEARCH, MIRROR] }]);
     expect(window.localStorage.length).toBe(0);
     first.unmount();
 
-    // The page is reloaded, and the relay still lags: the review shows, from what the tab kept.
+    // The page is reloaded, and the relay still lags: the review shows, from what the tab kept, and
+    // where it went is known, for removing it from there (Task 7).
     const search = heldReader(reviews);
     const again = houseNetwork(reviews, [rankOf(ALICE, 80)], { [SEARCH]: search });
     const second = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers: again.readers });
     expect(idsOf(second.result.current.reviews)).toEqual([own.id]);
+    expect(second.result.current.actions.ownCoordinates(ALICE, JACAFE)).toEqual([
+      { id: own.id, d: `place:${JACAFE}`, createdAt: 1_700_000_500, relays: [SEARCH, MIRROR] },
+    ]);
     await waitFor(() => expect(second.result.current.score).toMatchObject({ score: 4, counted: 1 }));
 
     // A read returns it: it is the relay's now, and the tab keeps it no longer.
@@ -968,6 +980,9 @@ describe("ScoresProvider: the person's own reviews, held through a reload (Revie
     search.open();
     await waitFor(() => expect(heldText()).toBeNull());
     expect(idsOf(second.result.current.reviews)).toEqual([own.id]);
+    expect(second.result.current.actions.ownCoordinates(ALICE, JACAFE)).toEqual([
+      { id: own.id, d: `place:${JACAFE}`, createdAt: 1_700_000_500 },
+    ]);
   });
 
   it("lets go of a held review in this tab when it is removed", async () => {
@@ -981,18 +996,74 @@ describe("ScoresProvider: the person's own reviews, held through a reload (Revie
     expect(heldText()).toBeNull();
   });
 
+  it("forgets every held review at once when the person signs out, in the store and in the tab", async () => {
+    config.reviewRelays = [SEARCH];
+    const search = heldReader([]);
+    const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
+    // What the account provider, inside this one, calls at Sign out.
+    const { result } = renderStore(
+      () => ({ ...useScore(JACAFE), actions: useScoreActions(), forget: useContext(ForgetOnSignOut) }),
+      { readers },
+    );
+    const own = reviewOf(ALICE, JACAFE, 4);
+    act(() => result.current.actions.noteOwnReview(own));
+    expect(idsOf(result.current.reviews)).toEqual([own.id]);
+
+    act(() => result.current.forget());
+    expect(result.current.reviews).toEqual([]);
+    expect(heldText()).toBeNull();
+  });
+
+  it("gives signing out nothing to forget outside the provider", () => {
+    const { result } = renderHook(() => useContext(ForgetOnSignOut));
+    expect(() => result.current()).not.toThrow();
+  });
+
+  it("holds, after a reload, only the reviews of the person signed in in this tab", async () => {
+    config.reviewRelays = [SEARCH];
+    signedInAs(ALICE);
+    const alices = reviewOf(ALICE, JACAFE, 4);
+    const bobs = reviewOf(BOB, OTHER, 2);
+    window.sessionStorage.setItem(HELD_REVIEWS_KEY, JSON.stringify([{ event: alices, relays: [] }, { event: bobs, relays: [] }]));
+    const search = heldReader([]);
+    const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
+    const { result } = renderStore(() => ({ here: useScore(JACAFE), there: useScore(OTHER) }), { readers });
+    expect(idsOf(result.current.here.reviews)).toEqual([alices.id]);
+    expect(result.current.there.reviews).toEqual([]);
+  });
+
+  it("holds nothing after a reload when nobody is signed in in this tab", async () => {
+    config.reviewRelays = [SEARCH];
+    window.sessionStorage.setItem(HELD_REVIEWS_KEY, JSON.stringify([{ event: reviewOf(ALICE, JACAFE, 4), relays: [] }]));
+    const search = heldReader([]);
+    const { readers } = houseNetwork([], [], { [SEARCH]: search });
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+    expect(result.current.reviews).toEqual([]);
+  });
+
   it("keeps only the newest held review at each d, and ignores what is not a review", async () => {
     config.reviewRelays = [SEARCH];
+    signedInAs(ALICE);
     const older = reviewOf(ALICE, JACAFE, 2, { created_at: 1_700_000_000 });
     const newer = reviewOf(ALICE, JACAFE, 5, { created_at: 1_700_000_100 });
     window.sessionStorage.setItem(
       HELD_REVIEWS_KEY,
-      JSON.stringify([older, { kind: REVIEW_KIND, pubkey: "not a key" }, profileOf(ALICE, { name: "Alice" }), newer]),
+      JSON.stringify([
+        { event: older, relays: [SEARCH] },
+        { event: { kind: REVIEW_KIND, pubkey: "not a key" }, relays: [] },
+        { event: profileOf(ALICE, { name: "Alice" }), relays: [] },
+        newer,
+        { event: newer, relays: [SEARCH, 7] },
+        { event: newer, relays: [MIRROR] },
+      ]),
     );
     const search = heldReader([]);
     const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
-    const { result } = renderStore(() => useScore(JACAFE), { readers });
+    const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
     expect(idsOf(result.current.reviews)).toEqual([newer.id]);
+    expect(result.current.actions.ownCoordinates(ALICE, JACAFE)).toEqual([
+      { id: newer.id, d: `place:${JACAFE}`, createdAt: 1_700_000_100, relays: [MIRROR] },
+    ]);
   });
 
   it.each([
@@ -1000,6 +1071,7 @@ describe("ScoresProvider: the person's own reviews, held through a reload (Revie
     ["not a list", JSON.stringify({ id: "x" })],
   ])("starts with nothing held when what the tab kept is %s", async (_, text) => {
     config.reviewRelays = [SEARCH];
+    signedInAs(ALICE);
     window.sessionStorage.setItem(HELD_REVIEWS_KEY, text);
     const search = heldReader([]);
     const { readers } = houseNetwork([], [], { [SEARCH]: search });

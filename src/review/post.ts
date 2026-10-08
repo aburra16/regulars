@@ -1,9 +1,9 @@
 import type { NostrEvent, NostrSigner } from "@nostrify/nostrify";
 import type { EventTemplate } from "nostr-tools/core";
 
-import { abortable, writeRelaysOf } from "../account/writeRelays.ts";
+import { abortable, isReviewRelay, writeRelaysOf } from "../account/writeRelays.ts";
 import { config } from "../config.ts";
-import type { RelayReader, RelayWriter } from "../nostr/events.ts";
+import { asEvent, type RelayReader, type RelayWriter } from "../nostr/events.ts";
 import { appWriters } from "../nostr/relayCode.ts";
 
 /*
@@ -19,22 +19,33 @@ import { appWriters } from "../nostr/relayCode.ts";
  */
 export const WRITE_RELAYS_WAIT_MS = 4_000;
 
-/** How long each relay has to take the review, or refuse it. Each has a limit of its own. */
-export const PUBLISH_TIMEOUT_MS = 10_000;
+/**
+ * How long the relays have, all together, to take the review or refuse it: it is sent to every one
+ * at once, and those that have not answered by then are given up on.
+ */
+export const PUBLISH_TIMEOUT_MS = 12_000;
 
 /** A review posted: the signed event, the relays that took it, and what each of the others said. */
 export interface Posted {
   event: NostrEvent;
-  /** The relays that took it, in the order they were given: the review relays first. */
+  /** The relays that took it, in the order they were given: the review relays first. One of them is among them. */
   accepted: string[];
   /** Each relay that refused it, or did not answer in time, and why. */
   refused: Record<string, string>;
 }
 
-/** No relay took the review, or there was none to send it to. `refused` says what each one said. */
+/**
+ * The review is not on Regulars: no review relay took it (ruling R13). `accepted` names the relays
+ * that did, the person's own, when some did: it is saved there, and not where the app reads reviews.
+ * `refused` says what each of the others said. Both are empty when there was nowhere to send it, or
+ * the signer signed something other than the review it was asked to.
+ */
 export class NotPosted extends Error {
-  constructor(readonly refused: Record<string, string>) {
-    super("No relay took the review");
+  constructor(
+    readonly refused: Record<string, string>,
+    readonly accepted: readonly string[] = [],
+  ) {
+    super("No review relay took the review");
     this.name = "NotPosted";
   }
 }
@@ -82,40 +93,52 @@ export function reviewStamp(now: number, previous: readonly { createdAt: number 
 /** What a relay's refusal, or the end of its time, says, as text. */
 const reasonOf = (error: unknown) => (error instanceof Error || error instanceof DOMException ? error.message : String(error));
 
+/** Whether two lists of tags are the same, tag by tag and value by value. */
+const sameTags = (a: readonly (readonly string[])[], b: readonly (readonly string[])[]) =>
+  a.length === b.length && a.every((tag, i) => tag.length === b[i]?.length && tag.every((value, j) => value === b[i]?.[j]));
+
 /**
- * Sends `event` to the relay at `url` with `writers`, giving it `PUBLISH_TIMEOUT_MS` of its own. Null
- * when it took it; else why not.
+ * Whether `signed` is the review `template` asked for, signed: the same kind, time, words and tags.
+ * Only its id, key and signature are the signer's to add. A signer that changes the time would undo the
+ * order of a person's edits (`reviewStamp`); one that changes anything else, what they wrote.
  */
+function isSigned(signed: unknown, template: EventTemplate): signed is NostrEvent {
+  const event = asEvent(signed);
+  return (
+    event !== null &&
+    event.kind === template.kind &&
+    event.created_at === template.created_at &&
+    event.content === template.content &&
+    sameTags(event.tags, template.tags)
+  );
+}
+
+/** Sends `event` to the relay at `url` with `writers`, until `signal` aborts. Null when it took it; else why not. */
 async function sendTo(
   url: string,
   event: NostrEvent,
   writers: (url: string) => RelayWriter,
   signal: AbortSignal,
 ): Promise<string | null> {
-  const limit = new AbortController();
-  const timer = setTimeout(
-    () => limit.abort(new DOMException(`${url} did not answer in time`, "TimeoutError")),
-    PUBLISH_TIMEOUT_MS,
-  );
   try {
-    await writers(url).publish(event, AbortSignal.any([signal, limit.signal]));
+    await writers(url).publish(event, signal);
     return null;
   } catch (error) {
     return reasonOf(error);
-  } finally {
-    clearTimeout(timer);
   }
 }
 
 /**
  * Posts a review: `signer` signs `template` (the person's add-on or phone app, which may ask them
- * first), and the signed event is sent to each of `relays` side by side, each with a limit of its own
- * (`PUBLISH_TIMEOUT_MS`). It is posted once every relay has answered or run out of time, if at least
- * one took it, whichever: the review relays come first in `relays` (`whereToPost`), and `accepted`
- * says which took it. With no relays, nothing is signed.
+ * first), and the signed event, once checked to be what was asked for, is sent to every one of
+ * `relays` at once. They have `PUBLISH_TIMEOUT_MS` in all; any still silent then is given up on. It is
+ * posted when a review relay took it (`config.reviewRelays`, however written): that is where Regulars
+ * reads it from, and where the person's own relays alone are not (ruling R13). `accepted` and
+ * `refused` say what each relay did. With no relays, nothing is signed.
  *
- * Throws `NotPosted` when no relay took it; whatever the signer throws, as it is (the person said no,
- * or `AccountChanged`); and the signal's reason when `signal` aborts.
+ * Throws `NotPosted` when no review relay took it (with what the others did), when there was nowhere
+ * to send it, or when the signer signed something else; whatever the signer throws, as it is (the
+ * person said no, or `AccountChanged`); and the signal's reason when `signal` aborts.
  */
 export async function postReview(
   template: EventTemplate,
@@ -127,7 +150,20 @@ export async function postReview(
   signal.throwIfAborted();
   if (relays.length === 0) throw new NotPosted({});
   const event = await abortable(signer.signEvent(template), signal);
-  const answers = await Promise.all(relays.map(async (url) => [url, await sendTo(url, event, writers, signal)] as const));
+  if (!isSigned(event, template)) throw new NotPosted({});
+
+  const deadline = new AbortController();
+  const timer = setTimeout(
+    () => deadline.abort(new DOMException("The relays did not answer in time", "TimeoutError")),
+    PUBLISH_TIMEOUT_MS,
+  );
+  let answers: (readonly [string, string | null])[];
+  try {
+    const sending = AbortSignal.any([signal, deadline.signal]);
+    answers = await Promise.all(relays.map(async (url) => [url, await sendTo(url, event, writers, sending)] as const));
+  } finally {
+    clearTimeout(timer);
+  }
   signal.throwIfAborted();
 
   const accepted: string[] = [];
@@ -136,6 +172,6 @@ export async function postReview(
     if (reason === null) accepted.push(url);
     else refused[url] = reason;
   }
-  if (accepted.length === 0) throw new NotPosted(refused);
+  if (!accepted.some(isReviewRelay)) throw new NotPosted(refused, accepted);
   return { event, accepted, refused };
 }

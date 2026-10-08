@@ -1,5 +1,6 @@
 import { createContext, type JSX, type ReactNode, useContext, useEffect, useState } from "react";
 
+import { ForgetOnSignOut } from "../account/forgetOnSignOut.ts";
 import type { RelayReader, RelayWriter } from "../nostr/events.ts";
 import { appReaders, appWriters } from "../nostr/relayCode.ts";
 import { usePlaces } from "../places/store.tsx";
@@ -18,7 +19,8 @@ const ScoresContext = createContext<{ store: ScoresStore; relays: Relays } | nul
 /**
  * Holds the session's reviews, house ranks and reviewer names for the pages below it, which ask
  * through the hooks in ./useScore.ts, and the person's own reviews, shown before the relays send them
- * back (kept for the tab, so a reload shows them too). It reads nothing until a page asks. It must be
+ * back (kept for the tab, so a reload shows them too, and let go of when the person signs out:
+ * `ForgetOnSignOut`). It reads nothing until a page asks. It must be
  * inside a `PlacesProvider`: from the places it knows which are filed more than once (brief § 4.3).
  * `readers` gives each relay's reader and `writers` each relay's writer, for posting a review
  * (`useRelays`); both are read once, on mount. Without them, the app's own, which load the relay
@@ -46,7 +48,12 @@ export function ScoresProvider({
     return () => store.stop();
   }, [store]);
 
-  return <ScoresContext value={value}>{children}</ScoresContext>;
+  // Signing out lets go of the person's own reviews held for the tab (the account provider is inside this one).
+  return (
+    <ForgetOnSignOut value={store.forgetHeld}>
+      <ScoresContext value={value}>{children}</ScoresContext>
+    </ForgetOnSignOut>
+  );
 }
 
 /** The store, for the hooks in ./useScore.ts; `hook` names the one that asks, for its error. */

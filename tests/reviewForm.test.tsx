@@ -1,5 +1,5 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -144,11 +144,14 @@ const rateLink = async () => {
   return (await within(rail ?? document.body).findAllByRole("link", { name: copy.place.rate }))[0]!;
 };
 
-/** The star buttons, one to five. */
-const starButtons = async () => within(await screen.findByRole("group", { name: copy.review.howWasIt })).getAllByRole("button");
+/** The stars, one to five: the radios of "How was it?". */
+const starButtons = async () => within(await screen.findByRole("radiogroup", { name: copy.review.howWasIt })).getAllByRole("radio");
 
 /** The Post button, by its name before posting. */
 const postButton = () => screen.getByRole("button", { name: copy.review.post });
+
+/** The same button once a post has failed: Try again. */
+const tryAgainButton = () => screen.getByRole("button", { name: copy.review.tryAgain });
 
 /**
  * The element whose whole text is `text`, and none of whose children's is: a line with a name in it,
@@ -202,7 +205,7 @@ describe("the review form (Review.dc.html, DeskReview.dc.html)", () => {
     expect(stars).toHaveLength(5);
     stars.forEach((star, i) => {
       expect(star).toHaveAccessibleName(copy.review.star(i + 1));
-      expect(star).toHaveAttribute("aria-pressed", "false");
+      expect(star).toHaveAttribute("aria-checked", "false");
       // 56 px, the design's size, over the 44 px a finger needs.
       expect(star).toHaveClass("size-14");
     });
@@ -222,7 +225,7 @@ describe("the review form (Review.dc.html, DeskReview.dc.html)", () => {
     expect(me.addOn.signEvent).not.toHaveBeenCalled();
 
     await user.click(stars[3]!);
-    expect(stars.map((star) => star.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "true", "false"]);
+    expect(stars.map((star) => star.getAttribute("aria-checked"))).toEqual(["false", "false", "false", "true", "false"]);
     expect(screen.getByText("Good")).toBeInTheDocument();
     expect(post).not.toHaveAttribute("aria-disabled");
     await user.click(stars[0]!);
@@ -237,9 +240,50 @@ describe("the review form (Review.dc.html, DeskReview.dc.html)", () => {
     await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
 
     const stars = await starButtons();
-    await waitFor(() => expect(stars[2]).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(stars[2]).toHaveAttribute("aria-checked", "true"));
     expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Bolo do caco, and sit outside");
     expect(screen.getByText("Fine")).toBeInTheDocument();
+  });
+
+  it("is a radio group of stars: one Tab stop, chosen with the arrow keys, Home and End", async () => {
+    const world = newWorld();
+    signedIn(world);
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    const stars = await starButtons();
+    const tabStops = () => stars.map((star) => star.tabIndex);
+    const checked = () => stars.map((star) => star.getAttribute("aria-checked"));
+    // While none is chosen, the first star is the group's one Tab stop.
+    expect(tabStops()).toEqual([0, -1, -1, -1, -1]);
+    stars.forEach((star, i) => expect(star).toHaveAccessibleName(copy.review.star(i + 1)));
+
+    stars[0]!.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(stars[1]).toHaveFocus();
+    expect(checked()).toEqual(["false", "true", "false", "false", "false"]);
+    expect(tabStops()).toEqual([-1, 0, -1, -1, -1]);
+    await user.keyboard("{ArrowDown}");
+    expect(stars[2]).toHaveFocus();
+    await user.keyboard("{End}");
+    expect(stars[4]).toHaveFocus();
+    expect(screen.getByText("One of the best")).toBeInTheDocument();
+    // Round the ends.
+    await user.keyboard("{ArrowRight}");
+    expect(stars[0]).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(stars[4]).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(stars[0]).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(stars[4]).toHaveFocus();
+    expect(checked()).toEqual(["false", "false", "false", "false", "true"]);
+
+    // The Tab key comes into the group at the star chosen.
+    await user.click(stars[2]!);
+    screen.getByRole("link", { name: copy.review.back }).focus();
+    await user.tab();
+    expect(stars[2]).toHaveFocus();
   });
 
   it("names the person who is reviewing, and never a number about them", async () => {
@@ -286,7 +330,7 @@ describe("posting a review", () => {
     expect(await reviewWords("Get the bolo")).toBeInTheDocument();
   });
 
-  it("is posted when the review relay refuses it and the person's own relay takes it", async () => {
+  it("says it is saved to the person's own places but not to Regulars when only their own relay takes it, and holds nothing (R13)", async () => {
     const world = newWorld();
     const me = signedIn(world);
     world.directory.push(listOf(me.pubkey, [OWN]));
@@ -297,9 +341,22 @@ describe("posting a review", () => {
 
     await reviewingAs(me.name);
     await user.click((await starButtons())[4]!);
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Worth it");
     await user.click(postButton());
-    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.notOnRegulars);
+    expect(copy.review.notOnRegulars).toBe("Saved to your own places, but not to Regulars yet. Try again.");
     expect(sentTo(world, OWN)).toHaveLength(1);
+    expect(router.state.location.pathname).toBe(REVIEW_PATH);
+    expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Worth it");
+    expect(heldText()).toBeNull();
+
+    // Try again, and the review relay takes it this time.
+    world.writers[SEARCH] = createMemoryWriter();
+    await user.click(tryAgainButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(sentTo(world, SEARCH)[0]).toMatchObject({ content: "Worth it" });
+    expect(heldText()).not.toBeNull();
   });
 
   it("says it didn't post, keeping what was typed, when every relay refuses it; and nothing of it is shown or held", async () => {
@@ -319,13 +376,14 @@ describe("posting a review", () => {
     expect(copy.review.failed).toBe("Your review didn't post. Try again.");
     expect(router.state.location.pathname).toBe(REVIEW_PATH);
     expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Slow tonight");
-    expect(stars[1]).toHaveAttribute("aria-pressed", "true");
+    expect(stars[1]).toHaveAttribute("aria-checked", "true");
     expect(heldText()).toBeNull();
-    expect(postButton()).not.toHaveAttribute("aria-disabled");
+    expect(tryAgainButton()).not.toHaveAttribute("aria-disabled");
+    expect(copy.review.tryAgain).toBe("Try again");
 
     // The relay takes it the second time.
     world.writers[SEARCH] = createMemoryWriter();
-    await user.click(postButton());
+    await user.click(tryAgainButton());
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
     expect(sentTo(world, SEARCH)[0]).toMatchObject({ content: "Slow tonight" });
   });
@@ -341,6 +399,43 @@ describe("posting a review", () => {
     await user.click(postButton());
     expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.failed);
     expect(me.addOn.signEvent).not.toHaveBeenCalled();
+  });
+
+  it("posts once when Post is pressed twice before the page has redrawn: one signing, one send", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[3]!);
+    const form = postButton().closest("form")!;
+    await act(async () => {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+    expect(sentTo(world, SEARCH)).toHaveLength(1);
+  });
+
+  it("says Posting… in a polite live region while it posts", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.writers[SEARCH] = createMemoryWriter({ silent: true });
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    const form = postButton().closest("form")!;
+    const live = within(form).getByRole("status");
+    expect(live).toHaveAttribute("aria-live", "polite");
+    expect(live).toHaveTextContent("");
+    await user.click((await starButtons())[3]!);
+    await user.click(postButton());
+    await waitFor(() => expect(live).toHaveTextContent(copy.review.posting));
+    expect(copy.review.posting).toBe("Posting…");
   });
 
   it("stamps an edit made in the same second one second after the review it replaces, so it replaces it", async () => {
@@ -360,7 +455,7 @@ describe("posting a review", () => {
     // Again, in the same second: the form has the review just posted, and the edit is stamped after it.
     await user.click(await rateLink());
     const stars = await starButtons();
-    await waitFor(() => expect(stars[3]).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(stars[3]).toHaveAttribute("aria-checked", "true"));
     await user.click(stars[4]!);
     await user.click(postButton());
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
@@ -500,13 +595,67 @@ describe("signing in to rate", () => {
     await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
     await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
     const stars = await starButtons();
-    expect(stars[4]).toHaveAttribute("aria-pressed", "true");
+    expect(stars[4]).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Worth the wait");
 
     // Posted as the person the add-on signs as now.
     await user.click(postButton());
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
     expect(sentTo(world, SEARCH)[0]).toMatchObject({ pubkey: getPublicKey(now), content: "Worth the wait" });
+  });
+
+  it("forgets the person's review held for this tab when they sign out", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    // The relay takes it, and lags: the review is held.
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[3]!);
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Get the bolo");
+    await user.click(postButton());
+    expect(await reviewWords("Get the bolo")).toBeInTheDocument();
+    expect(heldText()).not.toBeNull();
+
+    await act(() => router.navigate("/you"));
+    await user.click(await screen.findByRole("button", { name: copy.you.signOut }));
+    expect(heldText()).toBeNull();
+    await act(() => router.navigate(PLACE_PATH));
+    expect(await screen.findByText(copy.place.beFirst)).toBeInTheDocument();
+    expect(noReviewWords("Get the bolo")).not.toBeInTheDocument();
+  });
+
+  it("forgets the held review when the add-on has changed accounts, and keeps the words being typed", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[3]!);
+    await user.click(postButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(heldText()).not.toBeNull();
+
+    // The add-on now signs as someone else.
+    installAddOn(generateSecretKey());
+    await user.click(await rateLink());
+    const stars = await starButtons();
+    await user.click(stars[1]!);
+    const text = screen.getByRole("textbox", { name: copy.review.textLabel });
+    await user.clear(text);
+    await user.type(text, "Changed my mind");
+    await user.click(postButton());
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/signin"));
+    expect(heldText()).toBeNull();
+    await user.click(await screen.findByRole("button", { name: copy.signin.continueButton }));
+    await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
+    expect((await starButtons())[1]).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Changed my mind");
   });
 
   it("sends Post to sign in from a form opened signed out, keeping what was typed", async () => {
@@ -524,7 +673,7 @@ describe("signing in to rate", () => {
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
     await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
     await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
-    expect((await starButtons())[2]).toHaveAttribute("aria-pressed", "true");
+    expect((await starButtons())[2]).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Fine coffee");
   });
 });
@@ -586,6 +735,46 @@ describe("on a desktop: a dialog over the place page (DeskReview.dc.html)", () =
     expect(router.state.location.pathname).toBe(PLACE_PATH);
     expect(await reviewWords("Best pastel de nata")).toBeInTheDocument();
   });
+
+  it("starts the focus at the star chosen, when the person's review fills the form in", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 3, "Bolo do caco"));
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH), DESKTOP);
+
+    // The place has read the person's review.
+    expect(await reviewWords("Bolo do caco")).toBeInTheDocument();
+    await user.click(await rateLink());
+    await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    const stars = await starButtons();
+    expect(stars[2]).toHaveAttribute("aria-checked", "true");
+    expect(stars[2]).toHaveFocus();
+  });
+
+  it("stops posting when it is closed while the review is being sent, and holds nothing", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const silent = createMemoryWriter({ silent: true });
+    world.writers[SEARCH] = silent;
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH), DESKTOP);
+
+    await user.click(await rateLink());
+    const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    await reviewingAs(me.name, within(dialog));
+    await user.click((await starButtons())[3]!);
+    await user.click(within(dialog).getByRole("button", { name: copy.review.post }));
+    await waitFor(() => expect(silent.signals).toHaveLength(1));
+    expect(silent.signals[0]!.aborted).toBe(false);
+
+    await user.click(within(dialog).getByRole("button", { name: copy.review.close }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(router.state.location.pathname).toBe(PLACE_PATH);
+    expect(silent.signals[0]!.aborted).toBe(true);
+    expect(heldText()).toBeNull();
+  });
 });
 
 describe("on a phone: a page of its own (Review.dc.html)", () => {
@@ -618,5 +807,24 @@ describe("on a phone: a page of its own (Review.dc.html)", () => {
     await user.click(await screen.findByRole("link", { name: copy.review.back }));
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
     expect(router.state.historyAction).toBe("REPLACE");
+  });
+
+  it("stops posting when its back arrow is used while the review is being sent", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const silent = createMemoryWriter({ silent: true });
+    world.writers[SEARCH] = silent;
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[3]!);
+    await user.click(postButton());
+    await waitFor(() => expect(silent.signals).toHaveLength(1));
+
+    await user.click(screen.getByRole("link", { name: copy.review.back }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(silent.signals[0]!.aborted).toBe(true);
+    expect(heldText()).toBeNull();
   });
 });

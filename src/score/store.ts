@@ -1,5 +1,6 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
+import { readSession } from "../account/session.ts";
 import { config } from "../config.ts";
 import { asEvent, isNewer, type RelayReader, readAll, withReadExtras } from "../nostr/events.ts";
 import { fetchNames } from "../nostr/profiles.ts";
@@ -73,17 +74,30 @@ type Readers = (url: string) => RelayReader;
  */
 export const HELD_REVIEWS_KEY = "regulars.heldReviews";
 
+/** One of the person's own reviews, held: the signed event, and the relays that took it. */
+interface Held {
+  event: NostrEvent;
+  relays: readonly string[];
+}
+
 /**
- * The own reviews this tab keeps (`HELD_REVIEWS_KEY`): each a well-formed review of a place, and
- * nothing else. None when there are none, or what is kept is not the app's own, or storage is blocked.
+ * The own reviews of `pubkey` that this tab keeps (`HELD_REVIEWS_KEY`): each a well-formed review of a
+ * place by them, with the relays it went to, and nothing else. None for nobody (no one is signed in in
+ * the tab), when what is kept is not the app's own, or when storage is blocked: one person's held
+ * reviews are never another's.
  */
-function readHeld(): NostrEvent[] {
+function readHeld(pubkey: string | undefined): Held[] {
+  if (pubkey === undefined) return [];
   try {
     const kept: unknown = JSON.parse(window.sessionStorage.getItem(HELD_REVIEWS_KEY) ?? "[]");
     if (!Array.isArray(kept)) return [];
-    return kept.flatMap((value) => {
-      const ev = asEvent(value);
-      return ev !== null && parseReview(ev) !== null ? [ev] : [];
+    return kept.flatMap((value: unknown) => {
+      if (typeof value !== "object" || value === null) return [];
+      const { event, relays } = value as Record<string, unknown>;
+      const ev = asEvent(event);
+      if (ev === null || ev.pubkey !== pubkey || parseReview(ev) === null) return [];
+      if (!Array.isArray(relays) || !relays.every((relay) => typeof relay === "string")) return [];
+      return [{ event: ev, relays: [...(relays as string[])] }];
     });
   } catch {
     return [];
@@ -91,10 +105,11 @@ function readHeld(): NostrEvent[] {
 }
 
 /** Keeps `held` for this tab; with none, forgets what it kept. Where storage is blocked or full, they last until a reload. */
-function keepHeld(held: readonly NostrEvent[]): void {
+function keepHeld(held: Iterable<Held>): void {
+  const kept = [...held].map(({ event, relays }) => ({ event, relays }));
   try {
-    if (held.length === 0) window.sessionStorage.removeItem(HELD_REVIEWS_KEY);
-    else window.sessionStorage.setItem(HELD_REVIEWS_KEY, JSON.stringify(held));
+    if (kept.length === 0) window.sessionStorage.removeItem(HELD_REVIEWS_KEY);
+    else window.sessionStorage.setItem(HELD_REVIEWS_KEY, JSON.stringify(kept));
   } catch {
     // Blocked or full: what is held still shows until the page is reloaded.
   }
@@ -175,6 +190,11 @@ export interface ReviewCoordinate {
   id: string;
   d: string;
   createdAt: number;
+  /**
+   * Where it was sent, for a review the person posted this session that the relays have not sent back
+   * yet: the relays that took it, which its removal goes to too (Task 7). Absent for one read.
+   */
+  relays?: readonly string[];
 }
 
 /** One place's reviews, one per person, newest first, and its score from the house's view. */
@@ -244,10 +264,11 @@ export class ScoresStore {
   /** The name reads, two batches at a time. */
   readonly #nameLane = new Lane(BATCHES_IN_FLIGHT);
   /**
-   * The person's own reviews, by `keyOf`: shown before the relays send them back (`noteOwnReview`),
-   * and kept for this tab (`HELD_REVIEWS_KEY`) until then, so that a reload shows them too.
+   * The person's own reviews, by `keyOf`, with the relays that took each: shown before the relays send
+   * them back (`noteOwnReview`), and kept for this tab (`HELD_REVIEWS_KEY`) until then, so that a
+   * reload shows them too.
    */
-  readonly #own = new Map<string, NostrEvent>();
+  readonly #own = new Map<string, Held>();
   /** The reviews the person removed, by `keyOf`: hidden up to the removal's time (`noteRemoval`). */
   readonly #removed = new Map<string, number>();
   /** Each place address's reviews, worked out from the above; null when they have changed since. */
@@ -278,14 +299,15 @@ export class ScoresStore {
 
   /**
    * `readers` gives each relay's reader; by default the app's. Each relay's read extras are added to
-   * it. The own reviews this tab keeps are held from the start, as before the reload.
+   * it. The own reviews this tab keeps for the person signed in in it are held from the start, as
+   * before the reload.
    */
   constructor(readers: Readers = appReaders) {
     this.#readers = (url) => withReadExtras(readers(url), config.relayReadExtras[url]);
-    for (const ev of readHeld()) {
-      const key = eventKey(ev);
+    for (const kept of readHeld(readSession()?.pubkey)) {
+      const key = eventKey(kept.event);
       const held = this.#own.get(key);
-      if (held === undefined || isNewer(ev, held)) this.#own.set(key, ev);
+      if (held === undefined || isNewer(kept.event, held.event)) this.#own.set(key, kept);
     }
   }
 
@@ -424,9 +446,10 @@ export class ScoresStore {
     const coordinates: ReviewCoordinate[] = [];
     for (const ev of standing.values()) {
       const review = parseReview(ev);
-      if (review !== null && filings.has(review.address)) {
-        coordinates.push({ id: review.id, d: review.d, createdAt: review.createdAt });
-      }
+      if (review === null || !filings.has(review.address)) continue;
+      const held = this.#own.get(eventKey(ev));
+      const relays = held?.event.id === ev.id ? { relays: [...held.relays] } : {};
+      coordinates.push({ id: review.id, d: review.d, createdAt: review.createdAt, ...relays });
     }
     return coordinates.sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   };
@@ -481,19 +504,32 @@ export class ScoresStore {
   };
 
   /**
-   * Shows `event`, the person's own review just posted, before the relays send it back. It is held,
-   * and kept for this tab, until a read returns it (or a newer review at its `d`), or it is removed.
+   * Shows `event`, the person's own review just posted, before the relays send it back, with the
+   * `relays` that took it. It is held, and kept for this tab, until a read returns it (or a newer
+   * review at its `d`), until it is removed, or until the person signs out (`forgetHeld`).
    */
-  readonly noteOwnReview = (event: NostrEvent): void => {
+  readonly noteOwnReview = (event: NostrEvent, relays: readonly string[] = []): void => {
     const ev = asEvent(event);
     if (ev === null || parseReview(ev) === null) return;
     const key = eventKey(ev);
     const held = this.#own.get(key);
-    if (held !== undefined && !isNewer(ev, held)) return;
-    this.#own.set(key, ev);
-    keepHeld([...this.#own.values()]);
+    if (held !== undefined && !isNewer(ev, held.event)) return;
+    this.#own.set(key, { event: ev, relays: [...relays] });
+    keepHeld(this.#own.values());
     this.#changed("reviews");
     this.#weigh();
+  };
+
+  /**
+   * Lets go of every own review held, here and in the tab: the person signed out, or their add-on or
+   * phone app now signs as someone else. Held reviews are one person's, never the next one's. Their
+   * reviews on the relays stay, and show as anyone's do.
+   */
+  readonly forgetHeld = (): void => {
+    keepHeld([]);
+    if (this.#own.size === 0) return;
+    this.#own.clear();
+    this.#changed("reviews");
   };
 
   /**
@@ -508,9 +544,9 @@ export class ScoresStore {
     if (before !== undefined && before >= createdAt) return;
     this.#removed.set(key, createdAt);
     const held = this.#own.get(key);
-    if (held !== undefined && held.created_at <= createdAt) {
+    if (held !== undefined && held.event.created_at <= createdAt) {
       this.#own.delete(key);
-      keepHeld([...this.#own.values()]);
+      keepHeld(this.#own.values());
     }
     this.#changed("reviews");
   };
@@ -622,12 +658,12 @@ export class ScoresStore {
     for (const ev of events) {
       const key = eventKey(ev);
       const held = this.#own.get(key);
-      if (held !== undefined && (held.id === ev.id || isNewer(ev, held))) {
+      if (held !== undefined && (held.event.id === ev.id || isNewer(ev, held.event))) {
         this.#own.delete(key);
         released = true;
       }
     }
-    if (released) keepHeld([...this.#own.values()]);
+    if (released) keepHeld(this.#own.values());
   }
 
   /**
@@ -707,7 +743,7 @@ export class ScoresStore {
   #shownEvents(): NostrEvent[] {
     const events: NostrEvent[] = [];
     for (const read of this.#read.values()) events.push(...read);
-    events.push(...this.#own.values());
+    for (const held of this.#own.values()) events.push(held.event);
     return events.filter((ev) => {
       const removedAt = this.#removed.get(eventKey(ev));
       return removedAt === undefined || ev.created_at > removedAt;
@@ -750,7 +786,7 @@ export class ScoresStore {
     const byAddress = this.#reviewsByAddress();
     const reviews = newestPerReviewer(filings.flatMap((filing) => byAddress.get(filing) ?? [])).sort(newestFirst);
     const read = filings.every((filing) => this.#read.has(filing));
-    const own = reviews.some((review) => this.#own.get(keyOf(review.reviewer, review.d))?.id === review.id);
+    const own = reviews.some((review) => this.#own.get(keyOf(review.reviewer, review.d))?.event.id === review.id);
     if (!read && !own) return undefined;
 
     let weights: number[] | undefined;

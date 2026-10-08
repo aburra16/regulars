@@ -519,6 +519,15 @@ export const copy = {
     /** No relay took the review, or there was nowhere to send it; what was typed stays (a state the design does not draw). */
     failed: "Your review didn't post. Try again.",
     // DRAFT for Avi
+    /**
+     * Only the person's own relays took the review, not the ones Regulars reads reviews from (ruling
+     * R13): it is out there, and not on Regulars. What was typed stays.
+     */
+    notOnRegulars: "Saved to your own places, but not to Regulars yet. Try again.",
+    // DRAFT for Avi
+    /** Post, once a post has failed: it posts again. */
+    tryAgain: "Try again",
+    // DRAFT for Avi
     /** The arrow at the top left of the phone's form, for a screen reader: back to the place. */
     back: "Back",
     // DRAFT for Avi

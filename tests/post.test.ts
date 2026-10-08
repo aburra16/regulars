@@ -67,6 +67,10 @@ afterEach(() => {
 });
 
 describe("postReview", () => {
+  beforeEach(() => {
+    config.reviewRelays = [SEARCH];
+  });
+
   it("signs the review once with the person's signer, and sends that event to every relay", async () => {
     const search = createMemoryWriter();
     const own = createMemoryWriter();
@@ -93,13 +97,33 @@ describe("postReview", () => {
     expect(posted.refused).toEqual({ [OWN]: "blocked: not on the list" });
   });
 
-  it("is posted when only the person's own relay takes it, with the review relay's refusal recorded", async () => {
-    const posted = await run(
+  it("is not posted when only the person's own relays take it: no review relay has it (R13)", async () => {
+    const posting = run(
       [SEARCH, OWN],
       writersOver({ [SEARCH]: createMemoryWriter({ refuse: "rate-limited" }), [OWN]: createMemoryWriter() }),
     );
-    expect(posted.accepted).toEqual([OWN]);
-    expect(posted.refused).toEqual({ [SEARCH]: "rate-limited" });
+    await expect(posting).rejects.toBeInstanceOf(NotPosted);
+    // What each relay did is said, so the form can say where it went.
+    await expect(posting).rejects.toMatchObject({ accepted: [OWN], refused: { [SEARCH]: "rate-limited" } });
+  });
+
+  it("knows a review relay however its address is written", async () => {
+    config.reviewRelays = ["wss://Search.Brainstorm.world/"];
+    const posted = await run([SEARCH, OWN], writersOver({ [SEARCH]: createMemoryWriter(), [OWN]: createMemoryWriter() }));
+    expect(posted.accepted).toEqual([SEARCH, OWN]);
+  });
+
+  it.each([
+    ["its time", { created_at: 1_800_000_009 }],
+    ["its words", { content: "Something else" }],
+    ["its tags", { tags: [["d", "place:other"]] }],
+    ["its kind", { kind: 1 }],
+  ])("is not posted, and nothing is sent, when the signer changes %s", async (_, change) => {
+    const by = signer();
+    by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) => finalizeEvent({ ...asked, ...change }, KEY));
+    const search = createMemoryWriter();
+    await expect(run([SEARCH], writersOver({ [SEARCH]: search }), undefined, by)).rejects.toBeInstanceOf(NotPosted);
+    expect(search.published).toEqual([]);
   });
 
   it("fails with what each relay said when every relay refuses", async () => {
@@ -116,7 +140,7 @@ describe("postReview", () => {
     await expect(posting).rejects.toBeInstanceOf(NotPosted);
   });
 
-  it("gives up on a relay that does not answer within its own limit, and keeps what the others said", async () => {
+  it("gives up on relays still silent when its one limit for them all is reached, and keeps what the others said", async () => {
     vi.useFakeTimers();
     const silent = createMemoryWriter({ silent: true });
     const search = createMemoryWriter();
@@ -134,18 +158,22 @@ describe("postReview", () => {
     await vi.waitFor(() => expect(outcome).toBeDefined());
     expect(outcome!.accepted).toEqual([SEARCH]);
     expect(Object.keys(outcome!.refused)).toEqual([OWN]);
-    expect(PUBLISH_TIMEOUT_MS).toBe(10_000);
+    expect(PUBLISH_TIMEOUT_MS).toBe(12_000);
   });
 
-  it("gives each relay a limit of its own, so a slow one does not cut another short", async () => {
+  it("sends to every relay at once, under that one limit: none waits for another", async () => {
     vi.useFakeTimers();
     const first = createMemoryWriter({ silent: true });
     const second = createMemoryWriter({ silent: true });
     const posting = run([SEARCH, OWN], writersOver({ [SEARCH]: first, [OWN]: second }));
     posting.catch(() => {});
     await vi.advanceTimersByTimeAsync(0);
-    expect(first.signals[0]).not.toBe(second.signals[0]);
-    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
+    // Both are being sent to before either has answered.
+    expect(first.published).toHaveLength(1);
+    expect(second.published).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS - 1);
+    expect(first.signals[0]?.aborted || second.signals[0]?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
     await expect(posting).rejects.toBeInstanceOf(NotPosted);
     expect(first.signals[0]?.aborted && second.signals[0]?.aborted).toBe(true);
   });

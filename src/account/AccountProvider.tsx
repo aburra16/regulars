@@ -2,6 +2,7 @@ import type { NostrSigner } from "@nostrify/nostrify";
 import { createContext, type JSX, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import type { RelayFor } from "./connect.ts";
+import { ForgetOnSignOut } from "./forgetOnSignOut.ts";
 import { type Account, forgetSession, readSession } from "./session.ts";
 
 export type { Account, How } from "./session.ts";
@@ -97,13 +98,17 @@ export function AccountProvider({ children, relays }: { children: ReactNode; rel
   // The account as the signing code gave it, whose signer is the one to close.
   const current = useRef<Account | undefined>(undefined);
 
+  const forgetHeld = useContext(ForgetOnSignOut);
+
   const signOut = useCallback(() => {
     const was = current.current;
     current.current = undefined;
     forgetSession();
+    // What is held for this person is theirs alone, such as the reviews they posted (src/score/store.ts).
+    forgetHeld();
     setShown({ account: undefined, restoring: false });
     if (was !== undefined) void loadConnect().then((code) => code.disconnect(was), ignore);
-  }, []);
+  }, [forgetHeld]);
 
   const adopt = useCallback(
     (account: Account) => {

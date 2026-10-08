@@ -126,8 +126,11 @@ export function useNames(pubkeys: readonly string[]): Map<string, string> {
 export interface ScoreActions {
   /** Reads the reviews of the places asked for again, in place of what was read (`ScoresStore.refresh`). */
   refresh(): void;
-  /** Shows the person's own review, just posted, until a read returns it (`ScoresStore.noteOwnReview`). */
-  noteOwnReview(event: NostrEvent): void;
+  /**
+   * Shows the person's own review, just posted, with the relays that took it, until a read returns it
+   * (`ScoresStore.noteOwnReview`).
+   */
+  noteOwnReview(event: NostrEvent, relays?: readonly string[]): void;
   /** Hides the person's review at `address`, removed at `createdAt` (`ScoresStore.noteRemoval`). */
   noteRemoval(address: string, createdAt: number): void;
   /**
