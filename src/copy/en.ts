@@ -58,6 +58,12 @@ const nearYou = (n: number) => `${n === 0 ? "none" : n.toLocaleString("en")} nea
 /** What joins the two parts of the hours inside a line that dots join already (DeskPlace.dc.html): "Open now, closes 10 pm". */
 const comma = ", ";
 
+/**
+ * The house: the curator whose trusted reviewers make House picks. Its badge goes beside this name
+ * wherever the name is written (src/ui/HouseName.tsx), so the lines that name it take it from here.
+ */
+const houseName = "Mise en Place";
+
 /** A link back to the first page. */
 const backToExplore = "Back to Explore";
 
@@ -68,6 +74,10 @@ const eitherOf = (items: readonly string[]) =>
 export const copy = {
   app: {
     name: config.appName,
+  },
+  house: {
+    /** Its name. Also the words of its badge, should the badge ever be shown without the name beside it. */
+    name: houseName,
   },
   meta: {
     description: "Restaurant ratings from people you'd actually ask.",
@@ -312,7 +322,7 @@ export const copy = {
     houseHeading: "Who the house is",
     // DRAFT for Avi: the design's sentence says what House picks are, which the section above now does.
     houseBody:
-      "Mise en Place, our house curator, is the house. It trusts the reviewers behind House picks, and it also keeps the list of places up to date.",
+      `${houseName}, our house curator, is the house. It trusts the reviewers behind House picks, and it also keeps the list of places up to date.`,
     signingInHeading: "How signing in works",
     signingInBody:
       "You sign in with an account you hold yourself, through a sign-in app in your browser or on your phone. Regulars never sees a password, and nothing is posted unless you press Post.",
@@ -410,7 +420,7 @@ export const copy = {
     /** The control at the top of the page. `label` is where the places are near: "Funchal", or "you". */
     near: (label: string) => `Near ${label}`,
     /** Under the toggle, while it is on House picks (Main.dc.html). "How this works" follows it, as a link. */
-    houseLine: "Scores from the reviewers that Mise en Place, our house curator, trusts.",
+    houseLine: `Scores from the reviewers that ${houseName}, our house curator, trusts.`,
     howThisWorks: "How this works",
     /** The filter chips, for a screen reader. */
     filtersLabel: "Filter places",
