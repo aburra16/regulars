@@ -19,6 +19,7 @@ import { PlaceCard } from "../ui/PlaceCard.tsx";
 import { type ShownPage, shownMemory, shownPageOf, useShownCount } from "../ui/shown.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
 import { CHIP_LABELS, CHIP_PARAM, chipFromParam, chipKeeps, EXPLORE_CHIPS, type ExploreChip } from "./chips.ts";
+import { setExploreIdx } from "./returnPoint.ts";
 
 /** How many cards the list shows at first, and how many more each time it reaches its end. */
 const PAGE_SIZE = 30;
@@ -167,6 +168,12 @@ export function ExploreList(): JSX.Element {
   const [params, setParams] = useSearchParams();
   const { key: historyKey } = useLocation();
   const chip = chipFromParam(params.get(CHIP_PARAM));
+
+  // Where Explore is in the history, for the search's back arrow: whenever it is on screen, so the last
+  // entry it was at is the one the person left it from (see returnPoint.ts).
+  useEffect(() => {
+    setExploreIdx(window.history.state?.idx);
+  }, [historyKey]);
 
   const nearby = useMemo(
     () => indexes?.near(here.lat, here.lon, config.defaultCity.radiusKm) ?? [],

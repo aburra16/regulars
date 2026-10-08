@@ -1,11 +1,12 @@
 import type { NostrEvent } from "@nostrify/nostrify";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
+import { forgetExploreIdx, setExploreIdx, stepsBackToExplore } from "../src/explore/returnPoint";
 import { HereProvider } from "../src/location/HereProvider";
 import { HereContext, type HereValue } from "../src/location/useLocation";
 import { osmNoteUrl } from "../src/place/osmLinks";
@@ -107,6 +108,25 @@ function open(initialEntries: string[], events: NostrEvent[], initialIndex?: num
   return { router, ...view };
 }
 
+/**
+ * The app on the browser's own history, which keeps each entry's index in `window.history.state`
+ * (a memory router does not): the back arrow's jump to Explore reads it. The page is at `path`.
+ */
+const browserRouters: ReturnType<typeof createBrowserRouter>[] = [];
+function openInBrowser(path: string, events: NostrEvent[] = fixtures) {
+  window.history.replaceState(null, "", path);
+  const router = createBrowserRouter(routes);
+  browserRouters.push(router);
+  const view = render(
+    <PlacesProvider reader={createMemoryReader(events)}>
+      <HereProvider>
+        <RouterProvider router={router} />
+      </HereProvider>
+    </PlacesProvider>,
+  );
+  return { router, ...view };
+}
+
 /** The search page at `path`, drawn. */
 async function openSearch(path = "/search", events: NostrEvent[] = fixtures) {
   const opened = open([path], events);
@@ -147,6 +167,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const router of browserRouters.splice(0)) router.dispose();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -692,24 +713,183 @@ describe("Search: the way back", () => {
     expect(router.state.historyAction).toBe("PUSH");
   });
 
-  it("goes back a step when the person came from inside the app, to whatever page that was", async () => {
-    const user = userEvent.setup();
-    const { router } = open(["/about", "/search?q=pizza"], fixtures, 1);
-    await screen.findByRole("heading", { level: 1, name: copy.pages.search });
-    await user.click(back());
-    expect(router.state.location.pathname).toBe("/about");
-    expect(router.state.historyAction).toBe("POP");
+  describe("to the Explore the person left", () => {
+    const exploreChip = (name: string) =>
+      within(screen.getByRole("group", { name: copy.explore.filtersLabel })).getByRole("button", { name });
+    const searchLink = () => screen.findByRole("link", { name: /Tacos, coffee, a place name/ });
+    const atExplore = async () => {
+      const opened = openInBrowser("/");
+      await screen.findByRole("heading", { level: 1, name: copy.pages.explore });
+      return opened;
+    };
+    /** Waits for the router to be at the entry of the history with this key, and the page to be drawn. */
+    const backAt = async (router: ReturnType<typeof createBrowserRouter>, key: string) => {
+      await waitFor(() => expect(router.state.location.key).toBe(key));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.explore });
+    };
+
+    it("is the same entry of the history, so its chip is still on", async () => {
+      const user = userEvent.setup();
+      const { router } = await atExplore();
+      await user.click(exploreChip("Cafes"));
+      const explore = router.state.location.key;
+      expect(router.state.location.search).toBe("?chip=cafes");
+
+      await user.click(await searchLink());
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      await user.click(back());
+      await backAt(router, explore);
+      expect(router.state.historyAction).toBe("POP");
+      expect(router.state.location.search).toBe("?chip=cafes");
+      expect(exploreChip("Cafes")).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("is one press away after the filters were applied, which was two steps further on", async () => {
+      const user = userEvent.setup();
+      const { router } = await atExplore();
+      const explore = router.state.location.key;
+
+      await user.click(await searchLink());
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      await user.click(within(chipsGroup()).getByRole("link", { name: copy.search.filters(0) }));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.filters });
+      await user.click(screen.getByRole("switch", { name: "Open now" }));
+      await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      expect(router.state.location.search).toBe("?open=1");
+
+      await user.click(back());
+      await backAt(router, explore);
+    });
+
+    it("is one press away after the cross of the filters", async () => {
+      const user = userEvent.setup();
+      const { router } = await atExplore();
+      const explore = router.state.location.key;
+      await user.click(await searchLink());
+      await user.click(within(chipsGroup()).getByRole("link", { name: copy.search.filters(0) }));
+      await user.click(await screen.findByRole("link", { name: copy.filters.close }));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+
+      await user.click(back());
+      await backAt(router, explore);
+    });
+
+    it("is one press away after a chip took its filter off, which was a step of its own", async () => {
+      const user = userEvent.setup();
+      const { router } = await atExplore();
+      const explore = router.state.location.key;
+      // Anything that leaves Explore for the search counts, not only its link.
+      await act(() => router.navigate("/search?open=1&within=8"));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      await user.click(chip("Open now"));
+      await waitFor(() => expect(router.state.location.search).toBe("?within=8"));
+      await user.click(chip("Within 5 mi"));
+      await waitFor(() => expect(router.state.location.search).toBe(""));
+
+      await user.click(back());
+      await backAt(router, explore);
+    });
+
+    it("is one press away after the words were searched for in the field too", async () => {
+      const user = userEvent.setup();
+      const { router } = await atExplore();
+      const explore = router.state.location.key;
+      await user.click(await searchLink());
+      await user.type(field(), "novo{Enter}");
+      await waitFor(() => expect(router.state.location.search).toBe("?q=novo"));
+      await user.click(back());
+      await backAt(router, explore);
+    });
+
+    it("is the Explore the person was last at, when they went on to a place and came Back", async () => {
+      const user = userEvent.setup();
+      const { router } = await atExplore();
+      await user.click(exploreChip("Open now"));
+      const explore = router.state.location.key;
+      await user.click(await searchLink());
+      await user.type(field(), "novo{Enter}");
+      await user.click(await screen.findByRole("link", { name: "Novo Tahiti" }));
+      expect(router.state.location.pathname).toBe(`/place/${place("Novo Tahiti").d}`);
+      await act(() => router.navigate(-1));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      await user.click(back());
+      await backAt(router, explore);
+    });
+
+    it("goes to Explore as a new step when the page was opened at the search, and the history has no Explore behind it", async () => {
+      const user = userEvent.setup();
+      const { router } = openInBrowser("/search?q=pizza");
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      const first = router.state.location.key;
+      await user.click(back());
+      await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+      expect(router.state.historyAction).toBe("PUSH");
+      expect(router.state.location.key).not.toBe(first);
+    });
+
+    it("goes to Explore as a new step after the page was reloaded, which the module's memory does not outlive", async () => {
+      const user = userEvent.setup();
+      const { router } = await atExplore();
+      const explore = router.state.location.key;
+      await user.click(await searchLink());
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      // A reload starts the page's scripts again.
+      forgetExploreIdx();
+      await user.click(back());
+      await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+      expect(router.state.historyAction).toBe("PUSH");
+      expect(router.state.location.key).not.toBe(explore);
+    });
+
+    it("goes to Explore as a new step when the typed-in first entry was replaced by the field, with nothing behind it to go back to", async () => {
+      const user = userEvent.setup();
+      const { router } = openInBrowser("/search?q=pizza");
+      await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+      await user.clear(field());
+      await user.type(field(), "novo{Enter}");
+      await waitFor(() => expect(router.state.location.search).toBe("?q=novo"));
+      await user.click(back());
+      await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+      expect(router.state.historyAction).toBe("PUSH");
+    });
   });
 
-  it("goes back a step after Explore's search field, to Explore", async () => {
-    const user = userEvent.setup();
-    const { router } = open(["/"], fixtures);
-    await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a place name/ }));
-    await user.type(field(), "novo{Enter}");
-    await user.click(back());
-    expect(router.state.location.pathname).toBe("/");
-    expect(router.state.historyAction).toBe("POP");
-    await waitFor(() => expect(screen.queryByRole("searchbox")).not.toBeInTheDocument());
+  describe("stepsBackToExplore", () => {
+    const at = (idx: number | undefined) =>
+      window.history.replaceState(idx === undefined ? null : { usr: null, key: "k", idx }, "", "/search");
+
+    it("is how many steps the history is on from the Explore it recorded", () => {
+      setExploreIdx(3);
+      at(5);
+      expect(stepsBackToExplore()).toBe(-2);
+      at(4);
+      expect(stepsBackToExplore()).toBe(-1);
+    });
+
+    it("is nothing when the recorded Explore is not behind this entry", () => {
+      setExploreIdx(5);
+      at(5);
+      expect(stepsBackToExplore()).toBeUndefined();
+      setExploreIdx(7);
+      expect(stepsBackToExplore()).toBeUndefined();
+    });
+
+    it("is nothing when no Explore was recorded, as on a page that was just loaded", () => {
+      at(5);
+      forgetExploreIdx();
+      expect(stepsBackToExplore()).toBeUndefined();
+      setExploreIdx(undefined);
+      expect(stepsBackToExplore()).toBeUndefined();
+      setExploreIdx("3");
+      expect(stepsBackToExplore()).toBeUndefined();
+    });
+
+    it("is nothing when the history says no index, as in a router that does not keep one", () => {
+      setExploreIdx(3);
+      at(undefined);
+      expect(stepsBackToExplore()).toBeUndefined();
+    });
   });
 
   it("still goes to Explore, not out of the app, when the words of a typed-in address were changed in the field", async () => {

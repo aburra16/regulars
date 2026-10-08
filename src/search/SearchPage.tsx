@@ -2,6 +2,7 @@ import { type JSX, type MouseEvent, useEffect, useMemo, useRef, useState } from 
 import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
+import { stepsBackToExplore } from "../explore/returnPoint.ts";
 import { useHere } from "../location/useLocation.ts";
 import { osmNoteUrl } from "../place/osmLinks.ts";
 import { familyLabel } from "../places/kinds.ts";
@@ -190,9 +191,6 @@ export function SearchPage(): JSX.Element {
   const [focusField] = useState(
     () => !wide && !cameFromFilters(state) && !(navigationType === "POP" && historyKey !== "default"),
   );
-  // Whether there is a step of the app behind this page, which the arrow goes back to. The key of an
-  // address that was typed in is "default", until the field replaces it with a search of its own.
-  const [cameFromApp] = useState(() => historyKey !== "default");
 
   const field = useRef<QueryFieldHandle>(null);
   const chipGroup = useRef<HTMLDivElement>(null);
@@ -241,8 +239,13 @@ export function SearchPage(): JSX.Element {
                 onClick={(event) => {
                   if (!isPlainClick(event)) return;
                   event.preventDefault();
-                  // Words that were typed a moment ago are kept in the page this one leaves.
-                  const go = () => void (cameFromApp ? navigate(-1) : navigate("/"));
+                  // Words that were typed a moment ago are kept in the page this one leaves. Then back to the
+                  // Explore the search was opened from, in one step whatever the search has done since (its
+                  // filters, a chip, a new search), or, where there is none behind this page, to Explore as a new step.
+                  const go = () => {
+                    const steps = stepsBackToExplore();
+                    void (steps === undefined ? navigate("/") : navigate(steps));
+                  };
                   const typed = field.current?.flush();
                   if (typed === undefined) go();
                   else void typed.then(go);

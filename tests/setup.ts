@@ -6,6 +6,7 @@ import { cleanup } from "@testing-library/react";
 import { clear } from "idb-keyval";
 import { afterEach } from "vitest";
 
+import { forgetExploreIdx } from "../src/explore/returnPoint";
 import { forgetShownInMemory } from "../src/ui/shown";
 
 // Tests never open a network socket. Anything that tries fails here, loudly, instead of
@@ -28,9 +29,12 @@ afterEach(async () => {
   // Each test starts with nothing saved on the device, as on a first visit, and a page that has just been opened.
   await clear();
   forgetShownInMemory();
+  forgetExploreIdx();
   // A test that runs in Node, not jsdom, has no window.
   if (typeof window !== "undefined") {
     window.localStorage.clear();
     window.sessionStorage.clear();
+    // The history of the window is the test's own: no entry index from a router that came before.
+    window.history.replaceState(null, "", "/");
   }
 });
