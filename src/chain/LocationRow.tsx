@@ -5,14 +5,16 @@ import { copy } from "../copy/en.ts";
 import { formatDistance } from "../places/distance.ts";
 import { openLine, openState } from "../places/hours.ts";
 import type { Place } from "../places/place.ts";
+import { unbrokenPostcodes } from "../ui/address.ts";
 import { HoursText } from "../ui/PlaceCard.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 
 /**
  * What a location of a chain is known by: its street address, since its name is the chain's and the
- * same on every row. A place with no street address is known by its town, and then by its name.
+ * same on every row, with its postcode kept whole on its line. A place with no street address is
+ * known by its town, and then by its name.
  */
-export const locationName = (place: Place): string => place.street ?? place.locality ?? place.name;
+export const locationName = (place: Place): string => unbrokenPostcodes(place.street ?? place.locality ?? place.name);
 
 /**
  * A location in the chain's list (Chain.dc.html): its address, and at the top right, where its

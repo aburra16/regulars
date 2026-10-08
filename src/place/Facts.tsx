@@ -3,12 +3,13 @@ import { type JSX, type ReactNode, useMemo } from "react";
 import { copy } from "../copy/en.ts";
 import { openState, weekTable } from "../places/hours.ts";
 import type { Place } from "../places/place.ts";
+import { unbrokenPostcodes } from "../ui/address.ts";
 import { actionsOf } from "./Actions.tsx";
 
 /**
  * The address as one line: the street address, then the town and the postcode where it does not
  * already name them (the importer writes most addresses whole: "138 Rua dos Ferreiros Funchal
- * 9000-082"). Nothing when the place has none of them.
+ * 9000-082"), with the postcode kept whole on its line. Nothing when the place has none of them.
  */
 export function addressOf(place: Pick<Place, "street" | "locality" | "postalCode">): string | undefined {
   let line = place.street?.trim() ?? "";
@@ -17,7 +18,7 @@ export function addressOf(place: Pick<Place, "street" | "locality" | "postalCode
     if (text === undefined || text === "" || line.toLowerCase().includes(text.toLowerCase())) continue;
     line = line === "" ? text : `${line} ${text}`;
   }
-  return line === "" ? undefined : line;
+  return line === "" ? undefined : unbrokenPostcodes(line);
 }
 
 /** A fact: its label at 74 px, and what it says beside it (Place.dc.html). A fact with nothing to say is not drawn. */
