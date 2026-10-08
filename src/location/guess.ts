@@ -4,8 +4,8 @@ import { ZONE_POINTS } from "./zones.ts";
 
 /**
  * Where a first visit starts when the person has picked no town and the browser does not already
- * allow the device's location (docs/decisions.md #24): the town nearest the place the device's
- * time zone is named for (Lisbon for Europe/Lisbon), however far. When the zone is no place
+ * allow the device's location (docs/decisions.md #24): the main town near the place the device's
+ * time zone is named for (Lisbon for Europe/Lisbon), or else the nearest, however far. When the zone is no place
  * (Etc/UTC, or a name the time zone database does not have), the town with the most places in
  * the country of the browser's language. It is worked out on the device from what the browser
  * says of itself; nothing is sent anywhere.
@@ -92,23 +92,31 @@ export function zonePoint(zone: string | undefined): { lat: number; lon: number 
 }
 
 /**
- * The town nearest the place `zone` is named for, however far; when the zone is no place, the
- * town with the most places in `country`; undefined when there is neither. `cities` is in the
- * order `Indexes.cities` has, those with the most places first.
+ * How far from the place a zone is named for its main town may be. The point is the zone's city
+ * to a tenth of a degree, and the towns are each city's places and its suburbs' apart, so the
+ * nearest is often a suburb: New York's point is nearer Jersey City than Manhattan.
+ */
+const ZONE_REACH_KM = 50;
+
+/**
+ * The town with the most places within `ZONE_REACH_KM` of the place `zone` is named for, the
+ * nearer of two with as many; with none so near, the nearest town, however far. When the zone is
+ * no place, the town with the most places in `country`. Undefined when there is none of these.
+ * `cities` is in the order `Indexes.cities` has, those with the most places first.
  */
 export function guessTown(cities: readonly City[], zone: string | undefined, country: string | undefined): City | undefined {
   const point = zonePoint(zone);
   if (point !== undefined) {
-    let nearest: City | undefined;
-    let nearestKm = Number.POSITIVE_INFINITY;
+    let main: { city: City; km: number } | undefined;
+    let nearest: { city: City; km: number } | undefined;
     for (const city of cities) {
       const km = distanceKm(point.lat, point.lon, city.lat, city.lon);
-      if (km < nearestKm) {
-        nearest = city;
-        nearestKm = km;
+      if (nearest === undefined || km < nearest.km) nearest = { city, km };
+      if (km <= ZONE_REACH_KM && (main === undefined || city.count > main.city.count || (city.count === main.city.count && km < main.km))) {
+        main = { city, km };
       }
     }
-    return nearest;
+    return (main ?? nearest)?.city;
   }
   if (country !== undefined) {
     for (const city of cities) if (city.country === country) return city;

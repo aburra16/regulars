@@ -541,7 +541,7 @@ describe("where a first visit starts", () => {
   const bangkok: City = { name: "Bangkok", country: "TH", lat: 13.7563, lon: 100.5018, count: 30 };
 
   describe("with no town picked, and the device's location not allowed", () => {
-    it("is the town nearest the place the device's time zone is named for, though another has more places", () => {
+    it("is the town near the place the device's time zone is named for, though one farther away has more places", () => {
       zoneIs("Asia/Bangkok");
       override.cities = [lisbon, porto, chiangMai, bangkok];
       const { result } = renderHere();

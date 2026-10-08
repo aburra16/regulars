@@ -74,11 +74,50 @@ describe("zonePoint", () => {
 });
 
 describe("guessTown", () => {
-  it("is the town nearest the place the device's zone is named for, not the one with the most places", () => {
+  it("is the town near the place the device's zone is named for, not the one with the most places anywhere", () => {
     expect(guessTown(towns, "America/New_York", undefined)).toBe(newYork);
     expect(guessTown(towns, "Asia/Bangkok", undefined)).toBe(bangkok);
     expect(guessTown(towns, "Atlantic/Madeira", "PT")).toBe(funchal);
     expect(guessTown(towns, "Europe/Lisbon", undefined)).toBe(lisbon);
+  });
+
+  describe("within 50 km of the zone's place", () => {
+    // Towns round New York and Los Angeles as the places have them: the city, and smaller ones nearer the zone's point.
+    const jerseyCity = town("Jersey City", "US", 40.7178, -74.0431, 3);
+    const manhattan = town("New York", "US", 40.758, -73.9855, 5);
+    const princeton = town("Princeton", "US", 40.3573, -74.6672, 100);
+    const alhambra = town("Alhambra", "US", 34.0953, -118.127, 3);
+    const pasadena = town("Pasadena", "US", 34.1478, -118.1445, 11);
+    const glendale = town("Glendale", "US", 34.1425, -118.2551, 4);
+    const losAngeles = town("Los Angeles", "US", 34.0522, -118.3, 81);
+    const santaMonica = town("Santa Monica", "US", 34.0195, -118.4912, 6);
+
+    it("is the town with the most places: New York, not Jersey City, which is nearer", () => {
+      expect(guessTown([manhattan, jerseyCity], "America/New_York", undefined)).toBe(manhattan);
+    });
+
+    it("is Los Angeles, not Alhambra, Pasadena or Glendale, which are nearer", () => {
+      const round = [pasadena, santaMonica, glendale, alhambra, losAngeles].sort((a, b) => b.count - a.count);
+      expect(guessTown(round, "America/Los_Angeles", undefined)).toBe(losAngeles);
+    });
+
+    it("counts no town farther than 50 km, however many places it has", () => {
+      // Princeton is 68 km from New York's point.
+      expect(guessTown([princeton, manhattan, jerseyCity], "America/New_York", undefined)).toBe(manhattan);
+    });
+
+    it("takes the nearer of two towns with as many places", () => {
+      const twin = town("Hoboken", "US", 40.744, -74.0324, 5);
+      expect(guessTown([manhattan, twin], "America/New_York", undefined)).toBe(twin);
+      expect(guessTown([twin, manhattan], "America/New_York", undefined)).toBe(twin);
+    });
+
+    it("falls back to the nearest town anywhere when there is none, not the one with the most places", () => {
+      // Kolkata is 649 km from Kathmandu, Chiang Mai 1,711 km with more places.
+      expect(guessTown(towns, "Asia/Kathmandu", undefined)).toBe(kolkata);
+      // Princeton, 68 km from New York's point, when it is the only town near.
+      expect(guessTown([lisbon, princeton], "America/New_York", undefined)).toBe(princeton);
+    });
   });
 
   it("goes as far as it takes: the zone need have no town of its own", () => {
@@ -208,9 +247,13 @@ describe("startGuesser", () => {
     const grown = [...towns, town("Faro", "PT", 37.0194, -7.9322, 4)];
     expect(guess(grown)).toBe(lisbon);
 
-    // A town nearer the zone's point than Lisbon's middle is: that one now.
+    // A town nearer the zone's point, with fewer places: Lisbon still.
     const graca = town("Graça", "PT", 38.7163, -9.1305, 2);
-    expect(guess([...towns, graca])).toBe(graca);
+    expect(guess([...towns, graca])).toBe(lisbon);
+
+    // A town near the zone's point with more places than Lisbon: that one now.
+    const sintra = town("Sintra", "PT", 38.8029, -9.3817, 500);
+    expect(guess([sintra, ...towns])).toBe(sintra);
   });
 
   it("guesses again when the device's zone changes", () => {

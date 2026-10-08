@@ -47,7 +47,7 @@ function firstState(): State {
  * (docs/decisions.md #24). It starts at the city the person last picked on this device. With
  * none, it starts at the device's position when the browser already allows it, so nobody is
  * asked: the pages wait for it for `DEVICE_WAIT_MS` at most. Until it comes, and when the browser
- * does not allow it, it is the town nearest the place the device's time zone is named for, or
+ * does not allow it, it is the main town near the place the device's time zone is named for, or
  * else the one with the most places in the language's country (`guess.ts`), once the places have
  * loaded; and with none of those, the default city. The device's own position is held in memory
  * only. Use it inside a `PlacesProvider`, whose towns it guesses from and names the picked city from.
