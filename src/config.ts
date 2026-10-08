@@ -51,7 +51,7 @@ interface Config {
   placesRelay: string;
   /**
    * Where the places are near when nothing else says: no town picked, the device's location not
-   * already allowed, and no town in the device's time zone or its language's country
+   * already allowed, the device's time zone not a known place, and no town in its language's country
    * (docs/decisions.md #24; src/location/guess.ts). `radiusKm` is how far "near" reaches, wherever that is.
    */
   defaultCity: { name: "Funchal"; lat: number; lon: number; radiusKm: number };
