@@ -15,20 +15,24 @@ M1 was built overnight on 7–8 October 2026, from `docs/plans/2026-10-07-m1-sig
 
 - **Code:**
   - `main`, deployed by the Pages workflow.
-  - 1,618 tests pass, and CI is green.
+  - 1,717 tests pass, and CI is green.
   - GitHub Pages serves the site for `askregulars.world`, checked by asking GitHub's servers for that name directly.
-- **Live:** no. The domain still points at Namecheap's parking page.
+- **Live:** yes, at https://askregulars.world, since 8 October 2026.
+  - The DNS records are in, the certificate is issued and HTTPS is enforced.
+  - The MapTiler key already allowed the domain, so the maps draw.
+  - The app needs HTTPS to load places (see "Done" below).
+
+## Done on the morning of 8 October
+
+- **DNS.** Avi added the GitHub Pages records at Namecheap.
+- **Certificate.** GitHub had not asked for one, because the custom domain was set before DNS pointed at it. Re-saving the domain started it, and it was approved within a minute.
+- **HTTPS enforced.**
+- **Why HTTPS matters here.** Over plain HTTP the app can't load places: Nostrify calls `crypto.randomUUID`, which browsers only provide on secure pages. HTTPS enforcement redirects plain HTTP, so visitors never meet this.
 
 ## What needs you
 
-1. **DNS at Namecheap** (Advanced DNS):
-   - remove the parking records;
-   - A records: `@` → 185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153;
-   - AAAA records: `@` → 2606:50c0:8000::153, 2606:50c0:8001::153, 2606:50c0:8002::153, 2606:50c0:8003::153;
-   - a CNAME: `www` → `aburra16.github.io`.
-
-   Once GitHub has issued the certificate (minutes to an hour after DNS resolves), turn on HTTPS: `gh api -X PUT repos/aburra16/regulars/pages -F https_enforced=true`.
-2. **MapTiler key: allowed origins.** The key refuses `127.0.0.1` and allows `localhost`, so it is origin-restricted. Add `askregulars.world` and `www.askregulars.world` in the MapTiler dashboard. Otherwise the live site's maps fall back to a plain ground.
+1. **Namecheap.** Delete the leftover "URL Redirect Record" at `@` (to `http://www.askregulars.world/`). It comes from the parking setup. It isn't answering today, but it competes with the A records at `@`.
+2. **MapTiler.** Nothing to do. The key already accepts askregulars.world (style, tiles and fonts answer 200).
 3. **Draft copy.** There are 45 strings marked `// DRAFT for Avi` in `src/copy/en.ts`. All are invented, for states the design does not draw. The ones people see most:
    - the empty, offline and failure states;
    - "Signing in opens soon. Everything else works without it.";
