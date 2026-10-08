@@ -54,8 +54,8 @@ describe("config", () => {
     expect(config.defaultCity).toEqual({ name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 });
   });
 
-  it("opens signing in, and keeps My circle off until its scores can be worked out (M2b)", () => {
-    expect(config.features).toEqual({ signIn: true, circle: false });
+  it("opens signing in, and keeps My circle off until its scores can be worked out (M2b), and Saved until saved lists exist", () => {
+    expect(config.features).toEqual({ signIn: true, circle: false, saved: false });
   });
 
   it("meets phone apps at one place, relay.nsec.app, only while connecting one", () => {

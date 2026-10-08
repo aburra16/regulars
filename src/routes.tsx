@@ -49,7 +49,8 @@ export const routes: RouteObject[] = [
           // The words are there at once; the figures come when the places do.
           { path: "about", element: <AboutPage />, handle: chrome({ needsPlaces: false }) },
           { path: "signin", element: <SignInPage />, handle: chrome({ topBar: false, needsPlaces: false }) },
-          // Both ask the person to sign in, until they have.
+          // Both ask the person to sign in, until they have. Saved is in no tab or bar until saved
+          // lists open (config.features.saved); a link to it still opens it.
           { path: "saved", element: <SavedPage />, handle: chrome({ tabs: true, needsPlaces: false }) },
           { path: "you", element: <YouPage />, handle: chrome({ tabs: true, needsPlaces: false }) },
           { path: "*", element: <NotFound />, handle: chrome({ needsPlaces: false }) },

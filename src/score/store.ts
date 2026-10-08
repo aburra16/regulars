@@ -3,7 +3,7 @@ import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { readSession } from "../account/session.ts";
 import { config } from "../config.ts";
 import { asEvent, isNewer, type RelayReader, readAll, withReadExtras } from "../nostr/events.ts";
-import { fetchNames } from "../nostr/profiles.ts";
+import { fetchProfiles, type Profile } from "../nostr/profiles.ts";
 import { appReaders } from "../nostr/relayCode.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import type { Place } from "../places/place.ts";
@@ -23,7 +23,8 @@ import { type PlaceScore, scorePlace } from "./score.ts";
  * The reviews of the places that pages ask about, the house's ranks for their reviewers, and the
  * reviewers' names, read once a session and held in memory. Scores are worked out from them when
  * asked for, and never stored (brief § 5). What it holds about people stays here: a page gets
- * reviews, place scores and names, never a person's rank or weight (decision 19).
+ * reviews, place scores and names, and the person signed in their own picture, never a person's
+ * rank or weight (decision 19).
  *
  * Nothing here loads the relay code: the app's readers import it when they first read
  * (src/nostr/relayCode.ts), so the store can be on the first screen.
@@ -397,6 +398,8 @@ export class ScoresStore {
   /** The people whose profiles a relay has answered for, with a name or not. */
   readonly #namesKnown = new Set<string>();
   readonly #names = new Map<string, string>();
+  /** Pictures, read with the names: only the person's own is ever shown (`pictureOf`). */
+  readonly #pictures = new Map<string, string>();
 
   /**
    * `readers` gives each relay's reader; by default the app's. Each relay's read extras are added to
@@ -577,6 +580,15 @@ export class ScoresStore {
   /** The person's name, from their profile; undefined when it has none, or it has not been read. */
   nameOf(pubkey: string): string | undefined {
     return this.#names.get(pubkey);
+  }
+
+  /**
+   * The picture in the person's profile, an https address (`pictureIn`), read with their name;
+   * undefined when it has none, or it has not been read. For the person signed in, of themself only:
+   * the app loads no one else's picture.
+   */
+  pictureOf(pubkey: string): string | undefined {
+    return this.#pictures.get(pubkey);
   }
 
   /**
@@ -860,20 +872,21 @@ export class ScoresStore {
   }
 
   async #readNames(people: readonly string[], signal: AbortSignal): Promise<void> {
-    let names: Map<string, string> | null;
+    let profiles: Map<string, Profile> | null;
     try {
-      names = await fetchNames(this.#readers, config.reviewRelays, people, signal);
+      profiles = await fetchProfiles(this.#readers, config.reviewRelays, people, signal);
     } catch {
       return; // Aborted: asked again if the store starts again.
     }
-    if (names === null) {
+    if (profiles === null) {
       debug("no review relay answered for profiles");
       return;
     }
     for (const pubkey of people) {
       this.#namesKnown.add(pubkey);
-      const name = names.get(pubkey);
+      const { name, picture } = profiles.get(pubkey) ?? {};
       if (name !== undefined) this.#names.set(pubkey, name);
+      if (picture !== undefined) this.#pictures.set(pubkey, picture);
     }
     this.#changed("names");
   }

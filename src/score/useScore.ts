@@ -9,8 +9,9 @@ import { type HouseState, useScoresStore } from "./ScoresProvider.tsx";
 import type { ReadState, ReviewCoordinate, ScoresStore } from "./store.ts";
 
 /*
- * What pages ask the scores store for: places' scores and reviews, and reviewers' names. They give
- * reviews, place scores and names, and never a number about a person (decision 19).
+ * What pages ask the scores store for: places' scores and reviews, reviewers' names, and the person's
+ * own picture. They give reviews, place scores, names and that picture, and never a number about a
+ * person (decision 19).
  */
 
 /** Re-renders the component when places' reviews or scores may have changed; their version, for memos. */
@@ -132,6 +133,18 @@ export function useNames(pubkeys: readonly string[]): Map<string, string> {
     void version; // What the store gives changes with it.
     return new Map(asked.map((pubkey) => [pubkey, store.nameOf(pubkey) ?? copy.reviews.someone]));
   }, [store, asked, version]);
+}
+
+/**
+ * The picture in the profile of the person signed in as `pubkey`, read with their name
+ * (`ScoresStore.pictureOf`): an https address, or undefined until it is read, or when their profile
+ * has none that may be loaded. For the person's own account button only: the app loads no one
+ * else's picture.
+ */
+export function useOwnPicture(pubkey: string): string | undefined {
+  const store = useScoresStore("useOwnPicture");
+  useEffect(() => store.wantNames([pubkey]), [store, pubkey]);
+  return useSyncExternalStore(store.subscribe, () => store.pictureOf(pubkey));
 }
 
 /** What the person's own actions tell the store. */
