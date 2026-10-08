@@ -16,9 +16,11 @@ import { NotPosted, type Posted, removalRelays, removeReview, sendReview, whereT
 
 /**
  * Where removing stands: nothing asked; asked (Remove, then Remove or Keep it); being removed; not
- * removed, said, with Try again; or removed, which the page says politely, its review gone.
+ * removed, said, with Try again or Keep it; removed from the person's own relays only and not from
+ * Regulars, said, with Try again and no keeping it, which can't be undone (ruling R17); or removed,
+ * which the page says politely, its review gone.
  */
-export type RemoveStatus = "idle" | "asking" | "removing" | "failed" | "removed";
+export type RemoveStatus = "idle" | "asking" | "removing" | "failed" | "partial" | "removed";
 
 /**
  * A removal signed and sent that no review relay took: the event, which reviews it names (their ids,
@@ -40,7 +42,7 @@ export interface RemoveReview {
   ready: boolean;
   /** Remove: asks first. */
   ask(): void;
-  /** Keep it: leaves it as it is. */
+  /** Keep it (or Escape): leaves it as it is. Nothing while it is being removed, or once part of it is. */
   keep(): void;
   /** Remove, once asked; Try again, after it failed. */
   remove(): void;
@@ -52,7 +54,7 @@ export interface RemoveReview {
  * their signer signs; it goes to the review relays, where they write now and where each version went
  * (`removalRelays`). Once a review relay takes it, each is hidden at once, and kept hidden from a relay
  * that lags (`noteRemoval`); their own relays may still be answering. When no review relay takes it,
- * it says so, and Try again sends the same removal again. A person whose add-on or phone app now signs
+ * it says so (and whether their own relays did), and Try again sends the same removal again. A person whose add-on or phone app now signs
  * as someone else (they are signed out, `AccountChanged`) is sent to sign in, and back to the place.
  * Leaving the page stops it, until a review relay has taken it.
  */
@@ -115,10 +117,11 @@ export function useRemoveReview(place: Place, mine: Review | undefined): RemoveR
         void navigate("/signin", { state: { from: location } });
         return;
       }
+      const taken = error instanceof NotPosted ? [...before, ...error.accepted] : [];
       if (error instanceof NotPosted && error.event !== undefined) {
-        unremoved.current = { event: error.event, ids, relays, accepted: [...before, ...error.accepted] };
+        unremoved.current = { event: error.event, ids, relays, accepted: taken };
       }
-      setStatus("failed");
+      setStatus(taken.length > 0 ? "partial" : "failed");
     } finally {
       busy.current = false;
     }
@@ -127,8 +130,8 @@ export function useRemoveReview(place: Place, mine: Review | undefined): RemoveR
   return {
     status,
     ready: account !== undefined,
-    ask: () => setStatus((now) => (now === "removing" ? now : "asking")),
-    keep: () => setStatus((now) => (now === "removing" ? now : "idle")),
+    ask: () => setStatus((now) => (now === "idle" ? "asking" : now)),
+    keep: () => setStatus((now) => (now === "asking" || now === "failed" ? "idle" : now)),
     remove: () => void remove(),
   };
 }

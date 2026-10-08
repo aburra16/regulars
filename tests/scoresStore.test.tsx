@@ -985,25 +985,6 @@ describe("ScoresProvider: the person's own reviews, held through a reload (Revie
     ]);
   });
 
-  it("adds to where a held review went as more relays take it, here and in the tab", async () => {
-    config.reviewRelays = [SEARCH];
-    const search = heldReader([]);
-    const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
-    const { result } = renderStore(() => useScoreActions(), { readers });
-    const own = reviewOf(ALICE, JACAFE, 4, { created_at: 1_700_000_000 });
-    act(() => result.current.noteOwnReview(own, [SEARCH]));
-
-    act(() => result.current.noteOwnRelays(own.id, [SEARCH, MIRROR]));
-    expect(result.current.ownCoordinates(ALICE, JACAFE)).toEqual([
-      { id: own.id, d: `place:${JACAFE}`, createdAt: 1_700_000_000, relays: [SEARCH, MIRROR] },
-    ]);
-    expect(heldKept()).toEqual([{ event: own, relays: [SEARCH, MIRROR] }]);
-
-    // A review that is not held (any more) has nowhere to add to.
-    act(() => result.current.noteOwnRelays(hex64("e"), [MIRROR]));
-    expect(heldKept()).toEqual([{ event: own, relays: [SEARCH, MIRROR] }]);
-  });
-
   it("lets go of a held review in this tab when it is removed", async () => {
     config.reviewRelays = [SEARCH];
     const { readers } = houseNetwork([], [rankOf(ALICE, 80)]);

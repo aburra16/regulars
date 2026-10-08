@@ -2,9 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { NostrEvent } from "@nostrify/nostrify";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,15 +11,15 @@ import { readSession, SESSION_KEY } from "../src/account/session";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import type { RelayReader } from "../src/nostr/events";
-import { Reviews } from "../src/place/Reviews";
-import { PlacesProvider } from "../src/places/store";
-import { parseReview, REVIEW_KIND } from "../src/reviews/review";
+import { distanceKm } from "../src/places/distance";
+import { buildIndexes, chainSlug } from "../src/places/indexes";
+import { parsePlaces } from "../src/places/load";
+import type { Place } from "../src/places/place";
+import { REVIEW_KIND } from "../src/reviews/review";
 import { removalTemplate, reviewTemplate } from "../src/reviews/write";
-import { ScoresProvider } from "../src/score/ScoresProvider";
 import { HELD_REVIEWS_KEY } from "../src/score/store";
 import { DESKTOP, openApp, PHONE, resetWidth } from "./support/app";
-import { hex64, shapedEvent } from "./support/events";
-import { createMemoryReader } from "./support/memoryReader";
+import { shapedEvent } from "./support/events";
 import { createMemoryWriter } from "./support/memoryWriter";
 import {
   ANOTHER,
@@ -42,6 +41,7 @@ import {
   REVIEW_PATH,
   reviewBy,
   reviewingAs,
+  reviewOfPlace,
   reviewWords,
   SEARCH,
   sentTo,
@@ -71,6 +71,17 @@ vi.mock("../src/account/connect", async (importOriginal) => {
       if (restore.broken) throw new Error("The signing code could not start");
       return actual.restoreAccount(...args);
     },
+  };
+});
+
+// A session this tab kept, being restored for as long as a test likes: `account.restoring` holds every
+// page's `useAccount` there (signed out, about to be signed in) until a test lets go.
+const account = vi.hoisted(() => ({ restoring: false }));
+vi.mock("../src/account/AccountProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/account/AccountProvider")>();
+  return {
+    ...actual,
+    useAccount: () => (account.restoring ? { account: undefined, restoring: true, signOut: () => {} } : actual.useAccount()),
   };
 });
 
@@ -146,6 +157,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   resetWidth();
   restore.broken = false;
+  account.restoring = false;
   Reflect.deleteProperty(window, "nostr");
 });
 
@@ -170,7 +182,10 @@ describe("removing a review", () => {
     // The way out is where the focus goes.
     const keep = within(mine).getByRole("button", { name: copy.reviews.keep });
     expect(keep).toHaveFocus();
-    expect(within(mine).getByRole("group", { name: copy.reviews.removeQuestion })).toContainElement(keep);
+    expect(keep).toHaveAccessibleDescription(copy.reviews.removeQuestion);
+    expect(within(mine).getByRole("group", { name: copy.reviews.removeQuestion })).toContainElement(
+      within(mine).getByRole("button", { name: copy.reviews.removeConfirm }),
+    );
     expect(me.addOn.signEvent).not.toHaveBeenCalled();
 
     await user.click(keep);
@@ -306,7 +321,7 @@ describe("removing a review", () => {
     expect(world.reviewReads).toBeGreaterThan(reads);
   });
 
-  it("says the review didn't come off when no review relay takes the removal, keeps it, and Try again sends the same removal", async () => {
+  it("says the review came off the person's own places but not Regulars when only their relay takes the removal: Try again, and no Keep it", async () => {
     const world = newWorld();
     const me = signedIn(world);
     world.ranks.push(rankOf(me.pubkey, 80));
@@ -319,11 +334,16 @@ describe("removing a review", () => {
 
     await removeIt(user);
     const mine = await yourReview();
-    expect(await within(mine).findByRole("alert")).toHaveTextContent(copy.reviews.removeFailed);
-    expect(copy.reviews.removeFailed).toBe("Your review didn't come off. Try again.");
+    expect(await within(mine).findByRole("alert")).toHaveTextContent(copy.reviews.removePartial);
+    expect(copy.reviews.removePartial).toBe("Removed from your own places, but not from Regulars yet. Try again.");
     expect(within(mine).getByText("Get the bolo")).toBeInTheDocument();
     const again = within(mine).getByRole("button", { name: copy.reviews.removeAgain });
     expect(again).toHaveFocus();
+    // It can't be taken back from the person's own places: there is no keeping it, by button or by Escape.
+    expect(within(mine).queryByRole("button", { name: copy.reviews.keep })).not.toBeInTheDocument();
+    expect(within(mine).queryByRole("link", { name: copy.reviews.edit })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(within(mine).getByRole("alert")).toHaveTextContent(copy.reviews.removePartial);
     expect(sentTo(world, OWN)).toHaveLength(1);
 
     // The review relay takes it the second time: the removal signed the first time, sent again
@@ -335,6 +355,151 @@ describe("removing a review", () => {
     expect(sentTo(world, SEARCH)).toEqual([first]);
     expect(sentTo(world, OWN)).toEqual([first]);
     expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the review didn't come off when no relay takes the removal, keeps it, with Try again and Keep it", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+    world.writers[SEARCH] = createMemoryWriter({ refuse: "rate-limited" });
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH));
+
+    await removeIt(user);
+    const mine = await yourReview();
+    expect(await within(mine).findByRole("alert")).toHaveTextContent(copy.reviews.removeFailed);
+    expect(copy.reviews.removeFailed).toBe("Your review didn't come off. Try again.");
+    expect(within(mine).getByRole("button", { name: copy.reviews.removeAgain })).toHaveFocus();
+
+    // Kept: the question goes, the review stays, and the focus is back on Remove.
+    await user.click(within(mine).getByRole("button", { name: copy.reviews.keep }));
+    expect(within(mine).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(mine).getByText("Get the bolo")).toBeInTheDocument();
+    expect(within(mine).getByRole("button", { name: copy.reviews.remove })).toHaveFocus();
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the question with Escape, keeping the review, and gives the focus back to Remove; not while it is removing", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+    let answer!: () => void;
+    world.writers[SEARCH] = createMemoryWriter({ until: new Promise<void>((resolve) => (answer = resolve)) });
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH));
+
+    const mine = await yourReview();
+    await user.click(await removeButton(mine));
+    expect(within(mine).getByRole("button", { name: copy.reviews.keep })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(within(mine).queryByText(copy.reviews.removeQuestion)).not.toBeInTheDocument();
+    expect(within(mine).getByRole("button", { name: copy.reviews.remove })).toHaveFocus();
+    expect(me.addOn.signEvent).not.toHaveBeenCalled();
+
+    // Once it is being removed, Escape leaves it to finish.
+    await user.click(within(mine).getByRole("button", { name: copy.reviews.remove }));
+    await user.click(within(mine).getByRole("button", { name: copy.reviews.removeConfirm }));
+    const removing = await within(mine).findByRole("button", { name: copy.reviews.removing });
+    await user.keyboard("{Escape}");
+    expect(removing).toHaveAccessibleName(copy.reviews.removing);
+    expect(within(mine).getByText(copy.reviews.removeQuestion)).toBeInTheDocument();
+    answer();
+    await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
+  });
+
+  it.each([
+    ["a phone", PHONE],
+    ["a desktop", DESKTOP],
+  ])("puts Keep it where Remove was, and the Remove that confirms after it, so that two quick taps can't remove, on %s", async (_, px) => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH), px);
+
+    const mine = await yourReview();
+    const remove = await removeButton(mine);
+    const row = remove.parentElement!;
+    const rowClasses = row.className;
+    const at = [...row.children].indexOf(remove);
+    await user.click(remove);
+
+    const keep = within(mine).getByRole("button", { name: copy.reviews.keep });
+    expect(keep.parentElement).toBe(row);
+    expect(row.className).toBe(rowClasses);
+    expect([...row.children].indexOf(keep)).toBe(at);
+    const confirm = within(mine).getByRole("button", { name: copy.reviews.removeConfirm });
+    expect(row).not.toContainElement(confirm);
+    expect(keep.compareDocumentPosition(confirm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(mine).getByText(copy.reviews.removeQuestion).compareDocumentPosition(confirm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(me.addOn.signEvent).not.toHaveBeenCalled();
+  });
+
+  it("puts the focus on the reviews once the review is removed, without scrolling, not on the page", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const bob = getPublicKey(generateSecretKey());
+    world.ranks.push(rankOf(me.pubkey, 80), rankOf(bob, 50));
+    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"), reviewBy(bob, 5, "Bob's words"));
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH));
+    await reviewWords("Bob's words");
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+
+    await removeIt(user);
+    await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
+    const reviews = document.activeElement as HTMLElement;
+    expect(reviews).not.toBe(document.body);
+    expect(reviews).toHaveAttribute("tabindex", "-1");
+    expect(within(reviews).getByRole("heading", { level: 2, name: copy.reviews.heading })).toBeInTheDocument();
+    expect(focus.mock.contexts.at(-1)).toBe(reviews);
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
+  });
+
+  it("puts the focus on where the reviews were when the person's was the only one", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH));
+
+    await removeIt(user);
+    await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("sends the removal to a relay the review was sent to that did not take it in time, which may have kept it", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.directory.push(listOf(me.pubkey, [OWN]));
+    world.writers[SEARCH] = createMemoryWriter();
+    world.writers[OWN] = createMemoryWriter({ refuse: "did not answer in time" });
+    world.writers[ANOTHER] = createMemoryWriter();
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[3]!);
+    await user.click(postButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    await waitFor(() => expect(sentTo(world, OWN)).toHaveLength(1));
+
+    // The person writes somewhere else now; the relay that didn't answer still hears of the removal.
+    world.directory.push({ ...listOf(me.pubkey, [ANOTHER]), created_at: 1_800_000_000 });
+    world.writers[OWN] = createMemoryWriter();
+    await removeIt(user);
+    await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
+    const removal = sentTo(world, SEARCH)[1]!;
+    expect(removal).toMatchObject({ kind: 5 });
+    await waitFor(() => expect(sentTo(world, OWN)).toEqual([removal]));
+    await waitFor(() => expect(sentTo(world, ANOTHER)).toEqual([removal]));
   });
 
   it("says Removing… while it removes, and that it is removed once it is, in a polite live region", async () => {
@@ -553,30 +718,55 @@ describe("the person's own review: on its own, at the top of the reviews (R15)",
 });
 
 describe("the person's own review, while their session is being restored", () => {
-  it("keeps Remove off: there is no one to sign the removal yet", async () => {
-    const ask = vi.fn();
-    const review = parseReview(reviewBy(hex64("a"), 4, "My words"))!;
-    render(
-      <PlacesProvider reader={createMemoryReader([])}>
-        <ScoresProvider readers={() => createMemoryReader([])}>
-          <MemoryRouter>
-            <Reviews
-              score={undefined}
-              mine={review}
-              removal={{ status: "idle", ready: false, ask, keep: vi.fn(), remove: vi.fn() }}
-              house="idle"
-              wide={false}
-              rate={false}
-              now={new Date(NOW_S * 1000)}
-            />
-          </MemoryRouter>
-        </ScoresProvider>
-      </PlacesProvider>,
-    );
-    const remove = within(await yourReview()).getByRole("button", { name: copy.reviews.remove });
+  it("shows under 'Your review' from the kept session, with Remove off: there is no one to sign the removal yet", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 4, "My words"));
+    account.restoring = true;
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH));
+
+    const mine = await yourReview();
+    expect(within(mine).getByText("My words")).toBeInTheDocument();
+    const remove = within(mine).getByRole("button", { name: copy.reviews.remove });
     expect(remove).toHaveAttribute("aria-disabled", "true");
-    await userEvent.setup().click(remove);
-    expect(ask).not.toHaveBeenCalled();
+    await user.click(remove);
+    expect(within(mine).queryByText(copy.reviews.removeQuestion)).not.toBeInTheDocument();
+    // Never among the house's reviews meanwhile.
+    expect(screen.queryByRole("heading", { name: copy.reviews.heading })).not.toBeInTheDocument();
+  });
+});
+
+describe("list cards: the person is never one of the others (R16)", () => {
+  /** The card or row that links to `place`'s page. */
+  const linkTo = (place: Place) => screen.getAllByRole("link").find((link) => link.getAttribute("href") === `/place/${encodeURIComponent(place.d)}`);
+
+  it("says 'You've rated it' on an Explore card where only the person has rated the place, and counts only the others where they have too", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.search.push(reviewBy(me.pubkey, 4, "My words"));
+    await open(world, ["/"]);
+    await waitFor(() => expect(linkTo(JACAFE)).toHaveTextContent(copy.score.youRated));
+    expect(linkTo(JACAFE)).not.toHaveTextContent(copy.score.othersRated(1));
+
+    cleanup();
+    world.search.push(reviewBy(getPublicKey(generateSecretKey()), 2, "Carol's words"));
+    await open(world, ["/"]);
+    await waitFor(() => expect(linkTo(JACAFE)).toHaveTextContent(copy.score.othersRated(1)));
+    expect(linkTo(JACAFE)).not.toHaveTextContent(copy.score.othersRated(2));
+  });
+
+  it("says it on a chain's location row too", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const chain = buildIndexes(parsePlaces(places)).chains.get("PT:a confeitaria coffee & bakery")!;
+    const { lat, lon } = config.defaultCity;
+    const [nearest] = [...chain.places].sort((a, b) => distanceKm(lat, lon, a.lat, a.lon) - distanceKm(lat, lon, b.lat, b.lon));
+    world.search.push(reviewOfPlace(me.pubkey, nearest!, 4, "My words"));
+    await open(world, [`/chain/${chainSlug(chain)}`]);
+    await waitFor(() => expect(linkTo(nearest!)).toHaveTextContent(copy.score.youRated));
+    expect(linkTo(nearest!)).not.toHaveTextContent(copy.score.othersRated(1));
   });
 });
 
@@ -674,6 +864,5 @@ describe("the providers' order (R15)", () => {
     expect(at("<ScoresProvider>")).toBeGreaterThan(-1);
     expect(at("<ScoresProvider>")).toBeLessThan(at("<AccountProvider>"));
     expect(at("</AccountProvider>")).toBeLessThan(at("</ScoresProvider>"));
-    expect(main).toMatch(/ScoresProvider must stay outside AccountProvider/);
   });
 });

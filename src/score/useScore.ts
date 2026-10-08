@@ -139,12 +139,10 @@ export interface ScoreActions {
   /** Reads the reviews of the places asked for again, in place of what was read (`ScoresStore.refresh`). */
   refresh(): void;
   /**
-   * Shows the person's own review, just posted, with the relays that took it, until a read returns it
-   * (`ScoresStore.noteOwnReview`).
+   * Shows the person's own review, just posted, with the relays it was sent to, until a read returns
+   * it (`ScoresStore.noteOwnReview`).
    */
   noteOwnReview(event: NostrEvent, relays?: readonly string[]): void;
-  /** Says where the held review with `eventId` went, as more relays take it (`ScoresStore.noteOwnRelays`). */
-  noteOwnRelays(eventId: string, relays: readonly string[]): void;
   /** Hides the person's review at `address`, removed at `createdAt` (`ScoresStore.noteRemoval`). */
   noteRemoval(address: string, createdAt: number): void;
   /**
@@ -167,7 +165,6 @@ export function useScoreActions(): ScoreActions {
     () => ({
       refresh: store.refresh,
       noteOwnReview: store.noteOwnReview,
-      noteOwnRelays: store.noteOwnRelays,
       noteRemoval: store.noteRemoval,
       ownCoordinates: store.ownCoordinates,
       ownRemovedAt: store.ownRemovedAt,

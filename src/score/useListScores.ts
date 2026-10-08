@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 
+import { useOwnPubkey } from "../account/useOwnPubkey.ts";
 import type { Entry } from "../map/pins.ts";
 import type { PlaceScore } from "./score.ts";
-import { type ShownScore, shownScore } from "./shown.ts";
+import { reviewOf, seenBy, type ShownScore, shownScore } from "./shown.ts";
 import type { HouseState } from "./store.ts";
 import { useScores } from "./useScore.ts";
 
@@ -63,18 +64,21 @@ export function useListScores<E extends Entry>(entries: E[], byScore = false): {
     [entries],
   );
   const { scores, pending, reads, house } = useScores(addresses);
+  const me = useOwnPubkey();
 
   const listScores = useMemo<ListScores>(() => {
-    // Each place's is the same object while its score is (`shownScore`): a card given it is not drawn again.
+    // Each place's is the same object while its score is (`shownScore`, `seenBy`): a card given it is
+    // not drawn again. The person signed in is never one of the others (ruling R16).
     const shown = new Map<string, ShownScore>();
     let anyScored = false;
     for (const address of addresses) {
-      const each = shownScore(scores.get(address), pending.has(address), house, reads.get(address));
+      const score = scores.get(address);
+      const each = seenBy(shownScore(score, pending.has(address), house, reads.get(address)), score, reviewOf(score, me));
       shown.set(address, each);
       if (each.kind === "scored") anyScored = true;
     }
     return { of: (address) => shown.get(address) ?? NONE, anyScored, house };
-  }, [addresses, scores, pending, reads, house]);
+  }, [addresses, scores, pending, reads, house, me]);
 
   const ordered = useMemo(() => (byScore ? byHousePicks(entries, scores) : entries), [byScore, entries, scores]);
   return { entries: ordered, scores: listScores };

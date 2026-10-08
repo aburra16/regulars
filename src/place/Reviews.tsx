@@ -1,4 +1,4 @@
-import { type JSX, type MouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type JSX, type KeyboardEvent, type MouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { copy } from "../copy/en.ts";
 import type { RemoveReview, RemoveStatus } from "../review/useRemoveReview.ts";
@@ -119,13 +119,21 @@ const chipButton =
 /** Edit and Remove under the person's own review: words, 44 px tall, as Rate this place is beside the reviews. */
 const wordButton = "inline-flex min-h-touch shrink-0 cursor-pointer items-center text-[15px] underline";
 
+/** The row under the person's own review: Edit, then Remove, or Keep it in its place once asked. */
+const actionsRow = "flex flex-wrap items-center gap-x-6";
+
 /**
  * The person's own review (ruling R15), under "Your review": as anyone's is drawn, never dimmed, with
- * Edit, which opens the form with it, and Remove, which asks first (`removal`). Asked, it says what
- * removing does, with Remove and Keep it; the focus goes to Keep it, the way out, and back to Remove
- * when they keep it. Removing, the same Remove says so, and when no review relay took it, an alert
- * says so and it becomes Try again: one button throughout, which keeps the focus. A double click on
- * Remove asks, and its second click does not confirm.
+ * Edit, which opens the form with it, and Remove, which asks first (`removal`).
+ *
+ * Asked, Keep it takes Remove's place, in the same row, and the focus goes to it; what removing does,
+ * and the Remove that does it, come after, so that a second quick tap where Remove was keeps the review
+ * rather than removing it (ruling R17). Keep it, or Escape, closes the question and gives the focus back
+ * to Remove; not while it is being removed. Removing, that Remove says so; when no relay took it, an
+ * alert says so, and it becomes Try again: one button throughout, which keeps the focus. When only the
+ * person's own relays took it, it says so, with Try again and nothing to keep it by, nor Edit: it is
+ * gone from their own places already. A double click on Remove asks, and its second click does not
+ * confirm.
  */
 function YourReview({
   review,
@@ -154,12 +162,17 @@ function YourReview({
     else if (status === "idle" && before !== "idle") removeRef.current?.focus();
   }, [status]);
 
-  const asked = status === "asking" || status === "removing" || status === "failed";
+  const asked = status !== "idle" && status !== "removed";
   const removing = status === "removing";
   const confirm = (event: MouseEvent<HTMLButtonElement>) => {
     // The second click of a double click on Remove, which asked: not a yes.
     if (event.detail > 1 || removing) return;
     removal.remove();
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape" || (status !== "asking" && status !== "failed")) return;
+    event.preventDefault();
+    removal.keep();
   };
 
   return (
@@ -168,55 +181,64 @@ function YourReview({
         {copy.reviews.yours}
       </h2>
       <ReviewItem review={review} name={name} now={now} wide={wide} folded={false} />
-      {asked ? (
-        <div role="group" aria-labelledby={questionId} className="flex flex-col gap-3 rounded-card bg-surface p-4">
-          <p id={questionId} className="m-0 max-w-measure text-body leading-[1.45] text-ink">
-            {copy.reviews.removeQuestion}
-          </p>
-          {status === "failed" && (
-            <p role="alert" className="m-0 text-body font-semibold text-accent">
-              {copy.reviews.removeFailed}
-            </p>
-          )}
-          <div className="flex flex-wrap gap-2.5">
-            <button
-              type="button"
-              aria-disabled={removing ? true : undefined}
-              onClick={confirm}
-              className={`${chipButton} border-0 bg-accent-solid text-on-accent`}
-            >
-              {removing ? copy.reviews.removing : status === "failed" ? copy.reviews.removeAgain : copy.reviews.removeConfirm}
-            </button>
-            <button
-              ref={keepRef}
-              type="button"
-              aria-disabled={removing ? true : undefined}
-              onClick={() => {
-                if (!removing) removal.keep();
-              }}
-              className={`${chipButton} border-token border-line-strong bg-ground text-ink`}
-            >
-              {copy.reviews.keep}
-            </button>
+      <div onKeyDown={onKeyDown} className="flex flex-col gap-3">
+        {status !== "partial" && (
+          <div className={actionsRow}>
+            <EditLink className={`${wordButton} font-bold text-accent`} />
+            {asked ? (
+              <button
+                key="keep"
+                ref={keepRef}
+                type="button"
+                aria-describedby={questionId}
+                aria-disabled={removing ? true : undefined}
+                onClick={() => {
+                  if (!removing) removal.keep();
+                }}
+                className={`${chipButton} border-token border-line-strong bg-ground text-ink`}
+              >
+                {copy.reviews.keep}
+              </button>
+            ) : (
+              // Off while a session this tab kept is restored: there is no one to sign the removal yet.
+              <button
+                key="remove"
+                ref={removeRef}
+                type="button"
+                aria-disabled={removal.ready ? undefined : true}
+                onClick={() => {
+                  if (removal.ready) removal.ask();
+                }}
+                className={`${wordButton} border-0 bg-transparent p-0 font-text font-semibold text-muted aria-disabled:cursor-not-allowed aria-disabled:opacity-60`}
+              >
+                {copy.reviews.remove}
+              </button>
+            )}
           </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-x-6">
-          <EditLink className={`${wordButton} font-bold text-accent`} />
-          {/* Off while a session this tab kept is restored: there is no one to sign the removal yet. */}
-          <button
-            ref={removeRef}
-            type="button"
-            aria-disabled={removal.ready ? undefined : true}
-            onClick={() => {
-              if (removal.ready) removal.ask();
-            }}
-            className={`${wordButton} border-0 bg-transparent p-0 font-text font-semibold text-muted aria-disabled:cursor-not-allowed aria-disabled:opacity-60`}
-          >
-            {copy.reviews.remove}
-          </button>
-        </div>
-      )}
+        )}
+        {asked && (
+          <div role="group" aria-labelledby={questionId} className="flex flex-col gap-3 rounded-card bg-surface p-4">
+            <p id={questionId} className="m-0 max-w-measure text-body leading-[1.45] text-ink">
+              {copy.reviews.removeQuestion}
+            </p>
+            {(status === "failed" || status === "partial") && (
+              <p role="alert" className="m-0 text-body font-semibold text-accent">
+                {status === "failed" ? copy.reviews.removeFailed : copy.reviews.removePartial}
+              </p>
+            )}
+            <div>
+              <button
+                type="button"
+                aria-disabled={removing ? true : undefined}
+                onClick={confirm}
+                className={`${chipButton} border-0 bg-accent-solid text-on-accent`}
+              >
+                {removing ? copy.reviews.removing : status === "asking" ? copy.reviews.removeConfirm : copy.reviews.removeAgain}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </section>
   );
 }

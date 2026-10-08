@@ -80,27 +80,43 @@ export function shownScore(
   return shown;
 }
 
+/** What each slot has shown each person who wrote one of the place's reviews, by the review's id: the same object each time. */
+const seenFor = new WeakMap<ShownScore, Map<string, ShownScore>>();
+
+/** The review of `pubkey` among `score`'s, inside House picks or folded; undefined for nobody, or none. */
+export function reviewOf(score: PlaceScore | undefined, pubkey: string | undefined): Review | undefined {
+  if (score === undefined || pubkey === undefined) return undefined;
+  return score.inside.find((review) => review.reviewer === pubkey) ?? score.folded.find((review) => review.reviewer === pubkey);
+}
+
 /**
- * What the slot shows the person who wrote `mine`, one of the place's reviews (`score`'s), on the
- * place's own page: "You've rated it" (`yours`), and the others counted without them (ruling R15). Not
- * whether the house counts their review: they come off the count they are in, inside House picks
- * with no stars, or outside, and the line says the same either way. As it was, with no review of
- * theirs, and for a place with a score, whose line counts no one as "other".
+ * What the slot shows the person who wrote `mine`, one of the place's reviews (`score`'s), on its own
+ * page and on every list's card: "You've rated it" (`yours`), and the others counted without them
+ * (rulings R15, R16). Not whether the house counts their review: they come off the count they are in,
+ * inside House picks with no stars, or outside, and the line says the same either way. As it was, with
+ * no review of theirs, and for a place with a score, whose line counts no one as "other". The same
+ * object each time for the same slot and review, so a card given it need not be drawn again.
  */
 export function seenBy(shown: ShownScore, score: PlaceScore | undefined, mine: Review | undefined): ShownScore {
-  if (mine === undefined || score === undefined) return shown;
-  const isMine = (review: Review) => review.id === mine.id;
-  switch (shown.kind) {
-    case "unscored":
-      return {
-        kind: "unscored",
-        others: shown.others - (score.folded.some(isMine) ? 1 : 0),
-        starless: shown.starless - (score.inside.some(isMine) ? 1 : 0),
-        yours: true,
-      };
-    case "unavailable":
-      return { kind: "unavailable", reviewers: shown.reviewers - 1, yours: true };
-    default:
-      return shown;
+  if (mine === undefined || score === undefined || (shown.kind !== "unscored" && shown.kind !== "unavailable")) return shown;
+  let byReview = seenFor.get(shown);
+  if (byReview === undefined) {
+    byReview = new Map();
+    seenFor.set(shown, byReview);
   }
+  let seen = byReview.get(mine.id);
+  if (seen === undefined) {
+    const isMine = (review: Review) => review.id === mine.id;
+    seen =
+      shown.kind === "unscored"
+        ? {
+            kind: "unscored",
+            others: shown.others - (score.folded.some(isMine) ? 1 : 0),
+            starless: shown.starless - (score.inside.some(isMine) ? 1 : 0),
+            yours: true,
+          }
+        : { kind: "unavailable", reviewers: shown.reviewers - 1, yours: true };
+    byReview.set(mine.id, seen);
+  }
+  return seen;
 }

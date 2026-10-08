@@ -30,7 +30,7 @@ export const PUBLISH_TIMEOUT_MS = 12_000;
 /**
  * A review posted: the signed event, the relays that took it, and what each of the others said. It
  * is posted once a review relay has taken it, and the other relays may not have answered yet: until
- * `settled`, `accepted` and `refused` grow as they do (`onAnswer` says when).
+ * `settled`, `accepted` and `refused` grow as they do.
  */
 export interface Posted {
   event: NostrEvent;
@@ -42,11 +42,9 @@ export interface Posted {
   settled: Promise<void>;
 }
 
-/** How a review is sent: the writer of each relay (the app's own by default), and who to tell of each answer once it is posted. */
+/** How a review is sent: the writer of each relay (the app's own by default). */
 export interface SendOptions {
   writers?: (url: string) => RelayWriter;
-  /** Called with the post each time a relay answers after it is posted: `accepted` or `refused` has grown. */
-  onAnswer?(posted: Posted): void;
 }
 
 /**
@@ -114,16 +112,31 @@ const reasonOf = (error: unknown) => (error instanceof Error || error instanceof
 const sameTag = (a: readonly string[], b: readonly string[] | undefined) =>
   a.length === b?.length && a.every((value, i) => value === b[i]);
 
-/** Whether `tags` begin with `prefix`, tag by tag and value by value: the same tags, or those and more after them. */
-const startsWithTags = (tags: readonly (readonly string[])[], prefix: readonly (readonly string[])[]) =>
-  tags.length >= prefix.length && prefix.every((tag, i) => sameTag(tag, tags[i]));
+/**
+ * The tags a signer may never add: each names a review (`d`), a place or a review's address (`a`), an
+ * event (`e`), a kind (`k`) or a person (`p`). Added to a review, one would file it under another place
+ * too; added to a removal, it would remove more than the person asked to (ruling R17).
+ */
+const NOT_THE_SIGNERS = new Set(["d", "a", "e", "k", "p"]);
+
+/**
+ * Whether `tags` are `asked`, tag by tag and value by value, and then any the signer added: none of a
+ * name `asked` uses, and none of `NOT_THE_SIGNERS`. A tag naming the signer (`["client", …]`) may follow.
+ */
+function asAskedWithTheSigners(tags: readonly (readonly string[])[], asked: readonly (readonly string[])[]): boolean {
+  if (tags.length < asked.length || !asked.every((tag, i) => sameTag(tag, tags[i]))) return false;
+  const names = new Set(asked.map((tag) => tag[0]));
+  return tags.slice(asked.length).every(([name]) => name !== undefined && !names.has(name) && !NOT_THE_SIGNERS.has(name));
+}
 
 /**
  * Whether `signed` is what `template` asked for, signed: the same kind, time and words, and the same
  * tags, in order, before any the signer adds after them (some add one naming themselves, such as
- * `["client", …]`: ruling R15). Its id, key and signature are the signer's to add too. A signer that
- * changes the time would undo the order of a person's edits (`reviewStamp`); one that changes or
- * leaves out a tag, or puts one before them, what they wrote.
+ * `["client", …]`: ruling R15), so long as an added one changes nothing the template says
+ * (`asAskedWithTheSigners`, ruling R17). Its id, key and signature are the signer's to add too. A
+ * signer that changes the time would undo the order of a person's edits (`reviewStamp`); one that
+ * changes or leaves out a tag, puts one before them, or adds one that names something, what they
+ * wrote, or what they removed.
  */
 function isSigned(signed: unknown, template: EventTemplate): signed is NostrEvent {
   const event = asEvent(signed);
@@ -132,7 +145,7 @@ function isSigned(signed: unknown, template: EventTemplate): signed is NostrEven
     event.kind === template.kind &&
     event.created_at === template.created_at &&
     event.content === template.content &&
-    startsWithTags(event.tags, template.tags)
+    asAskedWithTheSigners(event.tags, template.tags)
   );
 }
 
@@ -159,7 +172,7 @@ async function sendTo(
  * way, without asking for it to be signed again). It is posted as soon as a review relay
  * (`config.reviewRelays`, however written) takes it: that is where Regulars reads it from, and the
  * person's own relays alone are not (ruling R13). The others go on: they have `PUBLISH_TIMEOUT_MS`
- * from the start, all together, and `onAnswer` hears of each answer after the review is posted.
+ * from the start, all together, and what they say is added to the post as they say it.
  * `signal` stops the sending until the review is posted; once it is, only that time does, so a
  * person who goes back to the place does not cut their own relays off.
  *
@@ -168,7 +181,7 @@ async function sendTo(
  * reason when `signal` aborts before it is posted.
  */
 export function sendReview(event: NostrEvent, relays: readonly string[], signal: AbortSignal, opts: SendOptions = {}): Promise<Posted> {
-  const { writers = appWriters, onAnswer } = opts;
+  const { writers = appWriters } = opts;
   if (signal.aborted) return Promise.reject(signal.reason);
   if (relays.length === 0) return Promise.reject(new NotPosted({}, [], event));
 
@@ -205,8 +218,6 @@ export function sendReview(event: NostrEvent, relays: readonly string[], signal:
         posted = { event, accepted, refused, settled };
         signal.removeEventListener("abort", onAbort);
         resolve(posted);
-      } else if (posted !== undefined) {
-        onAnswer?.(posted);
       }
       waiting -= 1;
       if (waiting > 0) return;

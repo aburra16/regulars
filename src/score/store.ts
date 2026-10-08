@@ -74,7 +74,7 @@ type Readers = (url: string) => RelayReader;
  */
 export const HELD_REVIEWS_KEY = "regulars.heldReviews";
 
-/** One of the person's own reviews, held: the signed event, and the relays that took it. */
+/** One of the person's own reviews, held: the signed event, and the relays it was sent to. */
 interface Held {
   event: NostrEvent;
   relays: readonly string[];
@@ -239,7 +239,8 @@ export interface ReviewCoordinate {
   createdAt: number;
   /**
    * Where it was sent, for a review the person posted this session that the relays have not sent back
-   * yet: the relays that took it, which its removal goes to too (Task 7). Absent for one read.
+   * yet: every relay it was sent to, those that took it and those that did not say (one may have kept
+   * it all the same), which its removal goes to too (Task 7, ruling R17). Absent for one read.
    */
   relays?: readonly string[];
 }
@@ -555,7 +556,7 @@ export class ScoresStore {
 
   /**
    * Shows `event`, the person's own review just posted, before the relays send it back, with the
-   * `relays` that took it. It is held, and kept for this tab, until a read returns it (or a newer
+   * `relays` it was sent to. It is held, and kept for this tab, until a read returns it (or a newer
    * review at its `d`), until it is removed, or until the person signs out (`forgetHeld`).
    */
   readonly noteOwnReview = (event: NostrEvent, relays: readonly string[] = []): void => {
@@ -568,20 +569,6 @@ export class ScoresStore {
     keepHeld(this.#own.values());
     this.#changed("reviews");
     this.#weigh();
-  };
-
-  /**
-   * Says where the held review with id `eventId` went, now: `relays`, which more of them have taken
-   * since it was posted (they answer after the first review relay does). Nothing for a review not held,
-   * or held no longer (the relays have sent it back).
-   */
-  readonly noteOwnRelays = (eventId: string, relays: readonly string[]): void => {
-    for (const [key, held] of this.#own) {
-      if (held.event.id !== eventId) continue;
-      this.#own.set(key, { event: held.event, relays: [...relays] });
-      keepHeld(this.#own.values());
-      return;
-    }
   };
 
   /**

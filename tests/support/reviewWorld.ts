@@ -8,6 +8,7 @@ import { config } from "../../src/config";
 import { copy } from "../../src/copy/en";
 import type { RelayReader, RelayWriter } from "../../src/nostr/events";
 import { parsePlaces } from "../../src/places/load";
+import type { Place } from "../../src/places/place";
 import { REVIEW_KIND } from "../../src/reviews/review";
 import { HELD_REVIEWS_KEY } from "../../src/score/store";
 import raw from "../fixtures/funchal-items.json";
@@ -53,20 +54,24 @@ export const profileOf = (pubkey: string, name: string) => shapedEvent({ kind: 0
 /** `pubkey`'s relay list (kind 10002), writing to `urls`. */
 export const listOf = (pubkey: string, urls: string[]) => shapedEvent({ kind: 10002, pubkey, tags: urls.map((url) => ["r", url]) });
 
-/** `reviewer`'s review of Jacafé, as the app writes them; `stars` null for one with none. */
-export const reviewBy = (reviewer: string, stars: number | null, text: string, createdAt = NOW_S - 86_400) =>
+/** `reviewer`'s review of `place`, as the app writes them; `stars` null for one with none. */
+export const reviewOfPlace = (reviewer: string, place: Place, stars: number | null, text: string, createdAt = NOW_S - 86_400) =>
   shapedEvent({
     kind: REVIEW_KIND,
     pubkey: reviewer,
     created_at: createdAt,
     content: text,
     tags: [
-      ["d", `place:${JACAFE.address}`],
-      ["a", JACAFE.address],
+      ["d", `place:${place.address}`],
+      ["a", place.address],
       ["m", "place"],
       ...(stars === null ? [] : [["s", String(stars)]]),
     ],
   });
+
+/** `reviewer`'s review of Jacafé, as the app writes them; `stars` null for one with none. */
+export const reviewBy = (reviewer: string, stars: number | null, text: string, createdAt = NOW_S - 86_400) =>
+  reviewOfPlace(reviewer, JACAFE, stars, text, createdAt);
 
 /**
  * What the relays hold, each a list the test may change between reads: the search relay's reviews

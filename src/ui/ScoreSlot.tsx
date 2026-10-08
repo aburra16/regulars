@@ -44,8 +44,9 @@ export function ScoreFigure({ id, score, size }: { id: string; score: number; si
  * the trust colour ("Rated by 3 people the house trusts"); or, in the muted one, why a place with
  * reviews has none (people the house trusts reviewed it without stars, or only others rated it), how
  * many have rated it while House picks can't be worked out, that its reviews are being counted, or
- * that they couldn't be loaded. Nothing for a place nobody has reviewed, which each list says its own
- * way, nor while its reviews are being read.
+ * that they couldn't be loaded. For the person signed in who has rated it (`yours`), the others
+ * without them, or "You've rated it" when there are none (ruling R16). Nothing for a place nobody has
+ * reviewed, which each list says its own way, nor while its reviews are being read.
  */
 export function whoLine(shown: ShownScore): { text: string; house: boolean } | undefined {
   switch (shown.kind) {
@@ -53,9 +54,11 @@ export function whoLine(shown: ShownScore): { text: string; house: boolean } | u
       return { text: copy.score.ratedByHouse(shown.counted), house: true };
     case "unscored":
       if (shown.starless > 0) return { text: copy.score.starless(shown.starless), house: false };
+      if (shown.yours && shown.others === 0) return { text: copy.score.youRated, house: false };
       return { text: copy.score.othersRated(shown.others), house: false };
     case "unavailable":
-      return { text: copy.score.peopleRated(shown.reviewers), house: false };
+      if (!shown.yours) return { text: copy.score.peopleRated(shown.reviewers), house: false };
+      return { text: shown.reviewers > 0 ? copy.score.othersRated(shown.reviewers) : copy.score.youRated, house: false };
     case "pending":
       return { text: copy.score.counting, house: false };
     case "failed":

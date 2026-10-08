@@ -1,8 +1,7 @@
-import { type JSX, useMemo, useState } from "react";
+import { type JSX, useEffect, useMemo, useRef } from "react";
 import { Link, useLocation, useOutlet, useParams } from "react-router-dom";
 
-import { useAccount } from "../account/AccountProvider.tsx";
-import { readSession } from "../account/session.ts";
+import { useOwnPubkey } from "../account/useOwnPubkey.ts";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
@@ -286,24 +285,34 @@ interface View {
 
 /**
  * The reviews, once the place's score is worked out and it has some; and the person's own, as soon as
- * it is there, while the others are counted too (ruling R15). Nothing when there are none.
+ * it is there, while the others are counted too (ruling R15). Nothing when there are none, but where
+ * the person's has just been removed: the focus, which was on the button that removed it, comes here
+ * then, where it was, and not to the page, nor anywhere that would scroll it (ruling R17).
  */
 function PlaceReviews({ view, wide, className = "" }: { view: View; wide: boolean; className?: string }): JSX.Element | null {
   const { shown, score, mine, removal, house, now } = view;
+  const reviewsRef = useRef<HTMLDivElement>(null);
+  const removed = removal.status === "removed";
+  useEffect(() => {
+    if (removed) reviewsRef.current?.focus({ preventScroll: true });
+  }, [removed]);
   const listed = score !== undefined && (shown.kind === "scored" || shown.kind === "unscored" || shown.kind === "unavailable");
-  if (!listed && mine === undefined) return null;
+  const any = listed || mine !== undefined;
+  if (!any && !removed) return null;
   return (
-    <div className={className}>
+    <div ref={reviewsRef} tabIndex={-1} className={`outline-none ${any ? className : ""}`}>
       {/* On a phone, "Rate this place" goes beside the reviews' heading when the panel, with its score, has no button. */}
-      <Reviews
-        score={listed ? score : undefined}
-        mine={mine}
-        removal={removal}
-        house={house}
-        wide={wide}
-        rate={!wide && shown.kind === "scored"}
-        now={now}
-      />
+      {any && (
+        <Reviews
+          score={listed ? score : undefined}
+          mine={mine}
+          removal={removal}
+          house={house}
+          wide={wide}
+          rate={!wide && shown.kind === "scored"}
+          now={now}
+        />
+      )}
     </div>
   );
 }
@@ -413,9 +422,7 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
   const { refresh } = useScoreActions();
   // The review of the person signed in, which the page shows on its own (ruling R15). While a session
   // this tab kept is restored, theirs is known from it, so that it does not move once they are signed in.
-  const { account, restoring } = useAccount();
-  const [kept] = useState(() => readSession()?.pubkey);
-  const me = account?.pubkey ?? (restoring ? kept : undefined);
+  const me = useOwnPubkey();
   const mine = me === undefined ? undefined : reviews.find((review) => review.reviewer === me);
   const removal = useRemoveReview(place, mine);
   const { scores: nearbyScores } = useListScores(nearby);

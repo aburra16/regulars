@@ -44,15 +44,29 @@ import {
  */
 
 /**
- * Makes a step back in the history land a moment later, as a browser's does (its page changes on the
- * popstate that follows): the memory router's lands at once, before anything else can happen.
+ * Holds each step back in the history until the test lets it land (`land`), as a browser's lands
+ * later, on the popstate that follows: the memory router's lands at once, before anything else can
+ * happen. `held` says how many steps back were asked for and are waiting.
  */
 function backLikeABrowser(router: Awaited<ReturnType<typeof open>>["router"]) {
   const navigate = router.navigate.bind(router);
+  const waiting: (() => Promise<void>)[] = [];
   router.navigate = ((to: Parameters<typeof navigate>[0], opts?: Parameters<typeof navigate>[1]) =>
     typeof to === "number"
-      ? new Promise<void>((resolve) => setTimeout(() => resolve(navigate(to)), 0))
+      ? new Promise<void>((resolve) => {
+          waiting.push(() => navigate(to).then(resolve));
+        })
       : navigate(to, opts)) as typeof router.navigate;
+  return {
+    get held() {
+      return waiting.length;
+    },
+    /** Lets every step back held so far land, one after another, as their popstates would. */
+    land: () =>
+      act(async () => {
+        for (const go of waiting.splice(0)) await go();
+      }),
+  };
 }
 
 beforeEach(() => {
@@ -313,7 +327,7 @@ describe("posting a review", () => {
     expect(sent!.tags.find((tag) => tag[0] === "s")?.[1]).toBe(expected.stars);
   });
 
-  it("goes back to the place once the review relay takes it, and adds a slower relay to where it went when that one does", async () => {
+  it("goes back to the place once the review relay takes it, holding every relay it was sent to, answered or not (R17)", async () => {
     const world = newWorld();
     const me = signedIn(world);
     world.directory.push(listOf(me.pubkey, [OWN]));
@@ -326,12 +340,11 @@ describe("posting a review", () => {
     await reviewingAs(me.name);
     await user.click((await starButtons())[3]!);
     await user.click(postButton());
-    // Back at the place while the person's own relay has not answered.
+    // Back at the place while the person's own relay has not answered: it may still keep the review,
+    // so a removal goes there too.
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
-    expect(heldRelays()).toEqual(new Set([SEARCH]));
-
+    expect(heldRelays()).toEqual(new Set([SEARCH, OWN]));
     answer();
-    await waitFor(() => expect(heldRelays()).toEqual(new Set([SEARCH, OWN])));
   });
 
   it("says it didn't post when there is nowhere to send it, and asks nobody to sign", async () => {
@@ -782,14 +795,14 @@ describe("on a phone: a page of its own (Review.dc.html)", () => {
     const { router } = await open(world, fromExplore(PLACE_PATH));
     await user.click(await rateLink(world));
     const back = await screen.findByRole("link", { name: copy.review.back });
-    backLikeABrowser(router);
+    const history = backLikeABrowser(router);
 
     await act(async () => {
       fireEvent.click(back);
       fireEvent.click(back);
     });
-    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(history.held).toBe(1);
+    await history.land();
     expect(router.state.location.pathname).toBe(PLACE_PATH);
     expect(router.state.historyAction).toBe("POP");
   });
@@ -806,16 +819,16 @@ describe("on a phone: a page of its own (Review.dc.html)", () => {
     await user.click((await starButtons())[3]!);
     await user.click(postButton());
     await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
-    backLikeABrowser(router);
+    const history = backLikeABrowser(router);
 
-    // Back, and the review relay takes the review before the page has left the form.
-    await act(async () => {
-      fireEvent.click(screen.getByRole("link", { name: copy.review.back }));
-      answer();
-      for (let i = 0; i < 10; i++) await Promise.resolve();
-    });
-    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    // Back, and the review relay takes the review before the page has left the form: it is posted
+    // (held for the tab), and that asks for no second step back.
+    fireEvent.click(screen.getByRole("link", { name: copy.review.back }));
+    expect(history.held).toBe(1);
+    answer();
+    await waitFor(() => expect(heldText()).not.toBeNull());
+    expect(history.held).toBe(1);
+    await history.land();
     expect(router.state.location.pathname).toBe(PLACE_PATH);
     expect(router.state.historyAction).toBe("POP");
   });

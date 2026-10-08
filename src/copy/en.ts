@@ -307,7 +307,13 @@ export const copy = {
     /** No review relay took the removal: the review stays, and says so (a state the design does not draw). */
     removeFailed: "Your review didn't come off. Try again.",
     // DRAFT for Avi
-    /** The button that removes it again, after that. */
+    /**
+     * Only the person's own relays took the removal, not the ones Regulars reads reviews from (ruling
+     * R17): it is gone from their places, and still on Regulars. There is no keeping it then.
+     */
+    removePartial: "Removed from your own places, but not from Regulars yet. Try again.",
+    // DRAFT for Avi
+    /** The button that removes it again, after either. */
     removeAgain: "Try again",
     // DRAFT for Avi
     /**

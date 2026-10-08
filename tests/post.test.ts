@@ -64,13 +64,8 @@ function writersOver(relays: Record<string, MemoryWriter>): (url: string) => Rel
 /** The review the tests post: Jacafé, 4 stars, "Get the bolo", at a fixed time. */
 const template = () => reviewTemplate(JACAFE, 4, "Get the bolo", 1_800_000_000);
 
-const run = (
-  relays: string[],
-  writers: (url: string) => RelayWriter,
-  signal = new AbortController().signal,
-  by = signer(),
-  onAnswer?: (posted: Posted) => void,
-) => postReview(template(), by, relays, signal, { writers, onAnswer });
+const run = (relays: string[], writers: (url: string) => RelayWriter, signal = new AbortController().signal, by = signer()) =>
+  postReview(template(), by, relays, signal, { writers });
 
 afterEach(() => {
   vi.useRealTimers();
@@ -151,6 +146,23 @@ describe("postReview", () => {
   });
 
   it.each([
+    ["a second a, filing the review under another place too", ["a", "39999:other:place"]],
+    ["a d", ["d", "place:39999:other:place"]],
+    ["an e", ["e", "f".repeat(64)]],
+    ["a k", ["k", "1"]],
+    ["a p", ["p", "f".repeat(64)]],
+    ["another of a name the review uses", ["s", "5"]],
+  ])("is not posted, and nothing is sent, when the signer appends %s (R17)", async (_, tag) => {
+    const by = signer();
+    by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
+      finalizeEvent({ ...asked, tags: [...asked.tags, tag] }, KEY),
+    );
+    const search = createMemoryWriter();
+    await expect(run([SEARCH], writersOver({ [SEARCH]: search }), undefined, by)).rejects.toBeInstanceOf(NotPosted);
+    expect(search.published).toEqual([]);
+  });
+
+  it.each([
     ["puts a tag before the review's own", (tags: string[][]) => [["client", "x"], ...tags]],
     ["leaves one of the review's tags out", (tags: string[][]) => tags.slice(0, -1)],
     ["changes the value of one", (tags: string[][]) => tags.map((tag) => (tag[0] === "s" ? ["s", "5"] : tag))],
@@ -186,11 +198,8 @@ describe("postReview", () => {
     vi.useFakeTimers();
     const search = createMemoryWriter();
     const own = createMemoryWriter({ delayMs: 5_000 });
-    const answers: string[][] = [];
     let outcome: Posted | undefined;
-    void run([SEARCH, OWN], writersOver({ [SEARCH]: search, [OWN]: own }), undefined, undefined, (posted) => {
-      answers.push([...posted.accepted]);
-    }).then((posted) => {
+    void run([SEARCH, OWN], writersOver({ [SEARCH]: search, [OWN]: own })).then((posted) => {
       outcome = posted;
     });
 
@@ -198,12 +207,10 @@ describe("postReview", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(outcome).toBeDefined();
     expect(outcome!.accepted).toEqual([SEARCH]);
-    expect(answers).toEqual([]);
 
-    // It answers later: what it said is added, and the caller is told.
+    // It answers later: what it said is added.
     await vi.advanceTimersByTimeAsync(5_000);
     expect(outcome!.accepted).toEqual([SEARCH, OWN]);
-    expect(answers).toEqual([[SEARCH, OWN]]);
     await outcome!.settled;
   });
 
@@ -430,6 +437,36 @@ describe("removeReview (NIP-09)", () => {
     expect(error).toBeInstanceOf(NotPosted);
     expect(error.accepted).toEqual([OWN]);
     expect(error.event).toMatchObject({ kind: 5, pubkey: PUBKEY });
+  });
+
+  it("is not removed, and nothing is sent, when the signer widens the removal with an e or an a of its own (R17)", async () => {
+    for (const tag of [
+      ["e", "3".repeat(64)],
+      ["a", `34259:${PUBKEY}:place:39999:other:place`],
+    ]) {
+      const by = signer();
+      by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
+        finalizeEvent({ ...asked, tags: [...asked.tags, tag] }, KEY),
+      );
+      const search = createMemoryWriter();
+      await expect(
+        removeReview(reviews, { pubkey: PUBKEY, signer: by }, [SEARCH], 1_800_000_500, new AbortController().signal, {
+          writers: writersOver({ [SEARCH]: search }),
+        }),
+      ).rejects.toBeInstanceOf(NotPosted);
+      expect(search.published).toEqual([]);
+    }
+  });
+
+  it("is removed with a tag naming the signer appended, such as client", async () => {
+    const by = signer();
+    by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
+      finalizeEvent({ ...asked, tags: [...asked.tags, ["client", "x"]] }, KEY),
+    );
+    const removed = await removeReview(reviews, { pubkey: PUBKEY, signer: by }, [SEARCH], 1_800_000_500, new AbortController().signal, {
+      writers: writersOver({ [SEARCH]: createMemoryWriter() }),
+    });
+    expect(removed.event.tags.at(-1)).toEqual(["client", "x"]);
   });
 
   it("asks nobody to sign when there is nothing to remove, or nowhere to send it", async () => {

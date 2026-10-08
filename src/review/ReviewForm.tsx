@@ -183,7 +183,7 @@ const PHONE_POST =
 export function ReviewForm({ place, wide, onPosted }: { place: Place; wide: boolean; onPosted(): void }): JSX.Element {
   const { account, restoring } = useAccount();
   const { readers, writers } = useRelays();
-  const { noteOwnReview, noteOwnRelays, ownCoordinates, ownRemovedAt } = useScoreActions();
+  const { noteOwnReview, ownCoordinates, ownRemovedAt } = useScoreActions();
   const { reviews } = useScore(place.address);
   const navigate = useNavigate();
   const location = useLocation();
@@ -246,27 +246,22 @@ export function ReviewForm({ place, wide, onPosted }: { place: Place; wide: bool
     /** Where it is sent, and where it was taken already (by an earlier try). */
     let relays: readonly string[] = [];
     const before = resend ? again.accepted : [];
-    /** Whether it is held yet: relays that take it after that add to where it went. */
-    let held = false;
-    const onAnswer = (posted: Posted) => {
-      if (held) noteOwnRelays(posted.event.id, [...before, ...posted.accepted]);
-    };
     try {
       let posted: Posted;
       if (resend) {
         relays = again.relays;
-        posted = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers, onAnswer });
+        posted = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers });
       } else {
         unposted.current = null;
         relays = await whereToPost(account.pubkey, account.signer, readers, signal);
         const now = Math.floor(Date.now() / 1000);
         const stamp = reviewStamp(now, ownCoordinates(account.pubkey, place.address), ownRemovedAt(account.pubkey, place.address));
-        posted = await postReview(reviewTemplate(place, stars, words, stamp), account.signer, [...relays], signal, { writers, onAnswer });
+        posted = await postReview(reviewTemplate(place, stars, words, stamp), account.signer, [...relays], signal, { writers });
       }
       unposted.current = null;
-      // Held with where it went, so that removing it goes there too (Task 7); the relays still sending add to it.
-      noteOwnReview(posted.event, [...before, ...posted.accepted]);
-      held = true;
+      // Held with every relay it was sent to, so that removing it goes there too: one that has not
+      // answered yet, or did not in time, may keep it all the same (Task 7, ruling R17).
+      noteOwnReview(posted.event, relays);
       onPosted();
     } catch (error) {
       if (signal.aborted) return;
