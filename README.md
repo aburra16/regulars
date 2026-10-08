@@ -9,6 +9,7 @@ Regulars is a reference app for the Food and Drink Places list: 7,954 places pub
 - `handoff/`: the design handoff, unchanged. Start with `handoff/START_HERE.md`.
 - `docs/decisions.md`: decisions made after the handoff. Where it differs from the handoff brief, it wins.
 - `docs/plans/`: implementation plans.
+- `docs/m1-handover.md`: where M1 stands, what needs Avi, and the rulings made while building it.
 - `src/`: the app. `tests/`: its tests. `tools/notices.ts`: the build step that writes the third-party notices.
 
 ## Develop
