@@ -82,11 +82,23 @@ describe("styles", () => {
     expect(indexCss).toContain(tokensCss.trim());
   });
 
-  it("puts Noto Sans JP before the generic fallbacks so Japanese place names use it", () => {
-    expect(indexCss).toMatch(
-      /--font-display:\s*'Bricolage Grotesque Variable', 'Bricolage Grotesque', 'Noto Sans', 'Noto Sans JP', sans-serif;/,
-    );
-    expect(indexCss).toMatch(/--font-text:\s*'Figtree', 'Noto Sans', 'Noto Sans JP', system-ui, sans-serif;/);
+  it("puts a Noto Sans for each script of the places' names before the generic fallbacks, so those names use it", () => {
+    const scripts = "'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans Thai', 'Noto Sans Lao', 'Noto Sans Arabic'";
+    expect(indexCss).toContain(`--font-display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', ${scripts}, sans-serif;`);
+    expect(indexCss).toContain(`--font-text: 'Figtree', ${scripts}, system-ui, sans-serif;`);
+  });
+
+  it("loads each script's face at 400 and 700 only, by unicode-range, so a page downloads it only for a name that needs it", () => {
+    const main = read("src/main.tsx");
+    for (const family of ["noto-sans-jp", "noto-sans-kr", "noto-sans-thai", "noto-sans-lao", "noto-sans-arabic"]) {
+      const imported = [...main.matchAll(new RegExp(`import "@fontsource/${family}/([^"]+)";`, "g"))].map(([, file]) => file);
+      expect(imported, family).toEqual(["400.css", "700.css"]);
+      for (const file of imported) {
+        const faces = read(`node_modules/@fontsource/${family}/${file}`).split("@font-face").slice(1);
+        expect(faces.length).toBeGreaterThan(0);
+        for (const face of faces) expect(face).toMatch(/unicode-range:/);
+      }
+    }
   });
 
   it("draws the display face from its variable font, with the optical-size axis the screens use", () => {

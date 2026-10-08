@@ -9,8 +9,18 @@ import "@fontsource/figtree/700.css";
 import "@fontsource/noto-sans/400.css";
 import "@fontsource/noto-sans/600.css";
 import "@fontsource/noto-sans/700.css";
+// A Noto Sans for each script the places' names are in, beyond what Noto Sans has: each face
+// declares the characters it covers (unicode-range), so a page downloads one only for a name in it.
 import "@fontsource/noto-sans-jp/400.css";
 import "@fontsource/noto-sans-jp/700.css";
+import "@fontsource/noto-sans-kr/400.css";
+import "@fontsource/noto-sans-kr/700.css";
+import "@fontsource/noto-sans-thai/400.css";
+import "@fontsource/noto-sans-thai/700.css";
+import "@fontsource/noto-sans-lao/400.css";
+import "@fontsource/noto-sans-lao/700.css";
+import "@fontsource/noto-sans-arabic/400.css";
+import "@fontsource/noto-sans-arabic/700.css";
 import "./styles/index.css";
 
 import { StrictMode } from "react";

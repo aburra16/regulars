@@ -9,6 +9,7 @@ const SCRIPTS: ReadonlyArray<readonly [lang: string, script: RegExp]> = [
   // Han with no kana and no Hangul: Chinese is the likeliest, though kanji-only Japanese names exist.
   ["zh", /\p{Script=Han}/u],
   ["th", /\p{Script=Thai}/u],
+  ["lo", /\p{Script=Lao}/u],
   ["ar", /\p{Script=Arabic}/u],
   ["ru", /\p{Script=Cyrillic}/u],
 ];

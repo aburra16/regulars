@@ -13,6 +13,7 @@ describe("scriptLang", () => {
     ["Hangul", "서울식당", "ko"],
     ["Hangul with Han", "서울 食堂", "ko"],
     ["Thai", "ร้านอาหารไทย", "th"],
+    ["Lao", "ຮ້ານອາຫານລາວ", "lo"],
     ["Arabic", "مطعم الأصالة", "ar"],
     ["Cyrillic", "Ресторан Берёзка", "ru"],
     ["Latin", "Restaurante Tradicional Madeirense", undefined],
