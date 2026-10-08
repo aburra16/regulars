@@ -49,6 +49,11 @@ interface Config {
   houseHex: string;
   headerCoordinate: string;
   placesRelay: string;
+  /**
+   * Where the places are near when nothing else says: no town picked, the device's location not
+   * already allowed, and no town in the device's time zone or its language's country
+   * (docs/decisions.md #24; src/location/guess.ts). `radiusKm` is how far "near" reaches, wherever that is.
+   */
   defaultCity: { name: "Funchal"; lat: number; lon: number; radiusKm: number };
   /** From VITE_MAPTILER_KEY; undefined when unset, so there is no map. */
   mapTilerKey: string | undefined;

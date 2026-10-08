@@ -14,8 +14,10 @@ export function LocationNotice({ className }: { className?: string }): JSX.Eleme
   const here = useHere();
   let text: string | undefined;
   if (here.denied) {
-    // The places are still where they were: the default city, a city the person picked, or where they had been found.
-    text = copy.location.denied(here.source === "device" ? copy.location.lastKnown : here.label);
+    // The places are still where they were: a city the person picked, where they had been found,
+    // the town guessed from the device's time zone or language, or the default city. While that
+    // town is not known yet (`settling`), the line waits for it rather than name another.
+    if (here.settling !== true) text = copy.location.denied(here.source === "device" ? copy.location.lastKnown : here.label);
   } else if (here.unavailable) {
     text = copy.location.unavailable;
   }

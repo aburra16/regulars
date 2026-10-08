@@ -166,8 +166,8 @@ const chipsGroup = () => screen.getByRole("group", { name: copy.explore.filtersL
 const chip = (name: string | RegExp) => within(chipsGroup()).getByRole("button", { name });
 
 /** The rows the page should list for a search, worked out from the indexes and the clock alone. */
-function listed(q: string, keep: (place: Place) => boolean = () => true, radiusKm = 25): string[] {
-  const found = idx.search(q, { lat: HERE.lat, lon: HERE.lon, radiusKm }).filter((each) => keep(each.place));
+function listed(q: string, keep: (place: Place) => boolean = () => true, radiusKm = 25, from: { lat: number; lon: number } = HERE): string[] {
+  const found = idx.search(q, { lat: from.lat, lon: from.lon, radiusKm }).filter((each) => keep(each.place));
   return groupForList(found, idx).map((entry) => ("chain" in entry ? entry.chain.name : entry.place.name));
 }
 const isClosed = (candidate: Place) => openState(candidate, MORNING).kind === "closed";
@@ -1299,7 +1299,9 @@ describe("Search: the filters that are on", () => {
     vi.spyOn(navigator, "language", "get").mockReturnValue("pt-PT");
     await openSearch("/search?within=5&kinds=cafes");
     expect(chip("Within 5 km")).toBeInTheDocument();
-    expect(names()).toEqual(listed("", (each) => kindOf(each.category).family === "cafes", 5));
+    // In Portuguese for Portugal, and in no town's time zone, the list starts at Portugal's town with the most places.
+    const start = idx.cities.find((town) => town.country === "PT")!;
+    expect(names()).toEqual(listed("", (each) => kindOf(each.category).family === "cafes", 5, start));
   });
 
   it("counts a chain only for the locations that pass", async () => {

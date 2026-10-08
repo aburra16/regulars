@@ -8,8 +8,19 @@ export interface Here {
   label: string;
   lat: number;
   lon: number;
-  /** Where it came from: the app's default city, a city the person picked, or the device. */
-  source: "default" | "city" | "device";
+  /**
+   * Where it came from: a city the person picked, the device, the town guessed from the device's
+   * time zone or language when there is neither (`guess.ts`), or the app's default city when
+   * nothing could be guessed.
+   */
+  source: "default" | "city" | "device" | "guess";
+  /**
+   * Where to start is not known yet: no town was picked, and the towns to guess from have not
+   * loaded, or the device the browser already allows is answering (for `DEVICE_WAIT_MS` at most).
+   * Until it is known, nothing shows `label`, `lat` and `lon`: the pages that list places wait,
+   * and the header names no town but offers "Use my location". Absent: false.
+   */
+  settling?: boolean;
   /** The person said no to the device's location. The place shown is the one it was before. */
   denied?: boolean;
   /** The device's location could not be found, and it was not a no. The place shown is the one it was before. */
@@ -21,7 +32,8 @@ export interface Here {
 export type HereValue = Here & {
   /**
    * Asks the browser for the device's location. Call it when the person asks, never on load: the
-   * browser asks them for permission. The answer comes later, as a new `Here`.
+   * browser asks them for permission. The answer comes later, as a new `Here`. (On load the
+   * provider looks only when the browser already allows it, so nobody is asked then.)
    */
   useDevice(): void;
   /** Moves to a city and keeps it on this device. */
@@ -46,8 +58,36 @@ export const HERE_STORAGE_KEY = "regulars.here";
 /** What to ask the browser for: an answer within ten seconds, from a position up to five minutes old. */
 export const DEVICE_OPTIONS = { timeout: 10_000, maximumAge: 300_000 } as const;
 
+/**
+ * What to ask for on load, when the browser already allows it and the person did not ask: an
+ * answer within five seconds. The guess is on screen by then, so a slow fix moves it only so late.
+ */
+export const QUIET_DEVICE_OPTIONS = { timeout: 5_000, maximumAge: 300_000 } as const;
+
+/**
+ * How long, at most, the pages wait on load for the device the browser already allows, before
+ * they show the guess: long enough for a recent or quick fix, so the list opens near the person.
+ */
+export const DEVICE_WAIT_MS = 1_500;
+
 /** The code of a `GeolocationPositionError` for a person who said no. */
 export const PERMISSION_DENIED = 1;
+
+/**
+ * Whether the browser already lets the page have the device's location, so that asking for it
+ * shows the person no prompt. False when it would ask them, when they said no, and when it cannot
+ * say: no Permissions API, or one that does not know this permission (an older Safari).
+ */
+export async function locationAllowed(): Promise<boolean> {
+  try {
+    const permissions = (navigator as Partial<Navigator>).permissions;
+    if (permissions === undefined) return false;
+    const status = await permissions.query({ name: "geolocation" });
+    return status.state === "granted";
+  } catch {
+    return false;
+  }
+}
 
 /** Whether the numbers are a place on Earth. */
 export function isPlaceOnEarth(lat: unknown, lon: unknown): boolean {

@@ -826,7 +826,8 @@ export const copy = {
     count: (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "place" : "places"}`,
     /**
      * The person said no to the device's location. `near` is where the places are, still: the
-     * default city, or the one they picked, or `lastKnown` when they had been found before.
+     * town guessed from the device's time zone, the default city, or the one they picked, or
+     * `lastKnown` when they had been found before.
      */
     denied: (near: string) =>
       `Location is off, so we're showing places near ${near}. Pick a city, or turn on location in your browser settings.`,

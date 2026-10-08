@@ -49,9 +49,9 @@ function CloseIcon() {
   );
 }
 
-function LocateIcon() {
+function LocateIcon({ size = 20 }: { size?: number }) {
   return (
-    <svg {...icon} width="20" height="20" className="shrink-0 text-you-are-here">
+    <svg {...icon} width={size} height={size} className="shrink-0 text-you-are-here">
       <circle cx="12" cy="12" r="3.2" />
       <circle cx="12" cy="12" r="7.5" />
       <path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5" />
@@ -274,8 +274,10 @@ export function HereCityPicker({ onClose }: { onClose(): void }): JSX.Element {
  * "Near Funchal ˅": where the places are near, as a button that opens the picker. The pick
  * moves every screen below the `HereProvider`. "Use my location" asks the browser, and while it
  * has not answered the button reads "Finding your location…"; if it says no or cannot,
- * `LocationNotice` says why. `plain` is the control at the top of the phone's Explore; `pill`
- * sits at the end of the desktop search field, with the pin and no chevron.
+ * `LocationNotice` says why. While where to start is not known yet (`Here.settling`: no town
+ * picked, and the places the town is guessed from loading) it has no town to name, and offers
+ * "Use my location" alone, which asks the browser in one tap. `plain` is the control at the top
+ * of the phone's Explore; `pill` sits at the end of the desktop search field, with the pin and no chevron.
  */
 export function NearButton({ variant = "plain" }: { variant?: "plain" | "pill" }): JSX.Element {
   const here = useHere();
@@ -295,15 +297,18 @@ export function NearButton({ variant = "plain" }: { variant?: "plain" | "pill" }
     }
   }, [open]);
 
-  const text = here.pending ? copy.location.finding : copy.explore.near(here.label);
+  // No town to name yet, and none to pick from: the person can still be found, in one tap. It is
+  // the same button either way, so the focus stays on it when the device starts answering.
+  const offerDevice = here.settling === true && !here.pending;
+  const text = here.pending ? copy.location.finding : offerDevice ? copy.location.useMine : copy.explore.near(here.label);
   return (
     <>
       <button
         ref={buttonRef}
         type="button"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen(true)}
+        aria-haspopup={offerDevice ? undefined : "dialog"}
+        aria-expanded={offerDevice ? undefined : open}
+        onClick={offerDevice ? here.useDevice : () => setOpen(true)}
         className={
           variant === "pill"
             ? "inline-flex min-h-touch shrink-0 cursor-pointer items-center border-0 bg-transparent p-0 text-secondary font-semibold text-ink"
@@ -313,15 +318,15 @@ export function NearButton({ variant = "plain" }: { variant?: "plain" | "pill" }
         {variant === "pill" ? (
           // Drawn 36 px tall inside the 48 px field, as the design has it; the button around it is 44 px to tap.
           <span className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-ground px-3">
-            <PinIcon size={15} strokeWidth={2.4} />
+            {offerDevice ? <LocateIcon size={15} /> : <PinIcon size={15} strokeWidth={2.4} />}
             {/* A long name is cut short here, so the search field keeps its shape; the picker shows it whole. */}
             <span className="max-w-48 truncate">{text}</span>
           </span>
         ) : (
           <>
-            <PinIcon />
+            {offerDevice ? <LocateIcon /> : <PinIcon />}
             {text}
-            <ChevronIcon />
+            {!offerDevice && <ChevronIcon />}
           </>
         )}
       </button>
