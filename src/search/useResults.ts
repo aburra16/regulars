@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { useHere } from "../location/useLocation.ts";
-import { type ChainGroup, groupForList, type PlaceDistance } from "../places/indexes.ts";
+import { type ChainGroup, groupForList, type PlaceDistance, placeCount } from "../places/indexes.ts";
 import { useIndexes } from "../places/useIndexes.ts";
 import { useNow } from "../shell/useNow.ts";
 import { applyFilters, type Filters, sortInUse } from "./filters.ts";
@@ -17,7 +17,8 @@ export type Order = "distance" | "name" | "relevance";
 /**
  * What the search page lists for the words `q` (none: the places near) under `filters`, around the
  * place the list is near: the places that match, filtered, sorted and grouped, a chain as one
- * entry, how many closed places Open now left out, and what order they are in. The filters page
+ * entry; how many places those are (`placeCount`: a chain counts each of its locations); how many
+ * closed places Open now left out; and what order they are in. The filters page
  * counts with the same, so the button that says "Show 5 places" is right.
  *
  * With no sort chosen the order is the index's own: nearest first for nothing typed and for a kind
@@ -26,7 +27,7 @@ export type Order = "distance" | "name" | "relevance";
 export function useResults(
   q: string,
   filters: Filters,
-): { entries: Entry[]; hiddenClosed: number; order: Order } {
+): { entries: Entry[]; count: number; hiddenClosed: number; order: Order } {
   const indexes = useIndexes();
   const { lat, lon } = useHere();
   const now = useNow();
@@ -43,12 +44,13 @@ export function useResults(
 
   // The minute matters to the results only when it is asked which places are open.
   const openAt = filters.open ? now : null;
-  const { entries, hiddenClosed } = useMemo(() => {
-    if (indexes === undefined) return { entries: [], hiddenClosed: 0 };
+  const { entries, count, hiddenClosed } = useMemo(() => {
+    if (indexes === undefined) return { entries: [], count: 0, hiddenClosed: 0 };
     // Filter first, then group: a chain counts only the locations that stay.
     const kept = applyFilters(found, filters, now);
-    return { entries: groupForList(kept.rows, indexes), hiddenClosed: kept.hiddenClosed };
+    const grouped = groupForList(kept.rows, indexes);
+    return { entries: grouped, count: placeCount(grouped), hiddenClosed: kept.hiddenClosed };
     // `now` is a dependency through `openAt`: it changes the results only while Open now is on.
   }, [indexes, found, filters, openAt]);
-  return { entries, hiddenClosed, order };
+  return { entries, count, hiddenClosed, order };
 }

@@ -70,9 +70,9 @@ export function useSearchedArea(memoryKey: string): SearchedArea {
  *
  * With `filters`, only those that pass them, in their sort; a distance is measured the same way.
  * The widest distance is no limit: the area is the limit, so an area searched far from the device
- * still lists its places. `rows` is every place that passed, before chains were gathered.
+ * still lists its places. `nearby` is every place in the area, before the filters.
  */
-export function useAreaEntries(area: Area, filters?: Filters): { nearby: PlaceDistance[]; rows: PlaceDistance[]; entries: Entry[] } {
+export function useAreaEntries(area: Area, filters?: Filters): { nearby: PlaceDistance[]; entries: Entry[] } {
   const indexes = useIndexes();
   const now = useNow();
   const here = useHere();
@@ -92,14 +92,14 @@ export function useAreaEntries(area: Area, filters?: Filters): { nearby: PlaceDi
   // The minute matters to the list only when it is asked which places are open.
   const openAt = filters?.open === true ? now : null;
   return useMemo(() => {
-    if (indexes === undefined) return { nearby, rows: [], entries: [] };
+    if (indexes === undefined) return { nearby, entries: [] };
     // Filter first, then group: a chain counts only the locations that stay.
     let rows = nearby;
     if (filters !== undefined) {
       const limit = filters.withinKm >= widest ? { ...filters, withinKm: Number.POSITIVE_INFINITY } : filters;
       rows = applyFilters(nearby, limit, now).rows;
     }
-    return { nearby, rows, entries: groupForList(rows, indexes) };
+    return { nearby, entries: groupForList(rows, indexes) };
     // `now` is a dependency through `openAt`: it changes the list only while Open now is on.
   }, [indexes, nearby, filters, widest, openAt]);
 }

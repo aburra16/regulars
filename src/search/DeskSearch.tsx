@@ -26,7 +26,7 @@ export function DeskSearch(): JSX.Element {
 
   const query = (params.get("q") ?? "").trim();
   const filters = useMemo(() => filtersFromParams(params, locale), [params, locale]);
-  const { entries, hiddenClosed, order } = useResults(query, filters);
+  const { entries, count, hiddenClosed, order } = useResults(query, filters);
 
   // A filter is a step the Back button undoes, as on Explore.
   const setFilters = (next: Filters) => setParams((current) => withFilters(current, next, locale));
@@ -57,7 +57,7 @@ export function DeskSearch(): JSX.Element {
       head={
         <>
           <FilterMenus filters={filters} order={order} onChange={setFilters} locale={locale} />
-          <ResultsLine empty={empty} count={entries.length} near={here.label} order={order} />
+          <ResultsLine empty={empty} count={count} near={here.label} order={order} />
         </>
       }
       entries={entries}

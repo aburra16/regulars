@@ -3,6 +3,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
+import { placeCount } from "../places/indexes.ts";
 import { type Filters, filtersFromParams, sortInUse, withFilters } from "../search/filters.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
@@ -34,7 +35,7 @@ export function DeskExplore(): JSX.Element {
   const memoryKey = `desk:${historyKey}`;
   const searched = useSearchedArea(memoryKey);
   const { area } = searched;
-  const { nearby, rows, entries } = useAreaEntries(area, filters);
+  const { nearby, entries } = useAreaEntries(area, filters);
   // Opened at a place, from a phone's link to the map ("See on map").
   const focused = useMapFocus();
 
@@ -72,7 +73,7 @@ export function DeskExplore(): JSX.Element {
             onChange={setFilters}
             locale={locale}
           />
-          <HouseLine count={rows.length} />
+          <HouseLine count={placeCount(entries)} />
         </>
       }
       entries={entries}

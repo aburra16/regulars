@@ -143,7 +143,7 @@ function PhoneSearch(): JSX.Element {
 
   const query = (params.get("q") ?? "").trim();
   const filters = useMemo(() => filtersFromParams(params, locale), [params, locale]);
-  const { entries, hiddenClosed, order } = useResults(query, filters);
+  const { entries, count, hiddenClosed, order } = useResults(query, filters);
   const chips = activeChips(filters, locale);
 
   // The cursor goes to the field when the person arrives to search, or to an address typed in. Not when
@@ -238,7 +238,7 @@ function PhoneSearch(): JSX.Element {
           ))}
         </div>
 
-        <ResultsLine empty={empty} count={entries.length} near={here.label} order={order} className="pl-3" />
+        <ResultsLine empty={empty} count={count} near={here.label} order={order} className="pl-3" />
       </header>
 
       <div className="px-gutter-phone pt-2">

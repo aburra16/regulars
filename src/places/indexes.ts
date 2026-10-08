@@ -446,3 +446,13 @@ export function groupForList<T extends { place: Place }>(rows: T[], idx: Indexes
   });
   return entries;
 }
+
+/**
+ * How many places a list holds: a chain shown as one entry counts each of its locations in the list.
+ * It is the one way the app counts "N places": the results' line, the filters' button and the desktop's line.
+ */
+export function placeCount<T extends { place: Place }>(entries: readonly (T | ChainGroup<T>)[]): number {
+  let count = 0;
+  for (const entry of entries) count += "chain" in entry ? entry.nearby.length : 1;
+  return count;
+}

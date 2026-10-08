@@ -161,6 +161,10 @@ function listed(q: string, keep: (place: Place) => boolean = () => true, radiusK
   return groupForList(found, idx).map((entry) => ("chain" in entry ? entry.chain.name : entry.place.name));
 }
 const isClosed = (candidate: Place) => openState(candidate, MORNING).kind === "closed";
+/** How many places a search finds: a chain counts each of its locations that are among them. */
+function counted(q: string, keep: (place: Place) => boolean = () => true, radiusKm = 25): number {
+  return idx.search(q, { lat: HERE.lat, lon: HERE.lon, radiusKm }).filter((each) => keep(each.place)).length;
+}
 
 beforeEach(() => {
   // Only the clock is held still; timers and promises run as they do.
@@ -977,28 +981,45 @@ describe("Search: the results", () => {
     expect(link).toHaveTextContent(copy.score.noReviewsYet);
   });
 
-  it("counts a chain once, as a row of its own", async () => {
+  it("shows a chain as one row of its own, and counts its locations in the line", async () => {
     await openSearch("/search?q=loft");
     expect(names()).toEqual(["Loft Brunch & Cocktails"]);
     const link = rowFor("Loft Brunch & Cocktails");
     expect(link).toHaveAttribute("href", `/chain/${chainSlug(idx.chainOf(place("Loft Brunch & Cocktails"))!)}`);
     expect(link).toHaveTextContent("2 locations");
-    // One entry, one place in the line: the chain.
-    expect(screen.getByText(copy.search.summary(1, "Funchal", copy.search.sortedBy.relevance))).toBeInTheDocument();
+    // One row, two places: the line counts places, as every count of them in the app does.
+    expect(counted("loft")).toBe(2);
+    expect(screen.getByText(copy.search.summary(2, "Funchal", copy.search.sortedBy.relevance))).toBeInTheDocument();
     expect(copy.search.summary(1, "Funchal", "Nearest first")).toBe("1 place near Funchal. Nearest first.");
+  });
+
+  it("counts places the same in the line, the filters' button and the desktop's line", async () => {
+    const line = copy.search.summary(counted("loft"), "Funchal", copy.search.sortedBy.relevance);
+    const { unmount } = await openSearch("/search?q=loft");
+    expect(screen.getByText(line)).toBeInTheDocument();
+    unmount();
+
+    const filters = await openFilters("/filters?q=loft");
+    expect(screen.getByRole("button", { name: copy.filters.show(2) })).toBeInTheDocument();
+    expect(screen.getByText(copy.filters.countStatus(2))).toBeInTheDocument();
+    filters.unmount();
+
+    wideWindow();
+    await openSearch("/search?q=loft");
+    expect(screen.getByText(line)).toBeInTheDocument();
   });
 
   it("lists the places around the person when nothing was typed", async () => {
     await openSearch("/search");
     expect(names()).toEqual(listed("").slice(0, PAGE));
-    expect(screen.getByText(copy.search.summary(listed("").length, "Funchal", copy.search.sortedBy.distance))).toBeInTheDocument();
+    expect(screen.getByText(copy.search.summary(counted(""), "Funchal", copy.search.sortedBy.distance))).toBeInTheDocument();
   });
 
   it("reads a kind of place as a list of them, nearest first, and says so", async () => {
     await openSearch("/search?q=cafe");
     expect(idx.isKindQuery("cafe")).toBe(true);
     expect(names()).toEqual(listed("cafe"));
-    expect(screen.getByText(copy.search.summary(listed("cafe").length, "Funchal", "Nearest first"))).toBeInTheDocument();
+    expect(screen.getByText(copy.search.summary(counted("cafe"), "Funchal", "Nearest first"))).toBeInTheDocument();
   });
 
   it("says 'near you' when the places are around the device", async () => {
@@ -1048,13 +1069,13 @@ describe("Search: the order", () => {
       expect(idx.isKindQuery("cafe")).toBe(true);
       expect(names()).toEqual(listed("cafe"));
       expect(byDistance(names())).toBe(true);
-      expect(screen.getByText(copy.search.summary(listed("cafe").length, "Funchal", "Nearest first"))).toBeInTheDocument();
+      expect(screen.getByText(copy.search.summary(counted("cafe"), "Funchal", "Nearest first"))).toBeInTheDocument();
     });
 
     it("is nearest first when nothing was typed, and the line says so", async () => {
       await openSearch("/search");
       expect(byDistance(names())).toBe(true);
-      expect(screen.getByText(copy.search.summary(listed("").length, "Funchal", "Nearest first"))).toBeInTheDocument();
+      expect(screen.getByText(copy.search.summary(counted(""), "Funchal", "Nearest first"))).toBeInTheDocument();
     });
 
     it("is the index's own order, best match first, for words, and the line says so", async () => {
@@ -1065,7 +1086,7 @@ describe("Search: the order", () => {
 
       await openSearch("/search?q=restaurante");
       expect(names()).toEqual(found);
-      expect(screen.getByText(copy.search.summary(found.length, "Funchal", copy.search.sortedBy.relevance))).toBeInTheDocument();
+      expect(screen.getByText(copy.search.summary(counted("restaurante"), "Funchal", copy.search.sortedBy.relevance))).toBeInTheDocument();
       expect(copy.search.sortedBy.relevance).toBe("Best match first");
       expect(screen.queryByText(/Nearest first/)).not.toBeInTheDocument();
     });
@@ -1083,14 +1104,14 @@ describe("Search: the order", () => {
       expect(found).toHaveLength(listed("restaurante").length);
       expect(byDistance(found)).toBe(true);
       expect(found).not.toEqual(listed("restaurante"));
-      expect(screen.getByText(copy.search.summary(found.length, "Funchal", copy.search.sortedBy.distance))).toBeInTheDocument();
+      expect(screen.getByText(copy.search.summary(counted("restaurante"), "Funchal", copy.search.sortedBy.distance))).toBeInTheDocument();
     });
 
     it("is A to Z for Name, and the line says so", async () => {
       await openSearch("/search?q=cafe&sort=name");
       const collator = new Intl.Collator("en");
       expect(names()).toEqual([...listed("cafe")].sort(collator.compare));
-      expect(screen.getByText(copy.search.summary(listed("cafe").length, "Funchal", copy.search.sortedBy.name))).toBeInTheDocument();
+      expect(screen.getByText(copy.search.summary(counted("cafe"), "Funchal", copy.search.sortedBy.name))).toBeInTheDocument();
       expect(copy.search.sortedBy.name).toBe("A to Z");
     });
 
@@ -1098,7 +1119,7 @@ describe("Search: the order", () => {
       await openSearch("/search?q=restaurante&sort=score");
       expect(names()).toEqual(listed("restaurante"));
       expect(
-        screen.getByText(copy.search.summary(listed("restaurante").length, "Funchal", copy.search.sortedBy.relevance)),
+        screen.getByText(copy.search.summary(counted("restaurante"), "Funchal", copy.search.sortedBy.relevance)),
       ).toBeInTheDocument();
     });
   });
@@ -1208,7 +1229,7 @@ describe("Search: the filters that are on", () => {
     expect(left).toBeGreaterThan(0);
     expect(screen.getByText(copy.search.hiddenClosed(left))).toBeInTheDocument();
     expect(screen.getByText(copy.search.hoursNote)).toBeInTheDocument();
-    expect(screen.getByText(copy.search.summary(expected.length, "Funchal", "Nearest first"))).toBeInTheDocument();
+    expect(screen.getByText(copy.search.summary(counted("cafe", (each) => !isClosed(each)), "Funchal", "Nearest first"))).toBeInTheDocument();
   });
 
   it("has the note about the places left out in a box under the results, with a way to bring them back", async () => {
@@ -2074,7 +2095,7 @@ describe("Filters", () => {
     it("says how many places the filters leave, as the search page would list them", async () => {
       const user = userEvent.setup();
       await openFilters("/filters?q=cafe");
-      const count = listed("cafe").length;
+      const count = counted("cafe");
       expect(screen.getByRole("button", { name: copy.filters.show(count) })).toBeInTheDocument();
       expect(copy.filters.show(5)).toBe("Show 5 places");
       expect(copy.filters.show(1)).toBe("Show 1 place");
@@ -2086,13 +2107,13 @@ describe("Filters", () => {
 
       await user.click(within(groupNamed(copy.filters.kinds)).getByRole("button", { name: "Bars and pubs" }));
       expect(
-        screen.getByRole("button", { name: copy.filters.show(listed("cafe", (each) => !isClosed(each) && kindOf(each.category).family === "bars").length) }),
+        screen.getByRole("button", { name: copy.filters.show(counted("cafe", (each) => !isClosed(each) && kindOf(each.category).family === "bars")) }),
       ).toBeInTheDocument();
     });
 
     it("counts places for nothing typed", async () => {
       await openFilters("/filters");
-      expect(screen.getByRole("button", { name: copy.filters.show(listed("").length) })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: copy.filters.show(counted("")) })).toBeInTheDocument();
     });
 
     it("cannot be pressed when nothing is left, and says so", async () => {
@@ -2158,7 +2179,7 @@ describe("Filters", () => {
         .getAllByRole("button")
         .filter((button) => button.getAttribute("aria-pressed") === "true");
       expect(pressed.map((button) => button.textContent)).toEqual(["Distance"]);
-      expect(screen.getByRole("button", { name: copy.filters.show(listed("cafe").length) })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: copy.filters.show(counted("cafe")) })).toBeInTheDocument();
       expect(copy.filters.clearAll).toBe("Clear all");
     });
 
@@ -2247,7 +2268,7 @@ describe("Filters", () => {
     it("announces how many places the filters leave, politely, in a region that is always there", async () => {
       const user = userEvent.setup();
       await openFilters("/filters?q=cafe");
-      const count = listed("cafe").length;
+      const count = counted("cafe");
       const region = screen.getByText(copy.filters.countStatus(count));
       expect(region).toHaveAttribute("role", "status");
       expect(region).toHaveClass("sr-only");

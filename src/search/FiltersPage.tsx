@@ -63,8 +63,7 @@ export function FiltersPage(): JSX.Element {
     return { ...asked, sort: sortInUse(asked) };
   });
   const change = (part: Partial<Filters>) => setDraft((current) => ({ ...current, ...part }));
-  const { entries, order } = useResults(query, draft);
-  const count = entries.length;
+  const { count, order } = useResults(query, draft);
 
   const apply = () =>
     void navigate(searchPath(withFilters(params, draft, locale).toString()), { replace: true, state: FROM_FILTERS });
