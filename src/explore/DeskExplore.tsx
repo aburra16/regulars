@@ -12,7 +12,7 @@ import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { PageMessage } from "../ui/Banner.tsx";
 import { DeskLayout } from "./DeskLayout.tsx";
-import { HouseLine, NoneNearby } from "./ExploreList.tsx";
+import { NoneNearby, ViewLine } from "./ExploreList.tsx";
 import { FilterMenus } from "./FilterMenus.tsx";
 import { useMapFocus } from "./mapFocus.ts";
 import { SearchAreaButton } from "./MapPage.tsx";
@@ -102,20 +102,20 @@ export function DeskExplore(): JSX.Element {
         <div ref={head} tabIndex={-1} className="flex flex-col gap-3.5 outline-none">
           {/* Under the top bar's toggle: Personalize, for a person signed in whose circle is not ready. */}
           <Personalize holdFocus={head} />
-          {/* Explore has no words to match: its list is nearest first, by name, or best first by House picks. */}
+          {/* Explore has no words to match: its list is nearest first, by name, or best first by the view's scores. */}
           <FilterMenus
             filters={filters}
             order={sort === "name" || sort === "score" ? sort : "distance"}
             onChange={setFilters}
             locale={locale}
           />
-          <HouseLine
+          <ViewLine
             count={placeCount(entries)}
             inArea={inArea}
             nearestOnly={nearestOnly}
             // The places arriving are news too: the list's count is first said once they are in.
             announceKey={`${list}|${placesInArea}`}
-            unavailable={scores.house === "unavailable"}
+            unavailable={scores.state === "unavailable"}
             onRetry={refresh}
             className="gap-3.5"
           />

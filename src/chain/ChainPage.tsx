@@ -79,21 +79,26 @@ interface Shown {
 }
 
 /**
- * What the house rates the locations near you, said after the box's line (Chain.dc.html, worded for
- * House picks): the lowest and the highest score when two or more have one, the score when one
- * does, and nothing when none does. A range, never an average: each location is its own.
+ * What the view on screen rates the locations near you, said after the box's line (Chain.dc.html):
+ * the house, or the person's circle. The lowest and the highest score when two or more have one, the
+ * score when one does, and nothing when none does. A range, never an average: each location is its own.
  */
-function houseRange(info: ChainInfo, scores: ListScores): string | undefined {
+function viewRange(info: ChainInfo, scores: ListScores): string | undefined {
   const near = info.listed.slice(0, info.near).flatMap(({ place }) => {
     const shown = scores.of(place.address);
     return shown.kind === "scored" ? [shown.score] : [];
   });
   if (near.length === 0) return undefined;
-  if (near.length === 1) return copy.chain.houseOne(formatScore(near[0]!));
-  return copy.chain.houseRange(formatScore(Math.min(...near)), formatScore(Math.max(...near)));
+  const circle = scores.view === "circle";
+  if (near.length === 1) {
+    const one = formatScore(near[0]!);
+    return circle ? copy.chain.circleOne(one) : copy.chain.houseOne(one);
+  }
+  const [low, high] = [formatScore(Math.min(...near)), formatScore(Math.max(...near))];
+  return circle ? copy.chain.circleRange(low, high) : copy.chain.houseRange(low, high);
 }
 
-/** The tinted box under the header (Chain.dc.html): each location stands on its own, and what the house rates those near. */
+/** The tinted box under the header (Chain.dc.html): each location stands on its own, and what the view rates those near. */
 function EachScored({ range }: { range: string | undefined }): JSX.Element {
   return (
     <section className="flex flex-col gap-1.5 rounded-panel bg-surface px-[18px] py-4">
@@ -225,7 +230,7 @@ function PhoneChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Ele
         <div className="text-[15px] text-muted">{copy.chain.line(kind.label, chain.places.length, near)}</div>
       </section>
       <div className="px-gutter-phone pt-[18px]">
-        <EachScored range={houseRange(info, shown.scores)} />
+        <EachScored range={viewRange(info, shown.scores)} />
       </div>
       <div className="px-gutter-phone pt-6">
         <Locations info={info} shown={shown} showMap />
@@ -257,7 +262,7 @@ function DeskChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Elem
               <div className="text-body text-muted">{copy.chain.line(kind.label, chain.places.length, near)}</div>
             </div>
           </section>
-          <EachScored range={houseRange(info, shown.scores)} />
+          <EachScored range={viewRange(info, shown.scores)} />
           <Locations info={info} shown={shown} showMap={false} />
         </div>
         <aside aria-label={copy.chain.railLabel} className="flex w-rail min-w-0 shrink-0 flex-col gap-4">

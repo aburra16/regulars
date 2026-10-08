@@ -61,3 +61,11 @@ export function useView(): ViewValue {
   if (value === null) throw new Error("useView must be used inside <ViewProvider>.");
   return value;
 }
+
+/**
+ * The view the screens show, for what only reads it: the scores and the words that go with them.
+ * House picks outside a `ViewProvider`, as everyone starts there (a test of part of the app has none).
+ */
+export function useCurrentView(): View {
+  return useContext(ViewContext)?.view ?? "house";
+}

@@ -6,7 +6,7 @@ import { appReaders, appWriters } from "../nostr/relayCode.ts";
 import { usePlaces } from "../places/store.tsx";
 import { ScoresStore } from "./store.ts";
 
-export type { HouseState, ReadState } from "./store.ts";
+export type { ReadState, ViewState } from "./store.ts";
 
 /** How the app reaches each relay, by its URL: to read from it, and to send it a review. */
 export interface Relays {
@@ -17,7 +17,7 @@ export interface Relays {
 const ScoresContext = createContext<{ store: ScoresStore; relays: Relays } | null>(null);
 
 /**
- * Holds the session's reviews, house ranks and reviewer names for the pages below it, which ask
+ * Holds the session's reviews, each view's ranks and reviewer names for the pages below it, which ask
  * through the hooks in ./useScore.ts, and the person's own reviews, shown before the relays send them
  * back (kept for the tab, so a reload shows them too, and let go of when the person signs out:
  * `ForgetOnSignOut`). It reads nothing until a page asks. It must be

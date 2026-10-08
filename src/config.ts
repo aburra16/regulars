@@ -61,9 +61,9 @@ interface Config {
    * What is open. `signIn`: signing in, with a browser add-on or an app on a phone (docs/decisions.md
    * #21). `circle`: My circle, the person's own scores, which needs their circle worked out: a person
    * signed in can Personalize, which asks Brainstorm, and the toggle's My circle half turns on once
-   * their circle is ready (src/circle/CircleProvider.tsx). It stays closed until My circle's scores
-   * can be worked out (the M3 plan, Task 3). Closed, nothing asks Brainstorm, and the half reads
-   * "soon" for a person who has signed in.
+   * their circle is ready (src/circle/CircleProvider.tsx), its scores worked out from their circle's
+   * ranks (src/score/store.ts; the M3 plan, Task 3). Closed, nothing asks Brainstorm, and the half
+   * reads "soon" for a person who has signed in.
    */
   features: { signIn: boolean; circle: boolean };
   /**
@@ -120,7 +120,7 @@ export const config: Config = {
   placesRelay: "wss://dcosl.brainstorm.world",
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
   mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
-  features: { signIn: true, circle: false },
+  features: { signIn: true, circle: true },
   connectRelay: "wss://relay.nsec.app",
   // In a production build `import.meta.env.DEV` is false, so neither variable is read there.
   reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay],

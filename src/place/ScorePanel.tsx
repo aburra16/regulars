@@ -130,14 +130,15 @@ function BeFirst({ name, wide }: { name: string; wide: boolean }): JSX.Element {
 }
 
 /**
- * The house's score (Place.dc.html, DeskPlace.dc.html): the big number, its stars, and how many
- * people the house trusts it comes from, in the trust colour. A screen reader hears the stars'
- * "4.6 out of 5" in place of the bare number. Never anything about one of the people (decision 19).
+ * The view's score (Place.dc.html, DeskPlace.dc.html): the big number, its stars, and how many
+ * people it comes from, in the trust colour: people the house trusts, or people in the person's
+ * circle (`circle`). A screen reader hears the stars' "4.6 out of 5" in place of the bare number, under
+ * the view's name. Never anything about one of the people (decision 19).
  */
-function HouseScore({ score, counted, wide }: { score: number; counted: number; wide: boolean }): JSX.Element {
+function ViewScore({ score, counted, circle, wide }: { score: number; counted: number; circle: boolean; wide: boolean }): JSX.Element {
   return (
     <section className={filledPanel(wide)}>
-      <h2 className="sr-only">{copy.view.house}</h2>
+      <h2 className="sr-only">{circle ? copy.view.circle : copy.view.house}</h2>
       <div className={`flex items-center ${wide ? "gap-4" : "gap-3.5"}`}>
         <p
           aria-hidden="true"
@@ -147,7 +148,9 @@ function HouseScore({ score, counted, wide }: { score: number; counted: number; 
         </p>
         <div className="flex flex-col gap-1.5">
           <Stars value={score} size="panel" />
-          <p className="m-0 text-[15px] font-semibold text-trust">{copy.score.fromHouse(counted)}</p>
+          <p className="m-0 text-[15px] font-semibold text-trust">
+            {circle ? copy.score.fromCircle(counted) : copy.score.fromHouse(counted)}
+          </p>
         </div>
       </div>
     </section>
@@ -179,9 +182,9 @@ function Failed({ wide, onRetry }: { wide: boolean; onRetry(): void }): JSX.Elem
 }
 
 /**
- * A place with reviews whose reviewers the house is still being asked about: a quiet line where the
- * score will be. Not "Be the first", which would be untrue, and nothing folded yet: nobody is
- * outside House picks before the house has said so.
+ * A place with reviews whose reviewers the view's scorer is still being asked about: a quiet line
+ * where the score will be. Not "Be the first", which would be untrue, and nothing folded yet: nobody
+ * is outside the view before its scorer has said so.
  */
 function Counting({ wide }: { wide: boolean }): JSX.Element {
   return (
@@ -194,10 +197,11 @@ function Counting({ wide }: { wide: boolean }): JSX.Element {
 
 /**
  * A place with reviews and no score: "No score yet", in the dashed panel of a place with none, and
- * why: people the house trusts reviewed it without stars, or how many others have rated it (their
- * reviews are folded below). When House picks can't be worked out, how many have rated it, and one
- * quiet line under the panel says why there is no score, with Try again (`onRetry`). For the person
- * signed in who has reviewed it, "You've rated it" first, and the others counted without them (ruling R15).
+ * why, in the view's words: people inside it reviewed it without stars, or how many others have rated
+ * it (their reviews are folded below), after "Nobody in your circle has rated it yet" in My circle.
+ * When the view can't be worked out, how many have rated it, and one quiet line under the panel says
+ * why there is no score, with Try again (`onRetry`). For the person signed in who has reviewed it,
+ * "You've rated it" first, and the others counted without them (ruling R15).
  */
 function NoScore({
   shown,
@@ -209,6 +213,7 @@ function NoScore({
   onRetry(): void;
 }): JSX.Element {
   const quietId = useId();
+  const circle = shown.circle === true;
   const lines: string[] = [];
   if (shown.yours) lines.push(copy.score.youRated);
   if (shown.kind === "unavailable") {
@@ -216,7 +221,8 @@ function NoScore({
       lines.push(shown.yours ? copy.score.othersRated(shown.reviewers) : copy.score.peopleRated(shown.reviewers));
     }
   } else {
-    if (shown.starless > 0) lines.push(copy.score.starless(shown.starless));
+    if (shown.starless > 0) lines.push(circle ? copy.score.starlessCircle(shown.starless) : copy.score.starless(shown.starless));
+    else if (circle && !shown.yours) lines.push(copy.score.noneInCircle);
     if (shown.others > 0) lines.push(copy.score.othersRated(shown.others));
   }
   const panel = (
@@ -236,7 +242,7 @@ function NoScore({
       {panel}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <p id={quietId} className="m-0 text-secondary leading-[1.4] text-muted">
-          {copy.score.houseUnavailable}
+          {circle ? copy.score.circleUnavailable : copy.score.houseUnavailable}
         </p>
         <button type="button" aria-describedby={quietId} onClick={onRetry} className={retryButton}>
           {copy.load.retry}
@@ -250,7 +256,7 @@ function NoScore({
 function PanelOf({ name, wide, shown, onRetry }: { name: string; wide: boolean; shown: ShownScore; onRetry(): void }): JSX.Element {
   switch (shown.kind) {
     case "scored":
-      return <HouseScore score={shown.score} counted={shown.counted} wide={wide} />;
+      return <ViewScore score={shown.score} counted={shown.counted} circle={shown.circle === true} wide={wide} />;
     case "reading":
       return <Reading wide={wide} />;
     case "failed":
@@ -266,10 +272,10 @@ function PanelOf({ name, wide, shown, onRetry }: { name: string; wide: boolean; 
 }
 
 /**
- * Where the place's score goes, under its name, by what there is to show (`ShownScore`): the house's
- * score; the reviews being counted; no score yet; or, before anyone has reviewed it, the dashed panel
- * that asks the person to be the first. While the reviews are read it waits quietly; when they
- * couldn't be, or House picks can't be worked out, it says so, with Try again (`onRetry`), which puts
+ * Where the place's score goes, under its name, by what there is to show (`ShownScore`): the score
+ * from the view on screen; the reviews being counted; no score yet; or, before anyone has reviewed it,
+ * the dashed panel that asks the person to be the first. While the reviews are read it waits quietly;
+ * when they couldn't be, or the view can't be worked out, it says so, with Try again (`onRetry`), which puts
  * the focus on the panel: the button goes once what it asked for comes, and the focus would fall to
  * the page. On a phone "Rate this place" is in a panel with no score (beside the reviews' heading
  * when it has one); on a desktop it heads the rail (DeskPlace.dc.html).

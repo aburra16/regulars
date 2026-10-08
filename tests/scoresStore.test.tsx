@@ -945,7 +945,9 @@ describe("ScoresProvider: scores", () => {
     }
     const shown = JSON.stringify(result.current);
     for (const number of ["73.25", "0.7325", "7325"]) expect(shown).not.toContain(number);
+    // What the hooks give: reviews, place scores, names, and whether the person's circle is empty here (a yes or no).
     expect(Object.keys(await import("../src/score/useScore")).sort()).toEqual([
+      "useEmptyCircle",
       "useNames",
       "useScore",
       "useScoreActions",

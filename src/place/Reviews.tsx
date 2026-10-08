@@ -5,20 +5,22 @@ import type { RemoveReview, RemoveStatus } from "../review/useRemoveReview.ts";
 import type { Review } from "../reviews/review.ts";
 import { whenWritten, writtenOn } from "../reviews/when.ts";
 import type { PlaceScore } from "../score/score.ts";
-import type { HouseState } from "../score/store.ts";
+import type { ViewState } from "../score/store.ts";
 import { useNames } from "../score/useScore.ts";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Stars } from "../ui/Stars.tsx";
+import type { View } from "../view/ViewProvider.tsx";
 import { EditLink, RateLink } from "./ScorePanel.tsx";
 
 /*
- * A place's reviews (Place.dc.html, DeskPlace.dc.html, worded for House picks): the review of the
- * person signed in, on its own at the top, with Edit and Remove (ruling R15); those by people the
- * house trusts, listed; and those by people outside House picks, folded into a dashed box that shows
- * them, dimmed, on request. Each review has its reviewer's name, its stars, when it was written and
- * its words. A reviewer appears by name only: never a rank, a weight or a meter (decision 19), and
- * the folded box is no verdict on the people in it. Nor does anything say whether the house counts
- * the person's own review: it is never among the others, nor dimmed, nor counted with them.
+ * A place's reviews (Place.dc.html, DeskPlace.dc.html), worded for the view on screen: the review of
+ * the person signed in, on its own at the top, with Edit and Remove (ruling R15); those by people
+ * inside the view (the house trusts them, or they are in the person's circle), listed; and those by
+ * people outside it, folded into a dashed box that shows them, dimmed, on request. Each review has its
+ * reviewer's name, its stars, when it was written and its words. A reviewer appears by name only:
+ * never a rank, a weight or a meter (decision 19), and the folded box is no verdict on the people in
+ * it. Nor does anything say whether the view counts the person's own review: it is never among the
+ * others, nor dimmed, nor counted with them.
  */
 
 /** The first character a person would see of a name: one emoji, or one letter with its marks. */
@@ -247,26 +249,28 @@ function YourReview({
   );
 }
 
-/** What the folded box says it holds. */
-function foldedTitle(count: number, house: HouseState, anyInside: boolean): string {
-  if (house === "unavailable") return copy.reviews.uncounted(count);
+/** What the folded box says it holds, in the view's words. */
+function foldedTitle(count: number, view: View, state: ViewState, anyInside: boolean): string {
+  if (state === "unavailable") return copy.reviews.uncounted(count);
+  if (view === "circle") return anyInside ? copy.reviews.foldedMoreCircle(count) : copy.reviews.foldedAllCircle(count);
   return anyInside ? copy.reviews.foldedMore(count) : copy.reviews.foldedAll(count);
 }
 
 /**
- * The reviews of a place with its score from the house's view (`score`, undefined while it is worked
- * out; `house`, where the house's view stands): first `mine`, the review of the person signed in,
- * under "Your review", with Edit and Remove (`removal`), whatever the view and whether it is worked
- * out yet; then those inside House picks under their heading, with "Rate this place" beside it when
- * `rate` (a phone's page whose panel has no button), and the folded ones in their box, neither of
- * them with the person's own, nor counting it. "Show them" opens and closes them: its one label
- * stays, and `aria-expanded` says which. `now` says how long ago each was written.
+ * The reviews of a place with its score from `view` (`score`, undefined while it is worked out;
+ * `state`, where the view's ranks stand): first `mine`, the review of the person signed in, under
+ * "Your review", with Edit and Remove (`removal`), whatever the view and whether it is worked out
+ * yet; then those inside the view under their heading, with "Rate this place" beside it when `rate`
+ * (a phone's page whose panel has no button), and the folded ones in their box, neither of them with
+ * the person's own, nor counting it. "Show them" opens and closes them: its one label stays, and
+ * `aria-expanded` says which. `now` says how long ago each was written.
  */
 export function Reviews({
   score,
   mine,
   removal,
-  house,
+  view,
+  state,
   wide,
   rate,
   now,
@@ -274,7 +278,8 @@ export function Reviews({
   score: PlaceScore | undefined;
   mine: Review | undefined;
   removal: RemoveReview;
-  house: HouseState;
+  view: View;
+  state: ViewState;
   wide: boolean;
   rate: boolean;
   now: Date;
@@ -306,7 +311,7 @@ export function Reviews({
       {inside.length > 0 && (
         <section className={`flex flex-col ${wide ? "gap-5" : "gap-[18px]"}`}>
           <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-            <h2 className={sectionHeading(wide)}>{copy.reviews.heading}</h2>
+            <h2 className={sectionHeading(wide)}>{view === "circle" ? copy.reviews.headingCircle : copy.reviews.heading}</h2>
             {rate && <RateLink />}
           </div>
           <ReviewList reviews={inside} names={names} now={now} wide={wide} folded={false} />
@@ -321,7 +326,7 @@ export function Reviews({
           >
             <div className={`flex min-w-0 flex-col gap-1.5 ${wide ? "flex-[1_1_320px]" : ""}`}>
               <h2 id={titleId} className="m-0 text-body font-bold">
-                {foldedTitle(folded.length, house, inside.length > 0)}
+                {foldedTitle(folded.length, view, state, inside.length > 0)}
               </h2>
               <p className="m-0 text-secondary leading-[1.45] text-muted">{copy.reviews.foldedNote}</p>
             </div>

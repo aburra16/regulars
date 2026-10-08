@@ -57,9 +57,10 @@ describe("config", () => {
     expect(config.defaultCity).toEqual({ name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 });
   });
 
-  it("opens signing in, and keeps My circle off until its scores can be worked out (M2b; M3 Task 3)", () => {
-    // As config.ts sets them: tests/setup.ts closes My circle before each test, whatever it says.
-    expect(SET_FEATURES).toEqual({ signIn: true, circle: false });
+  it("opens signing in, and My circle now that its scores can be worked out (M2b; M3 Task 3)", () => {
+    // As config.ts sets them: tests/setup.ts closes My circle before each test, whatever it says, and
+    // the tests of My circle open it.
+    expect(SET_FEATURES).toEqual({ signIn: true, circle: true });
   });
 
   it("meets phone apps at one place, relay.nsec.app, only while connecting one", () => {

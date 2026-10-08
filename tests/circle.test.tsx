@@ -204,11 +204,21 @@ describe("a returning visitor", () => {
     expect(housePicks()).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("is offered Personalize when their scorer has no ranks yet, or Brainstorm has none for them", async () => {
+  it("has My circle ready, and empty, when their scorer has no ranks yet: not Personalize again each session (ruling R7)", async () => {
     signedIn();
     brainstorm.scorerOf.mockResolvedValue(SCORER_AT);
     await open();
+    await waitFor(() => expect(myCircle()).toBeEnabled());
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+    expect(housePicks()).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("is offered Personalize when Brainstorm has no scorer for them", async () => {
+    signedIn();
+    await open();
     expect(await personalize()).toBeInTheDocument();
+    expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
     expect(myCircle()).toBeDisabled();
   });
 

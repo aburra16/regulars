@@ -31,9 +31,10 @@ const defaults = structuredClone({
 // .env.local says, and with the default trust relays, relay-list relays, scoring and read extras, whatever a test before
 // it set. A test that wants something else sets it.
 //
-// My circle starts closed (config.features.circle): open, a signed-in tab asks Brainstorm, once the
-// places are in, whether the person's circle is ready (src/circle/CircleProvider.tsx), which a test
-// must stub. The tests of My circle open it (tests/circle.test.tsx).
+// My circle starts closed (config.features.circle), though the app has it open: open, a signed-in tab
+// asks Brainstorm, once the places are in, whether the person's circle is ready
+// (src/circle/CircleProvider.tsx), which a test must stub. The tests of My circle open it
+// (tests/circle.test.tsx, tests/circleScores.test.tsx).
 beforeEach(() => {
   config.features.circle = false;
   config.mapTilerKey = undefined;

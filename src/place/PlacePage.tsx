@@ -16,7 +16,7 @@ import { type RemoveReview, type RemoveStatus, useRemoveReview } from "../review
 import type { Review } from "../reviews/review.ts";
 import type { PlaceScore } from "../score/score.ts";
 import { seenBy, type ShownScore, shownScore } from "../score/shown.ts";
-import type { HouseState } from "../score/store.ts";
+import type { ViewState } from "../score/store.ts";
 import { type ListScores, useListScores } from "../score/useListScores.ts";
 import { useScore, useScoreActions } from "../score/useScore.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
@@ -31,6 +31,7 @@ import { NewTabHint } from "../ui/NewTab.tsx";
 import { NotListedOrLoading } from "../ui/NotListed.tsx";
 import { PlaceRow } from "../ui/PlaceRow.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
+import type { View as ScoresView } from "../view/ViewProvider.tsx";
 import { actionsOf, PhoneActions, type PlaceActions, RailActions } from "./Actions.tsx";
 import { Facts } from "./Facts.tsx";
 import { osmNoteUrl, osmUrl } from "./osmLinks.ts";
@@ -268,13 +269,15 @@ interface View {
   actions: PlaceActions;
   /** What the score panel shows, to the person signed in (`seenBy`). */
   shown: ShownScore;
-  /** The place's score from the house's view, with its reviews inside it and folded; undefined until worked out. */
+  /** The place's score from the view on screen, with its reviews inside it and folded; undefined until worked out. */
   score: PlaceScore | undefined;
   /** The review of the person signed in, of all the place's reviews; undefined when they have none. */
   mine: Review | undefined;
   /** Removing it, and where that stands. */
   removal: RemoveReview;
-  house: HouseState;
+  /** Whose scores they are, House picks' or My circle's, and where that view's ranks stand. */
+  scoresView: ScoresView;
+  scoresState: ViewState;
   nearby: PlaceDistance[];
   nearbyScores: ListScores;
   /** Reads the reviews again, after a read no relay answered. */
@@ -290,7 +293,7 @@ interface View {
  * then, where it was, and not to the page, nor anywhere that would scroll it (ruling R17).
  */
 function PlaceReviews({ view, wide, className = "" }: { view: View; wide: boolean; className?: string }): JSX.Element | null {
-  const { shown, score, mine, removal, house, now } = view;
+  const { shown, score, mine, removal, scoresView, scoresState, now } = view;
   const reviewsRef = useRef<HTMLDivElement>(null);
   const removed = removal.status === "removed";
   useEffect(() => {
@@ -307,7 +310,8 @@ function PlaceReviews({ view, wide, className = "" }: { view: View; wide: boolea
           score={listed ? score : undefined}
           mine={mine}
           removal={removal}
-          house={house}
+          view={scoresView}
+          state={scoresState}
           wide={wide}
           rate={!wide && shown.kind === "scored"}
           now={now}
@@ -417,8 +421,8 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
   const state = useMemo(() => openState(place, now), [place, now]);
   const actions = useMemo(() => actionsOf(place), [place]);
   const nearby = useMemo(() => nearbyOf(indexes, place), [indexes, place]);
-  // The place's score and reviews from the house's view; the places nearby ask for theirs in one go.
-  const { score, reviews, read, house } = useScore(place.address);
+  // The place's score and reviews from the view on screen; the places nearby ask for theirs in one go.
+  const { score, reviews, read, view: scoresView, state: scoresState } = useScore(place.address);
   const { refresh } = useScoreActions();
   // The review of the person signed in, which the page shows on its own (ruling R15). While a session
   // this tab kept is restored, theirs is known from it, so that it does not move once they are signed in.
@@ -436,11 +440,12 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
     // The phone's line is its own; the desktop's sits inside one that dots join (DeskPlace.dc.html).
     line: openLine(state, locale, wide ? "placeInline" : "place"),
     actions,
-    shown: seenBy(shownScore(score, reviews.length > 0, house, read), score, mine),
+    shown: seenBy(shownScore(score, reviews.length > 0, scoresState, read, scoresView), score, mine),
     score,
     mine,
     removal,
-    house,
+    scoresView,
+    scoresState,
     nearby,
     nearbyScores,
     retry: refresh,
@@ -451,8 +456,8 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
 }
 
 /**
- * A place's page (screens 6 and 7, D2), at `/place/:d`: its score from House picks and the reviews
- * behind it (Place.dc.html), or, while nobody has reviewed it, its no-reviews state (PlaceNew.dc.html),
+ * A place's page (screens 6 and 7, D2), at `/place/:d`: its score from the view on screen (House
+ * picks, or My circle) and the reviews behind it (Place.dc.html), or, while nobody has reviewed it, its no-reviews state (PlaceNew.dc.html),
  * where the facts carry the page. A `d` the places do not have is a place that came off the list,
  * said once the latest list is in.
  *

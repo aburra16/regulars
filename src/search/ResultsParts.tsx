@@ -4,6 +4,7 @@ import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
 import { osmNoteUrl } from "../place/osmLinks.ts";
 import { NewTabHint } from "../ui/NewTab.tsx";
+import { useCurrentView } from "../view/ViewProvider.tsx";
 import type { Order } from "./useResults.ts";
 
 /*
@@ -52,9 +53,9 @@ export function emptyMessage({
 }
 
 /**
- * The line under the filters (Search.dc.html): how many places, near where, in what order; or, when
- * there are none, the sentence that says so. It is one live region that is always on the page, so a
- * screen reader announces each change to it.
+ * The line under the filters (Search.dc.html): how many places, near where, in what order (best first
+ * by the view on screen, when by score); or, when there are none, the sentence that says so. It is one
+ * live region that is always on the page, so a screen reader announces each change to it.
  */
 export function ResultsLine({
   empty,
@@ -69,10 +70,12 @@ export function ResultsLine({
   order: Order;
   className?: string;
 }): JSX.Element {
+  const view = useCurrentView();
+  const sortedBy = order === "score" && view === "circle" ? copy.search.sortedBy.circleScore : copy.search.sortedBy[order];
   return (
     <div role="status" className={className}>
       {empty === undefined ? (
-        <p className="m-0 text-secondary leading-[1.4] text-muted">{copy.search.summary(count, near, copy.search.sortedBy[order])}</p>
+        <p className="m-0 text-secondary leading-[1.4] text-muted">{copy.search.summary(count, near, sortedBy)}</p>
       ) : (
         <p className="m-0 min-w-0 text-body leading-[1.5] wrap-break-word text-ink-soft">{empty.sentence}</p>
       )}

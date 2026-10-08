@@ -19,7 +19,7 @@ import { config } from "../config.ts";
 import { type RelayReader, readAll } from "../nostr/events.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import { usePlaces } from "../places/store.tsx";
-import { useRelays } from "../score/ScoresProvider.tsx";
+import { useRelays, useScoresStore } from "../score/ScoresProvider.tsx";
 import { RANK_KIND, ranksFrom, type Scorer } from "../trust/houseWeights.ts";
 import type { Run } from "./brainstorm.ts";
 import { forgetToken, readToken } from "./token.ts";
@@ -30,12 +30,15 @@ import { forgetToken, readToken } from "./token.ts";
  * (their add-on or phone app asks them), reads or starts their GrapeRank run, and polls it until it
  * is done; then the scorer Brainstorm made for them, which publishes their circle's ranks, is named in
  * Brainstorm's setup and can be read from its relay. That scorer is what My circle's scores are read
- * from (Task 3).
+ * from: once the circle is ready, the scores store is given it, with whose circle it is, and reads its
+ * ranks beside the house's (src/score/store.ts).
  *
  * Only the tap starts this. The one thing asked of Brainstorm without it is the returning visitor's
  * look: once a session, after the places have loaded, a signed-in tab asks Brainstorm's setup (no
- * token, and it creates nothing) whether the person has a scorer, and its relay whether it has ranks.
- * If so, they personalized before, and My circle is ready at once.
+ * token, and it creates nothing) whether the person has a scorer, and its relay whether it answers.
+ * If so, they personalized before, and My circle is ready at once: with no ranks on the relay, ready
+ * and empty, a circle of one, which My circle says plainly (ruling R7), rather than offer Personalize
+ * again each session.
  *
  * Where it is, is kept for the tab (`CIRCLE_KEY`, sessionStorage), so a reload carries on polling the
  * run under way, and starts none (Review Focus 3). Signing out forgets it, and Brainstorm's token
@@ -291,11 +294,12 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 
 /**
  * The person's scorer, once its ranks can be read: the one Brainstorm's setup names for them (no
- * token), with its relay answering. With `ranks`, the relay must also hold a rank by it: the only
- * sign, without a run to look at, that their circle has been worked out. Without, the relay need only
- * answer: a run that is done has published what it has, which for a circle of one may be nothing.
- * Null when Brainstorm names no scorer yet, or a rank was asked for and there is none. Throws when
- * Brainstorm or the relay cannot be reached, or `step.signal` aborts.
+ * token), with its relay answering. With `ranks`, the relay must also hold a rank by it: the sign,
+ * while a run is followed with no token to look at it, that the run has published. Without, the relay
+ * need only answer: a run that is done has published what it has, which for a circle of one may be
+ * nothing, and a scorer that exists is a circle worked out before (ruling R7). Null when Brainstorm
+ * names no scorer yet, or a rank was asked for and there is none. Throws when Brainstorm or the relay
+ * cannot be reached, or `step.signal` aborts.
  */
 async function readableScorer(client: Client, step: Step, ranks: boolean): Promise<Scorer | null> {
   const scorer = await client.scorerOf(step.pubkey, step.signal);
@@ -305,11 +309,15 @@ async function readableScorer(client: Client, step: Step, ranks: boolean): Promi
   return !ranks || ranksFrom(values, scorer.pubkey).size > 0 ? scorer : null;
 }
 
-/** The returning visitor's look: ready at once when they personalized before; otherwise off, quietly. */
+/**
+ * The returning visitor's look: ready at once when they personalized before, their scorer named and
+ * its relay answering, with ranks or none (ruling R7: a circle with nobody in it is ready, and empty);
+ * otherwise off, quietly.
+ */
 async function check(step: Step): Promise<void> {
   try {
     const client = await loadClient();
-    const scorer = await readableScorer(client, step, true);
+    const scorer = await readableScorer(client, step, false);
     step.set(scorer === null ? { state: "off", flow: null } : { state: "ready", scorer, notice: false, flow: null });
   } catch {
     // Brainstorm or the relay could not be reached: Personalize is offered, and says more if tapped.
@@ -462,13 +470,16 @@ const CAN_START: ReadonlySet<CircleState> = new Set<CircleState>(["off", "busy",
 
 /**
  * Holds the person's circle for the parts of the app below it (`useCircle`): the toggle, the view and
- * Personalize. It must be inside the account provider, the scores provider (whose readers read the
- * scorer's relay) and the places provider (the returning visitor's look waits for the places). Nothing
- * happens while My circle is closed (`config.features.circle`), or nobody is signed in.
+ * Personalize; and gives it to the scores store once it is ready, which reads its ranks for My circle
+ * (none, once it is not: signed out, or someone else). It must be inside the account provider, the
+ * scores provider (whose readers read the scorer's relay) and the places provider (the returning
+ * visitor's look waits for the places). Nothing happens while My circle is closed
+ * (`config.features.circle`), or nobody is signed in.
  */
 export function CircleProvider({ children }: { children: ReactNode }): JSX.Element {
   const { account, restoring } = useAccount();
   const { readers } = useRelays();
+  const store = useScoresStore("CircleProvider");
   const placesIn = usePlaces().places.length > 0;
   const who = account?.pubkey ?? (restoring ? readSession()?.pubkey : undefined);
   const [shown, setShown] = useState(() => shownFor(who));
@@ -562,6 +573,20 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
   }, []);
 
   const ready = (shown.state === "ready" || shown.state === "recently") && shown.scorer !== undefined;
+
+  // The scores store reads the circle's ranks once it is ready, beside the house's, so that toggling
+  // to My circle reads nothing; before the page is drawn, so My circle never shows without them asked for.
+  const owner = ready ? shown.who : undefined;
+  const scorerKey = ready ? shown.scorer?.pubkey : undefined;
+  const scorerRelay = ready ? shown.scorer?.relay : undefined;
+  useLayoutEffect(() => {
+    store.setCircle(
+      owner !== undefined && scorerKey !== undefined && scorerRelay !== undefined
+        ? { owner, scorer: { pubkey: scorerKey, relay: scorerRelay } }
+        : undefined,
+    );
+  }, [store, owner, scorerKey, scorerRelay]);
+
   const value = useMemo<CircleValue>(
     () => ({
       state: shown.state,

@@ -64,6 +64,12 @@ const starWords = ["Would not go back", "Below average", "Fine", "Good", "One of
 /** The point of view a place's score comes from before sign in, as a reviews line names it. */
 const houseTrusts = "the house trusts";
 
+/** The person's own point of view, My circle, as a reviews line names it. */
+const inYourCircle = "in your circle";
+
+/** People outside it, as a line names them. */
+const outsideYourCircle = "outside your circle";
+
 /** The heading of the kinds filter, and the name of the desktop's kinds menu while none is chosen. */
 const kindOfPlace = "Kind of place";
 
@@ -156,6 +162,9 @@ export const copy = {
     sortedBy: {
       // DRAFT for Avi
       score: "Best in House picks first",
+      // DRAFT for Avi: the design's words (Search.dc.html).
+      /** The same, while My circle is the view. */
+      circleScore: "Best in My circle first",
       distance: "Nearest first",
       name: "A to Z",
       // DRAFT for Avi: words that are not a kind of place are listed best match first.
@@ -186,8 +195,11 @@ export const copy = {
     /** The cross at the top right, for a screen reader. */
     close: "Close filters",
     sortBy: "Sort by",
-    /** The ways to sort. The first is by House picks' scores, which need no sign in (DRAFT for Avi). */
-    sort: { score: "House picks' score", distance: "Distance", name: "Name" },
+    /**
+     * The ways to sort. The first is by the scores of the view on screen: House picks', which need no
+     * sign in, or My circle's (the design's, Filters.dc.html) while it is the view (DRAFT for Avi).
+     */
+    sort: { score: "House picks' score", circleScore: "My circle's score", distance: "Distance", name: "Name" },
     openNow: "Open now",
     openNowNote: "Keeps places with no hours listed.",
     distance: "Distance",
@@ -281,6 +293,30 @@ export const copy = {
     /** A place with reviews while House picks can't be worked out: "2 people have rated it". */
     peopleRated: (n: number) => `${peopleHave(n)} rated it`,
     // DRAFT for Avi
+    /** The same as `ratedByHouse`, while My circle is the view: "Rated by 3 people in your circle". */
+    ratedByCircle: (n: number) => `Rated by ${people(n)} ${inYourCircle}`,
+    // DRAFT for Avi
+    /** The same as `fromHouse`, in the place page's score panel: "From 3 people in your circle". */
+    fromCircle: (n: number) => `From ${people(n)} ${inYourCircle}`,
+    // DRAFT for Avi
+    /**
+     * A place with reviews, none by people in the person's circle, on a card or a row while My circle
+     * is the view (the brief's § 5): "2 people outside your circle have rated it".
+     */
+    outsideCircle: (n: number) => `${people(n)} ${outsideYourCircle} ${n === 1 ? "has" : "have"} rated it`,
+    // DRAFT for Avi
+    /**
+     * The same, first, in the place page's "No score yet" panel, before how many others have rated it
+     * (the brief's § 5: "No score yet. Nobody in your circle has been here yet. 11 other people have rated it.").
+     */
+    noneInCircle: "Nobody in your circle has rated it yet",
+    // DRAFT for Avi
+    /** The same as `starless`, while My circle is the view. */
+    starlessCircle: (n: number) => `${people(n)} ${inYourCircle} reviewed it without stars`,
+    // DRAFT for Avi
+    /** The same as `houseUnavailable`, for My circle: its scorer's ranks can't be read. */
+    circleUnavailable: "My circle can't be worked out right now.",
+    // DRAFT for Avi
     /**
      * A place with no score that the person signed in has reviewed, in place of counting them among
      * the others ("1 other person has rated it"): never whether the house counts their review (ruling R15).
@@ -299,7 +335,10 @@ export const copy = {
     /** One quiet line, when the house's view can't be read: every review is folded, and nothing is scored. */
     houseUnavailable: "House picks can't be worked out right now.",
   },
-  /** The reviews on a place's page (Place.dc.html, DeskPlace.dc.html), worded for House picks. */
+  /**
+   * The reviews on a place's page (Place.dc.html, DeskPlace.dc.html), worded for House picks, and for
+   * My circle where the words name the view.
+   */
   reviews: {
     // DRAFT for Avi
     /** A reviewer whose profile gives no name, or none that can be shown (Review Focus 4): never a code. */
@@ -308,11 +347,20 @@ export const copy = {
     /** The heading over the reviews by people inside House picks (the design's "From your circle"). */
     heading: "Rated by people the house trusts",
     // DRAFT for Avi
+    /** The same, while My circle is the view. */
+    headingCircle: "Rated by people in your circle",
+    // DRAFT for Avi
     /** The box of reviews from outside House picks, under the ones inside: "4 more reviews from outside House picks". */
     foldedMore: (n: number) => `${n.toLocaleString("en")} more ${n === 1 ? "review" : "reviews"} from outside House picks`,
     // DRAFT for Avi
     /** The same box when no review is inside House picks: "4 reviews from outside House picks". */
     foldedAll: (n: number) => `${reviewCount(n)} from outside House picks`,
+    // DRAFT for Avi
+    /** The box of reviews from outside the person's circle, while My circle is the view: "4 more reviews from outside your circle". */
+    foldedMoreCircle: (n: number) => `${n.toLocaleString("en")} more ${n === 1 ? "review" : "reviews"} from ${outsideYourCircle}`,
+    // DRAFT for Avi
+    /** The same box when no review is inside the circle: "4 reviews from outside your circle". */
+    foldedAllCircle: (n: number) => `${reviewCount(n)} from ${outsideYourCircle}`,
     // DRAFT for Avi
     /** The same box while House picks can't be worked out: "4 reviews, not counted right now". */
     uncounted: (n: number) => `${reviewCount(n)}, not counted right now`,
@@ -720,6 +768,16 @@ export const copy = {
     near: (label: string) => `Near ${label}`,
     /** Under the toggle, while it is on House picks (Main.dc.html). "How this works" follows it, as a link. */
     houseLine: `Scores from the reviewers that ${houseName}, our house curator, trusts.`,
+    // DRAFT for Avi
+    /** The same, while it is on My circle. "How this works" follows it, as a link. */
+    circleLine: "Scores from your circle: the people you trust, and the people they trust.",
+    // DRAFT for Avi
+    /**
+     * Under that, while My circle is the view and nobody in the person's circle has rated any place
+     * they have seen (a circle of one: the brief's § 6, ruling R7). The toggle above keeps House picks
+     * one tap away; nothing switches the view for them.
+     */
+    circleEmpty: "Nobody in your circle has rated places here yet. House picks still has scores for you.",
     howThisWorks: "How this works",
     /** The filter chips, for a screen reader. */
     filtersLabel: "Filter places",
@@ -760,6 +818,13 @@ export const copy = {
     // DRAFT for Avi
     /** The same, when one location near has a score. */
     houseOne: (score: string) => `Near you, the house rates one ${score}.`,
+    // DRAFT for Avi
+    /** The same as `houseRange`, while My circle is the view. */
+    circleRange: (low: string, high: string) =>
+      low === high ? `Near you, your circle rates them ${low}.` : `Near you, your circle rates them from ${low} to ${high}.`,
+    // DRAFT for Avi
+    /** The same as `houseOne`, while My circle is the view. */
+    circleOne: (score: string) => `Near you, your circle rates one ${score}.`,
     /** The heading over the locations that are near. */
     near: "Near you",
     // DRAFT for Avi: the heading over the nearest three, when none is near.
@@ -794,6 +859,9 @@ export const copy = {
     // DRAFT for Avi
     /** The score part of a scored place's pin: "4.6 out of 5, rated by 3 people the house trusts". */
     pinScored: (score: string, n: number) => `${score} out of 5, rated by ${people(n)} ${houseTrusts}`,
+    // DRAFT for Avi
+    /** The same, while My circle is the view: "4.6 out of 5, rated by 3 people in your circle". */
+    pinScoredCircle: (score: string, n: number) => `${score} out of 5, rated by ${people(n)} ${inYourCircle}`,
     // DRAFT for Avi
     /** The same, for a place whose reviews are being counted. */
     pinCounting: "reviews being counted",
@@ -873,6 +941,9 @@ export const copy = {
     sort: {
       // DRAFT for Avi
       score: "Sort: House picks' score",
+      // DRAFT for Avi
+      /** The same, while My circle is the view. */
+      circleScore: "Sort: My circle's score",
       distance: "Sort: distance",
       name: "Sort: name",
       // DRAFT for Avi

@@ -2,6 +2,7 @@ import { type JSX, useId, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { aboutAt, HOW_SCORES_WORK } from "../about/anchors.ts";
+import { EmptyCircle } from "../circle/EmptyCircle.tsx";
 import { Personalize } from "../circle/Personalize.tsx";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
@@ -22,6 +23,7 @@ import { HouseName } from "../ui/HouseName.tsx";
 import { SearchIcon } from "../ui/icons.tsx";
 import { shownPageOf } from "../ui/shown.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
+import { useCurrentView } from "../view/ViewProvider.tsx";
 import {
   CHIP_LABELS,
   CHIP_PARAM,
@@ -77,8 +79,10 @@ export function NoneNearby(): JSX.Element {
 }
 
 /**
- * Whose scores the list shows, with the house's badge beside its name and a link to how that works
- * (Main.dc.html). The desktop's Explore says how many places there are first (DeskExplore.dc.html):
+ * Whose scores the list shows, by the view on screen, and a link to how that works (Main.dc.html):
+ * the house's reviewers, with its badge beside its name, or the person's circle. While My circle is
+ * the view and nobody in it has rated the places seen, a line under it says so (`EmptyCircle`). The
+ * desktop's Explore says how many places there are first (DeskExplore.dc.html):
  * how many the list has; or, when an area searched on the map has more than the list holds, how many
  * the area has (`inArea`); or, when Open now stopped reading hours before it found that many open
  * places, that it shows the open ones nearest the middle (`nearestOnly`).
@@ -88,12 +92,12 @@ export function NoneNearby(): JSX.Element {
  * and not when only the minutes passing change it (Open now's places opening and closing). So the
  * sentence is drawn as it is now, hidden from a screen reader, and said in a polite status, hidden from
  * the eye, as it was when the list was last made.
- * When House picks can't be worked out (`unavailable`), one quiet line under it says so, with Try
- * again, which asks again (`onRetry`). The focus goes to the lines then, where the button was: the
- * button goes once House picks are back, and the focus would fall to the page. `className` spaces the
- * two lines as the page around them spaces its own.
+ * When the view can't be worked out (`unavailable`), one quiet line under it says so, with Try again,
+ * which asks again (`onRetry`). The focus goes to the lines then, where the button was: the button
+ * goes once the view is back, and the focus would fall to the page. `className` spaces the lines as
+ * the page around them spaces its own.
  */
-export function HouseLine({
+export function ViewLine({
   count,
   inArea,
   nearestOnly = false,
@@ -112,6 +116,7 @@ export function HouseLine({
 }): JSX.Element {
   const lines = useRef<HTMLDivElement>(null);
   const quietId = useId();
+  const view = useCurrentView();
   let sentence: string | undefined;
   if (count !== undefined) {
     if (nearestOnly && count > 0) sentence = copy.deskExplore.nearestOpen;
@@ -122,24 +127,28 @@ export function HouseLine({
   if (said.key !== announceKey) setSaid({ key: announceKey, sentence });
   return (
     <div ref={lines} tabIndex={-1} className={`flex flex-col outline-none ${className}`}>
-      <p className="m-0 text-secondary leading-[1.4] text-muted">
-        {sentence !== undefined && (
-          <>
-            <span aria-hidden="true">{sentence}</span>
-            <span role="status" className="sr-only">
-              {said.sentence}
-            </span>{" "}
-          </>
-        )}
-        <HouseName text={copy.explore.houseLine} size="line" />{" "}
-        <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
-          {copy.explore.howThisWorks}
-        </Link>
-      </p>
+      <div>
+        <p className="m-0 text-secondary leading-[1.4] text-muted">
+          {sentence !== undefined && (
+            <>
+              <span aria-hidden="true">{sentence}</span>
+              <span role="status" className="sr-only">
+                {said.sentence}
+              </span>{" "}
+            </>
+          )}
+          {view === "circle" ? copy.explore.circleLine : <HouseName text={copy.explore.houseLine} size="line" />}{" "}
+          <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
+            {copy.explore.howThisWorks}
+          </Link>
+        </p>
+        {/* Always there, for a screen reader; its line, when there is one, a little under the one above. */}
+        <EmptyCircle className="*:mt-2" />
+      </div>
       {unavailable && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <p id={quietId} className="m-0 text-secondary leading-[1.4] text-muted">
-            {copy.score.houseUnavailable}
+            {view === "circle" ? copy.score.circleUnavailable : copy.score.houseUnavailable}
           </p>
           <button
             type="button"
@@ -244,7 +253,7 @@ export function ExploreList(): JSX.Element {
         <SearchLink />
         <div ref={toggleBlock} tabIndex={-1} className="flex flex-col gap-2 outline-none">
           <ViewSwitch variant="bar" />
-          <HouseLine unavailable={scores.house === "unavailable"} onRetry={refresh} className="gap-2" />
+          <ViewLine unavailable={scores.state === "unavailable"} onRetry={refresh} className="gap-2" />
         </div>
         <Personalize holdFocus={toggleBlock} />
         <Chips

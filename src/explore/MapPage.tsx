@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useId, useMemo, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
+import { EmptyCircle } from "../circle/EmptyCircle.tsx";
 import { copy } from "../copy/en.ts";
 import { LocationNotice } from "../location/LocationNotice.tsx";
 import { useHere } from "../location/useLocation.ts";
@@ -147,6 +148,7 @@ export function MapPage(): JSX.Element {
         <div className="pointer-events-none absolute inset-x-4 top-4 flex flex-col gap-2.5 *:pointer-events-auto">
           <SearchLink onMap />
           <ViewSwitch variant="map" />
+          <EmptyCircle className="*:rounded-[12px] *:bg-ground *:px-3 *:py-2 *:shadow-float" />
           <LocationNotice className="*:rounded-[12px] *:bg-ground *:px-3 *:py-2 *:shadow-float" />
         </div>
       </EveryPlaceMap>
