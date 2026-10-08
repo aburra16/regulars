@@ -350,6 +350,9 @@ export interface WeekDay {
 /** Hours that name public or school holidays: the week ahead may not be their regular week. */
 const NAMES_HOLIDAYS = /\b(?:PH|SH)\b/;
 
+/** A night that runs past midnight is put on the day it starts when it closes before this hour (noon) of the next. */
+const NIGHT_ENDS_BEFORE_HOUR = 12;
+
 /** How many weeks ahead to look for a week with no public holiday in it, or near it. */
 const REGULAR_WEEK_SEARCH = 8;
 
@@ -410,10 +413,12 @@ function buildWeek(raw: string, place: HoursPlace, now: Date, locale: string): W
       if (carriedIn && from.getTime() === start.getTime()) continue;
       let until = time(to);
       if (to.getTime() === end.getTime()) {
-        // Open as the day ends: until it closes the next day, or until midnight when it does not close then.
+        // Open as the day ends: a late night that closes the next morning is this day's ("6 pm to
+        // 2 am"). Anything else ends here at midnight, and the next day shows its own opening from
+        // midnight ("12 am to 5 pm"), so that day is not called closed.
         const limit = midnight(offset + 2);
         const closes = hours.getState(end) ? hours.getNextChange(end, limit) : undefined;
-        if (closes !== undefined && closes < limit) {
+        if (closes !== undefined && closes < limit && closes.getHours() < NIGHT_ENDS_BEFORE_HOUR) {
           // A closing the runtime's zone may have moved is not a time to state, as in `openState`.
           if (maybeMoved(closes)) return null;
           until = time(closes);
@@ -447,9 +452,10 @@ function buildWeek(raw: string, place: HoursPlace, now: Date, locale: string): W
 /**
  * A place's hours for the seven days from `now`, Monday first, as a table for the place page: each
  * day's openings in the locale's clock ("9:30 am to 5:30 pm", "11 am to 2 am" for a night that runs
- * past midnight, put on the day it starts), "Open 24 hours" for a day that never closes, and none for
- * a day it is closed. The days are the place's own, on its clock and calendar. It is the regular
- * week: a week ahead with a public holiday in it gives way to the next one without (see `buildWeek`).
+ * past midnight into the morning, put on the day it starts), "Open 24 hours" for a day that never
+ * closes, and none for a day it is closed. The days are the place's own, on its clock and calendar.
+ * It is the regular week: a week ahead with a public holiday in it gives way to the next one without
+ * (see `buildWeek`).
  *
  * Null when the app cannot state the hours as a table: when there are none, or when `openState`
  * would show them as written, or when a table would leave out what they say (a note on a rule, an

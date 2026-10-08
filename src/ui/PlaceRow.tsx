@@ -69,7 +69,7 @@ export function PlaceRow({ place, km, from = "list", locale, now }: PlaceRowProp
           {kindLine}
           {!unread && (
             <>
-              {" · "}
+              {copy.common.joiner}
               <HoursText state={state} line={hoursLine} />
             </>
           )}

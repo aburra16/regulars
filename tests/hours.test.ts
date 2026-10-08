@@ -899,6 +899,24 @@ describe("weekTable", () => {
     expect(wednesday?.[3]).toEqual({ day: "Thu", ranges: [copy.hours.open24] });
   });
 
+  it("carries a night over into the next morning only, and lets a day that opens at midnight and runs into the afternoon say so", () => {
+    // Closing before noon: a late night, on the day it starts.
+    const late = tableOf("Mo-Su 18:00-02:00");
+    expect(late?.every(({ ranges }) => ranges.length === 1 && ranges[0] === "6 pm to 2 am")).toBe(true);
+    // Closing in the afternoon: two openings, each on its own day, and neither day closed.
+    const evening = tableOf("Fr 18:00-24:00; Sa 00:00-14:00");
+    expect(evening?.[4]).toEqual({ day: "Fri", ranges: [`6 pm to ${copy.hours.midnight}`] });
+    expect(evening?.[5]).toEqual({ day: "Sat", ranges: ["12 am to 2 pm"] });
+    const night = tableOf("Fr 21:00-24:00; Sa 00:00-17:00");
+    expect(night?.[4]).toEqual({ day: "Fri", ranges: [`9 pm to ${copy.hours.midnight}`] });
+    expect(night?.[5]).toEqual({ day: "Sat", ranges: ["12 am to 5 pm"] });
+    // A night that runs to noon starts the next day's own opening.
+    const noon = tableOf("Su-Th 16:00-12:00");
+    expect(noon?.[0]).toEqual({ day: "Mon", ranges: [`12 am to 12 pm`, `4 pm to ${copy.hours.midnight}`] });
+    expect(noon?.[4]).toEqual({ day: "Fri", ranges: ["12 am to 12 pm"] });
+    expect(noon?.[5]).toEqual({ day: "Sat", ranges: [] });
+  });
+
   it("shows the regular week, leaving out the public holidays in it", () => {
     // Monday 30 November 2026 in Funchal; Tuesday 1 December is a public holiday in Portugal.
     const hours = "Mo-Fr 09:00-17:00; PH off";

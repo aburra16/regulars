@@ -392,6 +392,14 @@ describe("the place page: facts", () => {
     expect(copy.place.bitcoinChip).toBe("Bitcoin accepted");
   });
 
+  it("does not call a day closed when the night before ran into its afternoon", async () => {
+    const { events, path } = withPlace({ "opening-hours": "Fr 21:00-24:00; Sa 00:00-17:00" });
+    await openPlace(path, { events });
+    const rows = within(factValue(copy.place.facts.hours)).getAllByRole("row");
+    expect(rows[4]).toHaveTextContent(`Fri9 pm to ${copy.hours.midnight}`);
+    expect(rows[5]).toHaveTextContent("Sat12 am to 5 pm");
+  });
+
   it("says Closed for a day the place does not open", async () => {
     await openPlace(`/place/${byD("osm-node-12971275599").d}`); // Tu-Sa 09:00-18:00
     const rows = within(factValue(copy.place.facts.hours)).getAllByRole("row");
