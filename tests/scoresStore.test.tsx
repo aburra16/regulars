@@ -565,6 +565,46 @@ describe("ScoresProvider: back on line, and Try again", () => {
     expect([search.requests.length, scorer.requests.length, trust.requests.length]).toEqual(sent);
   });
 
+  it("reads again at most once in 5 seconds however often the device says it is back on line", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 1_700_000_000_000 });
+    try {
+      config.reviewRelays = [SEARCH];
+      const search = switchedReader([reviewOf(ALICE, JACAFE, 5)]);
+      search.down = true;
+      const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
+      const { result } = renderStore(() => useScore(JACAFE), { readers });
+      await waitFor(() => expect(result.current.read).toBe("failed"));
+      const online = async () => {
+        act(() => {
+          window.dispatchEvent(new Event("online"));
+        });
+        await settle();
+      };
+
+      // The first time it is back, it reads again: still down.
+      await online();
+      await waitFor(() => expect(result.current.read).toBe("failed"));
+      const once = search.requests.length;
+      expect(once).toBeGreaterThan(0);
+
+      // A connection that flaps: nothing is read again for 5 seconds after.
+      vi.setSystemTime(1_700_000_004_999);
+      await online();
+      await online();
+      expect(search.requests).toHaveLength(once);
+      expect(result.current.read).toBe("failed");
+
+      // Then it reads again.
+      search.down = false;
+      vi.setSystemTime(1_700_000_005_000);
+      await online();
+      await waitFor(() => expect(result.current.score).toMatchObject({ score: 5, counted: 1 }));
+      expect(search.requests.length).toBeGreaterThan(once);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stops hearing that the device is back on line when it unmounts", async () => {
     config.reviewRelays = [SEARCH];
     const search = switchedReader([reviewOf(ALICE, JACAFE, 5)]);
@@ -634,14 +674,18 @@ describe("ScoresProvider: a place with more reviews than a request returns", () 
     expect(result.current.reviews).toHaveLength(2_496);
   });
 
-  it("stops paging when a full page holds one second only: the next would be the same", async () => {
+  it("pages past a full page of one second, so a flood in one second still leaves older reviews in its batch read", async () => {
     config.reviewRelays = [SEARCH];
-    const sameSecond = Array.from({ length: 600 }, (_, n) => reviewOf(spammer(n), JACAFE, 5, { created_at: 1_700_100_000 }));
-    const { readers, search } = houseNetwork(sameSecond, []);
-    const { result } = renderStore(() => useScore(JACAFE), { readers });
+    const second = 1_700_100_000;
+    const sameSecond = Array.from({ length: 600 }, (_, n) => reviewOf(spammer(n), JACAFE, 5, { created_at: second }));
+    const alice = reviewOf(ALICE, OTHER, 4, { created_at: second - 3_600 });
+    const { readers, search } = houseNetwork([...sameSecond, alice], [rankOf(ALICE, 80)]);
+    const { result } = renderStore(() => useScores([JACAFE, OTHER]), { readers });
 
-    await waitFor(() => expect(result.current.read).toBe("read"));
-    expect(byA(search).map((filter) => filter.until)).toEqual([undefined, 1_700_100_000]);
+    await waitFor(() => expect(result.current.scores.get(OTHER)).toMatchObject({ score: 4, counted: 1 }));
+    // The second page gets no further back than the first: the next starts a second before it.
+    expect(byA(search).map((filter) => filter.until)).toEqual([undefined, second, second - 1]);
+    expect(byD(search).map((filter) => filter.until)).toEqual([undefined, second, second - 1]);
   });
 });
 

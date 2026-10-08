@@ -65,6 +65,12 @@ const NAME_BATCH = 100;
  */
 export const BATCHES_IN_FLIGHT = 2;
 
+/**
+ * How long after reading everything again (`refresh`) the device being back on line does not do it
+ * again: a connection that comes and goes would otherwise keep stopping reads that are doing well.
+ */
+export const ONLINE_CALM_MS = 5_000;
+
 /** The most people one read of the house's ranks names: one request to the scorer's relay (`fetchRanks`). */
 const RANK_BATCH = 500;
 
@@ -184,9 +190,11 @@ function runsOf<T>(items: readonly T[], size: number): T[][] {
 /**
  * Every value `reader` sends for `filter`, page after page: while a page comes back full (`filter.limit`
  * values), the next asks for those up to the oldest time seen so far (`until`, which includes that
- * second: the values read twice are the same events, which the caller keeps once). At most `pages`
- * pages; it stops sooner at a page that is not full, or one that gets no further back in time (a full
- * page of one second). Throws as `readAll` does: half a read is no read.
+ * second: the values read twice are the same events, which the caller keeps once). A full page that
+ * gets no further back in time (a flood within one second) is followed by one from the second before:
+ * what else that second holds is not read, and what is older is. At most `pages` pages; it stops
+ * sooner at a page that is not full, or one in which no time can be read. Throws as `readAll` does:
+ * half a read is no read.
  */
 async function readPaged(reader: RelayReader, filter: NostrFilter, pages: number, signal: AbortSignal): Promise<unknown[]> {
   const values: unknown[] = [];
@@ -200,8 +208,11 @@ async function readPaged(reader: RelayReader, filter: NostrFilter, pages: number
       const ev = asEvent(value);
       if (ev !== null && ev.created_at < oldest) oldest = ev.created_at;
     }
-    if (!Number.isFinite(oldest) || (until !== undefined && oldest >= until)) break;
-    until = oldest;
+    if (!Number.isFinite(oldest)) break;
+    const next = until !== undefined && oldest >= until ? oldest - 1 : oldest;
+    // Nothing is older than the first second there is.
+    if (next < 0) break;
+    until = next;
   }
   return values;
 }
@@ -330,6 +341,8 @@ export class ScoresStore {
   #roundSignal: AbortSignal | null = null;
   /** The read of what has been asked for, waiting out its window. */
   #flushTimer: ReturnType<typeof setTimeout> | undefined;
+  /** When `refresh` last read everything again (`Date.now()`); undefined before it has. */
+  #refreshedAt: number | undefined;
 
   /** For a place filed more than once (the same OSM id under two addresses): each address → all of them. */
   #filings = new Map<string, readonly string[]>();
@@ -572,6 +585,7 @@ export class ScoresStore {
    * read are asked for again, and so is the house's view if it was unavailable.
    */
   readonly refresh = (): void => {
+    this.#refreshedAt = Date.now();
     this.#newRound();
     this.#asked = new Set();
     this.#namesAsked = new Set(this.#namesKnown);
@@ -646,12 +660,15 @@ export class ScoresStore {
   /**
    * Back on line (the browser says so), as the places' store does: reads again what could not be read,
    * or was being read when the connection went (`refresh`): places no review relay answered for, a
-   * house's view that was unavailable, reads still under way. Otherwise it asks the house about the
-   * reviewers whose rank read failed. With everything read, nothing is asked.
+   * house's view that was unavailable, reads still under way; but not within `ONLINE_CALM_MS` of the
+   * last time it read again, so that a connection that comes and goes does not keep stopping reads
+   * that are doing well. Otherwise it asks the house about the reviewers whose rank read failed. With
+   * everything read, nothing is asked.
    */
   readonly #onOnline = (): void => {
     const reading = [...this.#asked].some((address) => !this.#read.has(address) && !this.#failed.has(address));
-    if (this.#failed.size > 0 || this.#house === "unavailable" || reading) this.refresh();
+    const recently = this.#refreshedAt !== undefined && Date.now() - this.#refreshedAt < ONLINE_CALM_MS;
+    if ((this.#failed.size > 0 || this.#house === "unavailable" || reading) && !recently) this.refresh();
     else this.#weigh();
   };
 
