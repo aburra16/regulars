@@ -179,7 +179,8 @@ describe("Explore on a phone: the top of the page", () => {
     await openExplore();
     expect(copy.explore.houseLine).toBe("Scores from the reviewers that Mise en Place, our house curator, trusts.");
     const link = screen.getByRole("link", { name: "How this works" });
-    expect(link).toHaveAttribute("href", "/about#how-scores-work");
+    // The Why page (screen 12, D4): tests/why.test.tsx.
+    expect(link).toHaveAttribute("href", "/why");
     expect(link.parentElement).toHaveTextContent(`${copy.explore.houseLine} How this works`);
   });
 

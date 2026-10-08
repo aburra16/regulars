@@ -97,6 +97,9 @@ const houseName = "Mise en Place";
 /** A link back to the first page. */
 const backToExplore = "Back to Explore";
 
+/** The name of the page that says how a score is worked out (Trust.dc.html, DeskTrust.dc.html). */
+const whyTitle = "Why you see what you see";
+
 /** "phone", "phone or website", "phone, website or hours". */
 const eitherOf = (items: readonly string[]) =>
   items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
@@ -489,6 +492,7 @@ export const copy = {
     // DRAFT for Avi
     /** The review form is named after the place it reviews: "Your review of Jacafé · Regulars". */
     review: (name: string) => pageTitle(`${yourReviewOf} ${name}`),
+    why: pageTitle(whyTitle),
   },
   /** The sign-in page (SignIn.dc.html, DeskSignIn.dc.html), and the button that leads to it. */
   signin: {
@@ -571,6 +575,93 @@ export const copy = {
     signedOut: "Sign in to see your reviews and the people you trust.",
     // DRAFT for Avi
     signOut: "Sign out",
+  },
+  /**
+   * Why you see what you see (the brief's screen 12 and D4; Trust.dc.html, DeskTrust.dc.html): how a
+   * score is worked out, the person's circle in a count (a count of people, never a number on one:
+   * decision 19), and Update now. The people the person trusts, each with Remove, come with the Trust
+   * button (the brief's § 7), not here.
+   */
+  why: {
+    title: whyTitle,
+    intro: "There is no single score for a place. Every score here is worked out from a set of people. You choose which set.",
+    /** Over the toggle. */
+    lookingThrough: "You're looking through",
+    // DRAFT for Avi
+    /** The name of the panel with the circle's count (and of the desktop's side rail), for a screen reader. */
+    circleHeading: "Your circle",
+    // DRAFT for Avi: the signed-out version is not drawn. Signed out, the panel has the sign-in page's
+    // words (`signin.intro`) and Sign in; signed in, before the circle is worked out, these and Personalize.
+    housePicksNow:
+      "Right now you're seeing House picks. My circle works out every score from the people you trust, and the people they trust.",
+    /** The big number: how many people are in the circle, "212". */
+    count: (n: number) => n.toLocaleString("en"),
+    // DRAFT for Avi
+    /** The same, when only a floor is known: "2,400+". */
+    countAtLeast: (n: number) => `${n.toLocaleString("en")}+`,
+    /** Beside the big number. */
+    inYourCircle: (n: number) => (n === 1 ? "person in your circle" : "people in your circle"),
+    // DRAFT for Avi
+    /** The floor and its words, for a screen reader: "At least 2,400 people in your circle". */
+    atLeast: (n: number) => `At least ${people(n)} in your circle`,
+    /** The circle, split: the people the person trusts, and the people those people trust. */
+    youTrust: "People you trust",
+    theyTrust: "People they trust",
+    // DRAFT for Avi: "today" and "yesterday" (the design draws "Worked out 2 days ago").
+    /** When the circle was worked out: "Worked out 2 days ago". */
+    workedOut: (days: number, months: number) => {
+      let when: string;
+      if (days <= 0) when = "today";
+      else if (days === 1) when = "yesterday";
+      else if (days < 7) when = ago(days, "day");
+      else if (days < 30) when = ago(Math.floor(days / 7), "week");
+      else if (months < 12) when = ago(Math.max(1, months), "month");
+      else when = ago(Math.floor(months / 12), "year");
+      return `Worked out ${when}`;
+    },
+    // DRAFT for Avi
+    /** While the circle is counted. */
+    counting: "Counting your circle…",
+    // DRAFT for Avi
+    /** The circle could not be counted (its scores could not be read). Try again follows. */
+    countFailed: "Your circle can't be counted right now.",
+    // DRAFT for Avi: the brief's § 6 says to say plainly when the circle is empty.
+    /** The circle is ready, and nobody is in it but the person. */
+    emptyTitle: "Nobody in your circle yet",
+    // DRAFT for Avi
+    emptyBody:
+      "Your circle is the people you trust and the people they trust, and so far that's nobody. Until it grows, My circle counts only your own reviews, and House picks still has scores for you.",
+    updateNow: "Update now",
+    // DRAFT for Avi
+    /** After Update now, while Brainstorm works the circle out again. Scores use the circle the person has meanwhile. */
+    updating: "Updating your circle. This takes a few minutes.",
+    // DRAFT for Avi
+    /** Brainstorm has worked it out again. */
+    updated: "Your circle is up to date.",
+    // DRAFT for Avi
+    /** The run failed, took too long, or Brainstorm could not be reached. */
+    updateFailed: "Your circle couldn't be updated right now. Scores still use the one you have.",
+    rulesHeading: "How a score is worked out",
+    /** The three rules: on a phone, each title is a sentence before its words; on a desktop, a card's heading. */
+    rules: {
+      only: { title: "Only your circle counts", body: "A review from someone outside it doesn't move your score at all." },
+      closer: { title: "Closer people count for more", body: "Someone you trust outweighs someone a friend of a friend trusts." },
+      oneSay: { title: "One say each", body: "A person has one review per place. Writing another replaces it." },
+    },
+    foldedHeading: "What gets folded away",
+    /** On a phone (Trust.dc.html). */
+    foldedBody:
+      "Reviews from people outside your circle sit folded under each place. Nothing is deleted, and one tap opens them. Trust a reviewer and theirs count from the next update.",
+    /** On a desktop (DeskTrust.dc.html): a click, not a tap. */
+    foldedBodyDesk:
+      "Reviews from people outside your circle sit folded under each place. Nothing is deleted, and one click opens them. Trust a reviewer and theirs count from the next update.",
+    houseHeading: "And House picks?",
+    /** On a phone (Trust.dc.html). */
+    houseBody: `The same sums from a different starting point: the reviewers that ${houseName}, our house curator, trusts. It's what everyone sees before signing in, and it's always one tap away.`,
+    /** On a desktop (DeskTrust.dc.html), where the toggle is in the top bar too. */
+    houseBodyDesk: `The same sums from a different starting point: the reviewers that ${houseName}, our house curator, trusts. It's what everyone sees before signing in.`,
+    /** The link at the foot. */
+    about: `About ${config.appName} and its data`,
   },
   /** About and data (About.dc.html). */
   about: {

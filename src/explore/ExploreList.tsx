@@ -1,9 +1,9 @@
 import { type JSX, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
-import { aboutAt, HOW_SCORES_WORK } from "../about/anchors.ts";
 import { EmptyCircle } from "../circle/EmptyCircle.tsx";
 import { Personalize } from "../circle/Personalize.tsx";
+import { WHY_PATH } from "../circle/WhyPage.tsx";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { HereCityPicker } from "../location/CityPicker.tsx";
@@ -138,7 +138,7 @@ export function ViewLine({
             </>
           )}
           {view === "circle" ? copy.explore.circleLine : <HouseName text={copy.explore.houseLine} size="line" />}{" "}
-          <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
+          <Link to={WHY_PATH} className="font-semibold text-ink underline hover:text-accent">
             {copy.explore.howThisWorks}
           </Link>
         </p>

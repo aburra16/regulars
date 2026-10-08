@@ -27,14 +27,22 @@ function formsOf(rank: number): string[] {
  * Fails when the page shows a number about a person (any form of `ranks`, the ranks the test's
  * scorers gave), or the words that would say one ("rank", "weight", "counts for", "trust score", a
  * percentage), in its text or in what a screen reader hears; or a meter or a progress bar.
+ *
+ * `allow` names whole phrases the page's text may say that would otherwise match, each taken out of
+ * the text before it is read: a sentence about how the sums work, never about a person ("Closer
+ * people count for more", the Why page's rule in the design's words). Each must be on the page, so
+ * that an allowance that no longer applies is not left behind. Names, descriptions and labels get none.
  */
-export function expectNoNumbersAboutPeople(ranks: readonly number[]): void {
+export function expectNoNumbersAboutPeople(ranks: readonly number[], { allow = [] }: { allow?: readonly string[] } = {}): void {
   const aboutPeople = new RegExp(
     [...ranks.flatMap(formsOf), "%", "\\brank", "\\bweight", "\\bcounts? for", "trust score"].join("|"),
     "i",
   );
-  expect(document.body.textContent).not.toMatch(aboutPeople);
+  const text = document.body.textContent ?? "";
+  for (const phrase of allow) expect(text).toContain(phrase);
+  expect(allow.reduce((left, phrase) => left.split(phrase).join(" "), text)).not.toMatch(aboutPeople);
   for (const element of document.body.querySelectorAll("*")) {
+    // What a screen reader hears as a name or a description is held to it whole: nothing is allowed there.
     for (const attribute of ["aria-label", "aria-description", "title", "alt", "aria-valuetext", "aria-valuenow"]) {
       expect(element.getAttribute(attribute) ?? "").not.toMatch(aboutPeople);
     }
