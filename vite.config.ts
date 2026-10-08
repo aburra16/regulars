@@ -5,6 +5,9 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
+    // The opening_hours chunk below is 714 kB (116 kB gzip), most of it the library's own tables, and
+    // it has to stay one file of its own. The warning's default of 500 kB would fire on every build.
+    chunkSizeWarningLimit: 750,
     rolldownOptions: {
       output: {
         codeSplitting: {

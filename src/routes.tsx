@@ -1,9 +1,9 @@
 import type { RouteObject } from "react-router-dom";
 
+import { ExploreList } from "./explore/ExploreList.tsx";
 import {
   AboutPage,
   ChainPage,
-  ExplorePage,
   FiltersPage,
   MapPage,
   PlacePage,
@@ -31,7 +31,7 @@ export const routes: RouteObject[] = [
       {
         errorElement: <PageError />,
         children: [
-          { index: true, element: <ExplorePage />, handle: chrome({ tabs: true, near: true }) },
+          { index: true, element: <ExploreList />, handle: chrome({ tabs: true, near: true }) },
           { path: "map", element: <MapPage />, handle: chrome({ tabs: true }) },
           // ?q=&open=&kinds=&within=&sort=
           { path: "search", element: <SearchPage /> },

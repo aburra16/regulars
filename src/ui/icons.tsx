@@ -60,3 +60,21 @@ export function PersonIcon(props: IconProps): JSX.Element {
     </Icon>
   );
 }
+
+/** The chevron pointing right: a card that opens a list of places. */
+export function ChevronRightIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <path d="M9 5l7 7-7 7" />
+    </Icon>
+  );
+}
+
+/** Three lines, shortest last: the More chip, which opens the filters. */
+export function FilterIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <path d="M4 7h16M7 12h10M10 17h4" />
+    </Icon>
+  );
+}

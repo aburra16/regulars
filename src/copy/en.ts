@@ -34,6 +34,9 @@ const pages = {
   you: "You",
 };
 
+/** How many places a chain has: "74 locations". */
+const locations = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "location" : "locations"}`;
+
 /** A page's title in the browser's tab: "Search · Regulars". */
 const pageTitle = (page: string) => `${page} · ${config.appName}`;
 
@@ -71,6 +74,9 @@ export const copy = {
     withScore: (view: string, score: string) => `${view} · ${score}`,
   },
   score: {
+    // DRAFT for Avi
+    /** In place of a score, on a place that nobody has reviewed. */
+    noReviewsYet: "No reviews yet",
     /** A score as it is shown: "4.5", "4.0". */
     value: (n: number) => n.toLocaleString("en", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
     /** The stars, for a screen reader: "4.5 out of 5". */
@@ -156,6 +162,33 @@ export const copy = {
     // DRAFT for Avi
     /** The control at the top of the page. `label` is where the places are near: "Funchal", or "you". */
     near: (label: string) => `Near ${label}`,
+    /** Under the toggle, while it is on House picks (Main.dc.html). "How this works" follows it, as a link. */
+    houseLine: "Scores from the reviewers that Mise en Place, our house curator, trusts.",
+    howThisWorks: "How this works",
+    /** The filter chips, for a screen reader. */
+    filtersLabel: "Filter places",
+    /** The chips. Restaurants and Cafes are the kind families' own names. */
+    chips: { all: "All", open: "Open now", more: "More" },
+    /** What a place is and how far it is: "Mexican restaurant · 1.1 mi". */
+    kindLine: (kind: string, distance: string) => (distance === "" ? kind : `${kind} · ${distance}`),
+    /** A chain's kind and size (Main.dc.html): "Coffee shop · 74 locations". */
+    chainKind: (kind: string, n: number) => `${kind} · ${locations(n)}`,
+    /** How many of a chain are around: "3 near you, the closest 0.6 mi". */
+    chainNearby: (n: number, distance: string) => `${n.toLocaleString("en")} near you, the closest ${distance}`,
+    /** The button after the last card shown, when there are more. */
+    showMore: "Show more",
+    // DRAFT for Avi
+    /** No place is listed around the point. `label` is where that is: "Funchal", or "you". */
+    noneNearby: (label: string) => `No places listed near ${label} yet. Try another town.`,
+    // DRAFT for Avi
+    /** The button under that, which opens the list of towns. */
+    chooseTown: "Choose a town",
+    // DRAFT for Avi
+    /** Places are near, and the chip on screen leaves none of them. */
+    noneMatching: "No places here match that.",
+    // DRAFT for Avi
+    /** The button under that, which clears the chip. */
+    showAll: "Show all places",
   },
   location: {
     // DRAFT for Avi: every string in this group is a first draft and needs your edit.

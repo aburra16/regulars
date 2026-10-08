@@ -250,6 +250,27 @@ export function CityPicker({
 }
 
 /**
+ * The picker, wired to `useHere`: a pick moves every screen to that city, "Use my location" asks
+ * the browser, and either one closes it. Open it wherever a person is offered another town.
+ */
+export function HereCityPicker({ onClose }: { onClose(): void }): JSX.Element {
+  const here = useHere();
+  return (
+    <CityPicker
+      onPick={(city) => {
+        here.pickCity(city);
+        onClose();
+      }}
+      onUseDevice={() => {
+        here.useDevice();
+        onClose();
+      }}
+      onClose={onClose}
+    />
+  );
+}
+
+/**
  * "Near Funchal ˅": where the places are near, as a button that opens the picker. The pick
  * moves every screen below the `HereProvider`. "Use my location" asks the browser, and while it
  * has not answered the button reads "Finding your location…"; if it says no or cannot,
@@ -304,19 +325,7 @@ export function NearButton({ variant = "plain" }: { variant?: "plain" | "pill" }
           </>
         )}
       </button>
-      {open && (
-        <CityPicker
-          onPick={(city) => {
-            here.pickCity(city);
-            setOpen(false);
-          }}
-          onUseDevice={() => {
-            here.useDevice();
-            setOpen(false);
-          }}
-          onClose={() => setOpen(false)}
-        />
-      )}
+      {open && <HereCityPicker onClose={() => setOpen(false)} />}
     </>
   );
 }
