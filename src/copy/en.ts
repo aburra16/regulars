@@ -649,6 +649,12 @@ export const copy = {
     /** After Update now, while Brainstorm works the circle out again. Scores use the circle the person has meanwhile. */
     updating: "Updating your circle. This takes a few minutes.",
     // DRAFT for Avi
+    /**
+     * Brainstorm is working it out again, and the page can no longer follow it (its sign-in ran out):
+     * scores use the new circle from the person's next visit, when its ranks are read afresh.
+     */
+    updateStarted: "Your circle is still being worked out. We'll use the new one on your next visit.",
+    // DRAFT for Avi
     /** Brainstorm has worked it out again. */
     updated: "Your circle is up to date.",
     // DRAFT for Avi

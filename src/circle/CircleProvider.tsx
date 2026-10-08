@@ -23,6 +23,7 @@ import { usePlaces } from "../places/store.tsx";
 import { useRelays, useScoresStore } from "../score/ScoresProvider.tsx";
 import { RANK_KIND, ranksFrom, type Scorer } from "../trust/houseWeights.ts";
 import type { Run } from "./brainstorm.ts";
+import { type Client, loadBrainstorm } from "./loadBrainstorm.ts";
 import { forgetToken, readToken } from "./token.ts";
 
 /*
@@ -44,9 +45,15 @@ import { forgetToken, readToken } from "./token.ts";
  * empty, for the session; one under way is followed; with a failed run, or none, one is started. A rank
  * by the scorer found later (the scores store reads them) confirms it too.
  *
+ * Once the circle is ready, Update now (on the Why page) asks for it to be worked out again: the same
+ * sign-in when the tab has no token, then a new run, followed while the tab is open, wherever the
+ * person goes in it, as My circle keeps showing the circle they have. Once the run is done, the scores
+ * store reads the new ranks (a new `edition`), and My circle shows them, wherever the person is.
+ *
  * Where it is, is kept for the tab (`CIRCLE_KEY`, sessionStorage), so a reload carries on polling the
- * run under way, and starts none (Review Focus 3). Signing out forgets it, and Brainstorm's token
- * (`ForgetCircleOnSignOut`). Brainstorm's client (./brainstorm.ts) is loaded when it is first needed.
+ * run under way, and starts none (Review Focus 3); an update under way is not kept, and a reload ends
+ * its following, not its run. Signing out forgets it, and Brainstorm's token (`ForgetCircleOnSignOut`).
+ * Brainstorm's client (./brainstorm.ts) is loaded when it is first needed (./loadBrainstorm.ts).
  */
 
 /** Where the person's circle is. */
@@ -75,6 +82,18 @@ export type CircleState =
   /** Brainstorm could not be reached, or the run took too long. */
   | "unavailable";
 
+/**
+ * Where Update now is, beside the circle's state, which it leaves as it is:
+ * - `idle`: not tapped, or the person did not go on with the sign-in;
+ * - `signing`: their add-on or phone app asks them to approve Brainstorm's sign-in;
+ * - `updating`: Brainstorm is asked, or works the circle out, followed;
+ * - `started`: it works it out, and can no longer be followed (the token ran out while it did);
+ * - `recently`: Brainstorm would not start a run, as one was made lately: that one is used;
+ * - `updated`: worked out again, and its new ranks read;
+ * - `failed`: the run failed, took too long, or Brainstorm could not be reached.
+ */
+export type UpdateStep = "idle" | "signing" | "updating" | "started" | "recently" | "updated" | "failed";
+
 /** Where the circle's state is kept for the tab, with the public key of the person it is for. */
 export const CIRCLE_KEY = "regulars.circle";
 
@@ -102,11 +121,20 @@ export interface CircleValue {
   scorer?: Scorer;
   /** Whether the quiet notice that it is ready ("ready" or "recently") is to be shown. */
   notice: boolean;
+  /** Where Update now is. */
+  updateStep: UpdateStep;
+  /** Which working-out of the circle My circle's scores are from: a new one each time Update now's run is done. */
+  edition: number;
   /** Asks Brainstorm to work out the circle: the person's tap. Only while it is off, unconfirmed, busy, failed or unavailable. */
   personalize(): void;
   /** The same, from Try again. */
   retry(): void;
-  /** Stops waiting on the add-on or the phone app, and goes back to off. */
+  /**
+   * Update now: asks Brainstorm to work the circle out again, the person's tap. Only while it can be
+   * shown (ready, recently or unconfirmed) and nothing else is under way.
+   */
+  update(): void;
+  /** Stops waiting on the add-on or the phone app: Personalize's, back to off; Update now's, back to idle. */
   cancel(): void;
   /** Puts the notice away. */
   dismissReady(): void;
@@ -119,8 +147,11 @@ const NONE: CircleValue = {
   state: "off",
   ready: false,
   notice: false,
+  updateStep: "idle",
+  edition: 0,
   personalize: ignore,
   retry: ignore,
+  update: ignore,
   cancel: ignore,
   dismissReady: ignore,
 };
@@ -233,27 +264,17 @@ export function ForgetCircleOnSignOut({ children }: { children: ReactNode }): JS
 
 // ---- Asking Brainstorm ----
 
-type Client = typeof import("./brainstorm.ts");
-
-let clientCode: Promise<Client> | undefined;
-
-/** Brainstorm's client, loaded when it is first needed, and once. A load that fails is tried again next time. */
-function loadClient(): Promise<Client> {
-  clientCode ??= import("./brainstorm.ts").catch((error: unknown) => {
-    clientCode = undefined;
-    throw error;
-  });
-  return clientCode;
-}
-
-/** A flow: the look, the tap's, or polling after a reload. Each has its own number. */
+/** A flow: the look, the tap's, polling after a reload, or Update now's. Each has its own number. */
 interface Flow {
   id: number;
-  mode: "check" | "start" | "resume";
+  mode: "check" | "start" | "resume" | "update";
 }
 
 let flows = 0;
 const newFlow = (mode: Flow["mode"]): Flow => ({ id: ++flows, mode });
+
+/** The working-outs of circles Update now has had done: each gets its own number (`edition`). */
+let editions = 0;
 
 /** What the provider shows, and the flow under way. */
 interface Shown {
@@ -268,16 +289,21 @@ interface Shown {
    * only once it is set, so a reload before a run is known starts afresh, polling nothing.
    */
   since?: number;
+  /** Where Update now is. */
+  update: UpdateStep;
+  /** Which working-out of the circle the scores are from: 0 until Update now's run is done. */
+  edition: number;
   flow: Flow | null;
 }
 
 /** Where `who`'s circle starts on this page: what the tab keeps, else the returning visitor's look. */
 function shownFor(who: string | undefined): Shown {
-  if (who === undefined || !config.features.circle) return { who, state: "off", notice: false, flow: null };
+  const fresh = { who, notice: false, update: "idle", edition: 0 } as const;
+  if (who === undefined || !config.features.circle) return { ...fresh, state: "off", flow: null };
   const kept = readKept(who);
-  if (kept === null) return { who, state: "checking", notice: false, flow: newFlow("check") };
+  if (kept === null) return { ...fresh, state: "checking", flow: newFlow("check") };
   return {
-    who,
+    ...fresh,
     state: kept.state,
     scorer: kept.scorer,
     notice: kept.notice ?? false,
@@ -331,7 +357,7 @@ async function findScorer(client: Client, step: Step): Promise<{ scorer: Scorer;
  */
 async function check(step: Step): Promise<void> {
   try {
-    const client = await loadClient();
+    const client = await loadBrainstorm();
     const found = await findScorer(client, step);
     if (found === null) return step.set({ state: "off", flow: null });
     step.set({ state: found.ranked ? "ready" : "unconfirmed", scorer: found.scorer, notice: false, flow: null });
@@ -404,7 +430,7 @@ async function start(step: Step, account: Account): Promise<void> {
   const { pubkey, signal } = step;
   let client: Client;
   try {
-    client = await loadClient();
+    client = await loadBrainstorm();
   } catch {
     return step.set({ state: "unavailable", flow: null });
   }
@@ -476,12 +502,94 @@ async function start(step: Step, account: Account): Promise<void> {
 async function resume(step: Step, since: number): Promise<void> {
   let client: Client;
   try {
-    client = await loadClient();
+    client = await loadBrainstorm();
   } catch {
     return step.set({ state: "unavailable", flow: null });
   }
   await follow(client, step, readToken(step.pubkey), since);
 }
+
+/**
+ * Update now: has the person's circle worked out again, as My circle keeps showing the one they have.
+ * The sign-in this tab has, else their add-on or phone app is asked, as for Personalize (once more if
+ * the token is refused, unless the sign-in was made just now); then a new run. When Brainstorm will not
+ * start one, as one was made lately (429, 403), that one is used ("recently", the brief's § 6).
+ * Otherwise the run is followed, every 15 s for at most 45 minutes, while the tab is open (Global
+ * Constraints); once it is done, the circle is ready, from a new working-out (`edition`), whose ranks
+ * the scores store reads afresh. Never ends without a step that says so: nothing is left spinning
+ * (Review Focus 4). When the token runs out while it is followed, it is "started": the person is not
+ * asked again (they did not act), and the next visit reads what Brainstorm published.
+ */
+async function rework(step: Step, account: Account): Promise<void> {
+  const { pubkey, signal } = step;
+  let client: Client;
+  try {
+    client = await loadBrainstorm();
+  } catch {
+    return step.set({ update: "failed", flow: null });
+  }
+  let token = readToken(pubkey);
+  let asked = false;
+  let started: Awaited<ReturnType<Client["startRun"]>>;
+  for (;;) {
+    if (token === null) {
+      asked = true;
+      step.set({ update: "signing" });
+      try {
+        token = await client.signInToBrainstorm(pubkey, account.signer, signal, { how: account.how });
+      } catch (error) {
+        if (signal.aborted) return;
+        // The person said no, or their signer did not answer: as before, quietly. Brainstorm's trouble says so.
+        const unreachable = error instanceof client.Unavailable || error instanceof client.SignInRefused;
+        return step.set({ update: unreachable ? "failed" : "idle", flow: null });
+      }
+    }
+    step.set({ update: "updating" });
+    try {
+      started = await client.startRun(token, signal);
+      break;
+    } catch (error) {
+      if (signal.aborted) return;
+      if (!(error instanceof client.TokenExpired)) return step.set({ update: "failed", flow: null });
+      forgetToken();
+      token = null;
+      // A sign-in made just now that is refused is Brainstorm's trouble, not the person's: no second ask.
+      if (asked) return step.set({ update: "failed", flow: null });
+    }
+  }
+  if ("recently" in started) return step.set({ update: "recently", flow: null });
+
+  const since = Date.now();
+  let missed = 0;
+  for (;;) {
+    try {
+      await pause(POLL_MS, signal);
+    } catch {
+      return;
+    }
+    if (Date.now() - since >= POLL_CAP_MS) return step.set({ update: "failed", flow: null });
+    try {
+      const run = await client.latestRun(token, signal);
+      const where = run === null ? "failed" : client.runState(run);
+      if (where === "done") {
+        return step.set({ update: "updated", state: "ready", notice: false, edition: ++editions, flow: null });
+      }
+      if (where === "failed") return step.set({ update: "failed", flow: null });
+      missed = 0;
+    } catch (error) {
+      if (signal.aborted) return;
+      if (error instanceof client.TokenExpired) {
+        forgetToken();
+        return step.set({ update: "started", flow: null });
+      }
+      missed += 1;
+      if (missed >= MISSED_POLLS) return step.set({ update: "failed", flow: null });
+    }
+  }
+}
+
+/** The states in which the circle can be shown (with its scorer known): ready, recently or unconfirmed. */
+const SHOWN: ReadonlySet<CircleState> = new Set<CircleState>(["ready", "recently", "unconfirmed"]);
 
 /** The states in which Personalize, Try again or Work out my circle again can be tapped. */
 const CAN_START: ReadonlySet<CircleState> = new Set<CircleState>(["off", "unconfirmed", "busy", "failed", "unavailable"]);
@@ -531,18 +639,22 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
     return () => stop.abort();
   }, [looking, shown.who, placesIn, signedIn, stepFor]);
 
-  // The tap's flow, or polling after a reload.
+  // The tap's flow, polling after a reload, or Update now's. It lives here, above the pages: leaving
+  // the Why page, or the window crossing between the phone's layout and the desktop's, stops nothing.
   const working = shown.flow !== null && shown.flow.mode !== "check" ? shown.flow : null;
   useEffect(() => {
     if (working === null || shown.who === undefined) return;
     const stop = new AbortController();
     const step = stepFor(shown.who, working.id, stop.signal);
+    const tapped = tappedWith.current;
     if (working.mode === "resume") {
       void resume(step, shown.since ?? Date.now());
+    } else if (tapped?.pubkey !== shown.who) {
+      step.set(working.mode === "update" ? { update: "idle", flow: null } : { state: "off", flow: null });
+    } else if (working.mode === "update") {
+      void rework(step, tapped);
     } else {
-      const tapped = tappedWith.current;
-      if (tapped?.pubkey === shown.who) void start(step, tapped);
-      else step.set({ state: "off", flow: null });
+      void start(step, tapped);
     }
     return () => stop.abort();
     // `since` is read as the flow starts: the flow setting it after starts no other.
@@ -577,36 +689,50 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
     const flow = newFlow("start");
     setShown((current) =>
       current.who === account.pubkey && CAN_START.has(current.state)
-        ? { ...current, state, since: undefined, notice: false, flow }
+        ? { ...current, state, since: undefined, notice: false, update: "idle", flow }
         : current,
     );
   }, [account]);
 
+  const update = useCallback(() => {
+    const can = (at: Shown) => at.who === account?.pubkey && SHOWN.has(at.state) && at.scorer !== undefined && at.flow === null;
+    if (!config.features.circle || account === undefined || !can(latest.current)) return;
+    tappedWith.current = account;
+    // With a sign-in this tab already has, the add-on is not asked.
+    const step: UpdateStep = readToken(account.pubkey) === null ? "signing" : "updating";
+    const flow = newFlow("update");
+    setShown((current) => (can(current) ? { ...current, update: step, flow } : current));
+  }, [account]);
+
   const cancel = useCallback(() => {
-    setShown((now) => (now.state === "signing" ? { ...now, state: "off", flow: null } : now));
+    setShown((now) => {
+      if (now.update === "signing") return { ...now, update: "idle", flow: null };
+      return now.state === "signing" ? { ...now, state: "off", flow: null } : now;
+    });
   }, []);
 
   const dismissReady = useCallback(() => {
     setShown((now) => (now.notice ? { ...now, state: now.state === "recently" ? "ready" : now.state, notice: false } : now));
   }, []);
 
-  const ready =
-    (shown.state === "ready" || shown.state === "recently" || shown.state === "unconfirmed") && shown.scorer !== undefined;
+  const ready = SHOWN.has(shown.state) && shown.scorer !== undefined;
 
   // The scores store reads the circle's ranks once it is ready, beside the house's, so that toggling
   // to My circle reads nothing; before the page is drawn, so My circle never shows without them asked
-  // for. An unconfirmed circle's are read afresh once it is confirmed (ruling R10).
+  // for. An unconfirmed circle's are read afresh once it is confirmed (ruling R10), and any circle's
+  // once Update now has had it worked out again (a new edition).
   const owner = ready ? shown.who : undefined;
   const scorerKey = ready ? shown.scorer?.pubkey : undefined;
   const scorerRelay = ready ? shown.scorer?.relay : undefined;
   const confirmed = shown.state !== "unconfirmed";
+  const { edition } = shown;
   useLayoutEffect(() => {
     store.setCircle(
       owner !== undefined && scorerKey !== undefined && scorerRelay !== undefined
-        ? { owner, scorer: { pubkey: scorerKey, relay: scorerRelay }, confirmed }
+        ? { owner, scorer: { pubkey: scorerKey, relay: scorerRelay }, confirmed, edition }
         : undefined,
     );
-  }, [store, owner, scorerKey, scorerRelay, confirmed]);
+  }, [store, owner, scorerKey, scorerRelay, confirmed, edition]);
 
   // A rank by the scorer of an unconfirmed circle, found by the store since the look: its run has
   // published, so the circle is confirmed, quietly (ruling R10).
@@ -623,12 +749,15 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
       ready,
       scorer: ready ? shown.scorer : undefined,
       notice: ready && shown.notice,
+      updateStep: shown.update,
+      edition,
       personalize,
       retry: personalize,
+      update,
       cancel,
       dismissReady,
     }),
-    [shown.state, shown.scorer, shown.notice, ready, personalize, cancel, dismissReady],
+    [shown.state, shown.scorer, shown.notice, shown.update, edition, ready, personalize, update, cancel, dismissReady],
   );
   return <CircleContext value={value}>{children}</CircleContext>;
 }

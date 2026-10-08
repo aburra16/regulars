@@ -326,23 +326,25 @@ class RankBook {
 
 /**
  * The person's circle, as the store holds it: whose it is, its scorer, whether its run is known to be
- * done (`confirmed`), and its ranks; and the last answer to whether it is empty (`circleEmpty`), at
- * which version of the scores.
+ * done (`confirmed`), which working-out of it this is (`edition`), and its ranks; and the last answer
+ * to whether it is empty (`circleEmpty`), at which version of the scores.
  */
 interface Circle {
   owner: string;
   scorer: Scorer;
   confirmed: boolean;
+  edition: number;
   book: RankBook;
   empty: boolean;
   emptyAt: number;
 }
 
 /** A circle of `owner`'s from `scorer`, with no rank read yet. */
-const newCircle = (owner: string, scorer: Scorer, confirmed: boolean): Circle => ({
+const newCircle = (owner: string, scorer: Scorer, confirmed: boolean, edition: number): Circle => ({
   owner,
   scorer,
   confirmed,
+  edition,
   book: new RankBook(async () => scorer, owner),
   empty: false,
   emptyAt: -1,
@@ -540,11 +542,15 @@ export class ScoresStore {
    * nothing. Another person's circle, another scorer, or none, lets go of the ranks held, and stops
    * their reads. So does the circle being confirmed: its ranks are read afresh, as a run that was not
    * known to be done may have published them since (ruling R10). While it is not confirmed, Try again
-   * (`refresh`) reads them afresh too.
+   * (`refresh`) reads them afresh too. And so does another `edition` (by default 0): the circle worked
+   * out again (Update now), whose scorer has published new ranks in place of the old.
    */
-  readonly setCircle = (circle: { owner: string; scorer: Scorer; confirmed?: boolean } | undefined): void => {
+  readonly setCircle = (
+    circle: { owner: string; scorer: Scorer; confirmed?: boolean; edition?: number } | undefined,
+  ): void => {
     const now = this.#circle;
     const confirmed = circle?.confirmed ?? true;
+    const edition = circle?.edition ?? 0;
     const same =
       circle === undefined
         ? now === null
@@ -552,13 +558,14 @@ export class ScoresStore {
           now.owner === circle.owner &&
           now.scorer.pubkey === circle.scorer.pubkey &&
           now.scorer.relay === circle.scorer.relay &&
-          now.confirmed === confirmed;
+          now.confirmed === confirmed &&
+          now.edition === edition;
     if (same) return;
     now?.book.end();
     this.#circle =
       circle === undefined
         ? null
-        : newCircle(circle.owner, { pubkey: circle.scorer.pubkey, relay: circle.scorer.relay }, confirmed);
+        : newCircle(circle.owner, { pubkey: circle.scorer.pubkey, relay: circle.scorer.relay }, confirmed, edition);
     this.#changed("scores");
     this.#weigh();
   };
@@ -794,7 +801,7 @@ export class ScoresStore {
     const circle = this.#circle;
     if (circle !== null && !circle.confirmed) {
       circle.book.end();
-      this.#circle = newCircle(circle.owner, circle.scorer, false);
+      this.#circle = newCircle(circle.owner, circle.scorer, false, circle.edition);
       retried = true;
     }
     if (retried) this.#changed("scores");

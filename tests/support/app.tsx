@@ -1,5 +1,6 @@
 import type { NostrEvent, NRelay } from "@nostrify/nostrify";
 import { render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { createMemoryRouter, type InitialEntry, RouterProvider } from "react-router-dom";
 import { expect } from "vitest";
 
@@ -77,6 +78,8 @@ export interface OpenOptions {
    * app's own, which opens a socket (tests/setup.ts forbids it), so pass one to connect.
    */
   relays?: (url: string) => NRelay;
+  /** Renders the app in React's strict mode, as main.tsx does: every effect runs, is cleaned up, and runs again. Default: no. */
+  strict?: boolean;
 }
 
 /**
@@ -84,11 +87,14 @@ export interface OpenOptions {
  * person is signed in if `sessionStorage` says so. It resolves once the page is past the "Finding
  * places" line, which a page that needs no places never shows.
  */
-export async function openApp(path: string, { px = PHONE, events, entries, delayMs, readers, writers, relays }: OpenOptions) {
+export async function openApp(
+  path: string,
+  { px = PHONE, events, entries, delayMs, readers, writers, relays, strict = false }: OpenOptions,
+) {
   setWidth(px);
   const initialEntries = entries ?? [path];
   const router = createMemoryRouter(routes, { initialEntries, initialIndex: initialEntries.length - 1 });
-  const view = render(
+  const app = (
     <PlacesProvider reader={createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
       <ScoresProvider readers={readers} writers={writers}>
         <ForgetCircleOnSignOut>
@@ -101,8 +107,9 @@ export async function openApp(path: string, { px = PHONE, events, entries, delay
           </AccountProvider>
         </ForgetCircleOnSignOut>
       </ScoresProvider>
-    </PlacesProvider>,
+    </PlacesProvider>
   );
+  const view = render(strict ? <StrictMode>{app}</StrictMode> : app);
   await waitFor(() => expect(screen.queryByText(copy.load.loading)).not.toBeInTheDocument());
   return { router, ...view };
 }

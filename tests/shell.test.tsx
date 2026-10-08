@@ -118,8 +118,11 @@ const READY: CircleValue = {
   state: "ready",
   ready: true,
   notice: false,
+  updateStep: "idle",
+  edition: 0,
   personalize: () => {},
   retry: () => {},
+  update: () => {},
   cancel: () => {},
   dismissReady: () => {},
 };

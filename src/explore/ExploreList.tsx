@@ -3,7 +3,7 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { EmptyCircle } from "../circle/EmptyCircle.tsx";
 import { Personalize } from "../circle/Personalize.tsx";
-import { WHY_PATH } from "../circle/WhyPage.tsx";
+import { WHY_PATH } from "../circle/paths.ts";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { HereCityPicker } from "../location/CityPicker.tsx";

@@ -9,15 +9,16 @@ import * as client from "../src/circle/brainstorm";
 import { CIRCLE_KEY, POLL_CAP_MS, POLL_MS } from "../src/circle/CircleProvider";
 import { countRanks, floorFromRun, RANK_PAGE, RANK_PAGES } from "../src/circle/circleSize";
 import { readToken, saveToken } from "../src/circle/token";
-import { WHY_PATH } from "../src/circle/WhyPage";
+import { WHY_PATH } from "../src/circle/paths";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import type { RelayReader } from "../src/nostr/events";
 import { buildIndexes } from "../src/places/indexes";
 import { parsePlaces } from "../src/places/load";
 import { REVIEW_KIND } from "../src/reviews/review";
+import { VIEW_STORAGE_KEY } from "../src/view/ViewProvider";
 import raw from "./fixtures/funchal-items.json";
-import { DESKTOP, openApp, resetWidth } from "./support/app";
+import { DESKTOP, openApp, resetWidth, resizeTo } from "./support/app";
 import { hex64, shapedEvent } from "./support/events";
 import { createMemoryReader } from "./support/memoryReader";
 import { expectNoNumbersAboutPeople } from "./support/noNumbers";
@@ -559,7 +560,7 @@ describe("Update now", () => {
     expect(storeRankReads.at(-1)?.authors).toEqual([SCORER]);
   });
 
-  it("stops following, quietly, when the token runs out while the run is followed", async () => {
+  it("stops following, and says what comes next, when the token runs out while the run is followed", async () => {
     const me = signedIn();
     saveToken(me, TOKEN);
     await openCounted(me);
@@ -569,8 +570,10 @@ describe("Update now", () => {
     await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updating));
     await after(POLL_MS);
     await waitFor(() => expect(readToken(me)).toBeNull());
-    // Still being worked out, and said so, with Update now back; nobody is asked to sign anything.
-    expect(updateStatus()).toHaveTextContent(copy.why.updating);
+    // Still being worked out: the status says what happens next, and ends; Update now is back, and
+    // nobody is asked to sign anything.
+    expect(updateStatus()).toHaveTextContent(copy.why.updateStarted);
+    expect(updateStatus()).not.toHaveTextContent(copy.why.updating);
     expect(updateNow()).toBeEnabled();
     expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
     const polls = brainstorm.latestRun.mock.calls.length;
@@ -578,17 +581,127 @@ describe("Update now", () => {
     expect(brainstorm.latestRun.mock.calls.length).toBe(polls);
   });
 
-  it("stops following the run when the page is left", async () => {
+  it("keeps following once the page is left, and My circle on Explore takes the new circle when it is done", async () => {
+    config.reviewRelays = [SEARCH];
     const me = signedIn();
     saveToken(me, TOKEN);
-    const { router } = await openCounted(me);
+    ready(me);
+    window.sessionStorage.setItem(VIEW_STORAGE_KEY, "circle");
+    ranks = circleOf(me);
+    reviews = [reviewOf(ANA, 5), reviewOf(BEN, 3)];
+    const { router } = await openApp(WHY_PATH, { events: fixtures, readers, px: DESKTOP });
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(copy.why.inYourCircle(4)));
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-    brainstorm.latestRun.mockClear().mockResolvedValue(run("running"));
     await user.click(updateNow());
     await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updating));
-    await act(() => router.navigate("/about"));
-    await after(POLL_MS * 2);
-    expect(brainstorm.latestRun).not.toHaveBeenCalled();
+    brainstorm.latestRun.mockResolvedValue(run("running"));
+
+    await act(() => router.navigate("/"));
+    const jacafe = () => screen.getByRole("link", { name: "Jacafé" });
+    await waitFor(() => expect(jacafe()).toHaveTextContent(copy.score.ratedByCircle(2)));
+    await after(POLL_MS);
+    expect(brainstorm.latestRun).toHaveBeenLastCalledWith(TOKEN, expect.any(AbortSignal));
+
+    // Brainstorm publishes the new circle, with Ben under the line now.
+    const at = nowS();
+    ranks = [rankOf(me, 100, { hops: 0, at }), rankOf(ANA, 87.37, { hops: 1, at }), rankOf(BEN, 3.71, { hops: 2, at })];
+    brainstorm.latestRun.mockResolvedValue(run("done"));
+    await after(POLL_MS);
+    await waitFor(() => expect(jacafe()).toHaveTextContent(copy.score.ratedByCircle(1)));
+    expect(brainstorm.startRun).toHaveBeenCalledTimes(1);
+
+    // Back on the page: it says so, and counts the new circle.
+    await act(() => router.navigate(WHY_PATH));
+    expect(updateStatus()).toHaveTextContent(copy.why.updated);
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`1 ${copy.why.inYourCircle(1)}`));
+  });
+
+  it("leaves an unconfirmed circle unconfirmed while it is updated, and confirms it once the run is done", async () => {
+    const me = signedIn();
+    saveToken(me, TOKEN);
+    window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey: me, state: "unconfirmed", scorer: SCORER_AT, notice: false }));
+    const kept = () => JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "{}") as { state?: string };
+    await openWhy();
+    expect(await within(circlePanel()).findByRole("heading", { name: copy.why.emptyTitle })).toBeInTheDocument();
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(updateNow());
+    await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updating));
+    brainstorm.latestRun.mockResolvedValue(run("running"));
+    await after(POLL_MS);
+    expect(kept().state).toBe("unconfirmed");
+
+    const at = nowS();
+    ranks = circleOf(me).map((ev) => ({ ...ev, created_at: at }));
+    brainstorm.latestRun.mockResolvedValue(run("done"));
+    await after(POLL_MS);
+    await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updated));
+    await waitFor(() => expect(kept().state).toBe("ready"));
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+  });
+
+  it("keeps following across the switch between the phone's layout and the desktop's", async () => {
+    const me = signedIn();
+    saveToken(me, TOKEN);
+    await openCounted(me);
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(updateNow());
+    await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updating));
+    brainstorm.latestRun.mockResolvedValue(run("running"));
+
+    act(() => resizeTo(DESKTOP));
+    await waitFor(() => expect(screen.getByRole("complementary")).toBeInTheDocument());
+    expect(updateStatus()).toHaveTextContent(copy.why.updating);
+    await after(POLL_MS);
+    expect(brainstorm.latestRun).toHaveBeenLastCalledWith(TOKEN, expect.any(AbortSignal));
+
+    brainstorm.latestRun.mockResolvedValue(run("done"));
+    act(() => resizeTo(390));
+    await after(POLL_MS);
+    await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updated));
+    expect(brainstorm.startRun).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("opening the page starts nothing: only the person's tap does", () => {
+  it.each([
+    ["no token", "none"],
+    ["a token", "valid"],
+    ["a token Brainstorm refuses", "expired"],
+  ] as const)("with %s in the tab, it asks for no sign-in and starts no run", async (_, token) => {
+    const me = signedIn();
+    ready(me);
+    ranks = circleOf(me);
+    if (token !== "none") saveToken(me, TOKEN);
+    if (token === "expired") brainstorm.latestRun.mockRejectedValue(new client.TokenExpired());
+    else brainstorm.latestRun.mockResolvedValue(run("done", { daysAgo: 1 }));
+    brainstorm.signInToBrainstorm.mockImplementation(() => {
+      throw new Error("Opening the page must not sign anyone in to Brainstorm");
+    });
+    brainstorm.startRun.mockImplementation(() => {
+      throw new Error("Opening the page must not start a run");
+    });
+    await openWhy();
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+    await after(POLL_MS * 3);
+    expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+    expect(updateStatus()).toHaveTextContent("");
+  });
+
+  it("in React's strict mode, with every effect run twice, as well", async () => {
+    const me = signedIn();
+    ready(me);
+    saveToken(me, TOKEN);
+    ranks = circleOf(me);
+    brainstorm.latestRun.mockResolvedValue(run("done", { daysAgo: 1 }));
+    brainstorm.startRun.mockImplementation(() => {
+      throw new Error("Opening the page must not start a run");
+    });
+    await openApp(WHY_PATH, { events: fixtures, readers, strict: true });
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+    await after(POLL_MS * 3);
+    expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
   });
 });
 

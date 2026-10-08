@@ -16,10 +16,6 @@ import { ViewSwitch } from "../ui/ViewToggle.tsx";
 import { useCircle } from "./CircleProvider.tsx";
 import { type Counted, sizeOfCircle } from "./circleSize.ts";
 import { Personalize } from "./Personalize.tsx";
-import { useUpdateNow } from "./useUpdateNow.ts";
-
-/** Where the page is: "How this works", beside the toggle, links here. */
-export const WHY_PATH = "/why";
 
 /** The day `date` falls on, on the person's own calendar, as a count of days. */
 const dayOf = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000;
@@ -49,13 +45,14 @@ type SizeState = { state: "counting" } | { state: "failed" } | ({ state: "counte
 
 /**
  * The size of `owner`'s circle, whose ranks `scorer` publishes (./circleSize.ts), counted when the
- * panel opens and again on `recount`. While it is counted again, the count before stays on screen.
+ * panel opens, again on `recount`, and again for each new working-out of it (`edition`, Update now).
+ * While it is counted again, the count before stays on screen.
  */
-function useCircleSize(owner: string, scorer: Scorer): { size: SizeState; recount(): void } {
+function useCircleSize(owner: string, scorer: Scorer, edition: number): { size: SizeState; recount(): void } {
   const { readers } = useRelays();
   const [attempt, setAttempt] = useState(0);
   const { pubkey, relay } = scorer;
-  const key = `${owner} ${pubkey} ${relay} ${attempt}`;
+  const key = `${owner} ${pubkey} ${relay} ${edition} ${attempt}`;
   const [result, setResult] = useState<{ key: string; size: SizeState } | null>(null);
   useEffect(() => {
     const stop = new AbortController();
@@ -152,8 +149,10 @@ const panelWordButton =
  */
 function CirclePanel({ owner, scorer, wide }: { owner: string; scorer: Scorer; wide: boolean }): JSX.Element {
   const { account } = useAccount();
-  const { size, recount } = useCircleSize(owner, scorer);
-  const { step, update, cancel } = useUpdateNow(scorer, recount);
+  // Update now's run is followed by the circle's provider, above the pages: leaving this page, or the
+  // window crossing between the layouts, stops nothing.
+  const { updateStep: step, update, cancel, edition } = useCircle();
+  const { size, recount } = useCircleSize(owner, scorer, edition);
   const now = useNow();
   const panel = useRef<HTMLElement>(null);
   const headingId = useId();
@@ -179,7 +178,7 @@ function CirclePanel({ owner, scorer, wide }: { owner: string; scorer: Scorer; w
       );
       break;
     case "started":
-      message = copy.why.updating;
+      message = copy.why.updateStarted;
       break;
     case "recently":
       message = copy.circle.recently;

@@ -4,7 +4,7 @@ import { config } from "../config.ts";
 import { asEvent, isNewer, type RelayReader, readAll } from "../nostr/events.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import { RANK_KIND, ranksFrom, type Scorer, weightOf } from "../trust/houseWeights.ts";
-import { loadClient } from "./client.ts";
+import { loadBrainstorm } from "./loadBrainstorm.ts";
 import { forgetToken, readToken } from "./token.ts";
 
 /*
@@ -173,7 +173,7 @@ export async function sizeOfCircle({
   const token = readToken(owner);
   if (token !== null) {
     try {
-      const client = await loadClient();
+      const client = await loadBrainstorm();
       try {
         const run = await client.latestRun(token, signal);
         if (run !== null && client.runState(run) === "done") {

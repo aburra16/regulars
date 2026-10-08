@@ -3,6 +3,7 @@ import type { RouteObject } from "react-router-dom";
 
 import { AboutPage } from "./about/AboutPage.tsx";
 import { ChainPage } from "./chain/ChainPage.tsx";
+import { WHY_PATH } from "./circle/paths.ts";
 import { WhyPage } from "./circle/WhyPage.tsx";
 import { DeskExplore } from "./explore/DeskExplore.tsx";
 import { ExploreList } from "./explore/ExploreList.tsx";
@@ -50,7 +51,7 @@ export const routes: RouteObject[] = [
           // The words are there at once; the figures come when the places do.
           { path: "about", element: <AboutPage />, handle: chrome({ needsPlaces: false }) },
           // Why you see what you see: "How this works", beside the toggle, links here. It shows no places.
-          { path: "why", element: <WhyPage />, handle: chrome({ needsPlaces: false }) },
+          { path: WHY_PATH.slice(1), element: <WhyPage />, handle: chrome({ needsPlaces: false }) },
           { path: "signin", element: <SignInPage />, handle: chrome({ topBar: false, needsPlaces: false }) },
           // Both ask the person to sign in, until they have.
           { path: "saved", element: <SavedPage />, handle: chrome({ tabs: true, needsPlaces: false }) },

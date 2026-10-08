@@ -15,8 +15,10 @@ import { describe, expect, it } from "vitest";
 // the QR code's library (uqr), is a chunk the sign-in page fetches (src/signin/loadPhoneWay.ts); the
 // add-on's way, which the sign-in page and Rate this place take at once, loads only the signing code.
 // Brainstorm's client, which works out a person's circle (src/circle/brainstorm.ts), is a chunk of its
-// own too: the circle's provider reaches it only through a dynamic import() (src/circle/CircleProvider.tsx),
-// when the person taps Personalize, or a signed-in tab looks for a circle worked out before.
+// own too: one module imports it, through a dynamic import() (src/circle/loadBrainstorm.ts), which the
+// circle's provider (src/circle/CircleProvider.tsx) and the Why page's count (src/circle/circleSize.ts)
+// call when they first need it: the person taps Personalize or Update now, a signed-in tab looks for a
+// circle worked out before, or the Why page counts the circle with the token the tab has.
 // This builds the real app (vite.config.ts and index.html, in memory: nothing is written) and checks
 // that none of it is in the entry, or in anything the entry loads before it runs.
 const ROOT = process.cwd();
