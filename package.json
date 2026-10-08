@@ -13,6 +13,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "proof:house-scores": "vitest run --config vitest.proof.config.ts",
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {

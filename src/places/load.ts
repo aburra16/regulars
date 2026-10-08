@@ -1,11 +1,13 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
 import { config } from "../config.ts";
+import { isHex64 } from "../nostr/shapes.ts";
 import { parsePlace, type Place, PLACE_KIND } from "./place.ts";
 
 /**
- * Reads stored events from a relay. The app's one is `relayReader` (./relayReader.ts); tests
- * pass `createMemoryReader` (tests/support/memoryReader.ts), so no test opens a socket.
+ * Reads stored events from a relay. The app's are made by `readerFor` (./relayReader.ts), and the
+ * places relay's is `relayReader`; tests pass `createMemoryReader` (tests/support/memoryReader.ts),
+ * so no test opens a socket.
  */
 export interface RelayReader {
   /**
@@ -28,7 +30,6 @@ export interface HouseEvents {
   complete: boolean;
 }
 
-const HEX_64 = /^[0-9a-f]{64}$/;
 const HEX_128 = /^[0-9a-f]{128}$/;
 
 const isText = (value: unknown): value is string => typeof value === "string";
@@ -43,9 +44,9 @@ export function asEvent(value: unknown): NostrEvent | null {
   const { id, pubkey, created_at, kind, tags, content, sig } = value as Record<string, unknown>;
   const ok =
     isText(id) &&
-    HEX_64.test(id) &&
+    isHex64(id) &&
     isText(pubkey) &&
-    HEX_64.test(pubkey) &&
+    isHex64(pubkey) &&
     isText(sig) &&
     HEX_128.test(sig) &&
     Number.isSafeInteger(kind) &&
@@ -122,7 +123,7 @@ class Latest {
 }
 
 /** NIP-01's rule for two versions of one address: the later wins; at the same time, the lowest id. */
-function isNewer(a: NostrEvent, b: NostrEvent): boolean {
+export function isNewer(a: Pick<NostrEvent, "id" | "created_at">, b: Pick<NostrEvent, "id" | "created_at">): boolean {
   return a.created_at > b.created_at || (a.created_at === b.created_at && a.id < b.id);
 }
 

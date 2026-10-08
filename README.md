@@ -36,6 +36,27 @@ npm run build       # what the deploy builds: the app in dist/, with dist/THIRD_
 
 Tests never open a network socket: they read places through an in-memory reader (`tests/support/memoryReader.ts`) and draw maps with a stand-in for MapLibre (`tests/support/fakeMaplibre.ts`).
 
+## House scores, locally
+
+A proof of house scores on a relay on this machine. It makes throwaway keys in memory for a house, its scorer and four reviewers, and publishes the house's choice of scorer (kind 10040), the scorer's ranks (kind 30382) and reviews of two places (kind 34259). Then it reads them back through the app's reader and scores the places with the app's code. It is not part of `npm test`, and it refuses any relay that is not at localhost, 127.0.0.1 or [::1].
+
+It needs [nak](https://github.com/fiatjaf/nak) (0.19.3 or later). In one terminal, start an in-memory relay at `ws://localhost:10547`:
+
+```sh
+nak serve --events tests/fixtures/forged-reviews.jsonl
+```
+
+In another, run the proof:
+
+```sh
+npm run proof:house-scores
+```
+
+The relay loads two forged reviews when it starts: it checks the signature of each event published to it, but not of the events it loads. The proof checks that the app's reader drops them.
+
+- `PROOF_RELAY=<url>` uses another relay on this machine.
+- `PROOF_KEEP=1` also prints the `.env.local` lines (`VITE_REVIEW_RELAYS`, `VITE_DEV_SCORER`) that point the dev app at the relay and the run's scorer. The relay keeps the events until it stops.
+
 ## Deploy
 
 Push to `main`. The Deploy workflow (`.github/workflows/deploy.yml`) runs the tests, builds the site, copies `index.html` to `404.html` so a link straight to a page loads, and publishes `dist/` to GitHub Pages, which serves it at `askregulars.world` (`public/CNAME`).

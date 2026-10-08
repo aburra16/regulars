@@ -1,5 +1,7 @@
 import * as nip19 from "nostr-tools/nip19";
 
+import { isHex64, isRelayUrl } from "./nostr/shapes.ts";
+
 /** The Mise en Place account that publishes the places. Everything below derives from it. */
 const houseNpub = "npub1f00dy9eqw53patfe8g96ajw9xq3casvjc25umw78w4963se40djqwxgrq8";
 
@@ -18,6 +20,24 @@ function optionalEnv(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+/** The relays in `text`, a comma-separated list, leaving out anything that is not a ws: or wss: URL. */
+function relayList(text: string | undefined): string[] {
+  return (text ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(isRelayUrl);
+}
+
+/** A scorer written `<public key in hex>@<relay>`; undefined when unset, or written any other way. */
+function scorerOverride(text: string | undefined): Config["devScorer"] {
+  const value = optionalEnv(text);
+  const at = value?.indexOf("@") ?? -1;
+  if (value === undefined || at < 0) return undefined;
+  const pubkey = value.slice(0, at);
+  const relay = value.slice(at + 1);
+  return isHex64(pubkey) && isRelayUrl(relay) ? { pubkey, relay } : undefined;
+}
+
 interface Config {
   appName: "Regulars";
   domain: "askregulars.world";
@@ -30,6 +50,24 @@ interface Config {
   /** From VITE_MAPTILER_KEY; undefined when unset, so there is no map. */
   mapTilerKey: string | undefined;
   features: { signIn: boolean };
+  /**
+   * Where reviews (kind 34259) are read from. None in production until review storage is settled
+   * (docs/decisions.md #14), so no review is fetched there; in development, VITE_REVIEW_RELAYS.
+   */
+  reviewRelays: string[];
+  /** Where the house's kind 10040 is read, which names the scorer whose ranks are House picks. */
+  houseTrustRelays: string[];
+  /**
+   * `line`: the lowest rank that counts, out of 100 (Brainstorm's line of 0.02). A list is ordered as
+   * if each place also had `priorWeight` of a vote of `priorMean` stars, so one five-star review
+   * does not top it (brief § 5). Tunable.
+   */
+  scoring: { line: number; priorWeight: number; priorMean: number };
+  /**
+   * Development only, from VITE_DEV_SCORER: an account that publishes trust ranks (kind 30382), and
+   * its relay, to use in place of the scorer the house names.
+   */
+  devScorer?: { pubkey: string; relay: string };
 }
 
 /** Everything configurable lives here. Nothing else hardcodes these values. */
@@ -44,4 +82,9 @@ export const config: Config = {
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
   mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
   features: { signIn: false },
+  // In a production build `import.meta.env.DEV` is false, so neither variable is read there.
+  reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [],
+  houseTrustRelays: ["wss://scores.brainstorm.world"],
+  scoring: { line: 2, priorWeight: 1.5, priorMean: 3.5 },
+  devScorer: import.meta.env.DEV ? scorerOverride(import.meta.env.VITE_DEV_SCORER) : undefined,
 };

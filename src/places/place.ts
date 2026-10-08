@@ -1,5 +1,7 @@
 import type { NostrEvent } from "@nostrify/nostrify";
 
+import { isHex64 } from "../nostr/shapes.ts";
+
 /** The event kind of a place. */
 export const PLACE_KIND = 39999;
 
@@ -38,7 +40,6 @@ export interface Place {
   createdAt: number;
 }
 
-const PUBKEY = /^[0-9a-f]{64}$/;
 const ACCEPTS_BITCOIN: ReadonlySet<string> = new Set<AcceptsBitcoin>(["lightning", "onchain", "both", "yes"]);
 
 /** The value of the first tag called `name`. A tag with no text counts as absent, so a field is `undefined`, never "". */
@@ -60,7 +61,7 @@ function coordinate(text: string | undefined, limit: number): number | undefined
  * value in any field gives null (or undefined for an optional field), not an exception.
  */
 export function parsePlace(ev: NostrEvent, headerCoordinate: string): Place | null {
-  if (ev.kind !== PLACE_KIND || !PUBKEY.test(ev.pubkey)) return null;
+  if (ev.kind !== PLACE_KIND || !isHex64(ev.pubkey)) return null;
   const { tags } = ev;
   if (!tags.some((tag) => tag[0] === "z" && tag[1] === headerCoordinate)) return null;
 

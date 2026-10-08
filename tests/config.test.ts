@@ -9,6 +9,22 @@ async function configWithMapTilerKey(value: string | undefined) {
   return (await import("../src/config")).config;
 }
 
+/**
+ * Loads a fresh copy of the config module under the given review relays and scorer override, in
+ * development (as `npm run dev` and the tests run) or in a production build.
+ */
+async function configWith(env: { reviewRelays?: string; devScorer?: string; production?: boolean }) {
+  vi.stubEnv("VITE_REVIEW_RELAYS", env.reviewRelays);
+  vi.stubEnv("VITE_DEV_SCORER", env.devScorer);
+  vi.stubEnv("DEV", !env.production);
+  vi.stubEnv("PROD", env.production ?? false);
+  vi.resetModules();
+  return (await import("../src/config")).config;
+}
+
+// A made-up scorer: the house's real one is never written into the app or its tests.
+const SCORER = "5c0e".repeat(16);
+
 describe("config", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -49,5 +65,77 @@ describe("config", () => {
 
   it("reads the map key from VITE_MAPTILER_KEY when it is set", async () => {
     expect((await configWithMapTilerKey("test-map-key")).mapTilerKey).toBe("test-map-key");
+  });
+
+  it("reads the house's trust in reviewers from Brainstorm's scores relay", () => {
+    expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
+  });
+
+  it("counts a reviewer from rank 2, and orders lists with 1.5 votes of 3.5 stars", () => {
+    expect(config.scoring).toEqual({ line: 2, priorWeight: 1.5, priorMean: 3.5 });
+  });
+
+  it("reads no reviews when VITE_REVIEW_RELAYS is unset or blank", async () => {
+    expect((await configWith({})).reviewRelays).toEqual([]);
+    expect((await configWith({ reviewRelays: " " })).reviewRelays).toEqual([]);
+  });
+
+  it("reads reviews from the ws and wss relays in VITE_REVIEW_RELAYS, in development", async () => {
+    const reviewRelays = " ws://localhost:10547 , https://relay.example.test,wss://relay.example.test,,nonsense";
+    expect((await configWith({ reviewRelays })).reviewRelays).toEqual([
+      "ws://localhost:10547",
+      "wss://relay.example.test",
+    ]);
+  });
+
+  it("reads no reviews in a production build, whatever VITE_REVIEW_RELAYS says", async () => {
+    const reviewRelays = "wss://relay.example.test";
+    expect((await configWith({ reviewRelays, production: true })).reviewRelays).toEqual([]);
+  });
+
+  it("takes a scorer from VITE_DEV_SCORER in development", async () => {
+    expect((await configWith({})).devScorer).toBeUndefined();
+    expect((await configWith({ devScorer: `${SCORER}@ws://localhost:10547` })).devScorer).toEqual({
+      pubkey: SCORER,
+      relay: "ws://localhost:10547",
+    });
+  });
+
+  it("takes no scorer from a VITE_DEV_SCORER that is not <hex key>@<ws or wss relay>", async () => {
+    for (const devScorer of [
+      " ",
+      SCORER,
+      `${SCORER}@`,
+      `@ws://localhost:10547`,
+      `${SCORER.slice(1)}@ws://localhost:10547`,
+      `${SCORER.toUpperCase()}@ws://localhost:10547`,
+      `${SCORER}@https://localhost:10547`,
+    ]) {
+      expect((await configWith({ devScorer })).devScorer, devScorer).toBeUndefined();
+    }
+  });
+
+  it("takes no scorer from VITE_DEV_SCORER in a production build", async () => {
+    const devScorer = `${SCORER}@wss://relay.example.test`;
+    expect((await configWith({ devScorer, production: true })).devScorer).toBeUndefined();
+  });
+});
+
+// These two run in order: the first changes the config, the second sees what tests/setup.ts restores.
+describe("each test's config (tests/setup.ts)", () => {
+  it("may be changed by a test", () => {
+    config.mapTilerKey = "a-key";
+    config.reviewRelays = ["ws://localhost:10547"];
+    config.devScorer = { pubkey: SCORER, relay: "ws://localhost:10547" };
+    config.houseTrustRelays = ["ws://localhost:10547"];
+    config.scoring = { line: 50, priorWeight: 0, priorMean: 1 };
+  });
+
+  it("is back at its defaults for the next test, with no map key, review relays or scorer override", () => {
+    expect(config.mapTilerKey).toBeUndefined();
+    expect(config.reviewRelays).toEqual([]);
+    expect(config.devScorer).toBeUndefined();
+    expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
+    expect(config.scoring).toEqual({ line: 2, priorWeight: 1.5, priorMean: 3.5 });
   });
 });
