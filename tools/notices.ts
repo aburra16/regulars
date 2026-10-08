@@ -2,11 +2,11 @@
  * The third-party notices of the built site: a Vite plugin that writes THIRD_PARTY_NOTICES.txt next to
  * index.html. The licences of the packages the site is built from ask for their notices to go with
  * it, and the minifier drops the comments that carried them, so the build collects them here: for
- * each package that has code (or a font) in the output, its name, version, licence and licence text.
+ * each package that has code, CSS or a font in the output, its name, version, licence and licence text.
  * tests/notices.test.ts builds the site and reads the file.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 import type { Plugin } from "vite";
 
@@ -14,6 +14,18 @@ import { NOTICES_FILE } from "../src/about/notices.ts";
 
 /** The folder of the package a module is in: the last `node_modules/<name>` or `node_modules/@scope/<name>` in its path. */
 const PACKAGE_ROOT = /^(.*[\\/]node_modules[\\/](?:@[^\\/]+[\\/])?[^\\/]+)[\\/]/;
+
+/** A stylesheet's module id, once its query is off. */
+const STYLESHEET = /\.css$/i;
+
+/**
+ * An `@import` of a stylesheet, at the start of a rule: `@import "x"`, `@import 'x'`, `@import url("x")`
+ * and `@import url(x)`. The specifier is the one group of the three that matched.
+ */
+const CSS_IMPORT = /(?:^|[;{}])\s*@import\s+(?:url\(\s*)?(?:"([^"]*)"|'([^']*)'|([^\s"');]+))/g;
+
+/** A specifier that is a URL, or a path from the site's root: not a package. */
+const NOT_A_PACKAGE = /^(?:[a-z][a-z\d+.-]*:|\/)/i;
 
 /** The files a package keeps its licence in. */
 const LICENCE_FILE = /^(licen[cs]e|copying)(\.(md|txt))?$/i;
@@ -71,6 +83,44 @@ interface PackageJson {
 /** The package a module of the bundle is in, or undefined for the app's own modules. */
 function packageRootOf(id: string): string | undefined {
   return PACKAGE_ROOT.exec(id.replace(/^\0/, "").replace(/\?.*$/, ""))?.[1];
+}
+
+/**
+ * The folder of the package an `@import` names, found as Node finds one: in the `node_modules` of
+ * the stylesheet's folder or of the ones above it.
+ */
+function importedPackageRoot(specifier: string, fromFile: string): string {
+  const [first = "", second = ""] = specifier.split("/");
+  const name = first.startsWith("@") ? `${first}/${second}` : first;
+  for (let dir = dirname(fromFile); ; dir = dirname(dir)) {
+    const root = join(dir, "node_modules", name);
+    if (existsSync(join(root, "package.json"))) return realpathSync(root);
+    if (dirname(dir) === dir) throw new Error(`${fromFile} imports ${specifier}, and no package ${name} is installed for it`);
+  }
+}
+
+/**
+ * The folders of the packages a stylesheet is in or brings in with `@import` (Tailwind's preflight
+ * is `@import "tailwindcss"`), and of those the stylesheets it imports by path are in or bring in.
+ * No script imports these packages, so the bundle's modules do not name them, and the minifier
+ * drops the licence comments in their CSS. The import of a package that is not installed is an
+ * error: the build would fail on it too, and a package left out of the notices should never be the
+ * quiet outcome. A package named by an `@import` is credited, and its stylesheet is not followed:
+ * what that imports is the package's own.
+ */
+export function packagesImportedByCss(file: string, into = new Set<string>(), seen = new Set<string>()): Set<string> {
+  if (seen.has(file)) return into;
+  seen.add(file);
+  const own = packageRootOf(file);
+  if (own !== undefined) into.add(own);
+  const css = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const match of css.matchAll(CSS_IMPORT)) {
+    const specifier = match[1] ?? match[2] ?? match[3] ?? "";
+    if (specifier === "" || NOT_A_PACKAGE.test(specifier)) continue;
+    if (specifier.startsWith(".")) packagesImportedByCss(resolve(dirname(file), specifier), into, seen);
+    else into.add(importedPackageRoot(specifier, file));
+  }
+  return into;
 }
 
 function licenceOf(pkg: PackageJson): string | undefined {
@@ -166,6 +216,9 @@ export function thirdPartyNotices(projectRoot = process.cwd()): { site: Plugin; 
       for (const id of file.moduleIds ?? []) {
         const root = packageRootOf(id);
         if (root !== undefined) into.add(root);
+        // A stylesheet's @imports are inlined into it, so the stylesheet alone is a module of the bundle.
+        const path = id.replace(/^\0/, "").replace(/\?.*$/, "");
+        if (STYLESHEET.test(path) && existsSync(path)) packagesImportedByCss(path, into);
       }
     }
   };

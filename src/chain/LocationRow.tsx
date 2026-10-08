@@ -5,16 +5,15 @@ import { copy } from "../copy/en.ts";
 import { formatDistance } from "../places/distance.ts";
 import { openLine, openState } from "../places/hours.ts";
 import type { Place } from "../places/place.ts";
-import { unbrokenPostcodes } from "../ui/address.ts";
+import { Address } from "../ui/address.tsx";
 import { HoursText } from "../ui/PlaceCard.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 
 /**
  * What a location of a chain is known by: its street address, since its name is the chain's and the
- * same on every row, with its postcode kept whole on its line. A place with no street address is
- * known by its town, and then by its name.
+ * same on every row. A place with no street address is known by its town, and then by its name.
  */
-export const locationName = (place: Place): string => unbrokenPostcodes(place.street ?? place.locality ?? place.name);
+export const locationName = (place: Place): string => place.street ?? place.locality ?? place.name;
 
 /**
  * A location in the chain's list (Chain.dc.html): its address, and at the top right, where its
@@ -56,7 +55,7 @@ export const LocationRow = memo(function LocationRow({
           dir="auto"
           className="min-w-0 text-[17px] leading-[1.25] font-bold wrap-break-word"
         >
-          {name}
+          <Address text={name} />
         </span>
         <span id={`${id}-score`} className="shrink-0 pt-[3px] text-caption font-semibold whitespace-nowrap text-muted">
           {copy.score.noReviewsYet}

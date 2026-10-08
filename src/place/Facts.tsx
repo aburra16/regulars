@@ -3,13 +3,14 @@ import { type JSX, type ReactNode, useMemo } from "react";
 import { copy } from "../copy/en.ts";
 import { openState, weekTable } from "../places/hours.ts";
 import type { Place } from "../places/place.ts";
-import { unbrokenPostcodes } from "../ui/address.ts";
+import { Address } from "../ui/address.tsx";
 import { actionsOf } from "./Actions.tsx";
 
 /**
  * The address as one line: the street address, then the town and the postcode where it does not
  * already name them (the importer writes most addresses whole: "138 Rua dos Ferreiros Funchal
- * 9000-082"), with the postcode kept whole on its line. Nothing when the place has none of them.
+ * 9000-082"). Nothing when the place has none of them. The text is as written: the page draws it
+ * with <Address>, which keeps the postcode whole on its line.
  */
 export function addressOf(place: Pick<Place, "street" | "locality" | "postalCode">): string | undefined {
   let line = place.street?.trim() ?? "";
@@ -18,7 +19,7 @@ export function addressOf(place: Pick<Place, "street" | "locality" | "postalCode
     if (text === undefined || text === "" || line.toLowerCase().includes(text.toLowerCase())) continue;
     line = line === "" ? text : `${line} ${text}`;
   }
-  return line === "" ? undefined : unbrokenPostcodes(line);
+  return line === "" ? undefined : line;
 }
 
 /** A fact: its label at 74 px, and what it says beside it (Place.dc.html). A fact with nothing to say is not drawn. */
@@ -69,7 +70,11 @@ export function Facts({ place, now, locale }: { place: Place; now: Date; locale:
 
   return (
     <dl className="m-0 flex flex-col gap-3 text-[15px] leading-[normal]">
-      {address !== undefined && <Fact label={copy.place.facts.address}>{address}</Fact>}
+      {address !== undefined && (
+        <Fact label={copy.place.facts.address}>
+          <Address text={address} />
+        </Fact>
+      )}
       <Fact label={copy.place.facts.hours} muted={state.kind === "unknown"}>
         {hours}
       </Fact>

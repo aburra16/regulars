@@ -16,7 +16,6 @@ import { buildIndexes, type Chain, chainSlug } from "../src/places/indexes";
 import { placeKindLabel } from "../src/places/kinds";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
-import { unbrokenPostcodes } from "../src/ui/address";
 import raw from "./fixtures/funchal-items.json";
 import { DESKTOP, openApp, openAppWithSaved, resetWidth } from "./support/app";
 import { FakeMap, FakeMarker } from "./support/fakeMaplibre";
@@ -100,8 +99,8 @@ function nearestFirst(chain: Chain): { place: Place; km: number }[] {
     .sort((a, b) => a.km - b.km);
 }
 
-/** The words a location is known by: its street address (its postcode kept whole), or else its town, or else its name. */
-const knownBy = (place: Place) => unbrokenPostcodes(place.street ?? place.locality ?? place.name);
+/** The words a location is known by: its street address, or else its town, or else its name. */
+const knownBy = (place: Place) => place.street ?? place.locality ?? place.name;
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -184,8 +183,11 @@ describe("the chain page: locations", () => {
   it("keeps a location's postcode whole on its line", async () => {
     const loft = idx.chains.get("PT:loft brunch & cocktails")!;
     await openApp(`/chain/${chainSlug(loft)}`, { events: fixtures });
-    const named = screen.getAllByRole("link").map((link) => document.getElementById(link.getAttribute("aria-labelledby") ?? "")?.textContent ?? "");
-    expect(named).toContain("49 Rua da Conceição Funchal 9050\u2011026");
+    const names = screen.getAllByRole("link").map((link) => document.getElementById(link.getAttribute("aria-labelledby") ?? ""));
+    // The name has the postcode's plain hyphen, and the postcode sits in one element that does not wrap.
+    const name = names.find((each) => each?.textContent === "49 Rua da Conceição Funchal 9050-026");
+    expect(name).toBeDefined();
+    expect(within(name!).getByText("9050-026")).toHaveClass("whitespace-nowrap");
   });
 
   it("lists the locations near you by street address, nearest first, each a link to its place", async () => {
