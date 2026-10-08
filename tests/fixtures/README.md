@@ -11,3 +11,7 @@ Each entry is a place event of the shape the places relay serves, signed by the 
 - `crafted-japanese-name`: the name `ペーパー・クレーン`.
 
 The `id` and `sig` of every entry are fakes: unique and the right length, but not a real hash or signature. Nothing here is checked against a relay, and no test opens a network connection.
+
+## forged-reviews.jsonl
+
+Two forged reviews (kind 34259), one of each of the first two places above, for the local-relay proof (`tests/proof/houseScores.proof.ts`). Both name one reviewer and have the right id, but each signature is a real signature of that id by another key. Both keys were made in memory and thrown away, so nobody holds either. `nak serve --events` loads the file without checking signatures; the proof checks that the app's reader drops both.
