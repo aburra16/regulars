@@ -212,7 +212,7 @@ describe("Explore on a phone: the top of the page", () => {
     const user = userEvent.setup();
     await openExplore();
     const pressed = chip("All");
-    expect(pressed).toHaveClass("border-0", "bg-ink", "text-ground", "px-[calc(1rem+var(--border))]");
+    expect(pressed).toHaveClass("border-0", "bg-emphasis", "text-on-emphasis", "px-[calc(1rem+var(--border))]");
     expect(pressed).not.toHaveClass("border-token", "px-4");
 
     const resting = chip("Open now");

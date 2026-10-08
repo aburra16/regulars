@@ -22,7 +22,7 @@ export function AccountLink({ size }: { size: "phone" | "desktop" }): JSX.Elemen
       className="flex size-11 shrink-0 items-center justify-center rounded-full"
     >
       <span
-        className={`flex items-center justify-center rounded-full bg-ink text-ground ${size === "phone" ? "size-11" : "size-10"}`}
+        className={`flex items-center justify-center rounded-full bg-emphasis text-on-emphasis ${size === "phone" ? "size-11" : "size-10"}`}
       >
         <PersonIcon size={20} />
       </span>

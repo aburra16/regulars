@@ -101,6 +101,12 @@
      the page. None in the light theme, where the shadow sets it apart; a quiet line in the dark, where
      a shadow does not show. */
   --float-edge: transparent;
+  /* The fill that marks what is chosen or acted on (a chosen chip or toggle, the account button, a
+     bubble of pins, the map's buttons and its note), and the words on it: the ink and the ground in the
+     light theme, as the design draws them; in the dark, a softer slate, so the ink turned light is not
+     the brightest thing on the page. */
+  --emphasis: #16202E;
+  --on-emphasis: #FFFFFF;
   /* Form controls and scroll bars in the light theme's colours, until the dark theme says otherwise. */
   color-scheme: light;
 }
@@ -122,8 +128,8 @@
     --muted: #8F9AA7;
     --surface: #18212C;
     --line: #263140;
-    --line-strong: #334050;
-    --line-dashed: #435265;
+    --line-strong: #5E6D82;
+    --line-dashed: #64738A;
     --field-border: #6B7889;
     --accent: #E56A51;
     --accent-solid: #C93A22;
@@ -138,6 +144,8 @@
     --you-are-here: #5B8FF0;
     --shade: #000000;
     --float-edge: #334050;
+    --emphasis: #A3AEBB;
+    --on-emphasis: #10161F;
     --shadow-float: 0 0 0 1px var(--float-edge), 0 2px 10px rgba(0, 0, 0, 0.4);
     --shadow-card-over-map: 0 0 0 1px var(--float-edge), 0 4px 18px rgba(0, 0, 0, 0.45);
     --shadow-dialog: 0 0 0 1px var(--float-edge), 0 24px 60px rgba(0, 0, 0, 0.6);
@@ -151,8 +159,8 @@
   --muted: #8F9AA7;
   --surface: #18212C;
   --line: #263140;
-  --line-strong: #334050;
-  --line-dashed: #435265;
+  --line-strong: #5E6D82;
+  --line-dashed: #64738A;
   --field-border: #6B7889;
   --accent: #E56A51;
   --accent-solid: #C93A22;
@@ -167,6 +175,8 @@
   --you-are-here: #5B8FF0;
   --shade: #000000;
   --float-edge: #334050;
+  --emphasis: #A3AEBB;
+  --on-emphasis: #10161F;
   --shadow-float: 0 0 0 1px var(--float-edge), 0 2px 10px rgba(0, 0, 0, 0.4);
   --shadow-card-over-map: 0 0 0 1px var(--float-edge), 0 4px 18px rgba(0, 0, 0, 0.45);
   --shadow-dialog: 0 0 0 1px var(--float-edge), 0 24px 60px rgba(0, 0, 0, 0.6);
@@ -199,6 +209,8 @@
   --you-are-here: #2B6CD9;
   --shade: #16202E;
   --float-edge: transparent;
+  --emphasis: #16202E;
+  --on-emphasis: #FFFFFF;
   --shadow-float: 0 2px 10px rgba(22, 32, 46, 0.14);
   --shadow-card-over-map: 0 4px 18px rgba(22, 32, 46, 0.18);
   --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.35);
@@ -220,6 +232,8 @@
   --color-accent-solid: var(--accent-solid);
   --color-on-accent: var(--on-accent);
   --color-shade: var(--shade);
+  --color-emphasis: var(--emphasis);
+  --color-on-emphasis: var(--on-emphasis);
   --color-trust: var(--trust);
   --color-trust-ink: var(--trust-ink);
   --color-trust-tint: var(--trust-tint);
@@ -366,8 +380,8 @@
    layer, so it wins over MapLibre's rule, which the map's chunk loads after this stylesheet. */
 .maplibregl-map .maplibregl-cooperative-gesture-screen {
   padding: 16px calc(var(--touch) + 20px);
-  background: color-mix(in srgb, var(--ink) 70%, transparent);
-  color: var(--ground);
+  background: color-mix(in srgb, var(--emphasis) 70%, transparent);
+  color: var(--on-emphasis);
   font-family: var(--font-text);
   font-size: var(--size-body);
   font-weight: 700;

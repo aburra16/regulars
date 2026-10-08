@@ -4,6 +4,7 @@ import { copy } from "../copy/en.ts";
 import { FAMILIES, type FamilyId } from "../places/kinds.ts";
 import { Chips } from "../ui/Chips.tsx";
 import { FamilyIcon } from "../ui/KindTile.tsx";
+import { Switch } from "../ui/Switch.tsx";
 import { type Sort, widestKm, withinChoices } from "./filters.ts";
 import type { Order } from "./useResults.ts";
 
@@ -86,25 +87,12 @@ export function OpenNowSwitch({ checked, onChange }: { checked: boolean; onChang
           {copy.filters.openNowNote}
         </div>
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-labelledby={`${id}-label`}
-        aria-describedby={`${id}-note`}
-        onClick={() => onChange(!checked)}
-        className="h-11 w-14 shrink-0 cursor-pointer border-0 bg-transparent px-0 py-1.5"
-      >
-        {/* 56 by 32, the knob 24 and 4 in from the edge, as in the design; off, the track is grey. */}
-        <span aria-hidden="true" className={`relative block h-8 w-14 rounded-full ${checked ? "bg-ink" : "bg-field-border"}`}>
-          <span className={`absolute top-1 size-6 rounded-full bg-ground ${checked ? "right-1" : "left-1"}`} />
-        </span>
-      </button>
+      <Switch checked={checked} onChange={onChange} labelledBy={`${id}-label`} describedBy={`${id}-note`} />
     </div>
   );
 }
 
-const OPTION_ON = "border-0 bg-ink text-ground";
+const OPTION_ON = "border-0 bg-emphasis text-on-emphasis";
 const OPTION_OFF = "border-token border-line-strong bg-ground text-ink";
 
 /**
@@ -174,7 +162,7 @@ export function KindOptions({
               onChange(FAMILIES.map((family) => family.id).filter((each) => next.has(each)));
             }}
             className={`flex h-14 cursor-pointer items-center gap-2.5 rounded-button border-token px-3 text-left font-text text-secondary font-semibold ${
-              chosen ? "border-ink bg-ink text-ground" : "border-line-strong bg-ground text-ink"
+              chosen ? "border-emphasis bg-emphasis text-on-emphasis" : "border-line-strong bg-ground text-ink"
             }`}
           >
             <FamilyIcon family={id} className="size-6" />

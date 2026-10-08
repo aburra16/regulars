@@ -231,7 +231,7 @@ function PhoneSearch(): JSX.Element {
               type="button"
               aria-pressed="true"
               onClick={() => takeOff(index, chip.off)}
-              className="h-11 cursor-pointer rounded-chip border-0 bg-ink px-3.5 font-text text-secondary font-semibold text-ground"
+              className="h-11 cursor-pointer rounded-chip border-0 bg-emphasis px-3.5 font-text text-secondary font-semibold text-on-emphasis"
             >
               {chip.label}
             </button>

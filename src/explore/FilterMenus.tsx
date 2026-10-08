@@ -14,7 +14,7 @@ import { ChevronDownIcon } from "../ui/icons.tsx";
  */
 const CHIP =
   "relative inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-[20px] font-text text-secondary font-semibold after:absolute after:inset-x-0 after:-inset-y-0.5";
-const CHIP_ON = "border-0 bg-ink px-[calc(0.875rem+var(--border))] text-ground";
+const CHIP_ON = "border-0 bg-emphasis px-[calc(0.875rem+var(--border))] text-on-emphasis";
 const CHIP_OFF = "border-token border-line-strong bg-ground px-3.5 text-ink";
 
 /**

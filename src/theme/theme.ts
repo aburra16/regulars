@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * The page's two themes. The page follows the device's setting until the person chooses one with the
- * switch (ThemeToggle.tsx); the choice is kept on this device. The theme is `data-theme` on <html>,
- * which src/styles/index.css turns into the colours.
+ * The page's two themes. The page follows the device's setting until the person chooses the other
+ * theme, with the moon and sun in the top bar (ThemeToggle.tsx) or the switch on You (ThemeSwitch.tsx).
+ * The choice is kept on this device, and every open tab of the site takes it. Choosing the device's
+ * own theme again forgets the choice, and the page follows the device once more. The theme is
+ * `data-theme` on <html>, which src/styles/index.css turns into the colours.
  *
  * index.html's head sets it before the page is first drawn, from what is kept here or else the
  * device's setting, so the page never shows the other theme first. That script repeats the key, the
@@ -23,23 +25,44 @@ export const THEME_GROUND: Readonly<Record<Theme, string>> = { light: "#FFFFFF",
 
 const isTheme = (value: unknown): value is Theme => value === "light" || value === "dark";
 
-/** The theme the person chose on this device, or undefined when there is none, or none that can be read. */
-export function storedTheme(): Theme | undefined {
+/**
+ * The choice made in this visit, kept here as well as on the device, so a device that will not keep it
+ * (storage blocked or full) still holds it until the page is closed. While the device keeps choices,
+ * what it keeps decides, and another tab can change it; once it would not, this does.
+ */
+let remembered: Theme | undefined;
+let memoryOnly = false;
+
+/** The theme the person chose, or undefined while the page follows the device. */
+export function chosenTheme(): Theme | undefined {
+  if (!memoryOnly) {
+    try {
+      const value = window.localStorage.getItem(THEME_STORAGE_KEY);
+      return isTheme(value) ? value : undefined;
+    } catch {
+      // Storage that cannot be read: what was chosen in this visit, if anything.
+    }
+  }
+  return remembered;
+}
+
+/** Keeps a choice, or forgets it (undefined), on the device if it will and in this visit whatever happens. */
+function remember(theme: Theme | undefined): void {
+  remembered = theme;
   try {
-    const value = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return isTheme(value) ? value : undefined;
+    if (theme === undefined) window.localStorage.removeItem(THEME_STORAGE_KEY);
+    else window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    memoryOnly = false;
   } catch {
-    // Storage that is blocked: no choice is kept, and the device's setting decides.
-    return undefined;
+    // Blocked or full: the choice holds until the page is closed.
+    memoryOnly = true;
   }
 }
 
-function keep(theme: Theme): void {
-  try {
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch {
-    // Blocked or full. The choice still holds until the page is closed.
-  }
+/** For tests: forgets the choice made in this visit, as a new page would. */
+export function forgetThemeInMemory(): void {
+  remembered = undefined;
+  memoryOnly = false;
 }
 
 /** The device's setting; light in a browser that cannot say. */
@@ -52,7 +75,7 @@ const deviceTheme = (): Theme => (darkQuery()?.matches ? "dark" : "light");
 /** The theme the page is in. Before anything has set it (a test), the one it would be set to. */
 export function currentTheme(): Theme {
   const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.theme;
-  return isTheme(set) ? set : (storedTheme() ?? deviceTheme());
+  return isTheme(set) ? set : (chosenTheme() ?? deviceTheme());
 }
 
 const listeners = new Set<() => void>();
@@ -71,28 +94,40 @@ function apply(theme: Theme, chosen: boolean): void {
   for (const listener of [...listeners]) listener();
 }
 
-/** The person chose a theme: the page takes it, and keeps it on this device over the device's setting. */
+/**
+ * The person chose a theme: the page takes it. The other theme than the device's is kept, over the
+ * device's setting; the device's own theme forgets any choice, and the page follows the device again.
+ */
 export function chooseTheme(theme: Theme): void {
-  keep(theme);
-  apply(theme, true);
+  const follows = theme === deviceTheme();
+  remember(follows ? undefined : theme);
+  apply(theme, !follows);
+}
+
+/** The page in the theme chosen, or the device's while none is. */
+function settle(): void {
+  const chosen = chosenTheme();
+  apply(chosen ?? deviceTheme(), chosen !== undefined);
 }
 
 /**
- * Follows the device's setting while the page is open, for as long as the person has chosen no theme
- * of their own. main.tsx starts it once; it returns what stops it.
+ * Keeps the page in the right theme while it is open: the device's, as its setting changes, while the
+ * person has chosen none, and the one chosen in another tab of the site, which this one hears of
+ * through `storage`. main.tsx starts it once; it returns what stops it.
  */
 export function followDevice(): () => void {
   const query = darkQuery();
-  const follow = () => {
-    const chosen = storedTheme();
-    apply(chosen ?? deviceTheme(), chosen !== undefined);
+  settle();
+  const onStorage = (event: StorageEvent) => {
+    // A key of null: another tab cleared everything the site keeps.
+    if (event.key === THEME_STORAGE_KEY || event.key === null) settle();
   };
-  follow();
-  const onChange = () => {
-    if (storedTheme() === undefined) follow();
+  query?.addEventListener("change", settle);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    query?.removeEventListener("change", settle);
+    window.removeEventListener("storage", onStorage);
   };
-  query?.addEventListener("change", onChange);
-  return () => query?.removeEventListener("change", onChange);
 }
 
 function subscribe(listener: () => void): () => void {

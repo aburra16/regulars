@@ -518,7 +518,7 @@ describe("BaseMap", () => {
     expect(screen.queryByRole("button", { name: /^Place 0,/ })).not.toBeInTheDocument();
     const cluster = screen.getByRole("button", { name: "61 places here, zoom in" });
     expect(cluster).toHaveTextContent("61");
-    expect(cluster).toHaveClass("rounded-full", "bg-ink", "text-ground");
+    expect(cluster).toHaveClass("rounded-full", "bg-emphasis", "text-on-emphasis");
 
     await user.click(cluster);
     expect(pinSource(map).getClusterExpansionZoom).toHaveBeenCalledWith(7);

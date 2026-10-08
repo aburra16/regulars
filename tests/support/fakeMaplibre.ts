@@ -85,8 +85,6 @@ export class FakeMap {
   readonly addedLayers: Record<string, unknown>[] = [];
   /** The layers of the style it has now: MapTiler's for a style fetched by its address, none for one given whole. */
   layers: Map<string, FakeLayer>;
-  /** How far a style gets by itself: `FakeMap.arrives` as it was when this map was made. */
-  private readonly arrival: "all" | "style" | "none";
   removed = false;
   bounds: FakeBounds = { west: -16.95, south: 32.62, east: -16.87, north: 32.68 };
   /** Where the map looks and how far in, as the app's moves and the person's leave them. */
@@ -120,7 +118,6 @@ export class FakeMap {
     FakeMap.instances.push(this);
     // The style arrives a moment later, as it does over the network, and then the first tiles.
     const arrives = FakeMap.arrives;
-    this.arrival = arrives;
     queueMicrotask(() => {
       if (this.removed || arrives === "none") return;
       this.fire("style.load");
@@ -160,12 +157,12 @@ export class FakeMap {
   /**
    * A new style in place of the old one, built afresh (`diff: false`), as MapLibre does: it has its own
    * layers and none of the sources the app added, and it arrives a moment later, as the first did,
-   * unless the map was made to wait for a test to say so.
+   * unless `FakeMap.arrives` is "none" when it is asked for: then a test fires what it wants.
    */
   setStyle = vi.fn((style: unknown, _options?: { diff?: boolean }) => {
     this.layers = FakeMap.layersOf(style);
     this.sources.clear();
-    if (this.arrival !== "none") {
+    if (FakeMap.arrives !== "none") {
       queueMicrotask(() => {
         this.fire("style.load");
         this.fire("render");

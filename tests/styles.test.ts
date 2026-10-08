@@ -216,8 +216,9 @@ describe("the note a map shows when it leaves a gesture to the page", () => {
     const body = new RegExp(`${SELECTOR.replace(/\./g, "\\.")}\\s*\\{([^}]*)\\}`).exec(indexCss)?.[1] ?? "";
     expect(body).toMatch(/font-family:\s*var\(--font-text\);/);
     expect(body).toMatch(/font-size:\s*var\(--size-body\);/);
-    expect(body).toMatch(/color:\s*var\(--ground\);/);
-    expect(body).toMatch(/background:\s*color-mix\(in srgb, var\(--ink\) \d+%, transparent\);/);
+    // The fill that marks things out: the ink in the light theme, a softer one in the dark (tests/theme.test.tsx).
+    expect(body).toMatch(/color:\s*var\(--on-emphasis\);/);
+    expect(body).toMatch(/background:\s*color-mix\(in srgb, var\(--emphasis\) \d+%, transparent\);/);
     // The zoom buttons are a touch target wide, in from the map's edge: the words keep that far in from each side.
     expect(body).toMatch(/padding:[^;]*calc\(var\(--touch\) \+ \d+px\)/);
     // No colour of its own: every colour is a token's.

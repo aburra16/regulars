@@ -847,7 +847,7 @@ export function BaseMap({
           );
         } else if (item.kind === "cluster") {
           const look =
-            "flex h-12 min-w-12 items-center justify-center rounded-full border-[3px] border-ground bg-ink px-1 font-text text-body font-extrabold text-ground shadow-pin";
+            "flex h-12 min-w-12 items-center justify-center rounded-full border-[3px] border-ground bg-emphasis px-1 font-text text-body font-extrabold text-on-emphasis shadow-pin";
           mark = canTap ? (
             <button
               type="button"

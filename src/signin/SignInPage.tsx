@@ -40,7 +40,7 @@ function Steps({ tone, gap, textClass = "" }: { tone: "night" | "card"; gap: str
           <span
             aria-hidden="true"
             className={`flex size-8 shrink-0 items-center justify-center rounded-full font-extrabold ${
-              tone === "night" ? "bg-ground text-ink" : "bg-ink text-ground"
+              tone === "night" ? "bg-ground text-ink" : "bg-emphasis text-on-emphasis"
             }`}
           >
             {i + 1}

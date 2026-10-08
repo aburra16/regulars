@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -103,7 +103,8 @@ const TEXT: ReadonlyArray<[fg: string, bg: string, where: string]> = [
   ["muted", "map-land", "the line a map shows when it cannot be drawn"],
   ["accent", "ground", "the open tab, links as they are pointed at"],
   ["accent", "surface", "accent text on a panel"],
-  ["ground", "ink", "a chosen chip, the account button, a bubble's count"],
+  ["ground", "ink", "words on an ink fill where the light theme is kept (About's card)"],
+  ["on-emphasis", "emphasis", "a chosen chip, the account button, a bubble's count, the map's buttons"],
   ["on-accent", "accent-solid", "the accent buttons and the chosen pin"],
   ["trust", "ground", "words about who you trust"],
   ["trust-ink", "trust-tint", "text on the trust tint"],
@@ -126,14 +127,19 @@ const GRAPHIC: ReadonlyArray<[fg: string, bg: string, where: string]> = [
   ["muted", "ground", "the ring of a pin with no score"],
   ["you-are-here", "map-land", "where the person is"],
   ["trust", "trust-tint", "a trust mark on the tint"],
+  ["line-strong", "ground", "chip and outline-button edges, empty stars"],
+  ["line-strong", "surface", "an edge or an empty star on a panel"],
+  ["line-dashed", "ground", "dashed 'nothing here yet' edges, the review form's empty stars"],
+  ["line-dashed", "surface", "a dashed edge on a panel"],
+  ["emphasis", "ground", "a chosen chip, toggle or switch against the page"],
+  ["emphasis", "surface", "the chosen half of a toggle on its panel"],
+  ["emphasis", "map-land", "a bubble of pins, the map's buttons"],
 ];
 
 /** Edges and grounds that tell parts apart without a ratio of their own to meet: at least as clear in the dark as in the light. */
 const EDGES: ReadonlyArray<[fg: string, bg: string, where: string]> = [
   ["line", "ground", "card edges and dividers"],
   ["line", "surface", "a divider on a panel"],
-  ["line-strong", "ground", "chip and outline-button edges, empty stars"],
-  ["line-dashed", "ground", "dashed 'nothing here yet' edges"],
   ["surface", "ground", "a panel on the page"],
   ["map-park", "map-land", "a park on the map"],
   ["map-water", "map-land", "water on the map"],
@@ -153,7 +159,7 @@ describe("the dark theme's colours", () => {
     const kept = ["night", "on-night-soft", "wordmark-on-night"];
     const changed = [...darkDeclared.keys()].filter((name) => /^--/.test(name) && /^#/.test(darkDeclared.get(name)!));
     expect(changed.map((name) => name.slice(2)).sort()).toEqual(
-      [...tokenColours.filter((name) => !kept.includes(name)), "accent-solid", "shade", "float-edge"].sort(),
+      [...tokenColours.filter((name) => !kept.includes(name)), "accent-solid", "shade", "float-edge", "emphasis", "on-emphasis"].sort(),
     );
     // The shadows darken too, to black.
     for (const shadow of ["--shadow-float", "--shadow-card-over-map", "--shadow-dialog"]) {
@@ -161,9 +167,11 @@ describe("the dark theme's colours", () => {
     }
   });
 
-  it("has the light theme's solid accent and shade as its accent and ink", () => {
+  it("has the light theme's solid accent, shade and emphasis as its accent, ink and ground: the light theme is the design's", () => {
     expect(colourOf("light", "accent-solid")).toBe(colourOf("light", "accent"));
     expect(colourOf("light", "shade")).toBe(colourOf("light", "ink"));
+    expect(colourOf("light", "emphasis")).toBe(colourOf("light", "ink"));
+    expect(colourOf("light", "on-emphasis")).toBe(colourOf("light", "ground"));
     // The dark theme's solid accent is the light one's: white on it still reads.
     expect(colourOf("dark", "accent-solid")).toBe(colourOf("light", "accent"));
   });
@@ -174,8 +182,8 @@ describe("the dark theme's colours", () => {
     });
   }
 
-  // The light theme's own colours are the design's: these are held to 3 to 1 in the dark one, which
-  // starts from them, and to the light one's own ratio there (a field's edge on a panel is 2.8 in the design).
+  // The light theme's own colours are the design's, and stay as they are (a field's edge on a panel is
+  // 2.8 to 1 there, a chip's edge 1.4): the dark theme, which starts from them, holds these to 3 to 1.
   it.each(GRAPHIC)("dark: --%s against --%s is at least 3 to 1 (%s)", (fg, bg) => {
     expect(contrast(colourOf("dark", fg), colourOf("dark", bg))).toBeGreaterThanOrEqual(3);
   });
@@ -183,6 +191,21 @@ describe("the dark theme's colours", () => {
   it.each(EDGES)("dark: --%s against --%s is at least as clear as in the light (%s)", (fg, bg) => {
     const light = contrast(colourOf("light", fg), colourOf("light", bg));
     expect(contrast(colourOf("dark", fg), colourOf("dark", bg))).toBeGreaterThanOrEqual(light - 0.005);
+  });
+
+  it("marks what is chosen more quietly than the ink in the dark: a softer fill, with the ground's colour on it", () => {
+    expect(colourOf("dark", "on-emphasis")).toBe(colourOf("dark", "ground"));
+    expect(luminance(colourOf("dark", "emphasis"))).toBeLessThan(luminance(colourOf("dark", "ink")) * 0.75);
+    expect(contrast(colourOf("dark", "emphasis"), colourOf("dark", "ground"))).toBeLessThan(
+      contrast(colourOf("dark", "ink"), colourOf("dark", "ground")) * 0.75,
+    );
+  });
+
+  it("keeps the dividers quiet in the dark: the plain line stays under the strong one", () => {
+    expect(contrast(colourOf("dark", "line"), colourOf("dark", "ground"))).toBeLessThan(2);
+    expect(luminance(colourOf("dark", "line"))).toBeLessThan(luminance(colourOf("dark", "line-strong")));
+    // The dashed line is a step clearer than the strong one, as in the light theme.
+    expect(luminance(colourOf("dark", "line-dashed"))).toBeGreaterThan(luminance(colourOf("dark", "line-strong")));
   });
 
   it("keeps a part of a page in the light theme's colours, whatever the theme: the sign-in page", () => {
@@ -208,13 +231,6 @@ async function compiled(classNames: string[]): Promise<string> {
     },
   });
   return compiler.build(classNames);
-}
-
-/** Every file under a folder, as paths relative to the project. */
-function filesUnder(dir: string): string[] {
-  return readdirSync(resolve(root, dir), { withFileTypes: true }).flatMap((entry) =>
-    entry.isDirectory() ? filesUnder(`${dir}/${entry.name}`) : [`${dir}/${entry.name}`],
-  );
 }
 
 describe("the stylesheet, compiled", () => {
@@ -264,23 +280,18 @@ describe("the stylesheet, compiled", () => {
     }
   });
 
-  it("dims the page behind a dialog in the shade, never in the ink, which would be a light wash in the dark", async () => {
-    const files = filesUnder("src").filter((file) => /\.tsx?$/.test(file));
-    const inkWashes = files.flatMap((file) =>
-      [...read(file).matchAll(/(?<![\w-])bg-ink\/\d+/g)].map((match) => `${file}: ${match[0]}`),
-    );
-    expect(inkWashes).toEqual([]);
-    expect(read("src/location/CityPicker.tsx")).toMatch(/wide:bg-shade\/60/);
+  it("compiles a scrim in the shade, which the guards in tests/theme-guards.test.ts ask of every one", async () => {
     const css = await compiled(["bg-shade/60"]);
     expect(css).toMatch(/\.bg-shade\\\/60\s*\{[^}]*var\(--shade\)/);
   });
 
-  it("puts white words only on the solid accent: nothing in src is filled with the lighter accent", () => {
-    const files = filesUnder("src").filter((file) => /\.tsx?$/.test(file));
-    const offences = files.flatMap((file) =>
-      [...read(file).matchAll(/(?<![\w-])bg-accent(?![\w-])/g)].map((match) => `${file}: ${match[0]}`),
-    );
-    expect(offences).toEqual([]);
+  it("draws the chosen fills and the map's note in the emphasis colour, read from its variable", async () => {
+    const css = await compiled(["bg-emphasis", "text-on-emphasis", "border-emphasis"]);
+    expect(css).toMatch(/\.bg-emphasis\s*\{\s*background-color:\s*var\(--emphasis\);/);
+    expect(css).toMatch(/\.text-on-emphasis\s*\{\s*color:\s*var\(--on-emphasis\);/);
+    const note = /\.maplibregl-map \.maplibregl-cooperative-gesture-screen\s*\{([^}]*)\}/.exec(indexCss)?.[1] ?? "";
+    expect(note).toMatch(/background:\s*color-mix\(in srgb, var\(--emphasis\) \d+%, transparent\);/);
+    expect(note).toMatch(/color:\s*var\(--on-emphasis\);/);
   });
 
   it("keeps everything in the night colours in the light theme's, which they are drawn against: the sign-in page and About's dark card", async () => {
@@ -468,9 +479,91 @@ describe("the theme", () => {
     expect(themeColours()).toEqual(PER_SCHEME);
     act(() => chooseTheme("dark"));
     expect(themeColours()).toEqual(PER_SCHEME.map(([media]) => [media, THEME_GROUND.dark]));
+    // Back to the device's own theme: the page follows the device again.
+    act(() => chooseTheme("light"));
+    expect(themeColours()).toEqual(PER_SCHEME);
+    // On a dark device, light is a choice.
+    deviceTurns(true);
     act(() => chooseTheme("light"));
     expect(themeColours()).toEqual(PER_SCHEME.map(([media]) => [media, THEME_GROUND.light]));
     stop();
+  });
+
+  it("goes back to following the device when the person chooses the theme the device has", () => {
+    setDevice(false);
+    const stop = followDevice();
+    act(() => chooseTheme("dark"));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    act(() => chooseTheme("light"));
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    deviceTurns(true);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    deviceTurns(false);
+    expect(document.documentElement.dataset.theme).toBe("light");
+    stop();
+  });
+
+  it("keeps a choice for the rest of the visit when the device will not keep it, against the device's changes", () => {
+    for (const method of ["getItem", "setItem", "removeItem"] as const) {
+      vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    }
+    setDevice(false);
+    const stop = followDevice();
+    act(() => chooseTheme("dark"));
+    deviceTurns(true);
+    deviceTurns(false);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    // Choosing the device's theme lets the device lead again, kept or not.
+    act(() => chooseTheme("light"));
+    deviceTurns(true);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    stop();
+  });
+
+  it("keeps a choice for the rest of the visit when the device can read but not write it", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("full");
+    });
+    setDevice(false);
+    const stop = followDevice();
+    act(() => chooseTheme("dark"));
+    deviceTurns(true);
+    deviceTurns(false);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    stop();
+  });
+
+  it("follows a switch made in another open tab of the site", () => {
+    addThemeMetas();
+    setDevice(false);
+    const stop = followDevice();
+    const otherTab = (value: string | null) =>
+      act(() => {
+        if (value === null) window.localStorage.removeItem(THEME_STORAGE_KEY);
+        else window.localStorage.setItem(THEME_STORAGE_KEY, value);
+        window.dispatchEvent(new StorageEvent("storage", { key: THEME_STORAGE_KEY, newValue: value }));
+      });
+    otherTab("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(themeColours()).toEqual(PER_SCHEME.map(([media]) => [media, THEME_GROUND.dark]));
+    otherTab(null);
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(themeColours()).toEqual(PER_SCHEME);
+    // Another tab that clears everything the site keeps.
+    otherTab("dark");
+    act(() => {
+      window.localStorage.clear();
+      window.dispatchEvent(new StorageEvent("storage", { key: null }));
+    });
+    expect(document.documentElement.dataset.theme).toBe("light");
+    // What the site keeps under other names is no news for the theme; nor is anything once it stops.
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "regulars.here", newValue: "{}" })));
+    expect(document.documentElement.dataset.theme).toBe("light");
+    stop();
+    otherTab("dark");
+    expect(document.documentElement.dataset.theme).toBe("light");
   });
 });
 
@@ -493,10 +586,11 @@ describe("the dark mode switch", () => {
     expect(button.innerHTML).toBe(renderToStaticMarkup(<SunIcon size={20} />));
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
 
+    // Back to the device's own theme: nothing is kept, and the page follows the device again.
     await user.click(button);
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(button).toHaveAttribute("aria-pressed", "false");
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
   });
 
   it("starts from the device's setting when nothing is chosen, and from the choice when one is", () => {
@@ -536,13 +630,13 @@ describe("the dark mode switch", () => {
     expect(theSwitch()).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("sits in the desktop's top bar, just left of Saved, on every page but sign in", async () => {
+  it("sits in the desktop's top bar, left of Saved, on every page but sign in", async () => {
     for (const path of ["/", "/map", "/search?q=tea", "/about", "/saved", "/you"]) {
       const { unmount } = await openApp(path, { events: fixtures, px: DESKTOP });
       const bar = screen.getByRole("banner");
       const button = within(bar).getByRole("button", { name: copy.nav.darkMode });
-      expect(button.nextElementSibling, path).toBe(within(bar).getByRole("link", { name: copy.nav.saved }));
-      expect(button.previousElementSibling).toBe(within(bar).getByRole("group", { name: copy.view.label }));
+      const saved = within(bar).getByRole("link", { name: copy.nav.saved });
+      expect(button.compareDocumentPosition(saved) & Node.DOCUMENT_POSITION_FOLLOWING, path).toBeTruthy();
       unmount();
     }
   });
@@ -554,6 +648,34 @@ describe("the dark mode switch", () => {
     expect(button.nextElementSibling).toBe(within(top).getByRole("link", { name: copy.nav.account }));
     // The same row as the wordmark.
     expect(button.closest("div")?.parentElement).toContainElement(within(top).getByText(copy.app.name));
+  });
+
+  it("is also a labelled switch on the You page, the same state as the icon, and not on Saved", async () => {
+    const user = userEvent.setup();
+    for (const px of [PHONE, DESKTOP]) {
+      const { unmount } = await openApp("/you", { events: fixtures, px });
+      const row = screen.getByRole("switch", { name: copy.nav.darkMode });
+      expect(row).toHaveAttribute("aria-checked", "false");
+      // Its words are on screen, beside it.
+      expect(screen.getByText(copy.nav.darkMode)).toBeVisible();
+      await user.click(row);
+      expect(document.documentElement.dataset.theme, `${px} px`).toBe("dark");
+      expect(row).toHaveAttribute("aria-checked", "true");
+      expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+      if (px === DESKTOP) {
+        // The top bar's icon is the same switch.
+        const icon = within(screen.getByRole("banner")).getByRole("button", { name: copy.nav.darkMode });
+        expect(icon).toHaveAttribute("aria-pressed", "true");
+        await user.click(icon);
+        expect(row).toHaveAttribute("aria-checked", "false");
+      } else {
+        act(() => chooseTheme("light"));
+        expect(row).toHaveAttribute("aria-checked", "false");
+      }
+      unmount();
+    }
+    await openApp("/saved", { events: fixtures, px: PHONE });
+    expect(screen.queryByRole("switch", { name: copy.nav.darkMode })).not.toBeInTheDocument();
   });
 
   it("is not on the sign-in page, which is dark already", async () => {
@@ -647,6 +769,47 @@ describe("the map in the dark", () => {
     act(() => chooseTheme("light"));
     expect(map.setStyle).toHaveBeenLastCalledWith(`${MAPTILER_STYLE_URL}?key=test-key`, { diff: false });
     await waitFor(() => expect(map.setPaintProperty).toHaveBeenCalledWith("Background", "background-color", colourOf("light", "map-land")));
+  });
+
+  it("takes the dark style when the theme changes before the first style has come, and is coloured once, in the dark", async () => {
+    config.mapTilerKey = "test-key";
+    FakeMap.arrives = "none";
+    render(<BaseMap center={funchal} zoom={13} interactive pins={pins} onSelect={() => {}} />);
+    const map = await waitFor(() => FakeMap.instances[0] ?? Promise.reject(new Error("No map yet")));
+    expect(map.options.style).toBe(`${MAPTILER_STYLE_URL}?key=test-key`);
+
+    act(() => chooseTheme("dark"));
+    expect(map.setStyle).toHaveBeenCalledWith(`${MAPTILER_DARK_STYLE_URL}?key=test-key`, { diff: false });
+    act(() => map.fire("style.load"));
+    expect(coloursSet(map)).toContainEqual(["Background", "background-color", colourOf("dark", "map-land")]);
+    expect(coloursSet(map).filter(([, , colour]) => colour === colourOf("light", "map-land"))).toEqual([]);
+    expect(map.sources.has(PIN_SOURCE)).toBe(true);
+    act(() => map.fire("render"));
+    expect(await screen.findByRole("button", { name: /^Alpha,/ })).toBeInTheDocument();
+  });
+
+  it("falls back to the plain dark ground when the dark style does not come after a switch, and keeps its pins", async () => {
+    config.mapTilerKey = "test-key";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    render(<BaseMap center={funchal} zoom={13} interactive pins={pins} />);
+    const map = await theMap();
+    // The light style came; the dark one will not.
+    FakeMap.arrives = "none";
+    act(() => chooseTheme("dark"));
+    expect(map.setStyle).toHaveBeenLastCalledWith(`${MAPTILER_DARK_STYLE_URL}?key=test-key`, { diff: false });
+
+    act(() => map.fire("error", { error: new Error("style") }));
+    expect(map.setStyle).toHaveBeenLastCalledWith(mapStyle(undefined, "dark"));
+    expect(mapStyle(undefined, "dark")).toMatchObject({ layers: [{ paint: { "background-color": colourOf("dark", "map-land") } }] });
+    // Only once.
+    act(() => map.fire("error", { error: new Error("style") }));
+    expect(map.setStyle).toHaveBeenCalledTimes(2);
+
+    act(() => map.fire("style.load"));
+    expect(map.sources.has(PIN_SOURCE)).toBe(true);
+    // Back to light: the plain ground again, now in the light land colour, and not MapTiler's style that failed.
+    act(() => chooseTheme("light"));
+    expect(map.setStyle).toHaveBeenLastCalledWith(mapStyle(undefined, "light"), { diff: false });
   });
 
   it("changes the plain ground's colour without a key", async () => {
