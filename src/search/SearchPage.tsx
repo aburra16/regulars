@@ -5,6 +5,7 @@ import { copy } from "../copy/en.ts";
 import { stepsBackToExplore } from "../explore/returnPoint.ts";
 import { useHere } from "../location/useLocation.ts";
 import { familyLabel } from "../places/kinds.ts";
+import { type ListScores, useListScores } from "../score/useListScores.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
@@ -67,15 +68,20 @@ function activeChips(filters: Filters, locale: string): { id: string; label: str
   return chips;
 }
 
-/** The rows, fifty at first and fifty more each time "Show more" is pressed, with the focus moved to the first new row. */
+/**
+ * The rows, fifty at first and fifty more each time "Show more" is pressed, with the focus moved to
+ * the first new row. Each place has its score, from `scores`, which the page asked for in one go.
+ */
 function Rows({
   page,
   entries,
+  scores,
   locale,
   now,
 }: {
   page: ShownPage;
   entries: Entry[];
+  scores: ListScores;
   locale: string;
   now: Date;
 }): JSX.Element {
@@ -99,7 +105,7 @@ function Rows({
             </li>
           ) : (
             <li key={entry.place.address}>
-              <PlaceRow place={entry.place} km={entry.km} locale={locale} now={now} />
+              <PlaceRow place={entry.place} km={entry.km} score={scores.of(entry.place.address)} locale={locale} now={now} />
             </li>
           ),
         )}
@@ -143,7 +149,10 @@ function PhoneSearch(): JSX.Element {
 
   const query = (params.get("q") ?? "").trim();
   const filters = useMemo(() => filtersFromParams(params, locale), [params, locale]);
-  const { entries, count, hiddenClosed, order } = useResults(query, filters);
+  const results = useResults(query, filters);
+  const { count, hiddenClosed, order } = results;
+  // The scores of every result, asked for in one go; best first when the person asked for that.
+  const { entries, scores } = useListScores(results.entries, order === "score");
   const chips = activeChips(filters, locale);
 
   // The cursor goes to the field when the person arrives to search, or to an address typed in. Not when
@@ -243,7 +252,7 @@ function PhoneSearch(): JSX.Element {
 
       <div className="px-gutter-phone pt-2">
         {empty === undefined ? (
-          <Rows key={`${historyKey}|${list}`} page={page} entries={entries} locale={locale} now={now} />
+          <Rows key={`${historyKey}|${list}`} page={page} entries={entries} scores={scores} locale={locale} now={now} />
         ) : (
           empty.hint !== undefined && <EmptyHint hint={empty.hint} />
         )}

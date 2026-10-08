@@ -19,8 +19,8 @@ export interface Filters {
   withinKm: number;
   /**
    * How the places are ordered. Missing is automatic, and is not in the address: a kind of place
-   * ("cafe") is nearest first, words are best match first, as the index gives them. "distance" and
-   * "name" are the person's own choice.
+   * ("cafe") is nearest first, words are best match first, as the index gives them. "score" (House
+   * picks' score), "distance" and "name" are the person's own choice.
    */
   sort?: Sort;
 }
@@ -75,15 +75,12 @@ export function withinLabel(km: number, locale: string): string {
   return withinChoices(locale).find((choice) => choice.km === snapped)!.label;
 }
 
-/** Whether anyone has a score to sort by. Not before sign in, which is all of M1. */
-const SCORES_EXIST = false;
-
 /**
- * The sort the person chose, if it can be had. My circle's score cannot while nobody has a score,
- * so it reads as no choice, and the page picks (see `Filters.sort`).
+ * The sort the person chose, if any: with none, the page picks (see `Filters.sort`). Every sort can
+ * be had before sign in: House picks' score is the house's, which needs no account.
  */
 export function sortInUse(filters: Filters): Sort | undefined {
-  return filters.sort === "score" && !SCORES_EXIST ? undefined : filters.sort;
+  return filters.sort;
 }
 
 /** The filters when none is chosen: the widest distance, the sort left to the page. A new object each time. */
@@ -172,9 +169,10 @@ const collator = new Intl.Collator("en");
  * The rows that pass the filters, and how many closed places Open now left out: of the places that
  * pass every other filter, those that are closed at `now`. Rows are in the order of the sort:
  * "name" is A to Z (nearest first for places with one name), "distance" is nearest first (the
- * order they came in for places the same distance away). With no sort, and for My circle's score
- * while nobody has one, they stay in the order they came in, which is the index's: nearest first
- * for a kind of place, best match first for words. The rows it is given are not changed.
+ * order they came in for places the same distance away). With no sort, and for House picks' score,
+ * they stay in the order they came in, which is the index's: nearest first for a kind of place, best
+ * match first for words. The score's order is the page's to make, once the list is grouped and its
+ * scores are read (`useListScores`), with ties in this order. The rows it is given are not changed.
  */
 export function applyFilters(
   rows: readonly PlaceDistance[],

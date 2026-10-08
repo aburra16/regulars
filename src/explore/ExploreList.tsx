@@ -8,6 +8,7 @@ import { HereCityPicker } from "../location/CityPicker.tsx";
 import { useHere } from "../location/useLocation.ts";
 import { groupForList } from "../places/indexes.ts";
 import { useIndexes } from "../places/useIndexes.ts";
+import { useListScores } from "../score/useListScores.ts";
 import { FROM_EXPLORE } from "../search/filters.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
@@ -76,16 +77,20 @@ export function NoneNearby(): JSX.Element {
 /**
  * Whose scores the list shows, with the house's badge beside its name and a link to how that works
  * (Main.dc.html). The desktop's Explore says how many places there are first (DeskExplore.dc.html).
+ * When House picks can't be worked out (`unavailable`), one quiet line under it says so.
  */
-export function HouseLine({ count }: { count?: number }): JSX.Element {
+export function HouseLine({ count, unavailable = false }: { count?: number; unavailable?: boolean }): JSX.Element {
   return (
-    <p className="m-0 text-secondary leading-[1.4] text-muted">
-      {count !== undefined && `${copy.deskExplore.count(count)} `}
-      <HouseName text={copy.explore.houseLine} size="line" />{" "}
-      <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
-        {copy.explore.howThisWorks}
-      </Link>
-    </p>
+    <>
+      <p className="m-0 text-secondary leading-[1.4] text-muted">
+        {count !== undefined && `${copy.deskExplore.count(count)} `}
+        <HouseName text={copy.explore.houseLine} size="line" />{" "}
+        <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
+          {copy.explore.howThisWorks}
+        </Link>
+      </p>
+      {unavailable && <p className="m-0 text-secondary leading-[1.4] text-muted">{copy.score.houseUnavailable}</p>}
+    </>
   );
 }
 
@@ -118,13 +123,15 @@ export function ExploreList(): JSX.Element {
   );
   // The minute matters to the list only when it is asked which places are open.
   const openAt = chip === "open" ? now : null;
-  const entries = useMemo(() => {
+  const grouped = useMemo(() => {
     if (indexes === undefined) return [];
     // Filter first, then group: a chain counts only the locations that stay.
     const kept = nearby.filter((row) => chipKeeps(chip, row.place, now));
     return groupForList(kept, indexes);
     // `now` is a dependency through `openAt`: it changes this list only while the chip asks about it.
   }, [indexes, nearby, chip, openAt]);
+  // The scores of the whole list, asked for in one go. The list stays nearest first.
+  const { entries, scores } = useListScores(grouped);
 
   const choose = (next: ExploreChip) =>
     setParams((current) => {
@@ -157,7 +164,7 @@ export function ExploreList(): JSX.Element {
     const page = shownPageOf(historyKey, list);
     body = (
       <div className="px-gutter-phone pt-[18px]">
-        <Entries key={`${historyKey}|${list}`} page={page} entries={entries} locale={locale} now={now} />
+        <Entries key={`${historyKey}|${list}`} page={page} entries={entries} locale={locale} now={now} scores={scores} />
       </div>
     );
   }
@@ -169,7 +176,7 @@ export function ExploreList(): JSX.Element {
         <SearchLink />
         <div className="flex flex-col gap-2">
           <ViewSwitch variant="bar" />
-          <HouseLine />
+          <HouseLine unavailable={scores.house === "unavailable"} />
         </div>
         <Chips
           label={copy.explore.filtersLabel}

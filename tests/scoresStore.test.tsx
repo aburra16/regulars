@@ -918,8 +918,29 @@ describe("the relay code, kept out of the first screen", () => {
   it.each([
     ["a phone", PHONE],
     ["a desktop", DESKTOP],
-  ])("is not loaded, and no review is asked for, when Explore opens on %s (no page asks yet)", async (_, px) => {
+  ])("is loaded once Explore's list is on %s, which asks for its places' reviews in one go", async (_, px) => {
+    const search = createMemoryReader([]);
+    const { loaded, opened } = await withRelayCode({ [SEARCH]: search });
+    const { openApp: open } = await import("./support/app");
+    await open("/", { px, events: places });
+
+    expect((await screen.findAllByText("Jacafé")).length).toBeGreaterThan(0);
+    await waitFor(() => expect(byA(search).length).toBeGreaterThan(0));
+    await settle();
+    expect(loaded).toHaveBeenCalledTimes(1);
+    expect(opened.mock.calls.map(([url]) => url)).toEqual([SEARCH, SEARCH]);
+    // One request by place address for the list: Jacafé among its places.
+    expect(batchesOf(search)).toHaveLength(1);
+    expect(batchesOf(search)[0]).toContain(JACAFE);
+  });
+
+  it.each([
+    ["a phone", PHONE],
+    ["a desktop", DESKTOP],
+  ])("is not loaded, and no review is asked for, when Explore opens on %s with no review relays", async (_, px) => {
     const { loaded, opened } = await withRelayCode({});
+    const { config: fresh } = await import("../src/config");
+    fresh.reviewRelays = [];
     const { openApp: open } = await import("./support/app");
     await open("/", { px, events: places });
 

@@ -42,10 +42,16 @@ function useSameList(items: readonly string[]): readonly string[] {
 
 /**
  * The scores of the places at `addresses` from the house's view, by address, and where the house's
- * view stands. Asks for their reviews the first time each is asked for. A place is missing from the
- * map until its reviews have been read, and always when there are no review relays.
+ * view stands. Asks for their reviews the first time each is asked for, all of them in one go: a
+ * page asks for its whole list at once, not a card at a time. A place is missing from `scores` until
+ * its reviews have been read, and always when there are no review relays. `pending` holds the
+ * places that have reviews and no score yet, while the house is asked about their reviewers.
  */
-export function useScores(addresses: readonly string[]): { scores: Map<string, PlaceScore>; house: HouseState } {
+export function useScores(addresses: readonly string[]): {
+  scores: Map<string, PlaceScore>;
+  pending: ReadonlySet<string>;
+  house: HouseState;
+} {
   const store = useScoresStore("useScores");
   const version = useScoresVersion(store);
   const asked = useSameList(addresses);
@@ -55,11 +61,13 @@ export function useScores(addresses: readonly string[]): { scores: Map<string, P
   return useMemo(() => {
     void version; // What the store gives changes with it.
     const scores = new Map<string, PlaceScore>();
+    const pending = new Set<string>();
     for (const address of asked) {
       const score = store.scoreOf(address);
       if (score !== undefined) scores.set(address, score);
+      else if (store.reviewsOf(address).length > 0) pending.add(address);
     }
-    return { scores, house: store.house };
+    return { scores, pending, house: store.house };
   }, [store, asked, version]);
 }
 

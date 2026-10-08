@@ -4,6 +4,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
 import { placeCount } from "../places/indexes.ts";
+import { useListScores } from "../score/useListScores.ts";
 import { type Filters, filtersFromParams, sortInUse, withFilters } from "../search/filters.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
@@ -35,7 +36,10 @@ export function DeskExplore(): JSX.Element {
   const memoryKey = `desk:${historyKey}`;
   const searched = useSearchedArea(memoryKey);
   const { area } = searched;
-  const { nearby, entries } = useAreaEntries(area, filters);
+  const { nearby, entries: filtered } = useAreaEntries(area, filters);
+  const sort = sortInUse(filters);
+  // The scores of the whole list, asked for in one go for the cards and the pins; best first when asked.
+  const { entries, scores } = useListScores(filtered, sort === "score");
   // Opened at a place, from a phone's link to the map ("See on map").
   const focused = useMapFocus();
 
@@ -67,17 +71,18 @@ export function DeskExplore(): JSX.Element {
       list={`desk|${params.toString()}|${area.lat}|${area.lon}|${area.radiusKm}`}
       head={
         <>
-          {/* Explore has no words to match: its list is nearest first, or by name. */}
+          {/* Explore has no words to match: its list is nearest first, by name, or best first by House picks. */}
           <FilterMenus
             filters={filters}
-            order={sortInUse(filters) === "name" ? "name" : "distance"}
+            order={sort === "name" || sort === "score" ? sort : "distance"}
             onChange={setFilters}
             locale={locale}
           />
-          <HouseLine count={placeCount(entries)} />
+          <HouseLine count={placeCount(entries)} unavailable={scores.house === "unavailable"} />
         </>
       }
       entries={entries}
+      scores={scores}
       instead={instead}
       mapKey={memoryKey}
       focus={focused}

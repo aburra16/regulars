@@ -4,6 +4,8 @@ import { copy } from "../copy/en.ts";
 import { openLine, openState } from "../places/hours.ts";
 import type { ChainGroup, PlaceDistance } from "../places/indexes.ts";
 import { placeKindLabel } from "../places/kinds.ts";
+import { formatScore } from "../score/score.ts";
+import type { ShownScore } from "../score/shown.ts";
 
 /** A pin on a map: a place, or a chain at its nearest place. */
 export interface Pin {
@@ -15,7 +17,7 @@ export interface Pin {
   label?: string;
   /** How many of a chain's places it stands for: drawn as "×3". Absent for a place. */
   chainCount?: number;
-  /** What a screen reader calls it: "Dose, Cafe, Open until 6 pm, no reviews yet". */
+  /** What a screen reader calls it: "Dose, Cafe, Open until 6 pm, 4.6 out of 5, rated by 3 people the house trusts". */
   name: string;
   /** The place's category, for the icon on a chain's pin. */
   category?: string;
@@ -48,12 +50,34 @@ export function entryAddress(entry: Entry): string {
   return isChain(entry) ? entry.nearby[0]!.place.address : entry.place.address;
 }
 
+/** What a place's pin says of its score to a screen reader, as the pill or the ring says it to the eye. */
+function scoreWords(score: ShownScore): string | undefined {
+  switch (score.kind) {
+    case "scored":
+      return copy.map.pinScored(formatScore(score.score), score.counted);
+    case "pending":
+      return copy.map.pinCounting;
+    case "unscored":
+    case "unavailable":
+      return copy.map.pinNoScore;
+    case "none":
+      return undefined;
+  }
+}
+
+const NO_SCORE: ShownScore = { kind: "none" };
+
 /**
  * A pin for each entry of a list: a place's at the place, a chain's at its nearest place with how
- * many of its places are in the list. Nobody has a score before sign in, so each place is a ring.
- * `locale` and `now` give the hours a screen reader hears.
+ * many of its places are in the list. A place with a score from the house's view (`scoreOf`) is a
+ * pill with the score; any other is a ring. `locale` and `now` give the hours a screen reader hears.
  */
-export function pinsFor(entries: readonly Entry[], locale: string, now: Date): Pin[] {
+export function pinsFor(
+  entries: readonly Entry[],
+  locale: string,
+  now: Date,
+  scoreOf: (address: string) => ShownScore = () => NO_SCORE,
+): Pin[] {
   return entries.map((entry) => {
     if (isChain(entry)) {
       const nearest = entry.nearby[0]!.place;
@@ -67,7 +91,8 @@ export function pinsFor(entries: readonly Entry[], locale: string, now: Date): P
       };
     }
     const { place } = entry;
-    return {
+    const score = scoreOf(place.address);
+    const pin: Pin = {
       address: place.address,
       lat: place.lat,
       lon: place.lon,
@@ -76,8 +101,11 @@ export function pinsFor(entries: readonly Entry[], locale: string, now: Date): P
         place.name,
         placeKindLabel(place.category, place.cuisine),
         openLine(openState(place, now), locale, "card"),
+        scoreWords(score),
       ),
     };
+    if (score.kind === "scored") pin.label = formatScore(score.score);
+    return pin;
   });
 }
 

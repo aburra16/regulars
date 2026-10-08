@@ -15,6 +15,7 @@ import { HereProvider } from "../src/location/HereProvider";
 import type { RelayReader } from "../src/nostr/events";
 import { parsePlaces } from "../src/places/load";
 import { PlacesProvider, type PlacesValue } from "../src/places/store";
+import { ScoresProvider } from "../src/score/ScoresProvider";
 import { routes } from "../src/routes";
 import { useDocumentTitle } from "../src/shell/useDocumentTitle";
 import { useWide, WIDE_QUERY } from "../src/shell/useWide";
@@ -114,9 +115,11 @@ function renderApp(path = "/", opts: { width?: number } = {}) {
   setWidth(opts.width ?? PHONE);
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   const view = render(
-    <HereProvider>
-      <RouterProvider router={router} />
-    </HereProvider>,
+    <ScoresProvider>
+      <HereProvider>
+        <RouterProvider router={router} />
+      </HereProvider>
+    </ScoresProvider>,
   );
   return { router, ...view };
 }
@@ -631,9 +634,11 @@ describe("the load banners", () => {
     const router = createMemoryRouter(routes, { initialEntries: ["/"] });
     render(
       <PlacesProvider reader={flaky}>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <ScoresProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </ScoresProvider>
       </PlacesProvider>,
     );
 

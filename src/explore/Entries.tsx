@@ -2,6 +2,7 @@ import { type JSX, type RefObject, useEffect, useRef } from "react";
 
 import { copy } from "../copy/en.ts";
 import { type Entry, entryAddress } from "../map/pins.ts";
+import type { ListScores } from "../score/useListScores.ts";
 import { ChainCard } from "../ui/ChainCard.tsx";
 import { PlaceCard } from "../ui/PlaceCard.tsx";
 import { type ShownPage, shownMemory, useShownCount } from "../ui/shown.ts";
@@ -27,6 +28,9 @@ const shown = shownMemory("regulars.explore.shown", PAGE_SIZE);
  * to it (a pin chosen from the keyboard). `onHighlight` hears which card is pointed at or focused, to
  * pick out its pin. `listId` is the list's id, which the pins name as what they open. `scrollRoot`
  * is the element the list scrolls in, when it is not the page.
+ *
+ * `scores` are the list's places' scores, asked for by the page for the whole list at once. A place
+ * only others have rated is a dashed card in a list where some place has a score (Main.dc.html).
  */
 export function Entries({
   page,
@@ -38,6 +42,7 @@ export function Entries({
   onHighlight,
   listId,
   scrollRoot,
+  scores,
 }: {
   page: ShownPage;
   entries: Entry[];
@@ -48,6 +53,7 @@ export function Entries({
   onHighlight?(address: string | undefined): void;
   listId?: string;
   scrollRoot?: RefObject<HTMLElement | null>;
+  scores?: ListScores;
 }): JSX.Element {
   const [count, setCount] = useShownCount(shown, page, entries.length);
   const more = count < entries.length;
@@ -120,7 +126,15 @@ export function Entries({
             </li>
           ) : (
             <li key={address} {...point}>
-              <PlaceCard place={entry.place} km={entry.km} variant="normal" locale={locale} now={now} selected={chosen} />
+              <PlaceCard
+                place={entry.place}
+                km={entry.km}
+                variant={scores?.anyScored === true && scores.of(address).kind === "unscored" ? "unrated-dashed" : "normal"}
+                score={scores?.of(address)}
+                locale={locale}
+                now={now}
+                selected={chosen}
+              />
             </li>
           );
         })}

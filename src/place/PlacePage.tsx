@@ -11,6 +11,11 @@ import type { Indexes, PlaceDistance } from "../places/indexes.ts";
 import { placeKindLabel } from "../places/kinds.ts";
 import type { Place } from "../places/place.ts";
 import { useIndexes } from "../places/useIndexes.ts";
+import type { PlaceScore } from "../score/score.ts";
+import { type ShownScore, shownScore } from "../score/shown.ts";
+import type { HouseState } from "../score/store.ts";
+import { type ListScores, useListScores } from "../score/useListScores.ts";
+import { useScore } from "../score/useScore.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
@@ -26,6 +31,7 @@ import { scriptLang } from "../ui/scriptLang.ts";
 import { actionsOf, PhoneActions, type PlaceActions, RailActions } from "./Actions.tsx";
 import { Facts } from "./Facts.tsx";
 import { osmNoteUrl, osmUrl } from "./osmLinks.ts";
+import { Reviews } from "./Reviews.tsx";
 import { RateButton, ScorePanel } from "./ScorePanel.tsx";
 
 /** How close the map is: a street and the blocks around it. */
@@ -190,15 +196,20 @@ function PlaceMap({ place, className }: { place: Place; className: string }): JS
   );
 }
 
-/** The places closest to this one, as compact rows, each with how far it is from here. Nothing when there are none. */
+/**
+ * The places closest to this one, as compact rows, each with how far it is from here and its own
+ * score (`scores`, asked for in one go). Nothing when there are none.
+ */
 function Nearby({
   rows,
+  scores,
   locale,
   now,
   wide,
   className = "",
 }: {
   rows: PlaceDistance[];
+  scores: ListScores;
   locale: string;
   now: Date;
   wide: boolean;
@@ -211,7 +222,7 @@ function Nearby({
       <ul role="list" className="m-0 flex list-none flex-col p-0">
         {rows.map(({ place, km }) => (
           <li key={place.address}>
-            <PlaceRow place={place} km={km} from="place" locale={locale} now={now} />
+            <PlaceRow place={place} km={km} from="place" score={scores.of(place.address)} locale={locale} now={now} />
           </li>
         ))}
       </ul>
@@ -252,14 +263,34 @@ interface View {
   state: OpenState;
   line: string;
   actions: PlaceActions;
+  /** What the score panel shows. */
+  shown: ShownScore;
+  /** The place's score from the house's view, with its reviews inside it and folded; undefined until worked out. */
+  score: PlaceScore | undefined;
+  house: HouseState;
   nearby: PlaceDistance[];
+  nearbyScores: ListScores;
   locale: string;
   now: Date;
 }
 
-/** The phone's page (PlaceNew.dc.html; the shared parts as Place.dc.html draws them). */
+/** The reviews, once the place's score is worked out and it has some. Nothing while they are counted, or when there are none. */
+function PlaceReviews({ view, wide, className = "" }: { view: View; wide: boolean; className?: string }): JSX.Element | null {
+  const { shown, score, house, now } = view;
+  if (score === undefined || shown.kind === "none" || shown.kind === "pending") return null;
+  return (
+    <div className={className}>
+      <Reviews score={score} house={house} wide={wide} now={now} />
+    </div>
+  );
+}
+
+/**
+ * The phone's page (PlaceNew.dc.html, and Place.dc.html once it has reviews): the score panel under
+ * the header, then the actions, the map and the facts, then the reviews, and the places nearby.
+ */
 function PhonePlace({ view }: { view: View }): JSX.Element {
-  const { place, actions, state, nearby, locale, now } = view;
+  const { place, actions, state, nearby, nearbyScores, locale, now } = view;
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex items-center justify-between px-3 pt-3.5">
@@ -268,7 +299,7 @@ function PhonePlace({ view }: { view: View }): JSX.Element {
       </div>
       <PhoneHeader {...view} />
       <div className="px-gutter-phone pt-[18px]">
-        <ScorePanel name={place.name} wide={false} />
+        <ScorePanel name={place.name} wide={false} shown={view.shown} />
       </div>
       <div className="flex flex-col gap-2 px-gutter-phone pt-4">
         <PhoneActions actions={actions} />
@@ -280,7 +311,8 @@ function PhonePlace({ view }: { view: View }): JSX.Element {
       <div className="px-gutter-phone pt-4">
         <Facts place={place} now={now} locale={locale} />
       </div>
-      <Nearby rows={nearby} locale={locale} now={now} wide={false} className="px-gutter-phone pt-7" />
+      <PlaceReviews view={view} wide={false} className="px-gutter-phone pt-[26px]" />
+      <Nearby rows={nearby} scores={nearbyScores} locale={locale} now={now} wide={false} className="px-gutter-phone pt-7" />
       <footer className="mt-auto flex flex-col gap-1 px-gutter-phone pt-[18px] pb-6 text-caption text-muted">
         <FootLinks place={place} />
       </footer>
@@ -290,19 +322,20 @@ function PhonePlace({ view }: { view: View }): JSX.Element {
 
 /**
  * The desktop's page (DeskPlace.dc.html, with the no-reviews state of PlaceNew.dc.html): the way
- * back, then a column with the name, the panel and the places nearby, and a rail 320 px wide with
- * Rate this place, the actions, the map, the facts, Suggest a fix and the attribution.
+ * back, then a column with the name, the panel, the reviews and the places nearby, and a rail 320 px
+ * wide with Rate this place, the actions, the map, the facts, Suggest a fix and the attribution.
  */
 function DeskPlace({ view }: { view: View }): JSX.Element {
-  const { place, actions, state, nearby, locale, now } = view;
+  const { place, actions, state, nearby, nearbyScores, locale, now } = view;
   return (
     <div className="mx-auto flex w-full max-w-content flex-col gap-4 px-gutter-desktop pt-4 pb-12">
       <BackLink wide />
       <div className="flex items-start gap-10">
         <div className="flex min-w-0 flex-1 flex-col gap-[26px]">
           <DeskHeader {...view} />
-          <ScorePanel name={place.name} wide />
-          <Nearby rows={nearby} locale={locale} now={now} wide />
+          <ScorePanel name={place.name} wide shown={view.shown} />
+          <PlaceReviews view={view} wide />
+          <Nearby rows={nearby} scores={nearbyScores} locale={locale} now={now} wide />
         </div>
         <aside aria-label={copy.place.railLabel} className="flex w-rail min-w-0 shrink-0 flex-col gap-4">
           <RateButton />
@@ -337,6 +370,9 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
   const state = useMemo(() => openState(place, now), [place, now]);
   const actions = useMemo(() => actionsOf(place), [place]);
   const nearby = useMemo(() => nearbyOf(indexes, place), [indexes, place]);
+  // The place's score and reviews from the house's view; the places nearby ask for theirs in one go.
+  const { score, reviews, house } = useScore(place.address);
+  const { scores: nearbyScores } = useListScores(nearby);
   // How far away is said only from where the device says the person is. From the default city, or a
   // town they picked, it would be how far the place is from somewhere they may not be.
   const away = here.source === "device" ? formatDistance(distanceKm(here.lat, here.lon, place.lat, place.lon), locale) : "";
@@ -347,7 +383,11 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
     // The phone's line is its own; the desktop's sits inside one that dots join (DeskPlace.dc.html).
     line: openLine(state, locale, wide ? "placeInline" : "place"),
     actions,
+    shown: shownScore(score, reviews.length > 0, house),
+    score,
+    house,
     nearby,
+    nearbyScores,
     locale,
     now,
   };
@@ -355,9 +395,10 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
 }
 
 /**
- * A place's page (screens 6 and 7, D2), at `/place/:d`. Before sign in nobody's reviews can be
- * shown, so every place is in its no-reviews state (PlaceNew.dc.html): the facts carry the page.
- * A `d` the places do not have is a place that came off the list, said once the latest list is in.
+ * A place's page (screens 6 and 7, D2), at `/place/:d`: its score from House picks and the reviews
+ * behind it (Place.dc.html), or, while nobody has reviewed it, its no-reviews state (PlaceNew.dc.html),
+ * where the facts carry the page. A `d` the places do not have is a place that came off the list,
+ * said once the latest list is in.
  */
 export function PlacePage(): JSX.Element {
   const { d = "" } = useParams();

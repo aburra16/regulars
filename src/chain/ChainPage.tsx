@@ -9,6 +9,8 @@ import { BaseMap, type Pin } from "../map/BaseMap.tsx";
 import { distanceKm } from "../places/distance.ts";
 import { type Chain, chainSlug, type PlaceDistance } from "../places/indexes.ts";
 import { useIndexes } from "../places/useIndexes.ts";
+import { formatScore } from "../score/score.ts";
+import { type ListScores, useListScores } from "../score/useListScores.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
@@ -69,18 +71,37 @@ interface ChainInfo {
   now: Date;
 }
 
-/** How many locations the list shows, and how to change it. */
+/** How many locations the list shows, and how to change it; and the scores of those it asked for. */
 interface Shown {
   count: number;
   setCount: Dispatch<SetStateAction<number>>;
+  scores: ListScores;
 }
 
-/** The tinted box under the header (Chain.dc.html): each location stands on its own. */
-function EachScored(): JSX.Element {
+/**
+ * What the house rates the locations near you, said after the box's line (Chain.dc.html, worded for
+ * House picks): the lowest and the highest score when two or more have one, the score when one
+ * does, and nothing when none does. A range, never an average: each location is its own.
+ */
+function houseRange(info: ChainInfo, scores: ListScores): string | undefined {
+  const near = info.listed.slice(0, info.near).flatMap(({ place }) => {
+    const shown = scores.of(place.address);
+    return shown.kind === "scored" ? [shown.score] : [];
+  });
+  if (near.length === 0) return undefined;
+  if (near.length === 1) return copy.chain.houseOne(formatScore(near[0]!));
+  return copy.chain.houseRange(formatScore(Math.min(...near)), formatScore(Math.max(...near)));
+}
+
+/** The tinted box under the header (Chain.dc.html): each location stands on its own, and what the house rates those near. */
+function EachScored({ range }: { range: string | undefined }): JSX.Element {
   return (
     <section className="flex flex-col gap-1.5 rounded-panel bg-surface px-[18px] py-4">
       <div className="text-body font-bold">{copy.chain.eachScored}</div>
-      <div className="text-secondary leading-[1.45] text-muted">{copy.chain.eachScoredDetail}</div>
+      <div className="text-secondary leading-[1.45] text-muted">
+        {copy.chain.eachScoredDetail}
+        {range !== undefined && ` ${range}`}
+      </div>
     </section>
   );
 }
@@ -91,7 +112,7 @@ function EachScored(): JSX.Element {
  */
 function Locations({ info, shown, showMap }: { info: ChainInfo; shown: Shown; showMap: boolean }): JSX.Element {
   const { chain, listed, near, first, locale, now } = info;
-  const { count, setCount } = shown;
+  const { count, setCount, scores } = shown;
   const list = useRef<HTMLUListElement>(null);
   const focusAt = useRef<number | null>(null);
 
@@ -126,7 +147,7 @@ function Locations({ info, shown, showMap }: { info: ChainInfo; shown: Shown; sh
       <ul ref={list} role="list" className="m-0 flex list-none flex-col border-b-token border-line p-0">
         {listed.slice(0, count).map(({ place, km }) => (
           <li key={place.address}>
-            <LocationRow place={place} km={km} locale={locale} now={now} />
+            <LocationRow place={place} km={km} score={scores.of(place.address)} locale={locale} now={now} />
           </li>
         ))}
       </ul>
@@ -147,21 +168,35 @@ function Locations({ info, shown, showMap }: { info: ChainInfo; shown: Shown; sh
 }
 
 /**
- * The locations the list shows, on a map that does not move (the rail's): each a ring, the nearest
- * chosen, the view fitted to all of them. When the list shows more, so does the map.
+ * The locations the list shows, on a map that does not move (the rail's): each a ring, or a pill with
+ * its score, the nearest chosen, the view fitted to all of them. When the list shows more, so does the map.
  */
-function ChainMap({ chain, shown, className }: { chain: Chain; shown: PlaceDistance[]; className: string }): JSX.Element {
+function ChainMap({
+  chain,
+  shown,
+  scores,
+  className,
+}: {
+  chain: Chain;
+  shown: PlaceDistance[];
+  scores: ListScores;
+  className: string;
+}): JSX.Element {
   const mapView = useMemo(() => fitView(shown.map(({ place }) => place)), [shown]);
   const pins = useMemo<Pin[]>(
     () =>
-      shown.map(({ place }) => ({
-        address: place.address,
-        lat: place.lat,
-        lon: place.lon,
-        name: place.name,
-        category: place.category,
-      })),
-    [shown],
+      shown.map(({ place }) => {
+        const score = scores.of(place.address);
+        return {
+          address: place.address,
+          lat: place.lat,
+          lon: place.lon,
+          name: place.name,
+          category: place.category,
+          ...(score.kind === "scored" ? { label: formatScore(score.score) } : {}),
+        };
+      }),
+    [shown, scores],
   );
   return (
     <BaseMap
@@ -190,7 +225,7 @@ function PhoneChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Ele
         <div className="text-[15px] text-muted">{copy.chain.line(kind.label, chain.places.length, near)}</div>
       </section>
       <div className="px-gutter-phone pt-[18px]">
-        <EachScored />
+        <EachScored range={houseRange(info, shown.scores)} />
       </div>
       <div className="px-gutter-phone pt-6">
         <Locations info={info} shown={shown} showMap />
@@ -222,11 +257,11 @@ function DeskChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Elem
               <div className="text-body text-muted">{copy.chain.line(kind.label, chain.places.length, near)}</div>
             </div>
           </section>
-          <EachScored />
+          <EachScored range={houseRange(info, shown.scores)} />
           <Locations info={info} shown={shown} showMap={false} />
         </div>
         <aside aria-label={copy.chain.railLabel} className="flex w-rail min-w-0 shrink-0 flex-col gap-4">
-          <ChainMap chain={chain} shown={pinned} className="h-[220px] rounded-panel" />
+          <ChainMap chain={chain} shown={pinned} scores={shown.scores} className="h-[220px] rounded-panel" />
           <DetailsCredit />
         </aside>
       </div>
@@ -238,11 +273,14 @@ function DeskChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Elem
  * The page's body, with how many locations it lists. That is kept with the page of the history
  * (`page`), so Back to it lists as many, and the scroll position the router restores is still on it.
  * It is the one place the count is held, since the map beside the list pins what the list shows.
+ * It asks for the scores of the locations listed, and of every one near (for the box's range), in one go.
  */
 function ChainBody({ info, page, wide }: { info: ChainInfo; page: ShownPage; wide: boolean }): JSX.Element {
   const memory = useMemo(() => shownMemory("regulars.chain.shown", info.first), [info.first]);
   const [count, setCount] = useShownCount(memory, page, info.listed.length);
-  const shown = { count, setCount };
+  const asked = useMemo(() => info.listed.slice(0, Math.max(count, info.near)), [info.listed, info.near, count]);
+  const { scores } = useListScores(asked);
+  const shown = { count, setCount, scores };
   return wide ? <DeskChain info={info} shown={shown} /> : <PhoneChain info={info} shown={shown} />;
 }
 
@@ -272,9 +310,9 @@ function ChainView({ chain }: { chain: Chain }): JSX.Element {
 
 /**
  * A chain's page (screen 5), at `/chain/:key`: the places in one country that share a name, the ones
- * near the person listed by address, each scored on its own. Before sign in nobody's reviews can be
- * shown, so every location says that nobody has reviewed it. A chain the list does not have is a
- * chain that came off the map, said once the latest list is in (as a place's page does).
+ * near the person listed by address, each scored on its own by House picks, and the range of those
+ * scores near the person. A chain the list does not have is a chain that came off the map, said once
+ * the latest list is in (as a place's page does).
  */
 export function ChainPage(): JSX.Element {
   const { key = "" } = useParams();

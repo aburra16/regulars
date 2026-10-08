@@ -6,7 +6,9 @@ import { formatDistance } from "../places/distance.ts";
 import { type OpenState, openLine, openState } from "../places/hours.ts";
 import { placeKindLabel } from "../places/kinds.ts";
 import type { Place } from "../places/place.ts";
+import type { ShownScore } from "../score/shown.ts";
 import { KindTile } from "./KindTile.tsx";
+import { NO_SCORE, ScoreFigure, WhoLine, whoLine } from "./ScoreSlot.tsx";
 import { scriptLang } from "./scriptLang.ts";
 
 export interface PlaceCardProps {
@@ -14,13 +16,17 @@ export interface PlaceCardProps {
   /** How far the place is from where the list is near, in kilometres. */
   km: number;
   /**
-   * `normal` has no score yet and says nobody has reviewed the place ("No reviews yet", under the
-   * hours, where the line about who rated it goes). `unrated-dashed` is a place without a score in
-   * a list that has places with scores: a dashed edge and "No score yet" at the top right, where
-   * the score would be (My circle's list, Main.dc.html). Before sign in no list has scores, so M1
-   * passes `normal`.
+   * `unrated-dashed` is a place others have rated, with no score, in a list that has places with
+   * scores: a dashed edge and "No score yet" at the top right, where the score would be
+   * (Main.dc.html). Every other card is `normal`.
    */
   variant: "normal" | "unrated-dashed";
+  /**
+   * The place's score from the house's view (`ShownScore`): at the top right when it has one, and
+   * under the hours, where the line about who rated it goes, who it comes from. With none, a normal
+   * card says nobody has reviewed the place yet ("No reviews yet"). Default: none.
+   */
+  score?: ShownScore;
   /** The browser's language: it decides miles or kilometres, and the 12- or 24-hour clock. */
   locale: string;
   now: Date;
@@ -74,22 +80,37 @@ function HoursLine({ id, state, line }: { id: string; state: OpenState; line: st
 }
 
 /**
- * A place in a list (Main.dc.html): its kind on a tile, its name, what it is and how far, and
- * whether it is open; then, where the line about who rated it goes, that nobody has reviewed it
- * yet. The whole card is one link to the place; the link is named by the place's name, and the
- * rest is its description.
+ * A place in a list (Main.dc.html): its kind on a tile, its name and its score, what it is and how
+ * far, and whether it is open; then the line about who rated it, or that nobody has yet. The whole
+ * card is one link to the place; the link is named by the place's name, and the rest is its
+ * description.
  */
-export function PlaceCard({ place, km, variant, locale, now, selected = false, onMap = false }: PlaceCardProps): JSX.Element {
+export function PlaceCard({
+  place,
+  km,
+  variant,
+  locale,
+  now,
+  selected = false,
+  onMap = false,
+  score = NO_SCORE,
+}: PlaceCardProps): JSX.Element {
   const id = useId();
   const state = useMemo(() => openState(place, now), [place, now]);
   const kindLine = copy.explore.kindLine(placeKindLabel(place.category, place.cuisine), formatDistance(km, locale));
   const hoursLine = openLine(state, locale, "card");
+  const dashed = variant === "unrated-dashed";
+  // At the top right: the score, or, on a dashed card, that it has none yet.
+  const top = score.kind === "scored" || dashed;
+  // Under the hours: who the score comes from, or why there is none; "No reviews yet" on a normal card nobody has reviewed.
+  const line = whoLine(score) ?? (score.kind === "none" && !dashed ? { text: copy.score.noReviewsYet, house: false } : undefined);
+  const describedBy = [`${id}-kind`, `${id}-hours`, top && `${id}-score`, line && `${id}-who`].filter(Boolean).join(" ");
 
   return (
     <Link
       to={`/place/${encodeURIComponent(place.d)}`}
       aria-labelledby={`${id}-name`}
-      aria-describedby={`${id}-kind ${id}-hours ${id}-score`}
+      aria-describedby={describedBy}
       className={`flex gap-3.5 rounded-card p-3.5 text-ink no-underline ${edge(variant, selected, onMap)}`}
     >
       <KindTile category={place.category} size="card" />
@@ -103,21 +124,29 @@ export function PlaceCard({ place, km, variant, locale, now, selected = false, o
           >
             {place.name}
           </span>
-          {variant === "unrated-dashed" && (
-            <span id={`${id}-score`} className="shrink-0 pt-1 text-caption font-semibold whitespace-nowrap text-muted">
-              {copy.score.noScoreYet}
-            </span>
+          {score.kind === "scored" ? (
+            <ScoreFigure id={`${id}-score`} score={score.score} size="card" />
+          ) : (
+            dashed && (
+              <span id={`${id}-score`} className="shrink-0 pt-1 text-caption font-semibold whitespace-nowrap text-muted">
+                {copy.score.noScoreYet}
+              </span>
+            )
           )}
         </div>
         <div id={`${id}-kind`} className="text-secondary text-muted">
           {kindLine}
         </div>
         <HoursLine id={`${id}-hours`} state={state} line={hoursLine} />
-        {variant === "normal" && (
-          <div id={`${id}-score`} className="text-secondary font-semibold text-muted">
-            {copy.score.noReviewsYet}
-          </div>
-        )}
+        {line !== undefined &&
+          (score.kind === "none" ? (
+            // M1's line, semibold in the muted colour.
+            <div id={`${id}-who`} className="text-secondary font-semibold text-muted">
+              {line.text}
+            </div>
+          ) : (
+            <WhoLine id={`${id}-who`} line={line} />
+          ))}
       </div>
     </Link>
   );

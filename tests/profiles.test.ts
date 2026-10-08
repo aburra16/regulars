@@ -38,6 +38,35 @@ describe("nameIn (Review Focus 4)", () => {
     expect(nameIn(profile({ name: "\ufeff\u200b \u00ad" }))).toBeUndefined();
   });
 
+  it("takes the blank characters that draw nothing for invisible: Hangul fillers, the blank Braille cell and the like", () => {
+    // Hangul fillers (U+3164, U+115F, U+1160, U+FFA0), the blank Braille pattern (U+2800), the combining
+    // grapheme joiner (U+034F), the Khmer inherent vowels (U+17B4, U+17B5), the Mongolian vowel separator
+    // (U+180E) and a variation selector (U+FE0F): each shows as nothing, alone or in a run.
+    const blanks = ["\u3164", "\u115f", "\u1160", "\uffa0", "\u2800", "\u034f", "\u17b4", "\u17b5", "\u180e", "\ufe0f"];
+    for (const blank of blanks) {
+      expect(nameIn(profile({ display_name: blank, name: "Carol" }))).toBe("Carol");
+      expect(nameIn(profile({ name: blank.repeat(3) }))).toBeUndefined();
+    }
+    expect(nameIn(profile({ name: "\u3164 \u2800\u200b" }))).toBeUndefined();
+    // Beside letters that show, they are part of the name, as the person wrote it.
+    expect(nameIn(profile({ name: "\u3164Maya" }))).toBe("\u3164Maya");
+  });
+
+  it("passes over a code or a key with invisible characters inside it, which would still show as the code", () => {
+    // A zero-width space, a soft hyphen, a word joiner and a Hangul filler inside the house's code.
+    expect(nameIn(profile({ name: `${NPUB.slice(0, 12)}\u200b${NPUB.slice(12)}` }))).toBeUndefined();
+    expect(nameIn(profile({ name: `${NPUB.slice(0, 5)}\u00ad${NPUB.slice(5, 30)}\u2060${NPUB.slice(30)}` }))).toBeUndefined();
+    expect(nameIn(profile({ name: `\u3164${NPUB}\u2800` }))).toBeUndefined();
+    // A space inside it hides nothing either.
+    expect(nameIn(profile({ name: `${NPUB.slice(0, 30)} ${NPUB.slice(30)}` }))).toBeUndefined();
+    // A key with a byte-order mark in the middle, or a blank Braille cell at the front.
+    const key = hex64("c");
+    expect(nameIn(profile({ display_name: `${key.slice(0, 32)}\ufeff${key.slice(32)}`, name: "Carol" }))).toBe("Carol");
+    expect(nameIn(profile({ name: `\u2800${key}` }))).toBeUndefined();
+    // A short name that begins like a code is still a name, invisible characters or not.
+    expect(nameIn(profile({ name: "npub1\u200bparty" }))).toBe("npub1\u200bparty");
+  });
+
   it("passes over a code or a key, but keeps a short name that begins like one", () => {
     expect(nameIn(profile({ name: NPUB }))).toBeUndefined();
     expect(nameIn(profile({ name: NPUB.toUpperCase() }))).toBeUndefined();

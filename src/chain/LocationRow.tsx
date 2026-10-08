@@ -5,8 +5,11 @@ import { copy } from "../copy/en.ts";
 import { formatDistance } from "../places/distance.ts";
 import { openLine, openState } from "../places/hours.ts";
 import type { Place } from "../places/place.ts";
+import type { ShownScore } from "../score/shown.ts";
 import { Address } from "../ui/address.tsx";
 import { HoursText } from "../ui/PlaceCard.tsx";
+import { hasRowScore, RowScore } from "../ui/PlaceRow.tsx";
+import { NO_SCORE, WhoLine, whoLine } from "../ui/ScoreSlot.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 
 /**
@@ -17,21 +20,25 @@ export const locationName = (place: Place): string => place.street ?? place.loca
 
 /**
  * A location in the chain's list (Chain.dc.html): its address, and at the top right, where its
- * score goes, that nobody has reviewed it yet; under it how far it is and whether it is open. The
- * whole row is one link to the place, named by the address, described by the rest. It is `memo`:
- * a chain can have hundreds of rows, and showing more of them does not draw those already there again.
+ * score goes, its own score (or that it has none); under it how far it is and whether it is open,
+ * and who its score comes from. The whole row is one link to the place, named by the address,
+ * described by the rest. It is `memo`: a chain can have hundreds of rows, and showing more of them
+ * does not draw those already there again.
  */
 export const LocationRow = memo(function LocationRow({
   place,
   km,
   locale,
   now,
+  score = NO_SCORE,
 }: {
   place: Place;
   /** How far the location is from where the list is near, in kilometres. */
   km: number;
   locale: string;
   now: Date;
+  /** The location's score from the house's view. Default: none, "No reviews yet". */
+  score?: ShownScore;
 }): JSX.Element {
   const id = useId();
   const state = useMemo(() => openState(place, now), [place, now]);
@@ -40,12 +47,16 @@ export const LocationRow = memo(function LocationRow({
   // Hours the app could not read are the text as written, which can be any length: they get a line to be cut off on.
   const unread = state.kind === "unparsed";
   const name = locationName(place);
+  const line = whoLine(score);
+  const describedBy = [`${id}-line`, unread && `${id}-hours`, hasRowScore(score) && `${id}-score`, line && `${id}-who`]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <Link
       to={`/place/${encodeURIComponent(place.d)}`}
       aria-labelledby={`${id}-name`}
-      aria-describedby={`${id}-line ${unread ? `${id}-hours ` : ""}${id}-score`}
+      aria-describedby={describedBy}
       className="flex flex-col gap-[5px] border-t-token border-line py-3.5 text-ink no-underline"
     >
       <div className="flex items-start justify-between gap-2.5">
@@ -57,9 +68,7 @@ export const LocationRow = memo(function LocationRow({
         >
           <Address text={name} />
         </span>
-        <span id={`${id}-score`} className="shrink-0 pt-[3px] text-caption font-semibold whitespace-nowrap text-muted">
-          {copy.score.noReviewsYet}
-        </span>
+        <RowScore id={`${id}-score`} score={score} />
       </div>
       <div id={`${id}-line`} className="text-secondary text-muted">
         {distance}
@@ -75,6 +84,7 @@ export const LocationRow = memo(function LocationRow({
           {hours}
         </div>
       )}
+      {line !== undefined && <WhoLine id={`${id}-who`} line={line} />}
     </Link>
   );
 });

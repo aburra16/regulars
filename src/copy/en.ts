@@ -40,6 +40,24 @@ const locations = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "locatio
 /** How many places: "7 places", "1 place". */
 const places = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "place" : "places"}`;
 
+/** How many people: "3 people", "1 person". */
+const people = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "person" : "people"}`;
+
+/** "1 other person has", "3 other people have". */
+const othersHave = (n: number) => `${n.toLocaleString("en")} other ${n === 1 ? "person has" : "people have"}`;
+
+/** "1 person has", "3 people have". */
+const peopleHave = (n: number) => `${people(n)} ${n === 1 ? "has" : "have"}`;
+
+/** How many reviews: "1 review", "4 reviews". */
+const reviewCount = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "review" : "reviews"}`;
+
+/** "1 week ago", "3 weeks ago". */
+const ago = (n: number, unit: string) => `${n.toLocaleString("en")} ${unit}${n === 1 ? "" : "s"} ago`;
+
+/** The point of view a place's score comes from before sign in, as a reviews line names it. */
+const houseTrusts = "the house trusts";
+
 /** The heading of the kinds filter, and the name of the desktop's kinds menu while none is chosen. */
 const kindOfPlace = "Kind of place";
 
@@ -121,7 +139,8 @@ export const copy = {
     summary: (n: number, near: string, sort: string) => `${places(n)} near ${near}. ${sort}.`,
     /** What order the results are in, as the end of that line. */
     sortedBy: {
-      score: "Best in My circle first",
+      // DRAFT for Avi
+      score: "Best in House picks first",
       distance: "Nearest first",
       name: "A to Z",
       // DRAFT for Avi: words that are not a kind of place are listed best match first.
@@ -152,11 +171,8 @@ export const copy = {
     /** The cross at the top right, for a screen reader. */
     close: "Close filters",
     sortBy: "Sort by",
-    /** The ways to sort. */
-    sort: { score: "My circle's score", distance: "Distance", name: "Name" },
-    // DRAFT for Avi
-    /** Why the first of them cannot be chosen yet. */
-    sortScoreSignedOut: "Sign in to sort by your circle's scores",
+    /** The ways to sort. The first is by House picks' scores, which need no sign in (DRAFT for Avi). */
+    sort: { score: "House picks' score", distance: "Distance", name: "Name" },
     openNow: "Open now",
     openNowNote: "Keeps places with no hours listed.",
     distance: "Distance",
@@ -187,11 +203,60 @@ export const copy = {
     value: (n: number) => n.toLocaleString("en", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
     /** The stars, for a screen reader: "4.5 out of 5". */
     starsLabel: (n: number) => `${n.toLocaleString("en", { maximumFractionDigits: 1 })} out of 5`,
+    // DRAFT for Avi
+    /** Under a scored place's hours, who its score comes from (Main.dc.html): "Rated by 3 people the house trusts". */
+    ratedByHouse: (n: number) => `Rated by ${people(n)} ${houseTrusts}`,
+    // DRAFT for Avi
+    /** The same, in the place page's score panel (Place.dc.html): "From 3 people the house trusts". */
+    fromHouse: (n: number) => `From ${people(n)} ${houseTrusts}`,
+    // DRAFT for Avi
+    /** A place with reviews, none by people inside House picks (Main.dc.html's dashed card): "2 other people have rated it". */
+    othersRated: (n: number) => `${othersHave(n)} rated it`,
+    // DRAFT for Avi
+    /** A place with reviews while House picks can't be worked out: "2 people have rated it". */
+    peopleRated: (n: number) => `${peopleHave(n)} rated it`,
+    // DRAFT for Avi
+    /** A place with reviews whose reviewers are still being looked up: no score yet, and nothing folded. */
+    counting: "Reviews are being counted",
+    // DRAFT for Avi
+    /** One quiet line, when the house's view can't be read: every review is folded, and nothing is scored. */
+    houseUnavailable: "House picks can't be worked out right now.",
   },
+  /** The reviews on a place's page (Place.dc.html, DeskPlace.dc.html), worded for House picks. */
   reviews: {
     // DRAFT for Avi
     /** A reviewer whose profile gives no name, or none that can be shown (Review Focus 4): never a code. */
     someone: "Someone",
+    // DRAFT for Avi
+    /** The heading over the reviews by people inside House picks (the design's "From your circle"). */
+    heading: "Rated by people the house trusts",
+    // DRAFT for Avi
+    /** The box of reviews from outside House picks, under the ones inside: "4 more reviews from outside House picks". */
+    foldedMore: (n: number) => `${n.toLocaleString("en")} more ${n === 1 ? "review" : "reviews"} from outside House picks`,
+    // DRAFT for Avi
+    /** The same box when no review is inside House picks: "4 reviews from outside House picks". */
+    foldedAll: (n: number) => `${reviewCount(n)} from outside House picks`,
+    // DRAFT for Avi
+    /** The same box while House picks can't be worked out: "4 reviews, not counted right now". */
+    uncounted: (n: number) => `${reviewCount(n)}, not counted right now`,
+    // DRAFT for Avi
+    /** Under it: the folded reviews are not a verdict on the people who wrote them. */
+    foldedNote: "Shown on request, never removed.",
+    /** The button that opens the folded reviews, and closes them again. */
+    show: "Show them",
+    // DRAFT for Avi
+    hide: "Hide them",
+    // DRAFT for Avi
+    /** When a review was written, from how many seconds ago: "Today", "Yesterday", "3 days ago", "2 weeks ago". */
+    when: (seconds: number) => {
+      const days = Math.floor(Math.max(0, seconds) / 86_400);
+      if (days === 0) return "Today";
+      if (days === 1) return "Yesterday";
+      if (days < 7) return ago(days, "day");
+      if (days < 30) return ago(Math.floor(days / 7), "week");
+      if (days < 365) return ago(Math.floor(days / 30), "month");
+      return ago(Math.floor(days / 365), "year");
+    },
   },
   /**
    * Where the map and the place details come from. `mapTiler` and `openStreetMap` are the words in
@@ -353,6 +418,12 @@ export const copy = {
     /** The dashed panel where the score goes, before anyone has reviewed the place (PlaceNew.dc.html). */
     beFirst: "Be the first in your circle",
     nobodyYet: (name: string) => `Nobody has reviewed ${name} yet. Yours is the one the people who trust you will see.`,
+    // DRAFT for Avi
+    /** Under "No score yet", in the panel of a place only people outside House picks have rated. */
+    othersRated: (n: number) => `${othersHave(n)} rated it.`,
+    // DRAFT for Avi
+    /** Under "No score yet", while House picks can't be worked out: how many have rated it. */
+    peopleRated: (n: number) => `${peopleHave(n)} rated it.`,
     rate: "Rate this place",
     /** The buttons under it: directions, a call, the website. One on its own is "Get directions". */
     go: "Go",
@@ -391,7 +462,7 @@ export const copy = {
     // DRAFT for Avi
     /** The desktop's side rail (DeskPlace.dc.html), for a screen reader. */
     railLabel: "Details and directions",
-    /** The places closest to this one. Before sign in nothing is rated, so not "Nearby, rated by your circle". */
+    /** The places closest to this one, each with its own score from House picks: not "Nearby, rated by your circle". */
     nearby: "Nearby",
     /** How far a place nearby is from this one: "0.3 mi from here". */
     fromHere: (distance: string) => `${distance} from here`,
@@ -461,8 +532,14 @@ export const copy = {
     // DRAFT for Avi: "none near you" is not drawn; the design has a chain with three near.
     nearYou,
     eachScored: "Each location is scored on its own",
-    // DRAFT for Avi: the design's second sentence goes on "Near you, your circle rates them from 3.6 to 4.4", which needs scores.
     eachScoredDetail: "A good one here says little about the one across town.",
+    // DRAFT for Avi
+    /** After it, when two or more locations near have scores (Chain.dc.html, worded for House picks): the lowest and the highest. */
+    houseRange: (low: string, high: string) =>
+      low === high ? `Near you, the house rates them ${low}.` : `Near you, the house rates them from ${low} to ${high}.`,
+    // DRAFT for Avi
+    /** The same, when one location near has a score. */
+    houseOne: (score: string) => `Near you, the house rates one ${score}.`,
     /** The heading over the locations that are near. */
     near: "Near you",
     // DRAFT for Avi: the heading over the nearest three, when none is near.
@@ -487,10 +564,19 @@ export const copy = {
     /** The map itself, for a screen reader. */
     label: "Map",
     /**
-     * A place's pin, for a screen reader: its name, what it is and its hours, then that nobody has
-     * reviewed it, which the ring says to the eye. "Dose, Cafe, Open until 6 pm, no reviews yet".
+     * A place's pin, for a screen reader: its name, what it is and its hours, then its score, as the
+     * pill says it to the eye, or what the ring stands for: "Dose, Cafe, Open until 6 pm, no reviews yet".
      */
-    placePin: (name: string, kind: string, hours: string) => `${name}, ${kind}, ${hours}, no reviews yet`,
+    placePin: (name: string, kind: string, hours: string, score = "no reviews yet") => `${name}, ${kind}, ${hours}, ${score}`,
+    // DRAFT for Avi
+    /** The score part of a scored place's pin: "4.6 out of 5, rated by 3 people the house trusts". */
+    pinScored: (score: string, n: number) => `${score} out of 5, rated by ${people(n)} ${houseTrusts}`,
+    // DRAFT for Avi
+    /** The same, for a place whose reviews are being counted. */
+    pinCounting: "reviews being counted",
+    // DRAFT for Avi
+    /** The same, for a place with reviews and no score. */
+    pinNoScore: "no score yet",
     /** A chain's one pin, for a screen reader: "Copper Kettle Coffee, a chain, 3 locations nearby". */
     chainPin: (name: string, n: number) => `${name}, a chain, ${n.toLocaleString("en")} locations nearby`,
     /** What a chain's pin says beside its icon: "×3". */
@@ -536,6 +622,8 @@ export const copy = {
     kinds: (n: number, only: string) => (n === 0 ? kindOfPlace : n === 1 ? only : `${kindOfPlace} · ${n.toLocaleString("en")}`),
     /** The sort menu, by the order the list is in: nearest first, A to Z, or, for words, best match first. */
     sort: {
+      // DRAFT for Avi
+      score: "Sort: House picks' score",
       distance: "Sort: distance",
       name: "Sort: name",
       // DRAFT for Avi

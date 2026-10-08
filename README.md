@@ -24,7 +24,7 @@ npm run dev
 
 Open the app at <http://localhost:5173> (or the port Vite prints). Use `localhost`, not `127.0.0.1`: the MapTiler key only allows the origins it lists. Without a key the app still runs, on a plain ground with no map tiles.
 
-The app reads the places from `wss://dcosl.brainstorm.world` and the map from `api.maptiler.com`, and from no other host.
+The app reads the places from `wss://dcosl.brainstorm.world` and the map from `api.maptiler.com`. In production it also reads the reviews of the places on screen, and their reviewers' names, from `wss://search.brainstorm.world`; the house's choice of scorer from `wss://scores.brainstorm.world`; and the ranks from the relay that choice names. In development it reads no reviews unless `VITE_REVIEW_RELAYS` is set (see "House scores, locally"), so every place says "No reviews yet".
 
 ## Test
 
@@ -55,7 +55,7 @@ npm run proof:house-scores
 The relay loads two forged reviews when it starts: it checks the signature of each event published to it, but not of the events it loads. The proof checks that the app's reader drops them.
 
 - `PROOF_RELAY=<url>` uses another relay on this machine.
-- `PROOF_KEEP=1` also prints the `.env.local` lines (`VITE_REVIEW_RELAYS`, `VITE_DEV_SCORER`) that point the dev app at the relay and the run's scorer. The relay keeps the events until it stops.
+- `PROOF_KEEP=1` also prints the `.env.local` lines (`VITE_REVIEW_RELAYS`, `VITE_DEV_SCORER`) that point the dev app at the relay and the run's scorer. The relay keeps the events until it stops. With them set, `npm run dev` shows Jacafé at 4.5 from 2 people, with 2 reviews folded, and Loft Brunch & Cocktails with no score and 1 folded.
 
 ## Deploy
 

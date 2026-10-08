@@ -21,14 +21,19 @@ const NIP19_CODE = /^(?:npub|nsec|nprofile|note|nevent|naddr|nrelay)1[02-9ac-hj-
  */
 const REORDERING = /[\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c]/gu;
 
-/** Characters that show nothing: space, and the format characters. */
-const INVISIBLE = /[\s\p{Cf}]/gu;
+/**
+ * Characters that show nothing: space, the format characters, the other code points that a font draws
+ * as nothing (Unicode's default ignorables: the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, the
+ * combining grapheme joiner, variation selectors ...), and the blank Braille pattern U+2800, which is
+ * a symbol with no dots.
+ */
+const INVISIBLE = /[\s\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]/gu;
 
 /**
  * `value` as a name to show: text, with the characters that reorder text taken out, its runs of
  * space and control characters made one space, and none at either end. Undefined when nothing in
- * it shows, or it is a code or a key (64 hex digits): a name that is a key would put the key on
- * screen (Review Focus 4). Pages show names in a <bdi>, which keeps one written right to left, and
+ * it shows, or what shows is a code or a key (64 hex digits), whatever invisible characters are
+ * among it: a name that is a key would put the key on screen (Review Focus 4). Pages show names in a <bdi>, which keeps one written right to left, and
  * any format characters left in it, to itself.
  */
 function shownName(value: unknown): string | undefined {
@@ -37,7 +42,9 @@ function shownName(value: unknown): string | undefined {
     .replace(REORDERING, "")
     .replace(/[\s\p{Cc}]+/gu, " ")
     .trim();
-  if (text.replace(INVISIBLE, "") === "" || NIP19_CODE.test(text) || isHex64(text.toLowerCase())) return undefined;
+  // A code or a key with invisible characters in it still shows as the code: it is looked for without them.
+  const shown = text.replace(INVISIBLE, "");
+  if (shown === "" || NIP19_CODE.test(shown) || isHex64(shown.toLowerCase())) return undefined;
   return text;
 }
 
