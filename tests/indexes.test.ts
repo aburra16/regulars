@@ -11,6 +11,7 @@ import {
   chainKey,
   chainSlug,
   cityLabel,
+  cityLabeller,
   formatDistance,
   groupForList,
   type Indexes,
@@ -1634,6 +1635,52 @@ describe("cityLabel", () => {
     const at = (lat: number, region: string) => [0, 1, 2].map((i) => make("p", { locality: "Lexington", country: "US", region, lat: lat + i * 0.01, lon: -80 }));
     const { cities } = buildIndexes([...at(38, "KY"), ...at(42, "MA"), ...[0, 1, 2].map((i) => make("p", { locality: "Funchal", country: "PT", lat: 32.65 + i * 0.01, lon: -16.9 }))]);
     expect(cities.map((c) => cityLabel(c, cities)).sort()).toEqual(["Funchal", "Lexington, KY", "Lexington, MA"]);
+  });
+});
+
+describe("cityLabeller", () => {
+  const city = (name: string, over: Partial<{ region: string; country: string }> = {}) => ({
+    name,
+    country: "US",
+    lat: 0,
+    lon: 0,
+    count: 3,
+    ...over,
+  });
+
+  it("labels each city of a list as cityLabel does", () => {
+    const all = [
+      city("Lexington", { region: "KY" }),
+      city("Boston", { region: "MA" }),
+      city(" lexington ", { region: "MA" }),
+      city("Valencia", { country: "ES" }),
+      city("Valencia", { country: "VE" }),
+      city("Valencia", { country: "" }),
+      city("Lexington", { region: "KY", country: "CA" }),
+      city("Funchal", { country: "PT" }),
+    ];
+    const label = cityLabeller(all);
+    expect(all.map(label)).toEqual(all.map((one) => cityLabel(one, all)));
+    expect(all.map(label)).toEqual([
+      "Lexington, KY",
+      "Boston",
+      " lexington , MA",
+      "Valencia, ES",
+      "Valencia, VE",
+      "Valencia",
+      "Lexington, KY",
+      "Funchal",
+    ]);
+  });
+
+  it("labels a city that is not in the list, by what it has", () => {
+    const ky = city("Lexington", { region: "KY" });
+    const label = cityLabeller([city("Lexington", { region: "MA" }), city("Boston")]);
+    // A city kept on a device has no count; the name, region and country are all that is read.
+    expect(label({ name: "Lexington", region: "KY", country: "US" })).toBe("Lexington, KY");
+    expect(label({ name: "Boston", country: "US" })).toBe("Boston");
+    expect(label(ky)).toBe("Lexington, KY");
+    expect(cityLabeller([])(ky)).toBe("Lexington");
   });
 });
 

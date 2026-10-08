@@ -47,6 +47,33 @@ export const copy = {
     /** Monday first. The weekday before a time that is more than a day away: "Closed · opens Mon 9 am". */
     weekdaysShort: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
   },
+  explore: {
+    // DRAFT for Avi
+    /** The control at the top of the page. `label` is where the places are near: "Funchal", or "you". */
+    near: (label: string) => `Near ${label}`,
+  },
+  location: {
+    // DRAFT for Avi: every string in this group is a first draft and needs your edit.
+    /** The word after "Near" in the header when the places are around the device: "Near you". */
+    you: "you",
+    pickTitle: "Choose a place",
+    useMine: "Use my location",
+    filterPlaceholder: "Search towns and cities",
+    close: "Close",
+    /** Shown under the filter when no town has the words typed. */
+    noMatch: "No towns match that.",
+    /** The number of places a town has: "7 places", "1 place", "7,954 places". */
+    count: (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "place" : "places"}`,
+    /**
+     * The person said no to the device's location. `near` is where the places are, still: the
+     * default city, or the one they picked, or `lastKnown` when they had been found before.
+     */
+    denied: (near: string) =>
+      `Location is off, so we're showing places near ${near}. Pick a city, or turn on location in your browser settings.`,
+    lastKnown: "where you last were",
+    /** The position could not be found, whatever the reason but a no. */
+    unavailable: "We couldn't find your location. Pick a city instead.",
+  },
   /** The words after a distance: "0.6 mi", "1.1 km", "250 m". */
   units: {
     mi: "mi",

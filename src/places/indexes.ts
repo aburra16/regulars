@@ -237,22 +237,35 @@ function buildCities(places: readonly Place[]): City[] {
   );
 }
 
-const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+/** What `cityLabel` reads of a city; a city saved on a device has no more than this and its coordinates. */
+type CityName = Pick<City, "name" | "region" | "country">;
+
+/**
+ * `cityLabel` for every city of one list, which it reads once. Use it to label a whole list; for
+ * one city, `cityLabel` is the same.
+ */
+export function cityLabeller(all: readonly City[]): (city: CityName) => string {
+  const byName = new Map<string, City[]>();
+  for (const other of all) push(byName, other.name.trim().toLowerCase(), other);
+  return (city) => {
+    const shared = byName
+      .get(city.name.trim().toLowerCase())
+      ?.some(
+        (other) => !(other.name === city.name && other.region === city.region && other.country === city.country),
+      );
+    if (!shared) return city.name;
+    const where = city.region ?? (city.country === "" ? undefined : city.country);
+    return where === undefined ? city.name : `${city.name}, ${where}`;
+  };
+}
 
 /**
  * What to call a city in a list of cities: its name, or, when another city in `all` has the
  * same name, the name and where it is: "Lexington, KY". That is the region, or the country
  * for a city with no region. A city that has neither is called by its name alone.
  */
-export function cityLabel(city: City, all: readonly City[]): string {
-  const shared = all.some(
-    (other) =>
-      sameName(other.name, city.name) &&
-      !(other.name === city.name && other.region === city.region && other.country === city.country),
-  );
-  if (!shared) return city.name;
-  const where = city.region ?? (city.country === "" ? undefined : city.country);
-  return where === undefined ? city.name : `${city.name}, ${where}`;
+export function cityLabel(city: CityName, all: readonly City[]): string {
+  return cityLabeller(all)(city);
 }
 
 /** What a place is found by. The `id` is its position in the list of places. */
