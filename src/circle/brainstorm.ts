@@ -41,20 +41,16 @@ export const SIGN_WAIT_MS: Readonly<Record<How, number>> = { browser: 60_000, ph
 export const SIGN_IN_LOCK = "regulars.brainstorm.signin";
 
 /**
- * How long a sign-in waits for another to finish: longer than one can take (two answers and the
- * slowest signer), so it waits out every one that is going. A tab that holds the lock longer is stuck,
- * and the sign-in goes ahead without it.
+ * How long a sign-in waits for the lock: longer than one sign-in can take (two answers and the
+ * slowest signer), so it waits out the one that holds it. A tab that holds it longer is stuck, and
+ * the sign-in goes ahead without it: no wait goes on for ever.
+ *
+ * The wait counts from the request, not from when the tab ahead got the lock. So with three tabs
+ * waiting in turn, the third can go ahead when its time is up while the second, which got the lock
+ * late, still holds it, and their challenges cross. That takes three taps at once and slow signing,
+ * and is the price of never waiting for ever.
  */
 export const LOCK_WAIT_MS = 2 * ANSWER_WAIT_MS + SIGN_WAIT_MS.phone + 20_000;
-
-/**
- * Where there are no Web Locks, the tabs ask each other on a BroadcastChannel of the lock's name.
- * `GUARD_BEAT_MS` is how long a tab listens, once it has asked, for one that is signing in or asked first.
- */
-export const GUARD_BEAT_MS = 250;
-
-/** How often a tab that waits for another asks again: one closed while signing in never says it is done. */
-const GUARD_RECHECK_MS = 5_000;
 
 /** Where a run is: each of its three parts is one of these. */
 export type RunStatus = "waiting" | "ongoing" | "success" | "failure";
@@ -125,7 +121,10 @@ export class NotSigned extends Error {
   }
 }
 
-/** What Brainstorm answered: its status, and its body as JSON when the status is a success (else undefined). */
+/**
+ * What Brainstorm answered: its status, and its body as JSON when the status is a success, or the
+ * one error the ask said to read (`readError`); undefined otherwise.
+ */
 interface Answer {
   status: number;
   body: unknown;
@@ -133,13 +132,14 @@ interface Answer {
 
 /**
  * Asks Brainstorm `path`, with the token when given (`Authorization: Bearer`) and `json` as the body
- * when given. Sends no cookies and keeps nothing in the HTTP cache. Throws `Unavailable` when it
- * cannot be reached, does not answer within `ANSWER_WAIT_MS`, or answers a success that is not JSON;
- * the signal's reason when `signal` aborts.
+ * when given. Sends no cookies and keeps nothing in the HTTP cache. The body of an error is read when
+ * its status is `readError`, and otherwise cancelled unread, so that the browser can let the connection go.
+ * Throws `Unavailable` when Brainstorm cannot be reached, does not answer within `ANSWER_WAIT_MS`,
+ * or sends a body to read that is not JSON; the signal's reason when `signal` aborts.
  */
 async function ask(
   path: string,
-  how: { method: "GET" | "POST"; token?: string; json?: unknown },
+  how: { method: "GET" | "POST"; token?: string; json?: unknown; readError?: number },
   signal: AbortSignal,
 ): Promise<Answer> {
   signal.throwIfAborted();
@@ -160,7 +160,10 @@ async function ask(
       cache: "no-store",
       signal: AbortSignal.any([signal, clock.signal]),
     });
-    if (!response.ok) return { status: response.status, body: undefined };
+    if (!response.ok && response.status !== how.readError) {
+      void response.body?.cancel().catch(() => {});
+      return { status: response.status, body: undefined };
+    }
     return { status: response.status, body: await response.json() };
   } catch {
     signal.throwIfAborted();
@@ -256,121 +259,18 @@ async function tokenFor(pubkey: string, login: NostrEvent, signal: AbortSignal):
   return token;
 }
 
-/** A tab's name for itself among the others, on the BroadcastChannel: random, and in order with theirs. */
-function randomId(): string {
-  return Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(16).padStart(8, "0")).join("");
-}
-
-/** What the tabs say to each other on the BroadcastChannel, where there are no Web Locks. */
-interface GuardMessage {
-  /** `ask`: may I sign in? `busy`: not yet, I am signing in (or asked first). `done`: I have finished. */
-  kind: "ask" | "busy" | "done";
-  id: string;
-}
-
-function isGuardMessage(value: unknown): value is GuardMessage {
-  const kind = field(value, "kind");
-  return (kind === "ask" || kind === "busy" || kind === "done") && typeof field(value, "id") === "string";
-}
-
-/**
- * Waits `ms` milliseconds, or until `wake` is called (`onWake` is given it), whichever is first;
- * rejects with the signal's reason when `signal` aborts.
- */
-function pause(ms: number, signal: AbortSignal, onWake?: (wake: () => void) => void): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    if (signal.aborted) {
-      reject(signal.reason);
-      return;
-    }
-    const stop = () => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    };
-    const done = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", stop);
-      resolve();
-    };
-    const timer = setTimeout(done, Math.max(0, ms));
-    signal.addEventListener("abort", stop, { once: true });
-    onWake?.(done);
-  });
-}
-
-/** The tabs' BroadcastChannel (`SIGN_IN_LOCK`), or null where the browser has none or will not open one. */
-function openChannel(): BroadcastChannel | null {
-  try {
-    return typeof BroadcastChannel === "function" ? new BroadcastChannel(SIGN_IN_LOCK) : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Runs `task` once no other tab (or call in this tab) is signing in, as the tabs agree on a
- * BroadcastChannel: a tab asks, and one signing in says it is busy; of two asking at once, the lower
- * id goes first. A tab that waits asks again when the other says it is done, or every
- * `GUARD_RECHECK_MS`, and after `LOCK_WAIT_MS` goes ahead whatever it hears. With no BroadcastChannel,
- * `task` runs at once.
- */
-async function withChannelGuard<T>(task: () => Promise<T>, signal: AbortSignal): Promise<T> {
-  const channel = openChannel();
-  if (channel === null) return task();
-  const me = randomId();
-  let state: "asking" | "waiting" | "holding" = "asking";
-  let busy = false;
-  let yielded = false;
-  let wake = () => {};
-  const say = (kind: GuardMessage["kind"]) => {
-    try {
-      channel.postMessage({ kind, id: me } satisfies GuardMessage);
-    } catch {
-      // Closed: there is nobody left to tell.
-    }
-  };
-  channel.onmessage = ({ data }: MessageEvent) => {
-    if (!isGuardMessage(data) || data.id === me) return;
-    if (data.kind === "done") wake();
-    else if (data.kind === "busy") {
-      if (state === "asking") busy = true;
-    } else if (state === "holding" || (state === "asking" && me < data.id)) say("busy");
-    else if (state === "asking") yielded = true;
-  };
-
-  const giveUpAt = Date.now() + LOCK_WAIT_MS;
-  try {
-    while (Date.now() < giveUpAt) {
-      state = "asking";
-      busy = false;
-      yielded = false;
-      say("ask");
-      await pause(GUARD_BEAT_MS, signal);
-      if (!busy && !yielded) break;
-      state = "waiting";
-      await pause(Math.min(GUARD_RECHECK_MS, giveUpAt - Date.now()), signal, (resolve) => {
-        wake = resolve;
-      });
-      wake = () => {};
-    }
-    state = "holding";
-    return await task();
-  } finally {
-    channel.onmessage = null;
-    say("done");
-    channel.close();
-  }
-}
-
 /**
  * Runs `task` while holding the sign-in lock (`SIGN_IN_LOCK`), so that one sign-in happens at a time
- * across the person's tabs. With Web Locks, it waits for the lock at most `LOCK_WAIT_MS`, or until
- * the browser will not lend it, then goes ahead without it; without them, the tabs agree on a
- * BroadcastChannel (`withChannelGuard`). Rejects with the signal's reason when `signal` aborts first.
+ * across the person's tabs. It waits for the lock at most `LOCK_WAIT_MS`, or until the browser will
+ * not lend it, then goes ahead without it. Rejects with the signal's reason when `signal` aborts first.
  */
 async function oneAtATime<T>(task: () => Promise<T>, signal: AbortSignal): Promise<T> {
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
-  if (typeof locks?.request !== "function") return withChannelGuard(task, signal);
+  // Every browser the app supports has Web Locks. They are only there in a secure context, which the
+  // app needs anyway (Nostrify's crypto.randomUUID is only there too). Where they are missing all
+  // the same, the sign-in goes ahead unguarded: two at once in two tabs may then cross challenges,
+  // and the first fails as `SignInRefused`, for the person to try again.
+  if (typeof locks?.request !== "function") return task();
   const wait = new AbortController();
   const timer = setTimeout(
     () => wait.abort(new DOMException("Another tab held the sign-in too long", "TimeoutError")),
@@ -519,22 +419,31 @@ export function runState(run: Pick<Run, "status" | "internalPublicationStatus" |
 const RANK_ROW = "30382:rank";
 
 /**
+ * Whether `body`, the body of a 404, is Brainstorm saying it has nothing for the key asked:
+ * `handle_no_data` raises a 404 with no detail (`{"detail": null}`). An unknown route's 404 has one
+ * (`{"detail": "Not Found"}`).
+ */
+function isNoData(body: unknown): boolean {
+  return typeof body === "object" && body !== null && !Array.isArray(body) && Object.keys(body).length === 1 && field(body, "detail") === null;
+}
+
+/**
  * The scorer that publishes `pubkey`'s ranks (kind 30382), and the relay it publishes them to, from
  * Brainstorm's setup (`GET /setup/{pubkey}`, no token: rows `["30382:<tag>", <scorer>, <relay>]`).
- * Null when Brainstorm has none for them (404: they have never signed in to it), or its rank row is
- * missing or names a key that is not one, or a relay that is not a public `wss://` one. Throws
- * `Unavailable` as `ask` does or on any other answer, a TypeError, asking nothing, for a public key
- * that is not one, and the signal's reason when `signal` aborts.
+ * Null only when Brainstorm says it has none for them (its no-data 404: they have never signed in
+ * to it). Throws `Unavailable` as `ask` does, and on any other answer: another 404 (such as an
+ * unknown route's), or a list whose rank row is missing, or names a key that is not one or a relay
+ * that is not a public `wss://` one. Throws a TypeError, asking nothing, for a public key that is
+ * not one, and the signal's reason when `signal` aborts.
  */
 export async function scorerOf(pubkey: string, signal: AbortSignal): Promise<{ pubkey: string; relay: string } | null> {
   signal.throwIfAborted();
   if (!isHex64(pubkey)) throw new TypeError("Not a public key");
-  const { status, body } = await ask(`/setup/${pubkey}`, { method: "GET" }, signal);
-  if (status === 404) return null;
-  if (status !== 200 || !Array.isArray(body)) throw new Unavailable(status);
-  const row: unknown = body.find((entry: unknown) => Array.isArray(entry) && entry[0] === RANK_ROW);
-  if (!Array.isArray(row)) return null;
-  const [, scorer, relay] = row as unknown[];
+  const { status, body } = await ask(`/setup/${pubkey}`, { method: "GET", readError: 404 }, signal);
+  if (status === 404 && isNoData(body)) return null;
+  const row: unknown = status === 200 && Array.isArray(body) ? body.find((entry: unknown) => Array.isArray(entry) && entry[0] === RANK_ROW) : undefined;
+  const [, scorer, relay] = Array.isArray(row) ? (row as unknown[]) : [];
   const address = publicRelayAddress(relay);
-  return typeof scorer === "string" && isHex64(scorer) && address !== null ? { pubkey: scorer, relay: address } : null;
+  if (typeof scorer !== "string" || !isHex64(scorer) || address === null) throw new Unavailable(status);
+  return { pubkey: scorer, relay: address };
 }

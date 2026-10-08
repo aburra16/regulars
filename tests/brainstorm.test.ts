@@ -6,7 +6,6 @@ import { REQUEST_TIMEOUT_MS } from "../src/account/connect";
 import { SESSION_KEY } from "../src/account/session";
 import {
   ANSWER_WAIT_MS,
-  GUARD_BEAT_MS,
   LOCK_WAIT_MS,
   LOGIN_KIND,
   latestRun,
@@ -170,7 +169,7 @@ function brainstorm() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The browser around it: its locks (Web Locks), shared by every tab, and BroadcastChannel.
+// The browser around it: its locks (Web Locks), shared by every tab.
 // ---------------------------------------------------------------------------------------------
 
 /** `navigator.locks` as a browser has it, for exclusive locks: one holder per name, the others waiting in turn. */
@@ -209,35 +208,6 @@ class FakeLocks {
       if (next !== undefined) next();
       else this.#held.delete(name);
     }
-  }
-}
-
-/** BroadcastChannel among the tabs of one browser: each message goes to every other channel of its name. */
-class FakeChannel {
-  static open = new Set<FakeChannel>();
-  static made = 0;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  #closed = false;
-
-  constructor(readonly name: string) {
-    FakeChannel.made += 1;
-    FakeChannel.open.add(this);
-  }
-
-  postMessage(data: unknown): void {
-    if (this.#closed) throw new DOMException("The channel is closed", "InvalidStateError");
-    const copy = structuredClone(data);
-    for (const other of FakeChannel.open) {
-      if (other === this || other.name !== this.name) continue;
-      queueMicrotask(() => {
-        if (!other.#closed) other.onmessage?.({ data: copy } as MessageEvent);
-      });
-    }
-  }
-
-  close(): void {
-    this.#closed = true;
-    FakeChannel.open.delete(this);
   }
 }
 
@@ -284,9 +254,6 @@ beforeEach(() => {
   vi.stubGlobal("fetch", server.fetch);
   locks = new FakeLocks();
   useLocks(locks);
-  FakeChannel.open.clear();
-  FakeChannel.made = 0;
-  vi.stubGlobal("BroadcastChannel", FakeChannel);
 });
 
 afterEach(() => {
@@ -305,7 +272,7 @@ describe("Brainstorm's address", () => {
 });
 
 describe("asking Brainstorm nothing until asked (Review Focus 1)", () => {
-  it("makes no request, takes no lock and opens no channel when the code is loaded", async () => {
+  it("makes no request and takes no lock when the code is loaded", async () => {
     vi.resetModules();
     await import("../src/circle/brainstorm");
     await import("../src/circle/token");
@@ -313,7 +280,6 @@ describe("asking Brainstorm nothing until asked (Review Focus 1)", () => {
 
     expect(server.fetch).not.toHaveBeenCalled();
     expect(locks.requests).toEqual([]);
-    expect(FakeChannel.made).toBe(0);
   });
 
   it("asks only when a function is called, and then only what it asks", async () => {
@@ -722,6 +688,40 @@ describe("startRun", () => {
   });
 });
 
+describe("an answer it does not read", () => {
+  /** An answer of `status` whose body notes when it is cancelled. */
+  function unread(status: number) {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"detail":"unread"}'));
+      },
+      cancel,
+    });
+    return { answer: new Response(body, { status, headers: { "content-type": "application/json" } }), cancel };
+  }
+
+  it("has its body cancelled, so the browser can let the connection go", async () => {
+    const cases: Array<[string, number, () => Promise<unknown>]> = [
+      ["GET /authChallenge/:pk", 502, () => signInToBrainstorm(PK, signerOf(), never())],
+      ["POST /authChallenge/:pk/verify", 400, () => signInToBrainstorm(PK, signerOf(), never())],
+      ["GET /user/graperankResult", 401, () => latestRun(TOKEN, never())],
+      ["GET /user/graperankResult", 500, () => latestRun(TOKEN, never())],
+      ["POST /user/graperank", 429, () => startRun(TOKEN, never())],
+      ["POST /user/graperank", 403, () => startRun(TOKEN, never())],
+      ["GET /setup/:pk", 500, () => scorerOf(PK, never())],
+    ];
+    for (const [route, status, call] of cases) {
+      server = brainstorm();
+      vi.stubGlobal("fetch", server.fetch);
+      const { answer, cancel } = unread(status);
+      server.routes[route] = () => answer;
+      await call().catch(() => {});
+      await vi.waitFor(() => expect(cancel, `${route} ${status}`).toHaveBeenCalled());
+    }
+  });
+});
+
 describe("runState", () => {
   const run = (status: RunStatus | null, internal: RunStatus | null, ta: RunStatus | null): Run => ({
     status,
@@ -787,12 +787,26 @@ describe("scorerOf", () => {
     expect(server.asked[0]!.headers).toEqual({});
   });
 
-  it("is null for a person Brainstorm has no scorer for (404)", async () => {
+  it("is null for a person Brainstorm has no scorer for: its 404 with no detail (handle_no_data)", async () => {
     server.routes["GET /setup/:pk"] = () => json(404, { detail: null });
     await expect(scorerOf(PK, never())).resolves.toBeNull();
   });
 
-  it("is null when the rank row is missing, or names a key or relay that is not one to read", async () => {
+  it("is unavailable on any other 404, such as an unknown route's: that is not Brainstorm saying none", async () => {
+    const answers: Route[] = [
+      () => json(404, { detail: "Not Found" }),
+      () => json(404, {}),
+      () => json(404, null),
+      () => json(404, "Not Found"),
+      () => new Response("<html>Not Found</html>", { status: 404 }),
+    ];
+    for (const answer of answers) {
+      server.routes["GET /setup/:pk"] = answer;
+      await expect(scorerOf(PK, never())).rejects.toBeInstanceOf(Unavailable);
+    }
+  });
+
+  it("is unavailable when the list has no rank row it can use: none, or one naming a key or relay that is not one to read", async () => {
     const bad: unknown[][] = [
       ["30382:followers", SCORER, "wss://scores.brainstorm.world"],
       ["30382:rank", SCORER.toUpperCase(), "wss://scores.brainstorm.world"],
@@ -805,8 +819,10 @@ describe("scorerOf", () => {
     ];
     for (const row of bad) {
       server.routes["GET /setup/:pk"] = () => json(200, [row]);
-      await expect(scorerOf(PK, never()), JSON.stringify(row)).resolves.toBeNull();
+      await expect(scorerOf(PK, never()), JSON.stringify(row)).rejects.toBeInstanceOf(Unavailable);
     }
+    server.routes["GET /setup/:pk"] = () => json(200, []);
+    await expect(scorerOf(PK, never())).rejects.toBeInstanceOf(Unavailable);
   });
 
   it("writes the relay one way", async () => {
@@ -900,97 +916,23 @@ describe("one sign-in at a time, across tabs (Review Focus 2)", () => {
     expect((await outcomes).map((outcome) => outcome.status)).toEqual(["rejected", "fulfilled"]);
   });
 
-  describe("in a browser with no Web Locks: a BroadcastChannel among the tabs", () => {
-    beforeEach(() => useLocks(undefined));
+  it("goes ahead at once, unguarded, in a browser with no Web Locks", async () => {
+    // Every browser the app supports has them; they need a secure context, which the app needs anyway.
+    useLocks(undefined);
+    const channels = vi.fn();
+    vi.stubGlobal(
+      "BroadcastChannel",
+      class {
+        constructor() {
+          channels();
+        }
+      },
+    );
 
-    it("lets one tab sign in at a time, and closes its channel after", async () => {
-      const outcomes = await twoTaps();
-
-      expect(order()).toEqual(SEQUENTIAL);
-      expect(outcomes).toEqual([
-        { status: "fulfilled", value: expect.any(String) },
-        { status: "fulfilled", value: expect.any(String) },
-      ]);
-      expect(new Set(outcomes.map((outcome) => (outcome as PromiseFulfilledResult<string>).value)).size).toBe(2);
-      expect(FakeChannel.made).toBeGreaterThan(0);
-      expect(FakeChannel.open.size).toBe(0);
-    });
-
-    /** Gives the next tabs to ask these ids among the tabs, in order (each tab draws its id at random). */
-    function tabIds(...ids: number[]) {
-      const draw = vi.spyOn(crypto, "getRandomValues");
-      for (const id of ids) {
-        draw.mockImplementationOnce(<T extends ArrayBufferView | null>(array: T): T => {
-          (array as unknown as Uint32Array).fill(id);
-          return array;
-        });
-      }
-    }
-
-    it.each([
-      ["the first to ask", [1, 2], [tokenNumber(1), tokenNumber(2)]],
-      ["the second to ask", [2, 1], [tokenNumber(2), tokenNumber(1)]],
-    ])("of two tabs asking at once, the lower id signs in first: %s", async (_, ids, tokens) => {
-      tabIds(...ids);
-      const outcomes = await twoTaps();
-
-      expect(order()).toEqual(SEQUENTIAL);
-      expect(outcomes).toEqual(tokens.map((value) => ({ status: "fulfilled", value })));
-    });
-
-    it("waits for a tab that is signing in, and goes as soon as it is done", async () => {
-      const first = await openTab();
-      const second = await openTab();
-      const one = first.signInToBrainstorm(PK, signerOf(KEY, 30_000), never());
-      // The first tab has asked for its challenge, and the person is signing.
-      await vi.advanceTimersByTimeAsync(GUARD_BEAT_MS + 10);
-      expect(order()).toEqual(["GET /authChallenge/pk"]);
-
-      const two = second.signInToBrainstorm(PK, signerOf(), never());
-      await vi.advanceTimersByTimeAsync(20_000);
-      expect(order()).toEqual(["GET /authChallenge/pk"]);
-
-      await vi.advanceTimersByTimeAsync(10_000 + 3 * GUARD_BEAT_MS);
-      expect(await one).toBe(tokenNumber(1));
-      expect(await two).toBe(tokenNumber(2));
-      expect(order()).toEqual(SEQUENTIAL);
-    });
-
-    it("goes ahead when the tab it waited for was closed while signing in", async () => {
-      const first = await openTab();
-      const second = await openTab();
-      first.signInToBrainstorm(PK, { ...signerOf(), signEvent: () => new Promise<never>(() => {}) }, never()).catch(() => {});
-      await vi.advanceTimersByTimeAsync(GUARD_BEAT_MS + 10);
-      const firstTabs = [...FakeChannel.open];
-      const two = second.signInToBrainstorm(PK, signerOf(), never()).catch((error: unknown) => error);
-      await vi.advanceTimersByTimeAsync(GUARD_BEAT_MS + 10);
-      expect(order()).toEqual(["GET /authChallenge/pk"]);
-
-      // The first tab is closed: its channel goes, and it says nothing more.
-      for (const channel of firstTabs) channel.close();
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(await two).toBe(tokenNumber(1));
-      expect(order()).toEqual(["GET /authChallenge/pk", "GET /authChallenge/pk", "POST /authChallenge/pk/verify"]);
-    });
-
-    it("does not wait for ever on a tab that always says it is busy", async () => {
-      // A tab that answers every question with "busy", and is never done.
-      const stuck = new FakeChannel(SIGN_IN_LOCK);
-      stuck.onmessage = ({ data }) => {
-        if ((data as { kind?: unknown }).kind === "ask") stuck.postMessage({ kind: "busy", id: "0" });
-      };
-
-      const outcome = signInToBrainstorm(PK, signerOf(), never()).catch((error: unknown) => error);
-      await vi.advanceTimersByTimeAsync(LOCK_WAIT_MS - 1_000);
-      expect(server.fetch).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(2_000);
-      expect(await outcome).toBe(tokenNumber(1));
-      stuck.close();
-    });
-
-    it("signs in with no guard at all where there is no BroadcastChannel either", async () => {
-      vi.stubGlobal("BroadcastChannel", undefined);
-      await expect(signInToBrainstorm(PK, signerOf(), never())).resolves.toBe(tokenNumber(1));
-    });
+    const signing = signInToBrainstorm(PK, signerOf(), never());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order()).toEqual(SEQUENTIAL.slice(0, 2));
+    await expect(signing).resolves.toBe(tokenNumber(1));
+    expect(channels).not.toHaveBeenCalled();
   });
 });

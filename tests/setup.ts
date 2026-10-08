@@ -12,6 +12,7 @@ import { forgetExploreIdx } from "../src/explore/returnPoint";
 import { forgetShownInMemory } from "../src/ui/shown";
 import { forgetThemeInMemory } from "../src/theme/theme";
 import { resetFakeMaplibre } from "./support/fakeMaplibre";
+import { noFetch, takeReached } from "./support/noFetch";
 
 // jsdom has no WebGL, so no map can be drawn. Every test gets the stand-in in place of the map
 // library: a page with a map works as it does in a browser, without tiles, and a test can play the
@@ -48,6 +49,10 @@ class NoSocket {
 }
 globalThis.WebSocket = NoSocket as unknown as typeof WebSocket;
 
+// Nor do they reach the network over fetch (ruling R3): a test that needs it stubs it, and one that
+// calls the real one fails below, even where the code under test caught what it threw.
+globalThis.fetch = noFetch;
+
 // jsdom lays nothing out and scrolls nothing: it logs "not implemented" for window.scrollTo, which
 // the router calls on every page change. Tests that care about scrolling spy on this.
 if (typeof window !== "undefined") {
@@ -55,6 +60,7 @@ if (typeof window !== "undefined") {
 }
 
 afterEach(async () => {
+  const reached = takeReached();
   cleanup();
   // Each test starts with nothing saved on the device, as on a first visit, and a page that has just been opened.
   await clear();
@@ -71,5 +77,9 @@ afterEach(async () => {
     forgetThemeInMemory();
     // The history of the window is the test's own: no entry index from a router that came before.
     window.history.replaceState(null, "", "/");
+  }
+  // Last, once the next test's start is clean: a test that reached the network fails.
+  if (reached.length > 0) {
+    throw new Error(`A test called the real fetch: ${reached.join(", ")}. Stub fetch instead (vi.stubGlobal).`);
   }
 });
