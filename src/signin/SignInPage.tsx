@@ -1,4 +1,16 @@
-import { type JSX, type ReactNode, type RefObject, useCallback, useEffect, useId, useMemo, useRef } from "react";
+import {
+  type JSX,
+  lazy,
+  type ReactNode,
+  type RefObject,
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link, type To, useLocation, useNavigate } from "react-router-dom";
 
 import { aboutAt, SIGNING_IN } from "../about/anchors.ts";
@@ -8,7 +20,15 @@ import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useWide } from "../shell/useWide.ts";
 import { CloseIcon } from "../ui/icons.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
+import type { Tone } from "./ChooseHow.tsx";
 import { cameFrom } from "./returnTo.ts";
+
+/**
+ * What Continue opens (./ChooseHow.tsx), with the QR code's library: a chunk of its own, which the
+ * page starts to fetch when it opens, so that it is there by the time Continue is pressed.
+ */
+const loadChooseHow = () => import("./ChooseHow.tsx");
+const ChooseHow = lazy(() => loadChooseHow().then((module) => ({ default: module.ChooseHow })));
 
 /**
  * How the page is left, by "Keep House picks", the cross and Escape: back to the page the person was
@@ -53,21 +73,41 @@ function Steps({ tone, gap, textClass = "" }: { tone: "night" | "card"; gap: str
 }
 
 /**
- * "Continue with Nostr". Signing in is not open in M1 (`config.features.signIn`): the button is off,
- * and says why under it, which the button names as its description. It is off with `aria-disabled`
- * and not `disabled`, so that it stays where the keyboard goes and a screen reader reads its note.
+ * "Continue with Nostr", which opens the choice of how to sign in in its place (./ChooseHow.tsx);
+ * `onSignedIn` is called once the person is. While signing in is not open (`config.features.signIn`),
+ * the button is off, and says why under it, which the button names as its description. It is off
+ * with `aria-disabled` and not `disabled`, so that it stays where the keyboard goes and a screen
+ * reader reads its note.
  */
-function Continue({ buttonClass, noteClass }: { buttonClass: string; noteClass: string }): JSX.Element {
+function Continue({
+  tone,
+  buttonClass,
+  noteClass,
+  onSignedIn,
+}: {
+  tone: Tone;
+  buttonClass: string;
+  noteClass: string;
+  onSignedIn(): void;
+}): JSX.Element {
   const noteId = useId();
   const open = config.features.signIn;
+  const [choosing, setChoosing] = useState(false);
+  if (open && choosing) {
+    return (
+      <Suspense fallback={null}>
+        <ChooseHow tone={tone} onSignedIn={onSignedIn} />
+      </Suspense>
+    );
+  }
   return (
     <>
       <button
         type="button"
         aria-disabled={open ? undefined : true}
         aria-describedby={open ? undefined : noteId}
-        // While it is off it does nothing. When signing in opens (M2), this starts it.
-        onClick={open ? undefined : (event) => event.preventDefault()}
+        // While it is off it does nothing.
+        onClick={open ? () => setChoosing(true) : (event) => event.preventDefault()}
         className={`flex cursor-pointer items-center justify-center rounded-[18px] border-0 font-text font-bold aria-disabled:cursor-not-allowed aria-disabled:opacity-60 ${buttonClass}`}
       >
         {copy.signin.continueButton}
@@ -145,7 +185,7 @@ function PhoneSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
         <Steps tone="night" gap="gap-[18px]" />
       </section>
       <section className="mt-auto flex flex-col gap-3 px-6 pt-3 pb-7">
-        <Continue buttonClass="h-14 bg-ground text-[17px] text-ink" noteClass="text-line-dashed" />
+        <Continue tone="night" buttonClass="h-14 bg-ground text-[17px] text-ink" noteClass="text-line-dashed" onSignedIn={leave} />
         <LeaveLink
           to={to}
           leave={leave}
@@ -192,7 +232,12 @@ function DeskSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
         <section className="flex min-w-0 flex-[1_1_380px] flex-col gap-[22px] rounded-dialog bg-ground p-7 text-ink">
           <Steps tone="card" gap="gap-4" textClass="pt-1" />
           <div className="flex flex-col gap-2.5">
-            <Continue buttonClass="h-14 bg-accent-solid text-[17px] text-on-accent" noteClass="text-muted" />
+            <Continue
+              tone="card"
+              buttonClass="h-14 bg-accent-solid text-[17px] text-on-accent"
+              noteClass="text-muted"
+              onSignedIn={leave}
+            />
             <LeaveLink
               to={to}
               leave={leave}
@@ -220,9 +265,10 @@ function DeskSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
  * The sign-in page (screens 10 and D6), at `/signin`: a dark page of its own, with no top bar or tabs.
  * It is the same in both themes: each layout keeps the light theme's colours (`data-theme="light"`),
  * which on its dark ground are the ones it was drawn in.
- * Before signing in opens (`config.features.signIn`) it is a display: Continue is off and says so, and
- * Keep House picks, the cross and Escape take the person back to where they were. "Sign in" links
- * across the app lead here, each with the page they were on in `state.from`.
+ * Continue opens the choice of how to sign in; once the person is signed in, as when they Keep House
+ * picks, close it or press Escape, they go back to where they were. "Sign in" links across the app
+ * lead here, each with the page they were on in `state.from`. Before signing in opens
+ * (`config.features.signIn`) it is a display: Continue is off and says so.
  */
 export function SignInPage(): JSX.Element {
   useDocumentTitle(copy.titles.signin);
@@ -233,6 +279,11 @@ export function SignInPage(): JSX.Element {
   // The page opens at its headline: a screen reader reads the page from there, and the keyboard starts above the buttons.
   useEffect(() => {
     headlineRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // What Continue opens is fetched now. If it cannot be, Continue tries again.
+  useEffect(() => {
+    if (config.features.signIn) loadChooseHow().catch(() => {});
   }, []);
 
   useEffect(() => {

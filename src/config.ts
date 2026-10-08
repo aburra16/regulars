@@ -52,7 +52,17 @@ interface Config {
   defaultCity: { name: "Funchal"; lat: number; lon: number; radiusKm: number };
   /** From VITE_MAPTILER_KEY; undefined when unset, so there is no map. */
   mapTilerKey: string | undefined;
-  features: { signIn: boolean };
+  /**
+   * What is open. `signIn`: signing in, with a browser add-on or an app on a phone (docs/decisions.md
+   * #21). `circle`: My circle, the person's own scores, which needs their circle worked out; until it
+   * is open, the toggle's My circle half reads "soon" for a person who has signed in.
+   */
+  features: { signIn: boolean; circle: boolean };
+  /**
+   * Where the app meets an app on a phone that signs for the person (NIP-46): the one relay it shows
+   * in its nostrconnect link, and reaches only to connect and to ask that app to sign.
+   */
+  connectRelay: string;
   /**
    * Where reviews (kind 34259) are read from. In production, Brainstorm's search relay
    * (docs/decisions.md #16); in development, VITE_REVIEW_RELAYS, and none when it is unset.
@@ -96,7 +106,8 @@ export const config: Config = {
   placesRelay: "wss://dcosl.brainstorm.world",
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
   mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
-  features: { signIn: false },
+  features: { signIn: true, circle: false },
+  connectRelay: "wss://relay.nsec.app",
   // In a production build `import.meta.env.DEV` is false, so neither variable is read there.
   reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay],
   relayReadExtras: { [searchRelay]: { search: "include:spam" } },

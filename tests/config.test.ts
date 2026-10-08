@@ -54,8 +54,12 @@ describe("config", () => {
     expect(config.defaultCity).toEqual({ name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 });
   });
 
-  it("keeps sign-in switched off in M1", () => {
-    expect(config.features.signIn).toBe(false);
+  it("opens signing in, and keeps My circle off until its scores can be worked out (M2b)", () => {
+    expect(config.features).toEqual({ signIn: true, circle: false });
+  });
+
+  it("meets phone apps at one place, relay.nsec.app, only while connecting one", () => {
+    expect(config.connectRelay).toBe("wss://relay.nsec.app");
   });
 
   it("has no map key when VITE_MAPTILER_KEY is unset", async () => {

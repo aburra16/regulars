@@ -132,9 +132,10 @@ function settled(url: URL): URL | null {
 /**
  * The address of the relay a person's list or signer names, or null if it is not one to send a
  * review to: only `wss://`, and not on this machine or a local network (see `isPrivateHost`). The
- * address returned is one that passes the same check again.
+ * address returned is one that passes the same check again. A link a phone app gives the person to
+ * paste (src/account/connect.ts) is held to it too.
  */
-function publicRelayAddress(text: unknown): string | null {
+export function publicRelayAddress(text: unknown): string | null {
   const url = parseRelayUrl(text, /^wss:\/\//i);
   const sent = url === null ? null : settled(url);
   return sent === null || isPrivateHost(hostOf(sent)) ? null : addressOf(sent);
@@ -152,7 +153,7 @@ function configuredRelayAddress(text: string): string | null {
 }
 
 /** `promise`, or the signal's reason as soon as it aborts, whichever is first. */
-function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     if (signal.aborted) {
       reject(signal.reason);

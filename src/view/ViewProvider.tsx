@@ -16,11 +16,11 @@ export interface ViewValue {
 
 const ViewContext = createContext<ViewValue | null>(null);
 
-/** The view kept for this session. Before sign in opens, everyone sees House picks (decisions.md #6). */
+/** The view kept for this session. Until My circle opens, everyone sees House picks (decisions.md #6). */
 function readView(): View {
   try {
     const kept = window.sessionStorage.getItem(VIEW_STORAGE_KEY);
-    return kept === "circle" && config.features.signIn ? "circle" : "house";
+    return kept === "circle" && config.features.circle ? "circle" : "house";
   } catch {
     // Storage that is blocked: start from House picks.
     return "house";

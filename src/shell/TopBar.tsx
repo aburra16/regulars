@@ -1,32 +1,62 @@
-import { type FormEvent, type JSX, useId, useState } from "react";
+import { type FormEvent, type JSX, type ReactNode, useId, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
+import { useAccount } from "../account/AccountProvider.tsx";
+import { initialOf, useOwnName } from "../account/useOwnName.ts";
 import { copy } from "../copy/en.ts";
 import { NearButton } from "../location/CityPicker.tsx";
 import { LocationNotice } from "../location/LocationNotice.tsx";
 import { ThemeToggle } from "../theme/ThemeToggle.tsx";
 import { PersonIcon, SearchIcon } from "../ui/icons.tsx";
+import { scriptLang } from "../ui/scriptLang.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
 
+type AccountSize = "phone" | "desktop";
+
 /**
- * The round account button. Before sign in, it goes to the You page, which asks the person to
- * sign in. `phone` is 44 px (Main.dc.html); `desktop` is drawn at 40 px (DeskExplore.dc.html)
- * inside a 44 px target.
+ * The round button itself, which goes to the You page, named `label`. `phone` is 44 px (Main.dc.html);
+ * `desktop` is drawn at 40 px (DeskExplore.dc.html) inside a 44 px target.
  */
-export function AccountLink({ size }: { size: "phone" | "desktop" }): JSX.Element {
+function AccountButton({ size, label, children }: { size: AccountSize; label: string; children: ReactNode }): JSX.Element {
   return (
-    <NavLink
-      to="/you"
-      end
-      aria-label={copy.nav.account}
-      className="flex size-11 shrink-0 items-center justify-center rounded-full"
-    >
+    <NavLink to="/you" end aria-label={label} className="flex size-11 shrink-0 items-center justify-center rounded-full">
       <span
-        className={`flex items-center justify-center rounded-full bg-emphasis text-on-emphasis ${size === "phone" ? "size-11" : "size-10"}`}
+        className={`flex items-center justify-center rounded-full bg-emphasis font-bold text-on-emphasis ${
+          size === "phone" ? "size-11 text-body" : "size-10 text-[15px]"
+        }`}
       >
-        <PersonIcon size={20} />
+        {children}
       </span>
     </NavLink>
+  );
+}
+
+/**
+ * The account button of the person signed in as `pubkey`: the first letter of their name, and their
+ * name for a screen reader (DeskExplore.dc.html, Tuning.dc.html). Until the name is known, or when
+ * their profile has none, the person icon, named "You".
+ */
+function PersonButton({ size, pubkey }: { size: AccountSize; pubkey: string }): JSX.Element {
+  const name = useOwnName(pubkey);
+  return (
+    <AccountButton size={size} label={name ?? copy.nav.you}>
+      {name === undefined ? <PersonIcon size={20} /> : <span lang={scriptLang(name)}>{initialOf(name)}</span>}
+    </AccountButton>
+  );
+}
+
+/**
+ * The round account button. Before sign in, the person icon: it goes to the You page, which asks
+ * the person to sign in. After, it is theirs (`PersonButton`).
+ */
+export function AccountLink({ size }: { size: AccountSize }): JSX.Element {
+  const { account } = useAccount();
+  return account === undefined ? (
+    <AccountButton size={size} label={copy.nav.account}>
+      <PersonIcon size={20} />
+    </AccountButton>
+  ) : (
+    <PersonButton size={size} pubkey={account.pubkey} />
   );
 }
 
