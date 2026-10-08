@@ -20,5 +20,8 @@ afterEach(async () => {
   // Each test starts with nothing saved on the device, as on a first visit.
   await clear();
   // A test that runs in Node, not jsdom, has no window.
-  if (typeof window !== "undefined") window.localStorage.clear();
+  if (typeof window !== "undefined") {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  }
 });

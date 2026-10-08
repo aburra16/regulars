@@ -27,6 +27,88 @@ export const copy = {
   meta: {
     description: "Restaurant ratings from people you'd actually ask.",
   },
+  /** The tabs on a phone, and the links in the desktop top bar. */
+  nav: {
+    /** The name of the tab bar, for a screen reader. */
+    label: "Main",
+    explore: "Explore",
+    map: "Map",
+    saved: "Saved",
+    you: "You",
+    /** The round account button, for a screen reader. */
+    account: "Your account and your circle",
+  },
+  search: {
+    /** The search field's name, for a screen reader. */
+    label: "Search places",
+    placeholder: "Tacos, coffee, a place name",
+  },
+  /** The House picks / My circle toggle. */
+  view: {
+    // DRAFT for Avi
+    /** The toggle's name, for a screen reader. */
+    label: "Whose scores to show",
+    house: "House picks",
+    circle: "My circle",
+    /** A half of the toggle with its score, on the place page: "House picks · 4.5". */
+    withScore: (view: string, score: string) => `${view} · ${score}`,
+  },
+  score: {
+    /** A score as it is shown: "4.5", "4.0". */
+    value: (n: number) => n.toLocaleString("en", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+    /** The stars, for a screen reader: "4.5 out of 5". */
+    starsLabel: (n: number) => `${n.toLocaleString("en", { maximumFractionDigits: 1 })} out of 5`,
+  },
+  /**
+   * Where the map and the place details come from. `mapTiler` and `openStreetMap` are the words in
+   * those lines that link to each source's terms.
+   */
+  attribution: {
+    map: "© MapTiler © OpenStreetMap contributors",
+    details: "Place details © OpenStreetMap contributors, via BTC Map",
+    mapTiler: "MapTiler",
+    openStreetMap: "OpenStreetMap contributors",
+  },
+  /** How the places loaded. */
+  load: {
+    /** The places shown are the ones saved on this device: the latest could not be loaded. */
+    cached: "Showing places saved on this device",
+    // DRAFT for Avi
+    /** No places could be loaded, and none were saved on this device. */
+    failed: "We couldn't load places. Check your connection and try again.",
+    retry: "Try again",
+    // DRAFT for Avi
+    /** The first visit, while the places load. */
+    loading: "Finding places…",
+  },
+  // DRAFT for Avi
+  /** The browser says it has no connection. */
+  offline: "You're offline. Showing places saved on this device.",
+  /** The title of each page until the page itself is built. */
+  pages: {
+    explore: "Explore",
+    map: "Map",
+    search: "Search",
+    filters: "Filters",
+    place: "Place",
+    chain: "All locations",
+    about: "About",
+    signin: "Sign in",
+    saved: "Saved",
+    you: "You",
+  },
+  // DRAFT for Avi
+  /** An address in the app that has no page. */
+  missing: {
+    text: "We can't find that page.",
+    home: "Back to Explore",
+  },
+  // DRAFT for Avi
+  /** A page that broke while it was drawn. */
+  broken: {
+    text: "Something went wrong on this page.",
+    home: "Back to Explore",
+  },
   signin: {
     continueButton: ALLOWED_PROTOCOL_STRINGS.signInButton,
   },
@@ -73,6 +155,9 @@ export const copy = {
     lastKnown: "where you last were",
     /** The position could not be found, whatever the reason but a no. */
     unavailable: "We couldn't find your location. Pick a city instead.",
+    // DRAFT for Avi
+    /** In place of "Near …" while the device has not said where it is yet. */
+    finding: "Finding your location…",
   },
   /** The words after a distance: "0.6 mi", "1.1 km", "250 m". */
   units: {

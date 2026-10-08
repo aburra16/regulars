@@ -12,14 +12,26 @@ import "./styles/index.css";
 
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
-import { App } from "./App.tsx";
+import { HereProvider } from "./location/HereProvider.tsx";
+import { PlacesProvider } from "./places/store.tsx";
+import { routes } from "./routes.tsx";
+import { APP_ROOT_ID } from "./ui/lockPage.ts";
 
-const root = document.getElementById("root");
-if (!root) throw new Error("Missing #root element in index.html");
+const root = document.getElementById(APP_ROOT_ID);
+if (!root) throw new Error(`Missing #${APP_ROOT_ID} element in index.html`);
 
+const router = createBrowserRouter(routes);
+
+// The places load once for the whole app; where they are near is named from their towns; the
+// pages, and the shell around them, come from the router.
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <PlacesProvider>
+      <HereProvider>
+        <RouterProvider router={router} />
+      </HereProvider>
+    </PlacesProvider>
   </StrictMode>,
 );

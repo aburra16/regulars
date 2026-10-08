@@ -14,6 +14,8 @@ export interface Here {
   denied?: boolean;
   /** The device's location could not be found, and it was not a no. The place shown is the one it was before. */
   unavailable?: boolean;
+  /** The device's location has been asked for and has not answered yet. The place shown is the one it was before. */
+  pending: boolean;
 }
 
 export type HereValue = Here & {

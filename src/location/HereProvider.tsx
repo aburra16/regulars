@@ -25,6 +25,8 @@ interface State {
   choice: Choice;
   /** Why the last ask for the device's location got nowhere; the choice is what it was before. */
   problem?: "denied" | "unavailable";
+  /** The last ask for the device's location has not been answered yet. */
+  pending?: true;
 }
 
 function firstState(): State {
@@ -64,6 +66,9 @@ export function HereProvider({ children }: { children: ReactNode }): JSX.Element
     const fail = (problem: "denied" | "unavailable") => {
       if (latest.current === mine) setState((current) => ({ choice: current.choice, problem }));
     };
+    // A new ask makes what the last one said old news. Every answer below replaces the whole
+    // state, so it ends the wait too; a pick does as well.
+    setState((current) => ({ choice: current.choice, pending: true }));
     try {
       const geolocation = navigator.geolocation as Geolocation | undefined;
       if (geolocation === undefined) return fail("unavailable");
@@ -83,7 +88,7 @@ export function HereProvider({ children }: { children: ReactNode }): JSX.Element
   }, []);
 
   const value = useMemo<HereValue>(() => {
-    const { choice, problem } = state;
+    const { choice, problem, pending } = state;
     const where =
       choice.source === "city"
         ? { label: cityLabel(choice.city, cities ?? []), lat: choice.city.lat, lon: choice.city.lon }
@@ -93,6 +98,7 @@ export function HereProvider({ children }: { children: ReactNode }): JSX.Element
     return {
       ...where,
       source: choice.source,
+      pending: pending === true,
       ...(problem === "denied" && { denied: true }),
       ...(problem === "unavailable" && { unavailable: true }),
       useDevice,

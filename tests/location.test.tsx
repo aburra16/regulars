@@ -1,5 +1,5 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -412,6 +412,80 @@ describe("useHere", () => {
       expect(result.current).toMatchObject({ source: "device", lat: 3, lon: 4 });
     });
 
+    describe("while the device has not answered", () => {
+      it("is not pending on load, nor after a pick", () => {
+        const { result } = renderHere();
+        expect(result.current.pending).toBe(false);
+        act(() => result.current.pickCity(lisbon));
+        expect(result.current.pending).toBe(false);
+      });
+
+      it("is pending from the ask until the position comes", () => {
+        let deliver: Succeed = () => {};
+        installGeolocation((ok) => {
+          deliver = ok;
+        });
+        const { result } = renderHere();
+        act(() => result.current.useDevice());
+        expect(result.current).toMatchObject({ pending: true, source: "default", label: "Funchal" });
+        act(() => deliver(position(1, 2)));
+        expect(result.current).toMatchObject({ pending: false, source: "device" });
+      });
+
+      it.each([
+        ["the person says no", 1, "denied"],
+        ["the position cannot be found", 2, "unavailable"],
+      ] as const)("stops being pending when %s", (_why, code, problem) => {
+        let refuse: Fail = () => {};
+        installGeolocation((_ok, fail) => {
+          refuse = fail;
+        });
+        const { result } = renderHere();
+        act(() => result.current.useDevice());
+        expect(result.current.pending).toBe(true);
+        act(() => refuse(failure(code)));
+        expect(result.current.pending).toBe(false);
+        expect(result.current[problem]).toBe(true);
+      });
+
+      it("is not pending when there is no way to ask", () => {
+        const { result } = renderHere();
+        act(() => result.current.useDevice());
+        expect(result.current).toMatchObject({ pending: false, unavailable: true });
+      });
+
+      it("stops being pending when the person picks a city instead", () => {
+        installGeolocation(() => {});
+        const { result } = renderHere();
+        act(() => result.current.useDevice());
+        act(() => result.current.pickCity(porto));
+        expect(result.current).toMatchObject({ pending: false, label: "Porto" });
+      });
+
+      it("drops what the last ask said, since a new one is on its way", () => {
+        refusedWith(1);
+        const { result } = renderHere();
+        act(() => result.current.useDevice());
+        expect(result.current.denied).toBe(true);
+        installGeolocation(() => {});
+        act(() => result.current.useDevice());
+        expect(result.current.pending).toBe(true);
+        expect(result.current.denied).toBeFalsy();
+      });
+
+      it("stays pending for the latest ask when an older one answers", () => {
+        const answers: Succeed[] = [];
+        installGeolocation((ok) => void answers.push(ok));
+        const { result } = renderHere();
+        act(() => result.current.useDevice());
+        act(() => result.current.useDevice());
+        act(() => answers[0]!(position(1, 2)));
+        expect(result.current).toMatchObject({ pending: true, source: "default" });
+        act(() => answers[1]!(position(3, 4)));
+        expect(result.current).toMatchObject({ pending: false, lat: 3, lon: 4 });
+      });
+    });
+
     it("does nothing when the page is gone before the position comes", () => {
       let deliver: Succeed = () => {};
       installGeolocation((ok) => {
@@ -454,9 +528,9 @@ describe("LocationNotice", () => {
     });
   }
 
-  it("says nothing until something goes wrong", () => {
+  it("says nothing until something goes wrong, from a status region that is always there", () => {
     renderNotice();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("names Funchal when the person said no and the places are the default", () => {
@@ -490,12 +564,24 @@ describe("LocationNotice", () => {
     expect(screen.getByRole("status")).toHaveTextContent(copy.location.unavailable);
   });
 
-  it("goes when the person picks a city", () => {
+  it("goes when the person picks a city, and the region stays for the next time", () => {
     refusedWith(1);
     const { result } = renderNotice();
+    const region = screen.getByRole("status");
     act(() => result.current.here.useDevice());
+    expect(region).toHaveTextContent(copy.location.denied("Funchal"));
     act(() => result.current.here.pickCity(lisbon));
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBe(region);
+    expect(region).toBeEmptyDOMElement();
+  });
+
+  it("passes its class to the region, so the page can place it", () => {
+    render(
+      <HereProvider>
+        <LocationNotice className="px-gutter-desktop" />
+      </HereProvider>,
+    );
+    expect(screen.getByRole("status")).toHaveClass("px-gutter-desktop");
   });
 });
 
@@ -554,7 +640,7 @@ describe("NearButton", () => {
     expect(getCurrentPosition).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(nearButton("Near you")).toBeInTheDocument();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("keeps Funchal, shows why, and still has a working picker when the person says no", async () => {
@@ -573,7 +659,7 @@ describe("NearButton", () => {
     await user.click(nearButton("Near Funchal"));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Porto/ }));
     expect(nearButton("Near Porto")).toBeInTheDocument();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("asks for a city when there is no way to find the position", async () => {
@@ -583,6 +669,76 @@ describe("NearButton", () => {
     await user.click(screen.getByRole("button", { name: copy.location.useMine }));
     expect(nearButton("Near Funchal")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(copy.location.unavailable);
+  });
+
+  it("reads 'Finding your location…' while the device has not answered", async () => {
+    const user = userEvent.setup();
+    let deliver: Succeed = () => {};
+    installGeolocation((ok) => {
+      deliver = ok;
+    });
+    renderPage();
+    await user.click(nearButton("Near Funchal"));
+    await user.click(screen.getByRole("button", { name: copy.location.useMine }));
+    expect(nearButton(copy.location.finding)).toBeInTheDocument();
+    act(() => deliver(position(38.7, -9.1)));
+    expect(nearButton("Near you")).toBeInTheDocument();
+  });
+
+  // Safari does not focus a button that is clicked, so the picker cannot hand the focus back to it.
+  describe("gives the focus back to itself, though a click did not focus it", () => {
+    function openWithoutFocus() {
+      renderPage();
+      const button = nearButton("Near Funchal");
+      fireEvent.click(button);
+      expect(button).not.toHaveFocus();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      return button;
+    }
+
+    it("when the picker closes on Escape", async () => {
+      const user = userEvent.setup();
+      const button = openWithoutFocus();
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(button).toHaveFocus();
+    });
+
+    it("when the picker closes from its close button", () => {
+      const button = openWithoutFocus();
+      fireEvent.click(screen.getByRole("button", { name: copy.location.close }));
+      expect(button).toHaveFocus();
+    });
+
+    it("when a city is picked", () => {
+      openWithoutFocus();
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Porto/ }));
+      expect(nearButton("Near Porto")).toHaveFocus();
+    });
+
+    it("when 'Use my location' is tapped", () => {
+      locatedAt(38.7, -9.1);
+      openWithoutFocus();
+      fireEvent.click(screen.getByRole("button", { name: copy.location.useMine }));
+      expect(nearButton("Near you")).toHaveFocus();
+    });
+  });
+
+  it("comes as a pill inside a search field on a desktop, opening the same picker", async () => {
+    const user = userEvent.setup();
+    override.cities = [lisbon];
+    render(
+      <HereProvider>
+        <NearButton variant="pill" />
+      </HereProvider>,
+    );
+    const button = nearButton("Near Funchal");
+    expect(button).toHaveClass("min-h-touch");
+    // A pin, and no chevron.
+    expect(button.querySelectorAll("svg")).toHaveLength(1);
+    await user.click(button);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Lisbon/ }));
+    expect(nearButton("Near Lisbon")).toHaveFocus();
   });
 
   it("lists the towns of the places that load, with the real indexes", async () => {

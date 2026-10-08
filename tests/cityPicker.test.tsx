@@ -1,11 +1,12 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { copy } from "../src/copy/en";
 import { CityPicker } from "../src/location/CityPicker";
 import type { City } from "../src/places/indexes";
+import { lockPage } from "../src/ui/lockPage";
 
 // The picker lists `useIndexes()?.cities`. null: no indexes yet.
 const override = vi.hoisted(() => ({ cities: [] as City[] | null }));
@@ -95,6 +96,20 @@ describe("CityPicker", () => {
       expect(onClose).toHaveBeenCalledTimes(2);
     });
 
+    it("stays open when a press that began inside it ends on the screen beside it", () => {
+      const { onClose } = renderPicker([lisbon]);
+      const scrim = dialog().parentElement!;
+      // Selecting the text in the filter by dragging out past the dialog's edge: the browser
+      // sends the click to the screen beside it, where the press ended.
+      fireEvent.pointerDown(filterField());
+      fireEvent.click(scrim);
+      expect(onClose).not.toHaveBeenCalled();
+
+      fireEvent.pointerDown(scrim);
+      fireEvent.click(scrim);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
     it("keeps the Tab key inside, wrapping from the last control to the first and back", async () => {
       const user = userEvent.setup();
       renderPicker([lisbon, porto]);
@@ -135,6 +150,62 @@ describe("CityPicker", () => {
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(opener).toHaveFocus();
+    });
+  });
+
+  describe("the page behind it", () => {
+    let root: HTMLDivElement;
+    beforeEach(() => {
+      root = document.createElement("div");
+      root.id = "root";
+      document.body.append(root);
+    });
+    afterEach(() => {
+      root.remove();
+      document.body.removeAttribute("style");
+    });
+
+    function Page() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open the picker
+          </button>
+          {open && <CityPicker onPick={() => {}} onUseDevice={() => {}} onClose={() => setOpen(false)} />}
+        </>
+      );
+    }
+
+    it("cannot be scrolled or reached while it is open, and can again once it has closed", async () => {
+      const user = userEvent.setup();
+      override.cities = [lisbon];
+      document.body.style.overflow = "auto";
+      render(<Page />, { container: root });
+
+      await user.click(screen.getByRole("button", { name: "Open the picker" }));
+      expect(root).toHaveAttribute("inert");
+      expect(document.body.style.overflow).toBe("hidden");
+      // The dialog is not inside the app's root, so it is not inert itself.
+      expect(root).not.toContainElement(dialog());
+
+      await user.keyboard("{Escape}");
+      expect(root).not.toHaveAttribute("inert");
+      expect(document.body.style.overflow).toBe("auto");
+      expect(screen.getByRole("button", { name: "Open the picker" })).toHaveFocus();
+    });
+
+    it("stays locked until the last of two dialogs has closed", () => {
+      const release = [lockPage(), lockPage()];
+      expect(root).toHaveAttribute("inert");
+      release[0]!();
+      // Releasing the same lock twice does not release the other.
+      release[0]!();
+      expect(root).toHaveAttribute("inert");
+      expect(document.body.style.overflow).toBe("hidden");
+      release[1]!();
+      expect(root).not.toHaveAttribute("inert");
+      expect(document.body.style.overflow).toBe("");
     });
   });
 

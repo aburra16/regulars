@@ -120,6 +120,15 @@
   --text-tab: var(--size-tab);
 }
 
+/* ---- One breakpoint for the whole app: phone layouts below 900 px, desktop layouts from it up.
+   `wide:` is the only responsive variant; Tailwind's own (sm, md, lg ...) are removed so they cannot
+   creep back in. src/shell/useWide.ts asks for the same width in JavaScript (WIDE_QUERY), and
+   tests/styles.test.ts checks that the two agree and that nothing in src uses another breakpoint. ---- */
+@theme {
+  --breakpoint-*: initial;
+  --breakpoint-wide: 900px;
+}
+
 /* Fonts, tracking, radii and shadows are named the same in the tokens as in Tailwind's theme
    (--font-display, --radius-card ...). Registering them with @theme would make each variable
    refer to itself, so they are plain utilities that read the token. The layout and size
@@ -188,6 +197,12 @@
 }
 @utility border-token {
   border-width: var(--border);
+}
+@utility border-t-token {
+  border-top-width: var(--border);
+}
+@utility border-b-token {
+  border-bottom-width: var(--border);
 }
 
 @layer base {

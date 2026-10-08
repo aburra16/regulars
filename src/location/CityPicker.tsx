@@ -1,10 +1,11 @@
-import { type JSX, type MouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type JSX, type MouseEvent, type PointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { copy } from "../copy/en.ts";
 import { foldText } from "../places/fold.ts";
 import { type City, cityLabeller } from "../places/indexes.ts";
 import { useIndexes } from "../places/useIndexes.ts";
+import { lockPage } from "../ui/lockPage.ts";
 import { useHere } from "./useLocation.ts";
 
 /** How many cities the list shows. A person who wants another types a few letters of it. */
@@ -23,9 +24,9 @@ const icon = {
   "aria-hidden": true,
 } as const;
 
-function PinIcon() {
+function PinIcon({ size = 18, strokeWidth = 2.2 }: { size?: number; strokeWidth?: number }) {
   return (
-    <svg {...icon} width="18" height="18" className="shrink-0 text-accent">
+    <svg {...icon} width={size} height={size} strokeWidth={strokeWidth} className="shrink-0 text-accent">
       <path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z" />
       <circle cx="12" cy="9.5" r="2.4" />
     </svg>
@@ -102,6 +103,11 @@ export function CityPicker({
     return (wanted === "" ? rows : rows.filter((row) => row.folded.includes(wanted))).slice(0, MAX_ROWS);
   }, [rows, query]);
 
+  // The page behind can be neither scrolled nor reached while this is open. This effect comes
+  // before the focus one: a closing dialog runs its cleanups in this order, so the page is
+  // reachable again by the time the focus goes back to it.
+  useEffect(() => lockPage(), []);
+
   // The focus goes to the filter when it opens, and back to what had it when it closes.
   useEffect(() => {
     const opener = document.activeElement;
@@ -142,14 +148,22 @@ export function CityPicker({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  // A tap on the screen beside the dialog, on a desktop, closes it.
+  // A tap on the screen beside the dialog, on a desktop, closes it. Only a press that began
+  // there: dragging to select the filter's text past the dialog's edge ends with a click on the
+  // screen beside it, and that is not a tap.
+  const pressedBeside = useRef(false);
+  const notePress = (event: PointerEvent<HTMLDivElement>) => {
+    pressedBeside.current = event.target === event.currentTarget;
+  };
   const closeOnBackdrop = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) onClose();
+    if (pressedBeside.current && event.target === event.currentTarget) onClose();
+    pressedBeside.current = false;
   };
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex bg-ground md:items-center md:justify-center md:bg-ink/60 md:p-4"
+      className="fixed inset-0 z-50 flex bg-ground wide:items-center wide:justify-center wide:bg-ink/60 wide:p-4"
+      onPointerDown={notePress}
       onClick={closeOnBackdrop}
     >
       <div
@@ -157,23 +171,24 @@ export function CityPicker({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex min-h-0 w-full flex-col bg-ground font-text text-ink md:h-160 md:max-h-full md:max-w-[580px] md:rounded-dialog md:shadow-dialog"
+        className="flex min-h-0 w-full flex-col bg-ground font-text text-ink wide:h-[80vh] wide:max-h-full wide:max-w-[580px] wide:rounded-dialog wide:shadow-dialog"
       >
-        <div className="flex items-center justify-between pt-3.5 pr-3 pl-5 md:pt-2.5 md:pr-3.5 md:pl-7">
-          <h2 id={titleId} className="m-0 font-display text-h2 font-extrabold tracking-display md:text-[26px]">
+        {/* The title starts at the gutter; the close button's 44 px target reaches into it, toward the edge. */}
+        <div className="flex items-center justify-between px-gutter-phone pt-3.5 wide:px-7 wide:pt-2.5">
+          <h2 id={titleId} className="m-0 font-display text-h2 font-extrabold tracking-display wide:text-[26px]">
             {copy.location.pickTitle}
           </h2>
           <button
             type="button"
             aria-label={copy.location.close}
             onClick={onClose}
-            className="flex min-h-touch min-w-touch cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-ink"
+            className="-mr-2 flex min-h-touch min-w-touch cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-ink wide:-mr-3.5"
           >
             <CloseIcon />
           </button>
         </div>
 
-        <div className="flex flex-col gap-3 px-gutter-phone pt-2 md:px-7">
+        <div className="flex flex-col gap-3 px-gutter-phone pt-2 wide:px-7">
           <button
             type="button"
             onClick={onUseDevice}
@@ -202,7 +217,7 @@ export function CityPicker({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-gutter-phone pt-3 pb-5 md:px-7">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-gutter-phone pt-3 pb-5 wide:px-7">
           {shown.length > 0 ? (
             <ul className="m-0 flex list-none flex-col gap-1 p-0">
               {shown.map(({ city, label }) => (
@@ -236,24 +251,57 @@ export function CityPicker({
 
 /**
  * "Near Funchal ˅": where the places are near, as a button that opens the picker. The pick
- * moves every screen below the `HereProvider`. "Use my location" asks the browser, and if it
- * says no or cannot, `LocationNotice` says why.
+ * moves every screen below the `HereProvider`. "Use my location" asks the browser, and while it
+ * has not answered the button reads "Finding your location…"; if it says no or cannot,
+ * `LocationNotice` says why. `plain` is the control at the top of the phone's Explore; `pill`
+ * sits at the end of the desktop search field, with the pin and no chevron.
  */
-export function NearButton(): JSX.Element {
+export function NearButton({ variant = "plain" }: { variant?: "plain" | "pill" }): JSX.Element {
   const here = useHere();
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // The focus comes back here whenever the picker closes, whichever way. The picker gives it back
+  // to what had it, but Safari does not focus a button that is clicked, so that may be nothing.
+  // This runs after the picker has gone and unlocked the page.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open) {
+      wasOpen.current = true;
+    } else if (wasOpen.current) {
+      wasOpen.current = false;
+      buttonRef.current?.focus();
+    }
+  }, [open]);
+
+  const text = here.pending ? copy.location.finding : copy.explore.near(here.label);
   return (
     <>
       <button
+        ref={buttonRef}
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className="inline-flex min-h-touch cursor-pointer items-center gap-1.5 self-start border-0 bg-transparent p-0 text-body font-semibold text-ink"
+        className={
+          variant === "pill"
+            ? "inline-flex min-h-touch shrink-0 cursor-pointer items-center border-0 bg-transparent p-0 text-secondary font-semibold text-ink"
+            : "inline-flex min-h-touch cursor-pointer items-center gap-1.5 self-start border-0 bg-transparent p-0 text-body font-semibold text-ink"
+        }
       >
-        <PinIcon />
-        {copy.explore.near(here.label)}
-        <ChevronIcon />
+        {variant === "pill" ? (
+          // Drawn 36 px tall inside the 48 px field, as the design has it; the button around it is 44 px to tap.
+          <span className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-ground px-3">
+            <PinIcon size={15} strokeWidth={2.4} />
+            {text}
+          </span>
+        ) : (
+          <>
+            <PinIcon />
+            {text}
+            <ChevronIcon />
+          </>
+        )}
       </button>
       {open && (
         <CityPicker

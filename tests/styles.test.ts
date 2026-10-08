@@ -1,9 +1,11 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { compile } from "tailwindcss";
 import { beforeAll, describe, expect, it } from "vitest";
+
+import { WIDE_QUERY } from "../src/shell/useWide";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
@@ -138,5 +140,41 @@ describe("Tailwind utilities for the tokens", () => {
 
   it("declares no variable that refers to itself", () => {
     expect(css).not.toMatch(/--([a-z0-9-]+):\s*var\(--\1\)/);
+  });
+});
+
+/** Every file under a folder, as paths relative to the project. */
+function filesUnder(dir: string): string[] {
+  return readdirSync(resolve(root, dir), { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory() ? filesUnder(`${dir}/${entry.name}`) : [`${dir}/${entry.name}`],
+  );
+}
+
+describe("one breakpoint", () => {
+  // Tailwind's own breakpoints, alone or as max-*: prefixes.
+  const OTHER_BREAKPOINT = /(?<![\w-])(?:max-)?(?:sm|md|lg|xl|2xl):/g;
+
+  it("defines `wide` at the width useWide asks for, and nothing else", async () => {
+    const px = /min-width:\s*(\d+)px/.exec(WIDE_QUERY)?.[1];
+    expect(px).toBe("900");
+    expect(indexCss).toMatch(new RegExp(`--breakpoint-wide:\\s*${px}px;`));
+
+    const css = await compileUtilities(["wide:flex", "md:flex", "sm:flex", "lg:flex", "xl:flex"]);
+    expect(css).toMatch(/@media \(width >= 900px\)\s*\{\s*\.wide\\:flex/);
+    expect(css).not.toMatch(/\.(?:md|sm|lg|xl)\\:flex/);
+  });
+
+  it("is the only one used anywhere in src", () => {
+    const files = filesUnder("src").filter((file) => /\.(?:tsx?|css)$/.test(file));
+    expect(files.length).toBeGreaterThan(20);
+    const offences = files.flatMap((file) =>
+      [...read(file).matchAll(OTHER_BREAKPOINT)].map((match) => `${file}: ${match[0]}`),
+    );
+    expect(offences).toEqual([]);
+  });
+
+  it("catches the other breakpoints in a class list", () => {
+    const sample = "flex md:hidden max-sm:p-2 lg:grid 2xl:gap-4 wide:block https://x.test a:b";
+    expect(sample.match(OTHER_BREAKPOINT)).toEqual(["md:", "max-sm:", "lg:", "2xl:"]);
   });
 });
