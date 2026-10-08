@@ -467,10 +467,12 @@ export function PlacePage(): JSX.Element {
   const wide = useWide();
   const review = useOutlet(place);
   if (place === undefined || indexes === undefined) return <NotListedOrLoading />;
-  if (review !== null && !wide) return review;
+  // The form is in the same place in the tree on a phone (its own page, in place of the place's) and
+  // on a desktop (a dialog over it): crossing 900 px lays it out the other way without starting it
+  // again, so a post under way goes on (src/review/usePost.ts).
   return (
     <>
-      <PlaceView key={place.address} place={place} indexes={indexes} />
+      {(review === null || wide) && <PlaceView key={place.address} place={place} indexes={indexes} />}
       {review}
     </>
   );

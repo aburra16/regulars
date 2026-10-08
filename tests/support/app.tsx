@@ -18,9 +18,13 @@ export const DESKTOP = 1360;
 
 let width = PHONE;
 
+/** What hears each query list change: `resizeTo` calls them. */
+const onChanges = new Set<() => void>();
+
 /** Makes the window as wide as `px`, for `useWide` and every `wide:` rule that asks `matchMedia`. */
 export function setWidth(px: number): void {
   width = px;
+  onChanges.clear();
   window.matchMedia = ((query: string) => {
     const min = Number(/\(min-width:\s*(\d+)px\)/.exec(query)?.[1] ?? Number.NaN);
     return {
@@ -28,10 +32,19 @@ export function setWidth(px: number): void {
       get matches() {
         return width >= min;
       },
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      addEventListener: (_: string, onChange: () => void) => onChanges.add(onChange),
+      removeEventListener: (_: string, onChange: () => void) => onChanges.delete(onChange),
     };
   }) as unknown as typeof window.matchMedia;
+}
+
+/**
+ * Makes the open page's window as wide as `px` and tells what listens, as a browser does when the
+ * window is resized or a phone is turned: a page that crosses 900 px is laid out the other way.
+ */
+export function resizeTo(px: number): void {
+  width = px;
+  for (const onChange of [...onChanges]) onChange();
 }
 
 /** Puts the window back as jsdom has it (no `matchMedia`, so the phone's layout). Call it after each test. */

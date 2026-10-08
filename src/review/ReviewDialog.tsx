@@ -6,8 +6,8 @@ import type { Place } from "../places/place.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { CloseIcon } from "../ui/icons.tsx";
 import { lockPage } from "../ui/lockPage.ts";
-import { useBackToPlace } from "./backToPlace.ts";
 import { ReviewForm, ReviewingAs, ReviewTitle } from "./ReviewForm.tsx";
+import type { Posting } from "./usePost.ts";
 
 /** What the Tab key can reach inside the dialog: not the stars that are not the radio group's stop. */
 const FOCUSABLE = 'a[href], button:not([disabled]):not([tabindex="-1"]), textarea:not([disabled])';
@@ -15,12 +15,11 @@ const FOCUSABLE = 'a[href], button:not([disabled]):not([tabindex="-1"]), textare
 /**
  * The review form on a desktop (D3, DeskReview.dc.html): a dialog over the place's page, which is
  * dimmed in the shade behind it, and out of reach while it is open. The focus starts at the stars,
- * the Tab key stays inside, and closing it (the cross, Escape, or posting) goes back to the place's
- * page and gives the focus back to what opened it: "Rate this place".
+ * the Tab key stays inside, and closing it (the cross or Escape: `close`; or posting, `posting`'s) goes
+ * back to the place's page and gives the focus back to what opened it: "Rate this place".
  */
-export function ReviewDialog({ place }: { place: Place }): JSX.Element {
+export function ReviewDialog({ place, close, posting }: { place: Place; close(): void; posting: Posting }): JSX.Element {
   useDocumentTitle(copy.titles.review(place.name));
-  const { back } = useBackToPlace(place);
   const dialogRef = useRef<HTMLDivElement>(null);
 
   // The page behind can be neither scrolled nor reached while this is open. This effect comes before
@@ -46,7 +45,7 @@ export function ReviewDialog({ place }: { place: Place }): JSX.Element {
       if (event.isComposing) return;
       if (event.key === "Escape") {
         event.preventDefault();
-        back();
+        close();
         return;
       }
       const dialog = dialogRef.current;
@@ -69,7 +68,7 @@ export function ReviewDialog({ place }: { place: Place }): JSX.Element {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [back]);
+  }, [close]);
 
   // No closing on a click beside it: that would lose what the person typed.
   return createPortal(
@@ -87,14 +86,14 @@ export function ReviewDialog({ place }: { place: Place }): JSX.Element {
           <button
             type="button"
             aria-label={copy.review.close}
-            onClick={back}
+            onClick={close}
             className="flex min-h-touch min-w-touch shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-ink"
           >
             <CloseIcon size={22} />
           </button>
         </div>
         <ReviewTitle place={place} wide className="-mt-3.5" />
-        <ReviewForm place={place} wide onPosted={back} />
+        <ReviewForm place={place} wide posting={posting} />
       </div>
     </div>,
     document.body,

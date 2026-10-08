@@ -3,12 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { readSession } from "../src/account/session";
+import { readSession, SESSION_KEY } from "../src/account/session";
+import { DRAFT_KEY } from "../src/review/draft";
 import { SIGN_TIMEOUT_MS } from "../src/review/post";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { reviewTemplate } from "../src/reviews/write";
-import { DESKTOP, resetWidth } from "./support/app";
+import { DESKTOP, PHONE, resetWidth, resizeTo } from "./support/app";
 import { createMemoryWriter } from "./support/memoryWriter";
 import {
   fromExplore,
@@ -882,5 +883,136 @@ describe("on a phone: a page of its own (Review.dc.html)", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
     expect(silent.signals[0]!.aborted).toBe(true);
     expect(heldText()).toBeNull();
+  });
+});
+
+describe("crossing 900 px: the form drawn the other way (a phone turned, a window resized)", () => {
+  /** The form's stars, which are checked, and its words. */
+  const formNow = async () => ({
+    checked: (await starButtons()).map((star) => star.getAttribute("aria-checked") === "true"),
+    words: (screen.getByRole("textbox", { name: copy.review.textLabel }) as HTMLTextAreaElement).value,
+  });
+  const fourStars = [false, false, false, true, false];
+
+  it("keeps the stars and the words typed, from a phone's page to a desktop's dialog and back", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+
+    await user.click((await starButtons())[3]!);
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Get the bolo");
+
+    act(() => resizeTo(DESKTOP));
+    const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    await waitFor(async () => expect(await formNow()).toEqual({ checked: fourStars, words: "Get the bolo" }));
+    expect(dialog).toContainElement(screen.getByRole("textbox", { name: copy.review.textLabel }));
+
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), ", and sit outside");
+    act(() => resizeTo(PHONE));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(async () => expect(await formNow()).toEqual({ checked: fourStars, words: "Get the bolo, and sit outside" }));
+  });
+
+  it("finishes a post under way when the window crosses 900 px, says so on the form drawn again, and posts it once", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    let answer!: () => void;
+    world.writers[SEARCH] = createMemoryWriter({ until: new Promise<void>((resolve) => (answer = resolve)) });
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[3]!);
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Get the bolo");
+    await user.click(postButton());
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+
+    act(() => resizeTo(DESKTOP));
+    const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    // Still posting, on the form drawn again: the post was not dropped, nor started again.
+    expect(within(dialog).getByRole("button", { name: copy.review.posting })).toHaveAttribute("aria-disabled", "true");
+    expect(world.writers[SEARCH]!.signals[0]!.aborted).toBe(false);
+
+    act(() => answer());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(sentTo(world, SEARCH)).toHaveLength(1);
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+    expect(await reviewWords("Get the bolo")).toBeInTheDocument();
+  });
+
+  it("shows on the form drawn again that a post failed, with what was typed, and Try again", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    let refuse!: () => void;
+    const refused = new Promise<void>((_, reject) => (refuse = () => reject(new Error("blocked"))));
+    refused.catch(() => {});
+    world.writers[SEARCH] = createMemoryWriter({ until: refused });
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH), DESKTOP);
+    const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    await reviewingAs(me.name, within(dialog));
+    await user.click((await starButtons())[1]!);
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Slow tonight");
+    await user.click(within(dialog).getByRole("button", { name: copy.review.post }));
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+
+    act(() => resizeTo(PHONE));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    act(() => refuse());
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.failed);
+    expect(tryAgainButton()).toBeInTheDocument();
+    expect(await formNow()).toEqual({ checked: [false, true, false, false, false], words: "Slow tonight" });
+  });
+
+  it("keeps the draft in this tab for the place and the person: a reload has it, posting or closing forgets it", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[2]!);
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Fine");
+
+    // Reloaded: the draft is there.
+    cleanup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    expect(await formNow()).toEqual({ checked: [false, false, true, false, false], words: "Fine" });
+
+    // Closed by its back arrow: forgotten.
+    await user.click(screen.getByRole("link", { name: copy.review.back }));
+    await waitFor(() => expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument());
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+    cleanup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    expect(await formNow()).toEqual({ checked: [false, false, false, false, false], words: "" });
+
+    // Posted: forgotten.
+    await user.click((await starButtons())[4]!);
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).not.toBeNull();
+    await user.click(postButton());
+    await waitFor(() => expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument());
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  it("never gives one person's draft to another signed in after them in the tab", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[0]!);
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Mine alone");
+    cleanup();
+
+    // Someone else signs in in this tab, and opens the form for the same place.
+    window.sessionStorage.removeItem(SESSION_KEY);
+    const other = signedIn(world, { name: "Sofia" });
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(other.name);
+    expect(await formNow()).toEqual({ checked: [false, false, false, false, false], words: "" });
   });
 });

@@ -1,20 +1,18 @@
-import type { NostrEvent } from "@nostrify/nostrify";
 import { type JSX, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
 
-import { AccountChanged, useAccount } from "../account/AccountProvider.tsx";
+import { useAccount } from "../account/AccountProvider.tsx";
 import { useOwnName } from "../account/useOwnName.ts";
+import { useOwnPubkey } from "../account/useOwnPubkey.ts";
 import { copy } from "../copy/en.ts";
 import type { Place } from "../places/place.ts";
 import type { Review } from "../reviews/review.ts";
-import { reviewTemplate, type WholeStars } from "../reviews/write.ts";
-import { useRelays } from "../score/ScoresProvider.tsx";
-import { useScore, useScoreActions } from "../score/useScore.ts";
+import type { WholeStars } from "../reviews/write.ts";
+import { useScore } from "../score/useScore.ts";
 import { primaryButton } from "../ui/Banner.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Star } from "../ui/Stars.tsx";
-import { dropDraft, readDraft, saveDraft } from "./draft.ts";
-import { NotPosted, type Posted, postReview, reviewStamp, sendReview, signTimeFor, whereToPost } from "./post.ts";
+import { type Draft, readDraft, saveDraft } from "./draft.ts";
+import type { Posting } from "./usePost.ts";
 
 /*
  * The review form (screen 8, Review.dc.html; D3, DeskReview.dc.html): the stars, each with its word,
@@ -145,77 +143,37 @@ function StarRadios({
   );
 }
 
-/**
- * Where the form stands: being filled in, being posted, or not posted (said, with what was typed
- * kept): not at all, or only to the person's own relays and not to Regulars (ruling R13).
- */
-type Status = "editing" | "posting" | "failed" | "not on Regulars";
-
-/**
- * A review signed and sent that no review relay took: the event, the stars it gives, where it was sent
- * and where it was taken. Try again sends it again as it is, to the relays that have not taken it,
- * while the form still says what it says, for the same person: nobody is asked to sign it again.
- */
-interface Unposted {
-  event: NostrEvent;
-  stars: WholeStars;
-  relays: readonly string[];
-  accepted: readonly string[];
-}
-
 /** The phone's Post (Review.dc.html): the accent, 56 px, as wide as the page. */
 const PHONE_POST =
   "flex h-14 w-full cursor-pointer items-center justify-center rounded-[18px] border-0 bg-accent-solid font-text text-[17px] font-bold text-on-accent";
 
 /**
- * The form that reviews `place`, for the person who has signed in. It starts from their own review of
- * the place, when they have one, or from what they had typed when it last sent them to sign in. Post
- * is off until a star is chosen. Posting signs the review with the person's signer and sends it where
- * they publish (`whereToPost`, `postReview`); once a relay has taken it, the place shows it at once,
- * held until the relays send it back (`noteOwnReview`), and `onPosted` takes the person back to the
- * place, while the person's own relays may still be answering. When no relay Regulars reads reviews
- * from takes it, it says so (and whether the person's own relays did), Post becomes Try again, and what
- * was typed stays; Try again sends the same signed review again while nothing in the form has changed,
- * and signs a new one when something has. A person who is signed out, or
- * whose add-on or phone app now signs as someone else (they are signed out, `AccountChanged`), is
- * sent to sign in, and back here with what they typed. `wide` lays it out for the desktop's dialog.
+ * The form that reviews `place`, for the person who has signed in. It starts from what they had typed
+ * into it in this tab (`readDraft`: before it sent them to sign in, before a reload, or before the
+ * window crossed 900 px and drew it the other way), or else from their own review of the place, when
+ * they have one. What they type is kept for the tab as they type it, for the place and for them
+ * (`saveDraft`), until it is posted or closed. Post is off until a star is chosen. Posting is
+ * `posting`'s, kept above the form by its route (`usePost`), so that a form drawn again shows a post
+ * under way, and how it ended: Posting…, then the place, or why it didn't post, with Try again. `wide`
+ * lays it out for the desktop's dialog.
  */
-export function ReviewForm({ place, wide, onPosted }: { place: Place; wide: boolean; onPosted(): void }): JSX.Element {
+export function ReviewForm({ place, wide, posting }: { place: Place; wide: boolean; posting: Posting }): JSX.Element {
   const { account, restoring } = useAccount();
-  const { readers, writers } = useRelays();
-  const { noteOwnReview, ownCoordinates, ownRemovedAt } = useScoreActions();
+  // Whose draft it is: while a session this tab kept is restored, the kept session's.
+  const me = useOwnPubkey();
   const { reviews } = useScore(place.address);
-  const navigate = useNavigate();
-  const location = useLocation();
   const own = account === undefined ? undefined : reviews.find((review) => review.reviewer === account.pubkey);
+  const { status } = posting;
 
-  const [draft] = useState(() => readDraft(place.address));
+  const [draft] = useState(() => readDraft(place.address, me));
   const [stars, setStars] = useState<WholeStars | undefined>(() => draft?.stars ?? wholeStarsOf(own));
   const [text, setText] = useState(() => draft?.text ?? own?.text ?? "");
-  const [status, setStatus] = useState<Status>("editing");
   /** Whether the form holds what the person chose, a draft, or their review already: not to be filled in again. */
   const filled = useRef(draft !== undefined || own !== undefined);
-  /** Aborts what is under way when the form goes. */
-  const life = useRef<AbortController | null>(null);
-  /** Whether a post is under way: a second press before the page has redrawn posts nothing more. */
-  const busy = useRef(false);
-  /** The last review signed that no review relay took, for Try again. */
-  const unposted = useRef<Unposted | null>(null);
 
   const howId = useId();
   const textId = useId();
   const hintId = useId();
-
-  useEffect(() => {
-    const controller = new AbortController();
-    life.current = controller;
-    return () => controller.abort(new DOMException("The review form was closed", "AbortError"));
-  }, []);
-
-  // The draft has served: it is in the form.
-  useEffect(() => {
-    if (draft !== undefined) dropDraft();
-  }, [draft]);
 
   // The person's own review may come once the form is open (read from the relays, or they have just
   // signed in): it fills the form in, unless they have started on it.
@@ -226,61 +184,21 @@ export function ReviewForm({ place, wide, onPosted }: { place: Place; wide: bool
     setText(own.text);
   }, [own]);
 
-  /** To sign in, and back here with what was typed. */
-  const toSignIn = (chosen: WholeStars) => {
-    saveDraft(place.address, { stars: chosen, text });
-    void navigate("/signin", { state: { from: location } });
+  /** Keeps what the person has chosen and typed so far, for this tab. */
+  const keep = (next: Draft) => {
+    filled.current = true;
+    saveDraft(place.address, next, me);
   };
 
   const off = stars === undefined || status === "posting" || restoring;
 
-  const post = async () => {
-    const signal = life.current?.signal;
-    if (stars === undefined || off || busy.current || signal === undefined) return;
-    if (account === undefined) return toSignIn(stars);
-    busy.current = true;
-    setStatus("posting");
-    const words = text.trim();
-    const again = unposted.current;
-    const resend = again !== null && again.event.pubkey === account.pubkey && again.stars === stars && again.event.content === words;
-    /** Where it is sent, and where it was taken already (by an earlier try). */
-    let relays: readonly string[] = [];
-    const before = resend ? again.accepted : [];
-    try {
-      let posted: Posted;
-      if (resend) {
-        relays = again.relays;
-        posted = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers });
-      } else {
-        unposted.current = null;
-        relays = await whereToPost(account.pubkey, account.signer, readers, signal);
-        const now = Math.floor(Date.now() / 1000);
-        const stamp = reviewStamp(now, ownCoordinates(account.pubkey, place.address), ownRemovedAt(account.pubkey, place.address));
-        posted = await postReview(reviewTemplate(place, stars, words, stamp), account.signer, [...relays], signal, {
-          writers,
-          signWithin: signTimeFor(account.how),
-        });
-      }
-      unposted.current = null;
-      // Held with every relay it was sent to, so that removing it goes there too: one that has not
-      // answered yet, or did not in time, may keep it all the same (Task 7, ruling R17).
-      noteOwnReview(posted.event, relays);
-      onPosted();
-    } catch (error) {
-      if (signal.aborted) return;
-      if (error instanceof AccountChanged) return toSignIn(stars);
-      const taken = error instanceof NotPosted ? [...before, ...error.accepted] : [];
-      if (error instanceof NotPosted && error.event !== undefined) {
-        unposted.current = { event: error.event, stars, relays, accepted: taken };
-      }
-      setStatus(taken.length > 0 ? "not on Regulars" : "failed");
-    } finally {
-      busy.current = false;
-    }
+  const post = () => {
+    if (stars === undefined || off) return;
+    posting.post(stars, text);
   };
 
   const choose = (n: WholeStars) => {
-    filled.current = true;
+    keep({ stars: n, text });
     setStars(n);
   };
 
@@ -292,7 +210,7 @@ export function ReviewForm({ place, wide, onPosted }: { place: Place; wide: bool
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
-        void post();
+        post();
       }}
       className={`flex flex-col ${wide ? "gap-[22px]" : "flex-1"}`}
     >
@@ -316,7 +234,7 @@ export function ReviewForm({ place, wide, onPosted }: { place: Place; wide: bool
           dir="auto"
           value={text}
           onChange={(event) => {
-            filled.current = true;
+            keep({ stars, text: event.target.value });
             setText(event.target.value);
           }}
           placeholder={copy.review.textPlaceholder}
