@@ -65,6 +65,11 @@ interface Config {
    * as a search.
    */
   relayReadExtras: Record<string, { search?: string }>;
+  /**
+   * Where a person's relay list (kind 10002, NIP-65) is looked for, beside the review relays, when a
+   * review is posted: relays that keep people's lists and little else. A review goes to the relays it names.
+   */
+  relayListRelays: string[];
   /** Where the house's kind 10040 is read, which names the scorer whose ranks are House picks. */
   houseTrustRelays: string[];
   /**
@@ -95,6 +100,7 @@ export const config: Config = {
   // In a production build `import.meta.env.DEV` is false, so neither variable is read there.
   reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay],
   relayReadExtras: { [searchRelay]: { search: "include:spam" } },
+  relayListRelays: ["wss://purplepag.es"],
   houseTrustRelays: ["wss://scores.brainstorm.world"],
   scoring: { line: 5, priorWeight: 1.5, priorMean: 3.5 },
   devScorer: import.meta.env.DEV ? scorerOverride(import.meta.env.VITE_DEV_SCORER) : undefined,

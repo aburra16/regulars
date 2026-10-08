@@ -12,16 +12,14 @@ import { asEvent, isNewer, type RelayReader, readAll, withReadExtras } from "../
 /** The kind of a person's relay list (NIP-65), a replaceable event: its `r` tags name the relays. */
 export const RELAY_LIST_KIND = 10002;
 
-/**
- * A relay that keeps people's relay lists and little else, asked beside the review relays, for the
- * person who has put theirs on neither.
- */
-export const RELAY_LIST_DIRECTORY = "wss://purplepag.es";
-
 /** The most relays a review goes to, the review relays among them. */
 export const MAX_WRITE_RELAYS = 6;
 
-/** `text` as a URL with a `wss://` address, null if it is not one. Anything with a password in it is not one. */
+/**
+ * `text` as a URL whose scheme begins as `schemes` says, null if it is not one or it carries a
+ * password. A relay that a person or their signer names must be `wss://`: `ws://` is accepted only
+ * on the trusted path, for the relays the app is set up with (`configuredRelayAddress`).
+ */
 function parseRelayUrl(text: unknown, schemes: RegExp): URL | null {
   if (typeof text !== "string") return null;
   const trimmed = text.trim();
@@ -35,54 +33,83 @@ function parseRelayUrl(text: unknown, schemes: RegExp): URL | null {
   }
 }
 
-/** The host of a URL as a name or an address, without the dot that ends a fully qualified name. */
-const hostOf = (url: URL) => url.hostname.replace(/\.$/, "");
+/** The host of a URL as a name or an address, without the dots that end it: `URL` keeps every one of them. */
+const hostOf = (url: URL) => url.hostname.replace(/\.+$/, "");
 
-/** Whether `ip`, an IPv6 address as URL writes it (in brackets, in lower case), is this machine's, a local network's, or a mapped IPv4's. */
-function isPrivateV6(ip: string): boolean {
-  const address = ip.slice(1, -1);
+/** Whether an IPv4 address that begins `a.b` is this machine's, a local network's, or one no relay is reached at. */
+function isPrivateV4(a: number, b: number): boolean {
   return (
-    address === "::1" ||
-    address === "::" ||
-    address.startsWith("::ffff:") ||
-    /^f[cd]/.test(address) || // fc00::/7, the unique local addresses
-    /^fe[89ab]/.test(address) // fe80::/10, the link-local addresses
+    a === 0 || // this host
+    a === 10 ||
+    a === 127 || // loopback
+    (a === 100 && b >= 64 && b <= 127) || // carrier-grade NAT
+    (a === 169 && b === 254) || // link-local, where clouds keep their metadata
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) || // kept for benchmarks
+    a >= 224 // multicast (224.0.0.0/4) and reserved (240.0.0.0/4), the broadcast address with them
+  );
+}
+
+/** The eight groups of the IPv6 address `address` (no brackets), as `URL` writes it; null if it is not one. */
+function groupsOf(address: string): number[] | null {
+  const halves = address.split("::");
+  if (halves.length > 2) return null;
+  const groups = (text: string | undefined) => (text === undefined || text === "" ? [] : text.split(":"));
+  const head = groups(halves[0]);
+  const tail = groups(halves[1]);
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 0) return null;
+  const numbers = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill("0"), ...tail].map((group) =>
+    /^[0-9a-f]{1,4}$/.test(group) ? Number.parseInt(group, 16) : Number.NaN,
+  );
+  return numbers.length === 8 && numbers.every((n) => !Number.isNaN(n)) ? numbers : null;
+}
+
+/**
+ * Whether the IPv6 address `address` (no brackets) is this machine's, a local network's, or an
+ * IPv4 address of either in another dress. One it cannot read is private: better to drop a relay
+ * than to reach into the network the app runs on.
+ */
+function isPrivateV6(address: string): boolean {
+  const g = groupsOf(address);
+  if (g === null) return true;
+  const [first = 0, second = 0] = g;
+  const embeddedV4 = (group: number | undefined) => isPrivateV4((group ?? 0) >> 8, (group ?? 0) & 0xff);
+  if (g.slice(0, 6).every((n) => n === 0)) return true; // ::/96, which has the unspecified address, loopback, and IPv4-compatible ones
+  if (g.slice(0, 5).every((n) => n === 0) && g[5] === 0xffff) return true; // ::ffff:0:0/96, IPv4-mapped
+  if (first === 0x64 && second === 0xff9b) {
+    if (g[2] === 1) return true; // 64:ff9b:1::/48, NAT64 for a local network
+    if (g.slice(2, 6).every((n) => n === 0)) return embeddedV4(g[6]); // 64:ff9b::/96, NAT64 to the IPv4 in the last 32 bits
+  }
+  if (first === 0x2002) return embeddedV4(second); // 6to4, the IPv4 in the next 32 bits
+  return (
+    (first & 0xfe00) === 0xfc00 || // fc00::/7, unique local
+    (first & 0xff80) === 0xfe80 || // fe80::/10 link-local and fec0::/10 site-local
+    (first & 0xff00) === 0xff00 // ff00::/8, multicast
   );
 }
 
 /**
  * Whether `host` (from `hostOf`) names this machine, a local network, or somewhere with no public
  * name: a relay list is anyone's to write, and a browser that opened such an address would be
- * reaching into the network it runs on. `URL` has already turned an address written as a number, or
- * in hex, into four decimal parts.
+ * reaching into the network it runs on. `URL` has turned an address written as a number, or in hex,
+ * into four decimal parts, but only when no dot ends it (`publicRelayAddress` reads the address again).
  */
 function isPrivateHost(host: string): boolean {
-  if (host.startsWith("[")) return isPrivateV6(host);
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".onion")) {
-    return true;
-  }
+  if (host === "") return true;
+  if (host.startsWith("[")) return isPrivateV6(host.slice(1, -1));
+  if (host === "localhost" || /\.(?:localhost|local|localdomain|onion)$/.test(host)) return true;
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (v4 !== null) {
-    const a = Number(v4[1]);
-    const b = Number(v4[2]);
-    return (
-      a === 0 || // this host
-      a === 10 ||
-      a === 127 || // loopback
-      (a === 100 && b >= 64 && b <= 127) || // carrier-grade NAT
-      (a === 169 && b === 254) || // link-local, where clouds keep their metadata
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168)
-    );
-  }
+  if (v4 !== null) return isPrivateV4(Number(v4[1]), Number(v4[2]));
   // A name with no dot is one of the local network's (or a search domain's), not the internet's.
   return !host.includes(".");
 }
 
 /**
- * The address of a relay, written one way: lower-case host, the default port and a trailing slash
- * and dot left out, and no query or fragment (a token in one does not belong in an address kept in
- * a list). The same relay written two ways gives the same address.
+ * The address of a relay, written one way: lower-case host, the default port and the trailing
+ * dots and slashes left out, and no query or fragment (a token in one does not belong in an address
+ * kept in a list). The same relay written two ways gives the same address.
  */
 function addressOf(url: URL): string {
   const port = url.port === "" ? "" : `:${url.port}`;
@@ -90,21 +117,38 @@ function addressOf(url: URL): string {
 }
 
 /**
- * The address of the relay a person's list or signer names, or null if it is not one to send a
- * review to: only `wss://`, and not on this machine or a local network (see `isPrivateHost`).
+ * `url` as `addressOf` writes it, read again as a URL: null if what is left is not one. The dots that
+ * end a host are what hide a number from `URL` ("127.0.0.1.." is a name to it, "127.0.0.1" a loopback
+ * address), so a host is judged only once they are gone.
  */
-function publicRelayAddress(text: unknown): string | null {
-  const url = parseRelayUrl(text, /^wss:\/\//i);
-  return url === null || isPrivateHost(hostOf(url)) ? null : addressOf(url);
+function settled(url: URL): URL | null {
+  try {
+    return new URL(addressOf(url));
+  } catch {
+    return null;
+  }
 }
 
 /**
- * The address of a relay the app is set up with (`config.reviewRelays`). These are the app's own, not
- * a stranger's: in development one may be `ws://localhost`, and is where the review should go.
+ * The address of the relay a person's list or signer names, or null if it is not one to send a
+ * review to: only `wss://`, and not on this machine or a local network (see `isPrivateHost`). The
+ * address returned is one that passes the same check again.
+ */
+function publicRelayAddress(text: unknown): string | null {
+  const url = parseRelayUrl(text, /^wss:\/\//i);
+  const sent = url === null ? null : settled(url);
+  return sent === null || isPrivateHost(hostOf(sent)) ? null : addressOf(sent);
+}
+
+/**
+ * The address of a relay the app is set up with (`config.reviewRelays`, `config.relayListRelays`).
+ * These are the app's own, not a stranger's: in development one may be `ws://localhost`, and is
+ * where the review should go. So `ws://` and private hosts are kept.
  */
 function configuredRelayAddress(text: string): string | null {
   const url = parseRelayUrl(text, /^wss?:\/\//i);
-  return url === null ? null : addressOf(url);
+  const sent = url === null ? null : settled(url);
+  return sent === null ? null : addressOf(sent);
 }
 
 /** `promise`, or the signal's reason as soon as it aborts, whichever is first. */
@@ -121,8 +165,8 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 /**
- * The newest relay list of `pubkey` among the relays asked: the review relays and the directory,
- * read side by side. Null when none has one. A relay that fails has none. Throws only when `signal`
+ * The newest relay list of `pubkey` among the relays asked: the review relays and the relay-list
+ * relays (`config.relayListRelays`), read side by side. Null when none has one. A relay that fails has none. Throws only when `signal`
  * aborts. `readers` must check signatures (`readerFor` does): anyone can write a list naming anyone.
  */
 async function newestRelayList(
@@ -132,7 +176,7 @@ async function newestRelayList(
 ): Promise<NostrEvent | null> {
   // The same relay written two ways is read once. The first way keeps its read extras, which are by address as written.
   const asked = new Map<string, string>();
-  for (const url of [...config.reviewRelays, RELAY_LIST_DIRECTORY]) {
+  for (const url of [...config.reviewRelays, ...config.relayListRelays]) {
     const address = configuredRelayAddress(url);
     if (address !== null && !asked.has(address)) asked.set(address, url);
   }
@@ -182,7 +226,7 @@ async function signerWritesTo(signer: NostrSigner, signal: AbortSignal): Promise
 /**
  * Where a review by `pubkey` is sent. First the review relays (`config.reviewRelays`), then the
  * relays the person writes to: those of their newest relay list (NIP-65) on the review relays and
- * the directory; if none of them has a list, those their `signer` reports. Each address once,
+ * the relay-list relays; if none of them has a list, those their `signer` reports. Each address once,
  * `wss://` only and none on this machine or a local network, and at most `MAX_WRITE_RELAYS`.
  * A relay that fails to answer has nothing; the answer is never empty of the review relays. Throws
  * only when `signal` aborts, with its reason. Nothing here is logged: the lists are other people's.

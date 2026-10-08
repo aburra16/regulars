@@ -75,6 +75,15 @@ describe("writeRelaysOf: where a person's relay list is read", () => {
     expect(asked.sort()).toEqual([SEARCH, "wss://PURPLEPAG.es/"].sort());
   });
 
+  it("reads the relay-list relays the config names, in place of the directory when it names others", async () => {
+    config.relayListRelays = ["wss://lists.example.test", "wss://LISTS.example.test/"];
+    const lists = createMemoryReader([relayList([["wss://nos.lol"]])]);
+    const { readers, asked } = readersOver({ "wss://lists.example.test": lists });
+
+    expect(await run(signerWith(), readers)).toEqual(["wss://nos.lol"]);
+    expect(asked).toEqual(["wss://lists.example.test"]);
+  });
+
   it("reads the directory when no review relay is set", async () => {
     const directory = createMemoryReader([relayList([["wss://nos.lol"]])]);
     const { readers } = readersOver({ [DIRECTORY]: directory });
@@ -250,6 +259,8 @@ describe("writeRelaysOf: merging", () => {
       ["wss://relay.example.com"],
       ["wss://relay.example.com/"],
       ["wss://relay.example.com./"],
+      ["wss://relay.example.com..."],
+      ["wss://Search.Brainstorm.World.."],
       ["wss://relay.example.com:443"],
       ["wss://relay.example.com/ws/"],
       ["wss://relay.example.com/WS"],
@@ -363,6 +374,49 @@ describe("writeRelaysOf: relays that are left out", () => {
     "wss://printer.LOCAL.",
     "wss://abcdefghij234567.onion",
     "wss://intranet",
+    // The same, with more than one dot at the end: URL keeps them all, and a name with them is not a number
+    "wss://127.0.0.1..",
+    "wss://127.0.0.1...",
+    "wss://localhost..",
+    "wss://10.0.0.5..",
+    "wss://192.168.1.1...",
+    "wss://172.16.0.1..",
+    "wss://0x7f.1..",
+    "wss://printer.local..",
+    "wss://abc.onion..",
+    "wss://intranet..",
+    "wss://.",
+    "wss://..",
+    // Names the machine gives itself
+    "wss://localhost.localdomain",
+    "wss://machine.localdomain.",
+    // Addresses no relay is reached at: multicast, reserved, and the range kept for benchmarks
+    "wss://224.0.0.1",
+    "wss://239.255.255.250",
+    "wss://240.0.0.1",
+    "wss://255.255.255.255",
+    "wss://198.18.0.1",
+    "wss://198.19.255.255",
+    // IPv6 that is a private IPv4 or this machine in another form
+    "wss://[::2]",
+    "wss://[::7f00:1]",
+    "wss://[::127.0.0.1]",
+    "wss://[0:0:0:0:0:0:0:1]",
+    "wss://[::ffff:10.0.0.1]",
+    "wss://[64:ff9b::7f00:1]",
+    "wss://[64:ff9b::127.0.0.1]",
+    "wss://[64:ff9b::a00:5]",
+    "wss://[64:ff9b:1::1]",
+    "wss://[2002:7f00:1::]",
+    "wss://[2002:c0a8:101::1]",
+    // IPv6 private ranges, at both ends of each
+    "wss://[fc00::1]",
+    "wss://[fdff:ffff::1]",
+    "wss://[fe80::1]",
+    "wss://[febf::1]",
+    "wss://[fec0::1]",
+    "wss://[feff::1]",
+    "wss://[ff02::1]",
   ];
 
   it.each(BAD)("drops %j", async (bad) => {
@@ -372,7 +426,28 @@ describe("writeRelaysOf: relays that are left out", () => {
     expect(await run(signerWith(), readers)).toEqual(["wss://good.example.com"]);
   });
 
-  it.each(["wss://172.15.0.1", "wss://172.32.0.1", "wss://11.0.0.1", "wss://192.169.0.1", "wss://100.128.0.1", "wss://8.8.8.8", "wss://localhost.example.com", "wss://notlocal.com"])(
+  it.each([
+    "wss://172.15.0.1",
+    "wss://172.32.0.1",
+    "wss://11.0.0.1",
+    "wss://192.169.0.1",
+    "wss://100.128.0.1",
+    "wss://198.17.0.1",
+    "wss://198.20.0.1",
+    "wss://223.255.255.255",
+    "wss://8.8.8.8",
+    "wss://localhost.example.com",
+    "wss://notlocal.com",
+    "wss://mylocal.localdomain.example.com",
+    // Short groups that only begin like a private range: fc and fe8 are not fc00 and fe80
+    "wss://[fc::1]",
+    "wss://[fe8::1]",
+    "wss://[fe7f::1]",
+    "wss://[fb00::1]",
+    "wss://[2606:4700:4700::1111]",
+    "wss://[64:ff9b::808:808]",
+    "wss://[2002:808:808::1]",
+  ])(
     "keeps %j: it is not on a private network",
     async (good) => {
       const list = relayList([[good]]);
@@ -391,6 +466,25 @@ describe("writeRelaysOf: relays that are left out", () => {
     const { readers } = readersOver({});
 
     expect(await run(signerWith(getRelays), readers)).toEqual(["wss://good.example.com"]);
+  });
+
+  it("writes the same relay one way, however many dots end its name", async () => {
+    for (const written of ["wss://example.com", "wss://example.com.", "wss://example.com..", "wss://EXAMPLE.com.../"]) {
+      const { readers } = readersOver({ [DIRECTORY]: createMemoryReader([relayList([[written]])]) });
+      expect(await run(signerWith(), readers)).toEqual(["wss://example.com"]);
+    }
+  });
+
+  it("gives back only addresses that pass the same check again", async () => {
+    // Whatever is sent out, read as an address, is not private: checking the address as written would not see "127.0.0.1.." as 127.0.0.1.
+    const list = relayList([["wss://127.0.0.1.."], ["wss://0x7f.1.."], ["wss://example.com.."], ["wss://[2002:808:808::1]"]]);
+    const { readers } = readersOver({ [DIRECTORY]: createMemoryReader([list]) });
+
+    const sent = await run(signerWith(), readers);
+    expect(sent).toEqual(["wss://example.com", "wss://[2002:808:808::1]"]);
+    const again = relayList(sent.map((url) => [url]));
+    const { readers: second } = readersOver({ [DIRECTORY]: createMemoryReader([again]) });
+    expect(await run(signerWith(), second)).toEqual(sent);
   });
 
   it("drops the address and the query a relay entry carries", async () => {

@@ -75,6 +75,10 @@ describe("config", () => {
     expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
   });
 
+  it("looks for a person's relay list on Purplepages, and nowhere else but the review relays", () => {
+    expect(config.relayListRelays).toEqual(["wss://purplepag.es"]);
+  });
+
   it("counts a reviewer from rank 5 (decision 18), and orders lists with 1.5 votes of 3.5 stars", () => {
     expect(config.scoring).toEqual({ line: 5, priorWeight: 1.5, priorMean: 3.5 });
   });
