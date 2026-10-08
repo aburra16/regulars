@@ -5,8 +5,8 @@ import { config } from "../config.ts";
  * protocol vocabulary anywhere in it (nostr, relay, key, sign ...), and in the kind
  * labels in src/data/kinds.json. These two strings are the only exceptions, and only as
  * the entire text of copy.signin.continueButton and copy.place.bitcoinChip.
- * "Sign in" is the app's word for authenticating; "signed in" and "signed out" are
- * not allowed, so write "after you sign in".
+ * "Sign in" and "Sign out" are the app's words for starting and ending a session, and "signed in"
+ * and "signed out" may be said of the person (the M2b plan's ruling R7). No other "sign".
  */
 export const ALLOWED_PROTOCOL_STRINGS = {
   signInButton: "Continue with Nostr",
@@ -119,8 +119,14 @@ export const copy = {
     map: "Map",
     saved: "Saved",
     you: "You",
-    /** The round account button, for a screen reader. */
+    /** The round account button, for a screen reader, before sign in. */
     account: "Your account and your circle",
+    // DRAFT for Avi
+    /** The account button after sign in, for a screen reader: "Sofia, your account". */
+    accountOf: (name: string) => `${name}, your account`,
+    // DRAFT for Avi
+    /** The account button after sign in, until the person's name is known. */
+    yourAccount: "Your account",
     // DRAFT for Avi
     /** The moon and sun beside it, for a screen reader (pressed while the page is dark), and the words of its switch on You. */
     darkMode: "Dark mode",
@@ -195,6 +201,12 @@ export const copy = {
     circle: "My circle",
     /** A half of the toggle with its score, on the place page: "House picks · 4.5". */
     withScore: (view: string, score: string) => `${view} · ${score}`,
+    // DRAFT for Avi
+    /**
+     * The My circle half while the person's circle cannot be had yet, after they sign in: off, and
+     * saying so (the brief's screen 11; Tuning.dc.html).
+     */
+    circleSoon: "My circle · soon",
   },
   score: {
     /** On a card with no score, under the hours, when nobody has reviewed the place (SCREENS.md, wording patterns). */
@@ -357,15 +369,53 @@ export const copy = {
     // DRAFT for Avi
     /** The numbered list of steps, for a screen reader. */
     stepsLabel: "The three steps",
+    // DRAFT for Avi: from here to `cancel`, what Continue opens.
+    /** The choice Continue opens, for a screen reader. */
+    chooseLabel: "How to sign in",
+    /** Sign in with the add-on in this browser. Offered only where the browser has one. */
+    browser: "This browser",
+    /** Sign in with an app on the person's phone. */
+    phone: "An app on your phone",
+    /** In place of "This browser", where the browser has no add-on to sign in with. */
+    noAddOn: "To sign in with this browser, add a sign-in add-on to it, then reload this page.",
+    /** While the browser's add-on asks the person. */
+    browserWaiting: `Your browser add-on will ask you to allow ${config.appName}.`,
+    /** Over the code to scan. */
+    scan: "Scan this with the app, or copy the link",
+    /** The code to scan, for a screen reader. */
+    qrLabel: "Code to scan with the app on your phone",
+    copyLink: "Copy the link",
+    /** On a phone, beside the code: opens the app on the same phone with the link. */
+    openApp: "Open the app",
+    /** Said once the link is copied. */
+    copied: "Link copied",
+    /** Said when the browser would not copy it. */
+    notCopied: "The link didn't copy. Scan the code, or paste a link from your app.",
+    /** The field for a link the phone app gives, to paste here. */
+    paste: "Paste a link from your app",
+    /** The button that connects with the pasted link. */
+    connect: "Connect",
+    /** While it connects with the pasted link. */
+    connecting: "Connecting…",
+    /** The phone app or the add-on did not answer in time, said no, or stopped half-way (Review Focus 3). */
+    failed: "That didn't connect. Try again.",
+    tryAgain: "Try again",
+    /** Stops waiting and goes back to the choice. */
+    cancel: "Cancel",
   },
-  /** The pages that need a person, before sign in opens (Saved and You). The design draws neither signed out. */
+  /** The pages that need a person (Saved and You). The design draws neither signed out. */
   saved: {
     // DRAFT for Avi
     signedOut: "Sign in to save places and make lists you can share.",
+    // DRAFT for Avi
+    /** Saved after sign in, before saving opens. */
+    soon: "Saving places and lists opens soon.",
   },
   you: {
     // DRAFT for Avi
     signedOut: "Sign in to see your reviews and the people you trust.",
+    // DRAFT for Avi
+    signOut: "Sign out",
   },
   /** About and data (About.dc.html). */
   about: {

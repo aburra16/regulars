@@ -28,10 +28,10 @@ const BANNED: ReadonlyArray<{ word: string; pattern: RegExp }> = [
   { word: "kind number", pattern: /\bkind\s*\d+\b|\b3\d{4}\b/i },
 ];
 
-// "sign in" is the app's own word for authenticating, so these phrases are
-// scrubbed before "sign" is checked. "signed in" and "signed out" are NOT
-// permitted: copy says "after you sign in", never "signed in".
-const PERMITTED_PHRASES = /\b(?:sign[ -]in|signing in)\b/gi;
+// "sign in" and "sign out" are the app's own words for starting and ending a session, so these
+// phrases are scrubbed before "sign" is checked: "sign in", "signing in", "sign out", "signed in" and
+// "signed out" (the M2b plan's ruling R7). Any other "sign" is still caught.
+const PERMITTED_PHRASES = /\b(?:sign[ -]in|signing in|sign[ -]out|signed (?:in|out))\b/gi;
 
 function bannedWordsIn(text: string): string[] {
   const scrubbed = text.replace(PERMITTED_PHRASES, " ");
@@ -187,10 +187,11 @@ describe("copy", () => {
     ["Keys", "key"],
     ["Web  of   Trust", "web of trust"],
     ["Sign the guestbook", "sign"],
-    ["You are signed in", "sign"],
     ["Unsigned", "sign"],
     ["Signs of life", "sign"],
     ["Signing up", "sign"],
+    ["Signing out", "sign"],
+    ["Signed up", "sign"],
     ["Your signature", "signature"],
     ["Someone to follow", "follow"],
     ["She follows you", "follow"],
@@ -217,6 +218,9 @@ describe("copy", () => {
     "Signing in works like this",
     "Signing in to Regulars",
     "Sign in to see your circle",
+    "Sign out",
+    "You are signed in",
+    "Signed out of Regulars",
     "Open until 10 pm",
     "Opens at 9:30",
     "7,954 places",

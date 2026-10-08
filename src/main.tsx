@@ -27,6 +27,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
+import { AccountProvider } from "./account/AccountProvider.tsx";
 import { HereProvider } from "./location/HereProvider.tsx";
 import { PlacesProvider } from "./places/store.tsx";
 import { routes } from "./routes.tsx";
@@ -45,15 +46,18 @@ followDevice();
 const router = createBrowserRouter(routes);
 
 // The places load once for the whole app; the reviews, ranks and names of the places that pages ask
-// about are read once a session (nothing until a page asks); where the places are near is named from
-// their towns; the pages, and the shell around them, come from the router.
+// about are read once a session (nothing until a page asks); who is signed in is restored from what
+// this tab kept; where the places are near is named from their towns; the pages, and the shell around
+// them, come from the router.
 createRoot(root).render(
   <StrictMode>
     <PlacesProvider>
       <ScoresProvider>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <AccountProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </AccountProvider>
       </ScoresProvider>
     </PlacesProvider>
   </StrictMode>,

@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { useAccount } from "../account/AccountProvider.tsx";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { useView, type View } from "../view/ViewProvider.tsx";
@@ -33,10 +34,12 @@ export interface ViewToggleProps {
   /** Each view's score for one place; a half shows its score when it has one: "House picks · 4.5". */
   scores?: { house?: number; circle?: number };
   variant?: ViewToggleVariant;
+  /** My circle cannot be had yet: its half is off and says so, "My circle · soon" (the brief's screen 11). */
+  circleSoon?: boolean;
 }
 
 /** The House picks / My circle toggle: two buttons, the chosen one pressed. It tells its parent what was tapped. */
-export function ViewToggle({ value, onChange, scores, variant = "bar" }: ViewToggleProps): JSX.Element {
+export function ViewToggle({ value, onChange, scores, variant = "bar", circleSoon = false }: ViewToggleProps): JSX.Element {
   const look = LOOK[variant];
   const halves = [
     { view: "house", label: copy.view.house, score: scores?.house },
@@ -46,19 +49,25 @@ export function ViewToggle({ value, onChange, scores, variant = "bar" }: ViewTog
     <div role="group" aria-label={copy.view.label} className={`flex gap-1 p-1 ${look.group}`}>
       {halves.map(({ view, label, score }) => {
         const chosen = view === value;
+        const soon = view === "circle" && circleSoon && !chosen;
         return (
           <button
             key={view}
             type="button"
             aria-pressed={chosen}
+            disabled={soon}
             onClick={() => {
               if (!chosen) onChange(view);
             }}
-            className={`cursor-pointer border-0 font-text font-bold ${look.button} ${
-              chosen ? "bg-emphasis text-on-emphasis" : "bg-transparent text-ink"
+            className={`border-0 font-text font-bold ${look.button} ${
+              chosen
+                ? "cursor-pointer bg-emphasis text-on-emphasis"
+                : soon
+                  ? "cursor-not-allowed bg-transparent text-muted"
+                  : "cursor-pointer bg-transparent text-ink"
             }`}
           >
-            {score === undefined ? label : copy.view.withScore(label, copy.score.value(score))}
+            {soon ? copy.view.circleSoon : score === undefined ? label : copy.view.withScore(label, copy.score.value(score))}
           </button>
         );
       })}
@@ -67,20 +76,23 @@ export function ViewToggle({ value, onChange, scores, variant = "bar" }: ViewTog
 }
 
 /**
- * The toggle for the app's own view (`useView`). Before sign in opens, My circle has nothing to
- * show: tapping it goes to the sign-in page, which can come back to where the person was, and the
- * view stays House picks.
+ * The toggle for the app's own view (`useView`). Until My circle opens (`config.features.circle`),
+ * it has nothing to show, and the view stays House picks: tapping it goes to the sign-in page for a
+ * person who has not signed in, which can come back to where they were, as signing in comes first;
+ * after sign in, its half is off and reads "soon".
  */
-export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange">): JSX.Element {
+export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "circleSoon">): JSX.Element {
   const { view, setView } = useView();
+  const { account } = useAccount();
   const navigate = useNavigate();
   const location = useLocation();
+  const open = config.features.circle;
   const choose = (next: View) => {
-    if (next === "circle" && !config.features.signIn) {
-      void navigate("/signin", { state: { from: location } });
+    if (next === "circle" && !open) {
+      if (account === undefined) void navigate("/signin", { state: { from: location } });
       return;
     }
     setView(next);
   };
-  return <ViewToggle {...props} value={view} onChange={choose} />;
+  return <ViewToggle {...props} value={view} onChange={choose} circleSoon={!open && account !== undefined} />;
 }

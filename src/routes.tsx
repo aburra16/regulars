@@ -13,7 +13,7 @@ import { NotFound, PageError } from "./shell/PageError.tsx";
 import { type Chrome, Shell } from "./shell/Shell.tsx";
 import { useWide } from "./shell/useWide.ts";
 import { SignInPage } from "./signin/SignInPage.tsx";
-import { SignedOutPrompt } from "./you/SignedOutPrompt.tsx";
+import { SavedPage, YouPage } from "./you/YouPage.tsx";
 
 const chrome = (value: Chrome): Chrome => value;
 
@@ -47,9 +47,9 @@ export const routes: RouteObject[] = [
           // The words are there at once; the figures come when the places do.
           { path: "about", element: <AboutPage />, handle: chrome({ needsPlaces: false }) },
           { path: "signin", element: <SignInPage />, handle: chrome({ topBar: false, needsPlaces: false }) },
-          // Both ask the person to sign in, in M1.
-          { path: "saved", element: <SignedOutPrompt page="saved" />, handle: chrome({ tabs: true, needsPlaces: false }) },
-          { path: "you", element: <SignedOutPrompt page="you" />, handle: chrome({ tabs: true, needsPlaces: false }) },
+          // Both ask the person to sign in, until they have.
+          { path: "saved", element: <SavedPage />, handle: chrome({ tabs: true, needsPlaces: false }) },
+          { path: "you", element: <YouPage />, handle: chrome({ tabs: true, needsPlaces: false }) },
           { path: "*", element: <NotFound />, handle: chrome({ needsPlaces: false }) },
         ],
       },

@@ -1,30 +1,37 @@
-import { type JSX, type ReactNode, type RefObject, useCallback, useEffect, useId, useMemo, useRef } from "react";
+import { type JSX, type ReactNode, type RefObject, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, type To, useLocation, useNavigate } from "react-router-dom";
 
 import { aboutAt, SIGNING_IN } from "../about/anchors.ts";
+import { useAccount } from "../account/AccountProvider.tsx";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useWide } from "../shell/useWide.ts";
 import { CloseIcon } from "../ui/icons.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
+import type { ChooseHow as ChooseHowPanel, Tone } from "./ChooseHow.tsx";
+import { loadChooseHow } from "./loadChooseHow.ts";
 import { cameFrom } from "./returnTo.ts";
 
 /**
- * How the page is left, by "Keep House picks", the cross and Escape: back to the page the person was
- * on, which is one step back in the history when they came from one in the app, so the page is as
- * they left it, with its scroll position, and the history has no sign-in page in it. Where the history
- * has nothing behind this page (a reload, a link opened in a new tab) the page they came from replaces
- * this one, or Explore does when there is none. `to` is where that goes, for the links.
+ * How the page is left, by "Keep House picks", the cross and Escape, and once the person is signed
+ * in: back to the page the person was on, which is one step back in the history when they came from
+ * one in the app, so the page is as they left it, with its scroll position, and the history has no
+ * sign-in page in it. Where the history has nothing behind this page (a reload, a link opened in a
+ * new tab) the page they came from replaces this one, or `fallback` does when there is none: Explore
+ * for a person who leaves, You for one who has signed in. `to` is where the links go.
  */
-function useLeave(): { to: To; leave(): void } {
+function useLeave(): { to: To; leave(fallback?: To): void } {
   const navigate = useNavigate();
   const { key, state } = useLocation();
   const from = useMemo(() => cameFrom(state), [state]);
-  const leave = useCallback(() => {
-    if (from !== undefined && key !== "default") void navigate(-1);
-    else void navigate(from ?? "/", { replace: true });
-  }, [navigate, from, key]);
+  const leave = useCallback(
+    (fallback: To = "/") => {
+      if (from !== undefined && key !== "default") void navigate(-1);
+      else void navigate(from ?? fallback, { replace: true });
+    },
+    [navigate, from, key],
+  );
   return { to: from ?? "/", leave };
 }
 
@@ -52,23 +59,78 @@ function Steps({ tone, gap, textClass = "" }: { tone: "night" | "card"; gap: str
   );
 }
 
+/** The look of Continue's button, and of the button in its place. */
+const BUTTON =
+  "flex cursor-pointer items-center justify-center rounded-[18px] border-0 font-text font-bold aria-disabled:cursor-not-allowed aria-disabled:opacity-60";
+
 /**
- * "Continue with Nostr". Signing in is not open in M1 (`config.features.signIn`): the button is off,
- * and says why under it, which the button names as its description. It is off with `aria-disabled`
- * and not `disabled`, so that it stays where the keyboard goes and a screen reader reads its note.
+ * What Continue opens could not be fetched: said as an alert, with Try again, which has the focus and
+ * fetches it afresh. The page stays, with its way back.
  */
-function Continue({ buttonClass, noteClass }: { buttonClass: string; noteClass: string }): JSX.Element {
+function NotFetched({ buttonClass, textClass, onRetry }: { buttonClass: string; textClass: string; onRetry(): void }): JSX.Element {
+  const retry = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    retry.current?.focus({ preventScroll: true });
+  }, []);
+  return (
+    <>
+      <p role="alert" className={`m-0 text-center text-body font-semibold leading-[1.45] ${textClass}`}>
+        {copy.signin.failed}
+      </p>
+      <button ref={retry} type="button" onClick={onRetry} className={`${BUTTON} ${buttonClass}`}>
+        {copy.signin.tryAgain}
+      </button>
+    </>
+  );
+}
+
+/** Where Continue is: its button, what it opens (fetched, being fetched, or not fetched). */
+type Opened = { at: "button" } | { at: "fetching" } | { at: "open"; Panel: typeof ChooseHowPanel } | { at: "not fetched" };
+
+/**
+ * "Continue with Nostr", which opens the choice of how to sign in in its place (./ChooseHow.tsx).
+ * A person signed in, or about to be (a session this tab kept being restored), has nothing to
+ * continue to, and does not see it: the page takes them back. While signing in is not open
+ * (`config.features.signIn`), the button is off, and says why under it, which the button names as its
+ * description. It is off with `aria-disabled` and not `disabled`, so that it stays where the keyboard
+ * goes and a screen reader reads its note.
+ */
+function Continue({
+  tone,
+  buttonClass,
+  noteClass,
+  textClass,
+}: {
+  tone: Tone;
+  buttonClass: string;
+  noteClass: string;
+  textClass: string;
+}): JSX.Element | null {
   const noteId = useId();
   const open = config.features.signIn;
+  const { account, restoring } = useAccount();
+  const [opened, setOpened] = useState<Opened>({ at: "button" });
+  const choose = () => {
+    setOpened({ at: "fetching" });
+    loadChooseHow().then(
+      ({ ChooseHow }) => setOpened({ at: "open", Panel: ChooseHow }),
+      () => setOpened({ at: "not fetched" }),
+    );
+  };
+
+  if (account !== undefined || restoring) return null;
+  if (opened.at === "open") return <opened.Panel tone={tone} />;
+  if (opened.at === "fetching") return null;
+  if (opened.at === "not fetched") return <NotFetched buttonClass={buttonClass} textClass={textClass} onRetry={choose} />;
   return (
     <>
       <button
         type="button"
         aria-disabled={open ? undefined : true}
         aria-describedby={open ? undefined : noteId}
-        // While it is off it does nothing. When signing in opens (M2), this starts it.
-        onClick={open ? undefined : (event) => event.preventDefault()}
-        className={`flex cursor-pointer items-center justify-center rounded-[18px] border-0 font-text font-bold aria-disabled:cursor-not-allowed aria-disabled:opacity-60 ${buttonClass}`}
+        // While it is off it does nothing.
+        onClick={open ? choose : (event) => event.preventDefault()}
+        className={`${BUTTON} ${buttonClass}`}
       >
         {copy.signin.continueButton}
       </button>
@@ -145,7 +207,7 @@ function PhoneSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
         <Steps tone="night" gap="gap-[18px]" />
       </section>
       <section className="mt-auto flex flex-col gap-3 px-6 pt-3 pb-7">
-        <Continue buttonClass="h-14 bg-ground text-[17px] text-ink" noteClass="text-line-dashed" />
+        <Continue tone="night" buttonClass="h-14 bg-ground text-[17px] text-ink" noteClass="text-line-dashed" textClass="text-ground" />
         <LeaveLink
           to={to}
           leave={leave}
@@ -192,7 +254,7 @@ function DeskSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
         <section className="flex min-w-0 flex-[1_1_380px] flex-col gap-[22px] rounded-dialog bg-ground p-7 text-ink">
           <Steps tone="card" gap="gap-4" textClass="pt-1" />
           <div className="flex flex-col gap-2.5">
-            <Continue buttonClass="h-14 bg-accent-solid text-[17px] text-on-accent" noteClass="text-muted" />
+            <Continue tone="card" buttonClass="h-14 bg-accent-solid text-[17px] text-on-accent" noteClass="text-muted" textClass="text-ink" />
             <LeaveLink
               to={to}
               leave={leave}
@@ -220,20 +282,37 @@ function DeskSignIn({ to, leave, headlineRef }: LayoutProps): JSX.Element {
  * The sign-in page (screens 10 and D6), at `/signin`: a dark page of its own, with no top bar or tabs.
  * It is the same in both themes: each layout keeps the light theme's colours (`data-theme="light"`),
  * which on its dark ground are the ones it was drawn in.
- * Before signing in opens (`config.features.signIn`) it is a display: Continue is off and says so, and
- * Keep House picks, the cross and Escape take the person back to where they were. "Sign in" links
- * across the app lead here, each with the page they were on in `state.from`.
+ * Continue opens the choice of how to sign in; once the person is signed in, as when they Keep House
+ * picks, close it or press Escape, they go back to where they were (or, signed in, to You when the
+ * page does not know). A person already signed in is taken back at once. "Sign in" links across the
+ * app lead here, each with the page they were on in `state.from`. Before signing in opens
+ * (`config.features.signIn`) it is a display: Continue is off and says so.
  */
 export function SignInPage(): JSX.Element {
   useDocumentTitle(copy.titles.signin);
   const wide = useWide();
   const { to, leave } = useLeave();
+  const { account } = useAccount();
   const headlineRef = useRef<HTMLHeadingElement>(null);
+  const left = useRef(false);
 
   // The page opens at its headline: a screen reader reads the page from there, and the keyboard starts above the buttons.
   useEffect(() => {
     headlineRef.current?.focus({ preventScroll: true });
   }, []);
+
+  // What Continue opens is fetched now. If it cannot be, Continue tries again.
+  useEffect(() => {
+    if (config.features.signIn) loadChooseHow().catch(() => {});
+  }, []);
+
+  // Once the person is signed in, here or before they came, the page takes them back where they were,
+  // or to You. Once: the effect may run again before the page is gone.
+  useEffect(() => {
+    if (account === undefined || left.current) return;
+    left.current = true;
+    leave("/you");
+  }, [account, leave]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

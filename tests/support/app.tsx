@@ -1,8 +1,9 @@
-import type { NostrEvent } from "@nostrify/nostrify";
+import type { NostrEvent, NRelay } from "@nostrify/nostrify";
 import { render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, type InitialEntry, RouterProvider } from "react-router-dom";
 import { expect } from "vitest";
 
+import { AccountProvider } from "../../src/account/AccountProvider";
 import { copy } from "../../src/copy/en";
 import { HereProvider } from "../../src/location/HereProvider";
 import type { RelayReader } from "../../src/nostr/events";
@@ -52,22 +53,30 @@ export interface OpenOptions {
    * the app's own, as main.tsx has it; tests open no socket (tests/setup.ts), so pass readers to read.
    */
   readers?: (url: string) => RelayReader;
+  /**
+   * The NIP-46 meeting point at each address, for signing in with an app on a phone. Default: the
+   * app's own, which opens a socket (tests/setup.ts forbids it), so pass one to connect.
+   */
+  relays?: (url: string) => NRelay;
 }
 
 /**
- * The app at `path`, with the places read from `events`, and its providers as main.tsx has them. It
- * resolves once the page is past the "Finding places" line, which a page that needs no places never shows.
+ * The app at `path`, with the places read from `events`, and its providers as main.tsx has them: the
+ * person is signed in if `sessionStorage` says so. It resolves once the page is past the "Finding
+ * places" line, which a page that needs no places never shows.
  */
-export async function openApp(path: string, { px = PHONE, events, entries, delayMs, readers }: OpenOptions) {
+export async function openApp(path: string, { px = PHONE, events, entries, delayMs, readers, relays }: OpenOptions) {
   setWidth(px);
   const initialEntries = entries ?? [path];
   const router = createMemoryRouter(routes, { initialEntries, initialIndex: initialEntries.length - 1 });
   const view = render(
     <PlacesProvider reader={createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
       <ScoresProvider readers={readers}>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <AccountProvider relays={relays}>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </AccountProvider>
       </ScoresProvider>
     </PlacesProvider>,
   );
@@ -93,9 +102,11 @@ export async function openAppWithSaved(path: string, saved: NostrEvent[], latest
     <PlacesProvider reader={createMemoryReader(latest, { delayMs: 200 })}>
       <Probe />
       <ScoresProvider>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <AccountProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </AccountProvider>
       </ScoresProvider>
     </PlacesProvider>,
   );

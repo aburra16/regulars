@@ -152,7 +152,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   Reflect.deleteProperty(window, "matchMedia");
-  config.features.signIn = false;
+  // Signing in is open in production; a test that turns it off turns it on again.
+  config.features.signIn = true;
 });
 
 // ---- The header ----
@@ -269,7 +270,7 @@ describe("the place page: the score panel, before anyone has reviewed it", () =>
 
   it("goes to sign in from Rate this place while sign in is off, and can come back", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    expect(config.features.signIn).toBe(false);
+    config.features.signIn = false;
     const { router } = await openPlace(`/place/${JACAFE.d}`);
     const rate = link("Rate this place");
     expect(rate).toHaveAttribute("href", "/signin");

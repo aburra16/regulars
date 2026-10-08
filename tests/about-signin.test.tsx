@@ -54,7 +54,7 @@ afterEach(() => {
   Reflect.deleteProperty(Element.prototype, "scrollIntoView");
   vi.restoreAllMocks();
   resetWidth();
-  config.features.signIn = false;
+  config.features.signIn = true;
 });
 
 // ---- About ----
@@ -353,8 +353,8 @@ describe("the sign-in page on a phone", () => {
   });
 
   it("has Continue off, with why under it, while signing in is not open", async () => {
+    config.features.signIn = false;
     await openApp("/signin", { events: fixtures });
-    expect(config.features.signIn).toBe(false);
     const button = screen.getByRole("button", { name: copy.signin.continueButton });
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAccessibleDescription(copy.signin.comingSoon);
@@ -365,6 +365,7 @@ describe("the sign-in page on a phone", () => {
   });
 
   it("keeps Continue in the keyboard's reach while it is off, so its note can be read, and it does nothing", async () => {
+    config.features.signIn = false;
     const user = userEvent.setup();
     const { router } = await openApp("/signin", { events: fixtures, entries: ["/", signinFrom("/about")] });
     const button = screen.getByRole("button", { name: copy.signin.continueButton });
@@ -378,7 +379,7 @@ describe("the sign-in page on a phone", () => {
   });
 
   it("has Continue on, with no note, once signing in is open", async () => {
-    config.features.signIn = true;
+    expect(config.features.signIn).toBe(true);
     await openApp("/signin", { events: fixtures });
     const button = screen.getByRole("button", { name: copy.signin.continueButton });
     expect(button).not.toHaveAttribute("aria-disabled");
@@ -423,6 +424,7 @@ describe("the sign-in page on a phone", () => {
 
 describe("the sign-in page on a desktop", () => {
   it("is the headline on the left and the steps and buttons in a white card on the right, with no top bar", async () => {
+    config.features.signIn = false;
     await openApp("/signin", { events: fixtures, px: DESKTOP });
     expect(banner()).not.toBeInTheDocument();
     expect(heading()).toHaveTextContent(copy.signin.headline);
