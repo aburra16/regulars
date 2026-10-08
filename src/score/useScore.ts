@@ -143,7 +143,7 @@ export function useNames(pubkeys: readonly string[]): Map<string, string> {
  */
 export function useOwnPicture(pubkey: string): string | undefined {
   const store = useScoresStore("useOwnPicture");
-  useEffect(() => store.wantNames([pubkey]), [store, pubkey]);
+  useEffect(() => store.wantOwnPicture(pubkey), [store, pubkey]);
   return useSyncExternalStore(store.subscribe, () => store.pictureOf(pubkey));
 }
 

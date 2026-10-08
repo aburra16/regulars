@@ -87,23 +87,6 @@ function fieldsIn(content: string): Record<string, unknown> | undefined {
 /** The name in a profile's fields: its `display_name`, else its `name` (NIP-24), each taken only if it can be shown. */
 const nameOf = (fields: Record<string, unknown>) => shownName(fields.display_name) ?? shownName(fields.name);
 
-/**
- * The name a profile's `content` gives: its `display_name`, else its `name` (NIP-24), each taken
- * only if it can be shown. Undefined when the content is not a JSON object, or neither name can.
- */
-export function nameIn(content: string): string | undefined {
-  const fields = fieldsIn(content);
-  return fields === undefined ? undefined : nameOf(fields);
-}
-
-/**
- * The picture a profile's `content` gives (its `picture`, NIP-01), if it may be loaded
- * (`shownPicture`). Undefined when the content is not a JSON object, or it gives none that may.
- */
-export function pictureIn(content: string): string | undefined {
-  return shownPicture(fieldsIn(content)?.picture);
-}
-
 /** What a person's profile gives: a name to show, and a picture that may be loaded; each only if it does. */
 export interface Profile {
   name?: string;

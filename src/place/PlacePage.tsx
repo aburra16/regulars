@@ -53,7 +53,10 @@ function OutLink({ href, className, children }: { href: string; className: strin
   );
 }
 
-/** The bookmark at the top right of a phone's page. Saving needs sign in, which can come back here. */
+/**
+ * The bookmark at the top right of a phone's page, once saved lists open (`config.features.saved`).
+ * Saving needs sign in, which can come back here.
+ */
 function SaveLink(): JSX.Element {
   const location = useLocation();
   return (
@@ -340,7 +343,7 @@ function PhonePlace({ view }: { view: View }): JSX.Element {
     <div className="flex flex-1 flex-col">
       <div className="flex items-center justify-between px-3 pt-3.5">
         <BackLink wide={false} />
-        <SaveLink />
+        {config.features.saved && <SaveLink />}
       </div>
       <PhoneHeader {...view} />
       <div className="px-gutter-phone pt-[18px]">

@@ -1,6 +1,7 @@
 import type { JSX, ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 
+import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import type { Place } from "../places/place.ts";
 import { NewTabHint, Unseen } from "../ui/NewTab.tsx";
@@ -184,7 +185,8 @@ const railButton =
 
 /**
  * The desktop's actions, in the rail (DeskPlace.dc.html): Go, Call and Site, those the place has,
- * and Save, which asks the person to sign in first. As many to a row as fit.
+ * and Save, which asks the person to sign in first, once saved lists open (`config.features.saved`).
+ * As many to a row as fit.
  */
 export function RailActions({ actions }: { actions: PlaceActions }): JSX.Element {
   const location = useLocation();
@@ -193,9 +195,11 @@ export function RailActions({ actions }: { actions: PlaceActions }): JSX.Element
       {actionList(actions, false).map((action) => (
         <ActionLink key={action.kind} action={action} icon={false} className={railButton} />
       ))}
-      <Link to="/signin" state={{ from: location }} className={railButton}>
-        {copy.place.saveShort}
-      </Link>
+      {config.features.saved && (
+        <Link to="/signin" state={{ from: location }} className={railButton}>
+          {copy.place.saveShort}
+        </Link>
+      )}
     </div>
   );
 }

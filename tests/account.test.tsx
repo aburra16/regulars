@@ -19,6 +19,7 @@ import { DESKTOP, openApp, PHONE, resetWidth } from "./support/app";
 import { createSignerApp, MemoryConnectRelay } from "./support/connectRelay";
 import { shapedEvent } from "./support/events";
 import { createMemoryReader } from "./support/memoryReader";
+import { newWorld, PLACE_PATH, rankOf, readersOf, reviewBy, SEARCH } from "./support/reviewWorld";
 
 const fixtures: NostrEvent[] = raw;
 
@@ -1320,6 +1321,31 @@ describe("signed in", () => {
     }
   });
 
+  it("draws no reviewer's picture, only the person's own, on a page that lists reviewers", async () => {
+    const pubkey = signedInWithBrowser();
+    const own = "https://img.example.test/sofia.jpg";
+    const reviewer = getPublicKey(generateSecretKey());
+    const theirs = "https://img.example.test/maya.jpg";
+    config.reviewRelays = [SEARCH];
+    const world = newWorld();
+    world.ranks.push(rankOf(reviewer, 80));
+    world.search.push(
+      reviewBy(reviewer, 5, "Get the bolo"),
+      profileWith(reviewer, { name: "Maya", picture: theirs }),
+      profileWith(pubkey, { name: "Sofia", picture: own }),
+    );
+    await openApp(PLACE_PATH, { events: fixtures, px: DESKTOP, readers: readersOf(world) });
+
+    // Maya's review and her name are on the page, read from the profile that has her picture.
+    expect(await screen.findByText("Get the bolo")).toBeInTheDocument();
+    expect(await screen.findByText("Maya")).toBeInTheDocument();
+    const button = await within(screen.getByRole("banner")).findByRole("link", { name: "Sofia, your account" });
+    expect(pictureIn(button)).toHaveAttribute("src", own);
+    // The one picture on the page is the person's own: no image of any other, and no address of theirs anywhere.
+    expect([...document.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual([own]);
+    expect(document.documentElement.innerHTML).not.toContain(theirs);
+  });
+
   it("shows the initial in place of a picture that will not load, and does not ask for it again", async () => {
     const pubkey = signedInWithBrowser();
     const picture = "https://img.example.test/gone.jpg";
@@ -1337,6 +1363,25 @@ describe("signed in", () => {
     expect(again).not.toBe(button);
     expect(again).toHaveTextContent(/^S$/);
     expect(document.querySelector(`img[src="${picture}"]`)).toBeNull();
+  });
+
+  // The two tests that follow are a pair: the first leaves a picture that will not load and Saved
+  // open, and the second starts, as every test does (tests/setup.ts), without them.
+  it("(setup, first) leaves a picture that would not load, and Saved shown", async () => {
+    const pubkey = signedInWithBrowser();
+    config.features.saved = true;
+    await openApp("/", { events: fixtures, readers: readersWith([profileWith(pubkey, { name: "Sofia", picture: "https://img.example.test/gone.jpg" })]) });
+    const button = await within(screen.getByRole("banner")).findByRole("link", { name: "Sofia, your account" });
+    fireEvent.error(pictureIn(button)!);
+    expect(button).toHaveTextContent(/^S$/);
+  });
+
+  it("(setup, second) starts with that picture asked for again, and Saved out", async () => {
+    const pubkey = signedInWithBrowser();
+    expect(config.features.saved).toBe(false);
+    await openApp("/", { events: fixtures, readers: readersWith([profileWith(pubkey, { name: "Sofia", picture: "https://img.example.test/gone.jpg" })]) });
+    const button = await within(screen.getByRole("banner")).findByRole("link", { name: "Sofia, your account" });
+    expect(pictureIn(button)).toHaveAttribute("src", "https://img.example.test/gone.jpg");
   });
 
   it("shows the initial when the profile's picture is not at an https address", async () => {

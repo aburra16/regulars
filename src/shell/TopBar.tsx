@@ -13,6 +13,7 @@ import { ThemeToggle } from "../theme/ThemeToggle.tsx";
 import { PersonIcon, SearchIcon } from "../ui/icons.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
+import { isUnloadablePicture, noteUnloadablePicture } from "./unloadablePictures.ts";
 
 type AccountSize = "phone" | "desktop";
 
@@ -69,12 +70,6 @@ export function AccountSignInLines({ signIn, className = "" }: { signIn: Account
 }
 
 /**
- * The pictures that would not load this session, by address. Each is asked for once: after that the
- * initial stands in its place, wherever the button is drawn again (a phone draws it on Explore only).
- */
-const unloadable = new Set<string>();
-
-/**
  * The account button of the person signed in as `pubkey`, which goes to the You page: the picture
  * in their profile, filling the circle, else the first letter of their name, as the design draws it
  * (DeskExplore.dc.html, Tuning.dc.html), named "Sofia, your account" for a screen reader. Until the
@@ -86,7 +81,7 @@ function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: 
   const { name, picture } = useOwnProfile(pubkey);
   // The picture that has just failed: setting it draws the button again, with the initial.
   const [, setFailed] = useState<string>();
-  const shown = picture !== undefined && !unloadable.has(picture) ? picture : undefined;
+  const shown = picture !== undefined && !isUnloadablePicture(picture) ? picture : undefined;
   const button = useRef<HTMLAnchorElement>(null);
   useEffect(() => {
     if (!focusNext.current) return;
@@ -97,10 +92,11 @@ function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: 
     <NavLink ref={button} to="/you" end aria-label={name === undefined ? copy.nav.yourAccount : copy.nav.accountOf(name)} className={ROUND}>
       <Disc size={size}>
         {shown !== undefined ? (
-          // Privacy: the person's own picture only; no one else's is ever loaded. It comes from the
-          // image host their own profile names, which sees no more than that they opened Regulars:
-          // with no referrer, not even which page. Its ground shows while it loads, and the ring
-          // keeps the edge of a light or a dark picture in either theme.
+          // Privacy: the person's own picture only; no one else's is ever loaded, and its address
+          // comes only from their own signed profile. The image host that address names sees their
+          // IP address, their browser, and when they open Regulars; with no referrer, not which page.
+          // Its ground shows while it loads, and the ring keeps the edge of a light or a dark
+          // picture in either theme.
           <img
             src={shown}
             alt=""
@@ -108,7 +104,7 @@ function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: 
             loading="lazy"
             decoding="async"
             onError={() => {
-              unloadable.add(shown);
+              noteUnloadablePicture(shown);
               setFailed(shown);
             }}
             className="size-full rounded-full bg-surface object-cover ring-1 ring-line"
