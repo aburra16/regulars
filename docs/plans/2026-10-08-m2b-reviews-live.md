@@ -279,3 +279,87 @@
 - [ ] **Scoring.** If Avi's rank from the house scorer is 5 or more, the place shows a House picks score; otherwise the review is listed, folded.
 - [ ] **Removal.** Removing it makes a plain read return nothing.
 - [ ] **No test data** goes to any public relay at any point.
+
+---
+
+## Build record (2026-10-08)
+
+Tasks 1–7 were built and reviewed task by task, then the whole branch was reviewed and had one fix wave. Verdict: ready to merge. `npm test` runs 2,366 tests. The production build reaches only the allowed hosts. Task 8 (the live check with Avi) follows the merge.
+
+### Rulings made during the build
+
+**Store and reading**
+- **R1.** The store exposes `noteOwnReview` and `noteRemoval` for posting and removal.
+- **R2.** Every relay reader stays behind a dynamic import, so Nostrify stays out of the entry chunk. A build-based test guards this.
+- **R3.** Read extras (`include:spam`) are merged per relay. `Review` carries its own `d`. One voice per reviewer per place, across filings.
+- **R4.** A place has no score while any of its reviewers' ranks is still being read, so nobody is shown as "outside" before we know. Scores keep their identity when nothing changed. Reads by `#a` and `#d`. A 50 ms request window. Names lose only the characters that can reorder text; joiners stay.
+
+**Order of work**
+- **R5.** Order of work: Task 5 first, then Tasks 3 and 4 in parallel, after dark mode merged (R8).
+
+**Where reviews go**
+- **R6.** purplepag.es is read for a person's relay list when they post. config.reviewRelays is trusted. Strict filtering of private hosts.
+- **R7.** The trailing-dot bypass is closed. The address checks run on the final address. `config.relayListRelays`.
+
+**Scores on screen**
+- **R9 and R10.**
+  - **Read state:** each place's read state is shown honestly: nothing while reading, a quiet line on failure, Try again.
+  - **Sort:** the House picks sort puts scored places first, then the rest by distance.
+  - **Cards:** memoised.
+  - **Reads:** at most 2 batches in flight per relay.
+
+**Sign-in**
+- **R11.**
+  - **Account button:** keeps the design's initial, with an accessible name of "<name>, your account".
+  - **Phone apps:** they may answer with NIP-04 or NIP-44.
+  - **On a phone:** "Open the app".
+  - **Already signed in:** visiting /signin goes back where you came from.
+  - **AccountChanged:** a typed error.
+
+**Posting and removing**
+- **R12–R14.**
+  - A review counts as posted only when a review relay accepts it. Otherwise: "Saved to your own places, but not to Regulars yet. Try again."
+  - Relays are written in parallel under one bound.
+  - Try again resends the same signed review. It doesn't sign again.
+  - The held own review is tied to the account and forgotten at sign-out.
+  - The stars are a radio group, overriding the design's pressed buttons.
+  - The signed event is checked against its template.
+  - `created_at` is later than the person's previous review or removal.
+- **R15–R17.**
+  - "Your review" sits at the top of the place's reviews, with Edit and Remove. "You've rated it" replaces counting yourself among "others", on the panel and on cards.
+  - Removal covers every one of the person's reviews of the place, sent to every relay each was sent to.
+  - In the confirm, "Keep it" sits where Remove was, and Escape keeps the review.
+  - A partial removal is said honestly.
+  - Signer-appended tags may not reuse the template's tag names, nor `d`, `a`, `e`, `k`, `p`, `expiration`, `-` or `delegation`.
+  - Accepted: a lone reviewer can infer whether the house counts them. It is a yes or no, never a number.
+
+**Final fix wave**
+- **R18.** It covered:
+  - a flaky test;
+  - phone app permissions cut to `get_public_key` and `sign_event:34259`, so removals ask each time;
+  - the house view recovers from a failed rank read (retry when back on line, Try again, a rank lane);
+  - review reads page back past spam, including a one-second flood;
+  - future-dated reviews are dropped;
+  - a draft survives a phone rotation;
+  - a 60 s limit on browser signing;
+  - the docs.
+
+  Not taken: a Content-Security-Policy meta tag (not in the spec; a hardening for Avi to consider), and rare IPv6 transition ranges.
+
+### Deferred minors
+
+**Sign-in**
+- A no-"from" sign-in lands on /you (accepted).
+- "Open the app" is chosen by layout width, not device.
+
+**Scores and lists**
+- Cards redraw once when the house goes from loading to ready.
+- A targeted retry of failed places, not a full refresh.
+- Places whose later rank read failed wait for the next try.
+
+**Code and tests**
+- `Posted.accepted`/`refused`/`settled` are unused outside tests.
+- The empty focus target after removing your only review has no accessible name.
+- Names still being read can be queued twice after a refresh (harmless).
+
+**Address filtering:** SIIT, Teredo and `192.0.0.0/24` addresses are not filtered (not routable from a browser).
