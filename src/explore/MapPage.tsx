@@ -4,21 +4,23 @@ import { Navigate, useLocation } from "react-router-dom";
 import { copy } from "../copy/en.ts";
 import { LocationNotice } from "../location/LocationNotice.tsx";
 import { useHere } from "../location/useLocation.ts";
-import { BaseMap, type ChosenBy, type LngLat } from "../map/BaseMap.tsx";
-import { entryAddress, pinsFor, scorePins } from "../map/pins.ts";
+import type { ChosenBy, LngLat } from "../map/BaseMap.tsx";
+import { distanceKm } from "../places/distance.ts";
+import type { PlaceDistance } from "../places/indexes.ts";
+import { useIndexes } from "../places/useIndexes.ts";
 import { useListScores } from "../score/useListScores.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
 import { useWide } from "../shell/useWide.ts";
-import { ChainCard } from "../ui/ChainCard.tsx";
 import { LocateIcon } from "../ui/icons.tsx";
 import { PlaceCard } from "../ui/PlaceCard.tsx";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
+import { EveryPlaceMap } from "./EveryPlaceMap.tsx";
 import { SearchLink } from "./ExploreList.tsx";
 import { mapFocusOn, useMapFocus, viewAt } from "./mapFocus.ts";
 import { useRememberedView } from "./mapMemory.ts";
-import { useAreaEntries, useSearchedArea } from "./useArea.ts";
+import { PartOfChain } from "./PartOfChain.tsx";
 
 /** The zoom a map opens at: a few streets each way. */
 export const START_ZOOM = 13;
@@ -38,14 +40,16 @@ export function SearchAreaButton({ onClick, className = "" }: { onClick(): void;
 
 /**
  * Explore, on the map (Map.dc.html; the phone's second tab). The map fills the screen above the
- * tabs, with the search field and the toggle floating at its top. Every place the list has is a
- * pin, a chain one pin at its nearest place, and pins that crowd are a bubble with a count.
+ * tabs, with the search field and the toggle floating at its top. Every place is a pin, at any zoom
+ * (decision 25), a chain's places each on their own, and pins that crowd are a bubble with a count.
  *
- * Tapping a pin docks its card at the foot of the map, and the card opens the place; tapping the
- * map away from the pins lets it go. A pin chosen from the keyboard moves the focus to its card.
- * Once the person moves the map, "Search this area" lists the places where it is now, and says so
- * when there are none. Locate me asks for the device's location, and goes back to it. Back to this
- * page (from a place) finds the map where it was, with the area that was searched.
+ * Tapping a pin docks its place's card at the foot of the map, and the card opens the place; under
+ * the card of one of a chain's places is the way to the chain. Tapping the map away from the pins
+ * lets it go. A pin chosen from the keyboard moves the focus to its card. A card's distance is from
+ * where the person is near: the device, when it has said where they are. The map has every place
+ * wherever it is moved, so there is no area to search: Explore's list is the phone's list. Locate me
+ * asks for the device's location, and goes back to it. Back to this page (from a place) finds the
+ * map where it was.
  *
  * A desktop shows the map beside the list on Explore, so there this page goes there.
  */
@@ -57,17 +61,17 @@ export function MapPage(): JSX.Element {
   const locale = useLocale();
   const { key: historyKey } = useLocation();
   const memoryKey = `map:${historyKey}`;
-  const searched = useSearchedArea(memoryKey);
   const { initialView, onViewChange } = useRememberedView(memoryKey);
-  const { entries } = useAreaEntries(searched.area);
-  // The scores of every place on the map, asked for in one go: its pins and the card of the one chosen.
-  const { scores } = useListScores(entries);
-  // The pins' hours are worked out when the places or the minute change; their scores, when the scores do.
-  const unscored = useMemo(() => pinsFor(entries, locale, now), [entries, locale, now]);
-  const pins = useMemo(() => scorePins(unscored, scores.of), [unscored, scores]);
+  const indexes = useIndexes();
   // Opened at a place ("See on map"): the map starts there, unless it was left somewhere else, and its pin is chosen.
   const focused = useMapFocus();
   const [selected, setSelected] = useState(() => focused?.address);
+  // The chosen pin's place, while there is one, and its score for its card.
+  const chosen = useMemo<PlaceDistance[]>(() => {
+    const place = selected === undefined ? undefined : indexes?.byAddress.get(selected);
+    return place === undefined ? [] : [{ place, km: distanceKm(here.lat, here.lon, place.lat, place.lon) }];
+  }, [selected, indexes, here.lat, here.lon]);
+  const { scores } = useListScores(chosen);
   const [recentre, setRecentre] = useState(0);
   const cardId = useId();
   // Each pin chosen from the keyboard: the focus goes to its card once the card is drawn.
@@ -84,9 +88,6 @@ export function MapPage(): JSX.Element {
   // A desktop has the map on Explore, opened at the same place.
   if (wide) return <Navigate to="/" replace state={focused === undefined ? undefined : mapFocusOn(focused)} />;
 
-  // The chosen pin's place or chain, while it is still on the map.
-  const chosen = selected === undefined ? undefined : entries.find((entry) => entryAddress(entry) === selected);
-
   const choose = (address: string | undefined, by?: ChosenBy) => {
     setSelected(address);
     if (address !== undefined && by === "keyboard") setFocusCard((n) => n + 1);
@@ -94,46 +95,27 @@ export function MapPage(): JSX.Element {
 
   const locate = () => {
     // Already found: back there now. The device is asked again either way, in case the person has moved.
-    if (here.source === "device") {
-      setRecentre((n) => n + 1);
-      searched.reset();
-    }
+    if (here.source === "device") setRecentre((n) => n + 1);
     here.useDevice();
   };
 
-  let card: JSX.Element | undefined;
-  if (chosen !== undefined) {
-    card =
-      "chain" in chosen ? (
-        <ChainCard chain={chosen.chain} nearby={chosen.nearby} locale={locale} onMap />
-      ) : (
-        <PlaceCard
-          place={chosen.place}
-          km={chosen.km}
-          variant="normal"
-          score={scores.of(chosen.place.address)}
-          locale={locale}
-          now={now}
-          onMap
-        />
-      );
-  }
+  const [card] = chosen.map(({ place, km }) => (
+    <PlaceCard place={place} km={km} variant="normal" score={scores.of(place.address)} locale={locale} now={now} onMap />
+  ));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <h1 className="sr-only">{copy.pages.map}</h1>
-      <BaseMap
+      <EveryPlaceMap
         className="min-h-0 flex-1"
         center={center}
         zoom={START_ZOOM}
         interactive
-        pins={pins}
-        selected={chosen === undefined ? undefined : selected}
+        selected={card === undefined ? undefined : selected}
         you={you}
         recentre={recentre}
         onSelect={choose}
         pinsControl={cardId}
-        onMoveEnd={searched.moved}
         initialView={initialView ?? (focused === undefined ? undefined : viewAt(focused, START_ZOOM))}
         onViewChange={onViewChange}
         corner={
@@ -151,6 +133,13 @@ export function MapPage(): JSX.Element {
           // Always on the page, so each pin can name it as what it opens; hidden while nothing is chosen.
           <section id={cardId} aria-label={copy.map.selected} hidden={card === undefined}>
             {card}
+            {chosen.map(({ place }) => (
+              <PartOfChain
+                key={place.address}
+                place={place}
+                className="mt-2 rounded-[12px] bg-ground px-3.5 shadow-float"
+              />
+            ))}
           </section>
         }
       >
@@ -159,21 +148,8 @@ export function MapPage(): JSX.Element {
           <SearchLink onMap />
           <ViewSwitch variant="map" />
           <LocationNotice className="*:rounded-[12px] *:bg-ground *:px-3 *:py-2 *:shadow-float" />
-          {/* Always there, so a screen reader hears when a search of the map finds nothing. */}
-          <div role="status" className="*:m-0 *:rounded-[12px] *:bg-ground *:px-3 *:py-2 *:text-secondary *:text-ink-soft *:shadow-float">
-            {searched.fromMap && entries.length === 0 && <p>{copy.map.noneInArea}</p>}
-          </div>
-          {searched.canSearch && (
-            <SearchAreaButton
-              className="mt-0.5 w-40 self-center"
-              onClick={() => {
-                setSelected(undefined);
-                searched.search();
-              }}
-            />
-          )}
         </div>
-      </BaseMap>
+      </EveryPlaceMap>
     </div>
   );
 }

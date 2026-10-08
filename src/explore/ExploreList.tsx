@@ -77,7 +77,16 @@ export function NoneNearby(): JSX.Element {
 
 /**
  * Whose scores the list shows, with the house's badge beside its name and a link to how that works
- * (Main.dc.html). The desktop's Explore says how many places there are first (DeskExplore.dc.html).
+ * (Main.dc.html). The desktop's Explore says how many places there are first (DeskExplore.dc.html):
+ * how many the list has; or, when an area searched on the map has more than the list holds, how many
+ * the area has (`inArea`); or, when Open now stopped reading hours before it found that many open
+ * places, that it shows the open ones nearest the middle (`nearestOnly`).
+ *
+ * A screen reader hears that sentence when the person changes the list (a filter, a search, a town),
+ * and not the line around it. `announceKey` names the list: the sentence is said when the key changes,
+ * and not when only the minutes passing change it (Open now's places opening and closing). So the
+ * sentence is drawn as it is now, hidden from a screen reader, and said in a polite status, hidden from
+ * the eye, as it was when the list was last made.
  * When House picks can't be worked out (`unavailable`), one quiet line under it says so, with Try
  * again, which asks again (`onRetry`). The focus goes to the lines then, where the button was: the
  * button goes once House picks are back, and the focus would fall to the page. `className` spaces the
@@ -85,21 +94,42 @@ export function NoneNearby(): JSX.Element {
  */
 export function HouseLine({
   count,
+  inArea,
+  nearestOnly = false,
+  announceKey,
   unavailable = false,
   onRetry,
   className,
 }: {
   count?: number;
+  inArea?: number;
+  nearestOnly?: boolean;
+  announceKey?: string;
   unavailable?: boolean;
   onRetry(): void;
   className: string;
 }): JSX.Element {
   const lines = useRef<HTMLDivElement>(null);
   const quietId = useId();
+  let sentence: string | undefined;
+  if (count !== undefined) {
+    if (nearestOnly && count > 0) sentence = copy.deskExplore.nearestOpen;
+    else sentence = inArea === undefined ? copy.deskExplore.count(count) : copy.deskExplore.inArea(inArea);
+  }
+  // What the status says: the sentence as it was when the list was last made.
+  const [said, setSaid] = useState({ key: announceKey, sentence });
+  if (said.key !== announceKey) setSaid({ key: announceKey, sentence });
   return (
     <div ref={lines} tabIndex={-1} className={`flex flex-col outline-none ${className}`}>
       <p className="m-0 text-secondary leading-[1.4] text-muted">
-        {count !== undefined && `${copy.deskExplore.count(count)} `}
+        {sentence !== undefined && (
+          <>
+            <span aria-hidden="true">{sentence}</span>
+            <span role="status" className="sr-only">
+              {said.sentence}
+            </span>{" "}
+          </>
+        )}
         <HouseName text={copy.explore.houseLine} size="line" />{" "}
         <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
           {copy.explore.howThisWorks}

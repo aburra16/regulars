@@ -1,5 +1,5 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,7 +11,7 @@ import * as distanceModule from "../src/places/distance";
 import { distanceKm } from "../src/places/distance";
 import * as hoursModule from "../src/places/hours";
 import { openLine, openState } from "../src/places/hours";
-import { buildIndexes, chainSlug, type PlaceDistance } from "../src/places/indexes";
+import { buildIndexes, chainSlug, groupForList, type PlaceDistance } from "../src/places/indexes";
 import { placeKindLabel } from "../src/places/kinds";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
@@ -22,6 +22,7 @@ import { ScoresStore } from "../src/score/store";
 import raw from "./fixtures/funchal-items.json";
 import { DESKTOP, openApp, resetWidth } from "./support/app";
 import { hex64, shapedEvent } from "./support/events";
+import { FakeMap } from "./support/fakeMaplibre";
 import { createMemoryReader, type MemoryReader } from "./support/memoryReader";
 
 /*
@@ -509,17 +510,36 @@ describe("one ask of the store per list", () => {
     expect(calls.at(-1)).toEqual(expect.arrayContaining(shown));
   });
 
-  it("asks for the desktop's cards and the map's pins together, in one go", async () => {
+  it("asks for the desktop's cards in one go, and the pins the map draws in one go", async () => {
     const want = vi.spyOn(ScoresStore.prototype, "want");
     const { readers } = houseNetwork(jacafeScored(), HOUSE_RANKS);
     await openApp("/", { events: places, readers, px: DESKTOP });
     await waitFor(() => expect(card("Jacafé")).toHaveTextContent("4.6"));
     await screen.findByRole("button", { name: /^Jacafé, .*4\.6 out of 5/ });
 
-    const shown = placeLinks().map(addressOfLink);
-    const calls = asks(want);
-    for (const call of calls) expect(call.length).toBeGreaterThanOrEqual(shown.length);
-    expect(calls.at(-1)).toEqual(expect.arrayContaining([...shown, JACAFE.address]));
+    // The list's places, all of them in one ask, never a card at a time: each place of the list (a
+    // chain's card is not scored as one), shown yet or not.
+    const sorted = (addresses: readonly string[]) => [...addresses].sort();
+    const { lat, lon, radiusKm } = config.defaultCity;
+    const listed = groupForList(idx.near(lat, lon, radiusKm), idx).flatMap((entry) => ("chain" in entry ? [] : [entry.place.address]));
+    expect(listed.length).toBeGreaterThan(placeLinks().length);
+    expect(asks(want).map(sorted)).toContainEqual(sorted(listed));
+
+    // The map draws a bubble and two pins on their own: it asks for those two, together, and no more.
+    const map = FakeMap.instances.at(-1)!;
+    want.mockClear();
+    const point = (place: Place) => ({
+      type: "Feature" as const,
+      geometry: { type: "Point" as const, coordinates: [place.lon, place.lat] },
+      properties: { address: place.address },
+    });
+    map.features = [
+      { type: "Feature", geometry: { type: "Point", coordinates: [-16.92, 32.65] }, properties: { cluster: true, cluster_id: 2, point_count: 41 } },
+      point(JACAFE),
+      point(MAIA),
+    ];
+    act(() => map.fire("render"));
+    await waitFor(() => expect(asks(want)).toEqual([sorted([JACAFE.address, MAIA.address])]));
   });
 });
 

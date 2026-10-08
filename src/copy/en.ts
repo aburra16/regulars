@@ -782,6 +782,12 @@ export const copy = {
     // DRAFT for Avi
     /** The card of the pin chosen on the phone's map, for a screen reader: the region a pin opens. */
     selected: "Selected on the map",
+    // DRAFT for Avi
+    /**
+     * Under the card of a pin that is one of a chain's places (each is a pin of its own; decision 25):
+     * the way to the chain's page. "Part of Copper Kettle Coffee · 74 locations".
+     */
+    partOfChain: (name: string, n: number) => `Part of ${name}${dot}${locations(n)}`,
     /**
      * Over a map that the page scrolls past (a place's map), for a moment, when a scroll or one finger
      * moved the page and not the map: how to move the map instead. Ctrl on Windows and Linux, ⌘ on a
@@ -800,6 +806,23 @@ export const copy = {
   deskExplore: {
     /** Before the line that says whose scores they are: "9 places." */
     count: (n: number) => `${places(n)}.`,
+    // DRAFT for Avi
+    /**
+     * In place of that, when an area searched on the map has more places than the list holds (the 50
+     * nearest its middle; decision 25): "2,345 places in this area. Zoom in to see the rest." It says
+     * the area that was searched, which a pan since does not change. With Open now on it counts the
+     * places, open or not: counting the open ones would need every place's hours.
+     */
+    inArea: (n: number) => `${places(n)} in this area. Zoom in to see the rest.`,
+    // DRAFT for Avi
+    /**
+     * In place of that, with Open now, when the list stopped reading places' hours (it reads so many and
+     * no more) before it found as many open places as it holds: there may be more farther out.
+     */
+    nearestOpen: "Showing the open places nearest the middle of this area. Zoom in to see more.",
+    // DRAFT for Avi
+    /** In place of the list, when that found none. */
+    noneOpenNearMiddle: "No open places near the middle of this area. Zoom in to see more.",
     /** The kinds menu, by what is chosen: none, one ("Cafes"), or several ("Kind of place · 2"). */
     kinds: (n: number, only: string) => (n === 0 ? kindOfPlace : n === 1 ? only : `${kindOfPlace} · ${n.toLocaleString("en")}`),
     /** The sort menu, by the order the list is in: nearest first, A to Z, or, for words, best match first. */
