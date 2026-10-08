@@ -649,7 +649,7 @@ describe("the person's own review: on its own, at the top of the reviews (R15)",
   it("shows it under 'Your review', above the others, the same whether the house counts it or not, and never among them", async () => {
     const shown: string[] = [];
     for (const rank of [80, undefined]) {
-      await placeWith(rank);
+      const { me } = await placeWith(rank);
       const mine = await yourReview();
       expect(within(mine).getByRole("heading", { level: 2, name: copy.reviews.yours })).toBeInTheDocument();
       expect(copy.reviews.yours).toBe("Your review");
@@ -669,6 +669,10 @@ describe("the person's own review: on its own, at the top of the reviews (R15)",
       expect(await reviewWords("Carol's words")).toBeInTheDocument();
       expect(screen.getAllByText("My words")).toHaveLength(1);
 
+      // Taken once everything in it has come: the person's name (read in its own window, after the
+      // reviews) and Remove, on once the session is restored. Before, it would differ by timing alone.
+      expect(await within(mine).findByText(me.name)).toBeInTheDocument();
+      await removeButton(mine);
       shown.push(markupOf(mine));
       cleanup();
     }
