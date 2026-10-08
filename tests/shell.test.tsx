@@ -9,6 +9,8 @@ import { createRoot } from "react-dom/client";
 import { createMemoryRouter, type RouteObject, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AccountProvider } from "../src/account/AccountProvider";
+import { SESSION_KEY } from "../src/account/session";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { HereProvider } from "../src/location/HereProvider";
@@ -116,9 +118,11 @@ function renderApp(path = "/", opts: { width?: number } = {}) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   const view = render(
     <ScoresProvider>
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      <AccountProvider>
+        <HereProvider>
+          <RouterProvider router={router} />
+        </HereProvider>
+      </AccountProvider>
     </ScoresProvider>,
   );
   return { router, ...view };
@@ -189,7 +193,8 @@ describe("the layout, by width", () => {
     renderApp("/", { width: PHONE });
     const top = screen.getByRole("banner");
     expect(within(top).getByText(copy.app.name)).toBeInTheDocument();
-    expect(within(top).getByRole("link", { name: copy.nav.account })).toHaveAttribute("href", "/you");
+    // Signed out, it signs the person in (decision 23): its address is sign in's.
+    expect(within(top).getByRole("link", { name: copy.nav.signIn })).toHaveAttribute("href", "/signin");
     expect(within(top).getByRole("button", { name: "Near Funchal" })).toBeInTheDocument();
   });
 
@@ -229,7 +234,7 @@ describe("the layout, by width", () => {
     expect(within(bar).getByRole("group", { name: copy.view.label })).toBeInTheDocument();
     expect(within(bar).getByRole("button", { name: copy.view.house })).toHaveAttribute("aria-pressed", "true");
     expect(within(bar).getByRole("link", { name: copy.nav.saved })).toHaveAttribute("href", "/saved");
-    expect(within(bar).getByRole("link", { name: copy.nav.account })).toHaveAttribute("href", "/you");
+    expect(within(bar).getByRole("link", { name: copy.nav.signIn })).toHaveAttribute("href", "/signin");
 
     expect(tabBar()).not.toBeInTheDocument();
   });
@@ -635,9 +640,11 @@ describe("the load banners", () => {
     render(
       <PlacesProvider reader={flaky}>
         <ScoresProvider>
-          <HereProvider>
-            <RouterProvider router={router} />
-          </HereProvider>
+          <AccountProvider>
+            <HereProvider>
+              <RouterProvider router={router} />
+            </HereProvider>
+          </AccountProvider>
         </ScoresProvider>
       </PlacesProvider>,
     );
@@ -961,9 +968,10 @@ describe("the document title", () => {
 });
 
 describe("the account button", () => {
-  it("is marked as the current page on You", () => {
+  it("is marked as the current page on You, once it is the person's", async () => {
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({ how: "browser", pubkey: "a".repeat(64) }));
     renderApp("/you", { width: DESKTOP });
-    expect(screen.getByRole("link", { name: copy.nav.account })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("link", { name: copy.nav.yourAccount })).toHaveAttribute("aria-current", "page");
   });
 
   it("is not marked anywhere else", () => {
@@ -972,7 +980,7 @@ describe("the account button", () => {
       ["/", PHONE],
     ] as const) {
       const { unmount } = renderApp(path, { width });
-      expect(screen.getByRole("link", { name: copy.nav.account })).not.toHaveAttribute("aria-current");
+      expect(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn })).not.toHaveAttribute("aria-current");
       unmount();
     }
   });
@@ -1002,7 +1010,8 @@ describe("the production markup", () => {
 describe("the copy", () => {
   it("is the wording of the design and the plan", () => {
     expect([copy.nav.explore, copy.nav.map, copy.nav.saved, copy.nav.you]).toEqual(["Explore", "Map", "Saved", "You"]);
-    expect(copy.nav.account).toBe("Your account and your circle");
+    // Signed out, the account button signs the person in, and is named so (decision 23).
+    expect(copy.nav.signIn).toBe("Sign in");
     expect(copy.search.placeholder).toBe("Tacos, coffee, a place name");
     expect(copy.search.label).toBe("Search places");
     expect([copy.view.house, copy.view.circle]).toEqual(["House picks", "My circle"]);

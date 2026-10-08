@@ -3,13 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ADD_ON_TIMEOUT_MS } from "../src/account/connect";
 import { readSession, SESSION_KEY } from "../src/account/session";
 import { DRAFT_KEY } from "../src/review/draft";
 import { SIGN_TIMEOUT_MS } from "../src/review/post";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { reviewTemplate } from "../src/reviews/write";
-import { DESKTOP, PHONE, resetWidth, resizeTo } from "./support/app";
+import { DESKTOP, openApp, PHONE, resetWidth, resizeTo } from "./support/app";
+import { createSignerApp, MemoryConnectRelay } from "./support/connectRelay";
 import { createMemoryWriter } from "./support/memoryWriter";
 import {
   fromExplore,
@@ -24,10 +26,12 @@ import {
   open,
   OWN,
   PLACE_PATH,
+  places,
   postButton,
   profileOf,
   rankOf,
   rateLink,
+  readersOf,
   REVIEW_PATH,
   reviewBy,
   reviewingAs,
@@ -37,7 +41,16 @@ import {
   signedIn,
   starButtons,
   tryAgainButton,
+  writersOf,
 } from "./support/reviewWorld";
+
+// The sign-in page looks, for a moment, for an add-on that comes late (src/signin/addOn.ts, whose
+// clock tests/addOn.test.ts plays). Here the page has just loaded and the look ends at once, with what
+// the page has: no test waits on it.
+vi.mock("../src/signin/addOn", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/signin/addOn")>();
+  return { ...actual, msSinceLoad: () => 0, lookForAddOn: async () => actual.hasAddOn() };
+});
 
 /*
  * Rating a place (M2b Task 6; screen 8 and D3; ruling R12): the form, posting it, the person's own
@@ -501,24 +514,208 @@ describe("the person's own review, before the relays send it back (Review Focus 
 });
 
 describe("signing in to rate", () => {
-  it("takes a person who is signed out from Rate this place to sign in, and then to the form", async () => {
+  it("signs a person who is signed out in at once with their add-on from Rate this place, and opens the form: no sign-in page", async () => {
+    const world = newWorld();
+    const key = generateSecretKey();
+    const addOn = installAddOn(key);
+    world.search.push(profileOf(getPublicKey(key), "Maya"));
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH));
+    const visited: string[] = [];
+    router.subscribe((state) => visited.push(state.location.pathname));
+
+    // Its address is still sign in's, for a new tab, which has no add-on's answer to go on.
+    const rate = await rateLink(world);
+    expect(rate).toHaveAttribute("href", "/signin");
+    await user.click(rate);
+    await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
+    expect(visited).not.toContain("/signin");
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+    expect(readSession()).toEqual({ how: "browser", pubkey: getPublicKey(key) });
+    expect(await reviewingAs("Maya")).toBeInTheDocument();
+
+    // The way back from the form is the place, one step back.
+    await user.click(screen.getByRole("link", { name: copy.review.back }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(router.state.historyAction).toBe("POP");
+  });
+
+  it("opens the form as a dialog over the place on a desktop, once the add-on has said who the person is", async () => {
     const world = newWorld();
     const key = generateSecretKey();
     installAddOn(key);
     world.search.push(profileOf(getPublicKey(key), "Maya"));
     const user = userEvent.setup();
-    const { router } = await open(world, fromExplore(PLACE_PATH));
-
-    expect(await rateLink(world)).toHaveAttribute("href", "/signin");
+    const { router } = await open(world, fromExplore(PLACE_PATH), DESKTOP);
     await user.click(await rateLink(world));
+
+    const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    await reviewingAs("Maya", within(dialog));
+    expect(router.state.location.pathname).toBe(REVIEW_PATH);
+    expect(screen.getByRole("complementary", { name: copy.place.railLabel })).toBeInTheDocument();
+  });
+
+  it("says it didn't work on the place's page when the add-on says no, and Try again opens the form", async () => {
+    const world = newWorld();
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH));
+    await user.click(await rateLink(world));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.signin.addOnFailed);
+    expect(router.state.location.pathname).toBe(PLACE_PATH);
+    expect(readSession()).toBeNull();
+    const retry = screen.getByRole("button", { name: copy.signin.tryAgain });
+    expect(retry).toHaveFocus();
+    expect(screen.getByRole("link", { name: copy.signin.phoneInstead })).toHaveAttribute("href", "/signin");
+
+    await user.click(retry);
+    await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(2);
+    // The way back from the form is the place, one step back.
+    await user.click(screen.getByRole("link", { name: copy.review.back }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(router.state.historyAction).toBe("POP");
+  });
+
+  it("opens sign in at the phone's way from there, and then the form", async () => {
+    const world = newWorld();
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The add-on is locked"));
+    const relay = new MemoryConnectRelay();
+    const app = createSignerApp(relay);
+    world.search.push(profileOf(app.userPubkey, "Alice"));
+    const user = userEvent.setup();
+    const { router } = await openApp(PLACE_PATH, {
+      events: places,
+      entries: fromExplore(PLACE_PATH),
+      readers: readersOf(world),
+      writers: writersOf(world),
+      relays: () => relay,
+    });
+    await user.click(await rateLink(world));
+    await screen.findByRole("alert");
+    await user.click(screen.getByRole("link", { name: copy.signin.phoneInstead }));
+
+    expect(router.state.location.pathname).toBe("/signin");
+    expect(router.state.location.state).toMatchObject({ from: { pathname: PLACE_PATH }, next: { pathname: REVIEW_PATH }, phone: true });
+    // No Continue to press: the code is there.
+    await screen.findByRole("img", { name: copy.signin.qrLabel });
+    expect(screen.queryByRole("button", { name: copy.signin.continueButton })).not.toBeInTheDocument();
+    await app.scan(screen.getByRole("link", { name: copy.signin.openApp }).getAttribute("href")!);
+    await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
+    expect(router.state.historyAction).toBe("REPLACE");
+    expect(await reviewingAs("Alice")).toBeInTheDocument();
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops saying the add-on didn't work at Dismiss, and gives the focus back to Rate this place", async () => {
+    const world = newWorld();
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH));
+    const rate = await rateLink(world);
+    await user.click(rate);
+    await screen.findByRole("alert");
+
+    await user.click(screen.getByRole("button", { name: copy.signin.dismiss }));
+    expect(screen.queryByText(copy.signin.addOnFailed)).not.toBeInTheDocument();
+    expect(rate).toHaveFocus();
+  });
+
+  it("asks the add-on once when Rate this place and the account button are both pressed: one prompt, and the form", async () => {
+    const world = newWorld();
+    const key = generateSecretKey();
+    const addOn = installAddOn(key);
+    let answer!: () => void;
+    addOn.getPublicKey.mockImplementationOnce(() => new Promise<string>((resolve) => (answer = () => resolve(getPublicKey(key)))));
+    world.search.push(profileOf(getPublicKey(key), "Maya"));
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH), DESKTOP);
+    await user.click(await rateLink(world));
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
+    await waitFor(() => expect(addOn.getPublicKey).toHaveBeenCalledTimes(1));
+
+    act(() => answer());
+    const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    await reviewingAs("Maya", within(dialog));
+    expect(router.state.location.pathname).toBe(REVIEW_PATH);
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says it is waiting while the add-on asks, with Rate this place busy, and Cancel stops waiting", async () => {
+    const world = newWorld();
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockImplementationOnce(() => new Promise<string>(() => {}));
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH));
+    const rate = await rateLink(world);
+    await user.click(rate);
+
+    const waiting = await screen.findByText(copy.signin.waitingForAddOn);
+    expect(waiting).toHaveAttribute("role", "status");
+    expect(waiting).toHaveAttribute("aria-live", "polite");
+    expect(rate).toHaveAttribute("aria-busy", "true");
+    // Pressed again while it asks, it does nothing.
+    await user.click(rate);
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+    expect(router.state.location.pathname).toBe(PLACE_PATH);
+
+    await user.click(screen.getByRole("button", { name: copy.signin.cancel }));
+    expect(screen.queryByText(copy.signin.waitingForAddOn)).not.toBeInTheDocument();
+    expect(rate).not.toHaveAttribute("aria-busy");
+    expect(rate).toHaveFocus();
+    expect(readSession()).toBeNull();
+    expect(router.state.location.pathname).toBe(PLACE_PATH);
+  });
+
+  it("gives up on the add-on after a minute with no answer, and says it didn't work, on the place's page", async () => {
+    const world = newWorld();
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockImplementationOnce(() => new Promise<string>(() => {}));
+    const { router } = await open(world, fromExplore(PLACE_PATH));
+    const rate = await rateLink(world);
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"], now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(rate);
+    await waitFor(() => expect(addOn.getPublicKey).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(ADD_ON_TIMEOUT_MS));
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.signin.addOnFailed);
+    expect(screen.queryByText(copy.signin.waitingForAddOn)).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(PLACE_PATH);
+  });
+
+  it("takes a person with no add-on from Rate this place to sign in, the phone's way at once, and then to the form", async () => {
+    const world = newWorld();
+    const relay = new MemoryConnectRelay();
+    const app = createSignerApp(relay);
+    world.search.push(profileOf(app.userPubkey, "Alice"));
+    const user = userEvent.setup();
+    const { router } = await openApp(PLACE_PATH, {
+      events: places,
+      entries: fromExplore(PLACE_PATH),
+      readers: readersOf(world),
+      writers: writersOf(world),
+      relays: () => relay,
+    });
+
+    const rate = await rateLink(world);
+    expect(rate).toHaveAttribute("href", "/signin");
+    await user.click(rate);
     expect(router.state.location.pathname).toBe("/signin");
     expect(router.state.location.state).toMatchObject({ from: { pathname: PLACE_PATH }, next: { pathname: REVIEW_PATH } });
 
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
+    await screen.findByRole("img", { name: copy.signin.qrLabel });
+    await app.scan(screen.getByRole("link", { name: copy.signin.openApp }).getAttribute("href")!);
     await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
     expect(router.state.historyAction).toBe("REPLACE");
-    expect(await reviewingAs("Maya")).toBeInTheDocument();
+    expect(await reviewingAs("Alice")).toBeInTheDocument();
 
     // The way back from the form is the place, as the sign-in page is gone from the history.
     await user.click(screen.getByRole("link", { name: copy.review.back }));
@@ -538,7 +735,6 @@ describe("signing in to rate", () => {
     const { router } = await open(world, [PLACE_PATH, { pathname: "/signin", state: { from: place, next } }]);
 
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
   });
 
@@ -550,7 +746,6 @@ describe("signing in to rate", () => {
     const { router } = await open(world, [{ pathname: "/signin", state: { from: place, next: { pathname: REVIEW_PATH } } }]);
 
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
     await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
     // Nothing is behind it in the history: its way back puts the place in its stead.
     await user.click(await screen.findByRole("link", { name: copy.review.back }));
@@ -560,7 +755,6 @@ describe("signing in to rate", () => {
 
   it("goes back to the place, not to sign in, when the person keeps House picks", async () => {
     const world = newWorld();
-    installAddOn(generateSecretKey());
     const user = userEvent.setup();
     const { router } = await open(world, fromExplore(PLACE_PATH));
     await user.click(await rateLink(world));
@@ -588,7 +782,6 @@ describe("signing in to rate", () => {
     expect(router.state.location.state).toMatchObject({ from: { pathname: REVIEW_PATH } });
 
     await user.click(await screen.findByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
     await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
     const stars = await starButtons();
     expect(stars[4]).toHaveAttribute("aria-checked", "true");
@@ -648,7 +841,6 @@ describe("signing in to rate", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/signin"));
     expect(heldText()).toBeNull();
     await user.click(await screen.findByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
     await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
     expect((await starButtons())[1]).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Changed my mind");
@@ -667,7 +859,6 @@ describe("signing in to rate", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/signin"));
 
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
     await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
     expect((await starButtons())[2]).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Fine coffee");

@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { createBrowserRouter, createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AccountProvider } from "../src/account/AccountProvider";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { HereProvider } from "../src/location/HereProvider";
@@ -116,7 +117,9 @@ async function openPlace(
     <PlacesProvider reader={createMemoryReader(events)}>
       {/* `here`: where the person is, given; otherwise where the app works it out, which starts at the default city. */}
       <ScoresProvider>
-        {here === undefined ? <HereProvider>{page}</HereProvider> : <HereContext value={here}>{page}</HereContext>}
+        <AccountProvider>
+          {here === undefined ? <HereProvider>{page}</HereProvider> : <HereContext value={here}>{page}</HereContext>}
+        </AccountProvider>
       </ScoresProvider>
     </PlacesProvider>,
   );
@@ -849,9 +852,11 @@ describe("the place page: a place that is not listed", () => {
       <PlacesProvider reader={createMemoryReader(latest, { delayMs: 200, ...(failWith === undefined ? {} : { failWith }) })}>
         <Probe />
         <ScoresProvider>
-          <HereProvider>
-            <RouterProvider router={router} />
-          </HereProvider>
+          <AccountProvider>
+            <HereProvider>
+              <RouterProvider router={router} />
+            </HereProvider>
+          </AccountProvider>
         </ScoresProvider>
       </PlacesProvider>,
     );
@@ -896,9 +901,11 @@ describe("the place page: a place that is not listed", () => {
     render(
       <PlacesProvider reader={createMemoryReader(fixtures)}>
         <ScoresProvider>
-          <HereProvider>
-            <RouterProvider router={router} />
-          </HereProvider>
+          <AccountProvider>
+            <HereProvider>
+              <RouterProvider router={router} />
+            </HereProvider>
+          </AccountProvider>
         </ScoresProvider>
       </PlacesProvider>,
     );

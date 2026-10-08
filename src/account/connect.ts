@@ -37,6 +37,13 @@ const CONNECT_KIND = 24133;
 export const CONNECT_TIMEOUT_MS = 120_000;
 
 /**
+ * How long the browser's add-on has to say who the person is: it asks them in the browser they are
+ * using, so a minute, half a phone's. Then it is given up, and the person told, with Try again and
+ * the phone's way (decision 23).
+ */
+export const ADD_ON_TIMEOUT_MS = 60_000;
+
+/**
  * How long the phone app has to answer a request once connected, such as to sign a review: the
  * person may have to find their phone and say yes on it.
  */
@@ -284,11 +291,12 @@ export async function connectBunker(uri: string, signal: AbortSignal, relays: Re
 
 /**
  * Signs in with the add-on in this browser (NIP-07): asks it once who the person is, and keeps that
- * for the tab. The add-on may ask the person first; it is given up as `connectPhone` is.
+ * for the tab. The add-on may ask the person first; it is given up after `ADD_ON_TIMEOUT_MS`, or when
+ * `signal` aborts.
  */
 export async function connectBrowser(signal: AbortSignal): Promise<Account> {
   signal.throwIfAborted();
-  const limit = attempt(signal, CONNECT_TIMEOUT_MS);
+  const limit = attempt(signal, ADD_ON_TIMEOUT_MS);
   try {
     const signer = new NBrowserSigner();
     const pubkey = await abortable(signer.getPublicKey(), limit.signal);

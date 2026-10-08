@@ -19,6 +19,12 @@ export interface AccountState {
 
 /** The ways to sign in, for the sign-in page. Each resolves once the person is signed in, and rejects as `connect.ts` does. */
 export interface Connect {
+  /**
+   * With the browser's add-on. One question to it at a time, whoever asks: a second ask while one is
+   * under way (Rate this place and the account button pressed together) waits on the same one, so
+   * the person sees one prompt. `signal` stops this ask's wait; the question is given up once every
+   * ask that waits on it has stopped.
+   */
   browser(signal: AbortSignal): Promise<void>;
   phone(onLink: (uri: string) => void, signal: AbortSignal): Promise<void>;
   bunker(uri: string, signal: AbortSignal): Promise<void>;
@@ -150,13 +156,68 @@ export function AccountProvider({ children, relays }: { children: ReactNode; rel
     };
   }, [adopt, relaysAt, forgetHeld]);
 
+  // The question to the add-on under way, which every ask waits on, and how many do.
+  const addOnAsked = useRef<{ answer: Promise<void>; stop: AbortController; waiting: number } | null>(null);
+
+  const browser = useCallback(
+    (signal: AbortSignal): Promise<void> => {
+      if (signal.aborted) return Promise.reject(signal.reason);
+      let asked = addOnAsked.current;
+      if (asked === null || asked.stop.signal.aborted) {
+        const stop = new AbortController();
+        const answer = loadConnect().then(async (code) => adopt(await code.connectBrowser(stop.signal)));
+        const made = { answer, stop, waiting: 0 };
+        const over = () => {
+          if (addOnAsked.current === made) addOnAsked.current = null;
+        };
+        answer.then(over, over);
+        addOnAsked.current = made;
+        asked = made;
+      }
+      const mine = asked;
+      mine.waiting += 1;
+      return new Promise<void>((resolve, reject) => {
+        let done = false;
+        const leave = () => {
+          done = true;
+          mine.waiting -= 1;
+          signal.removeEventListener("abort", stopWaiting);
+        };
+        function stopWaiting() {
+          if (done) return;
+          leave();
+          // Nobody waits on the question any more: it is given up, and an answer after is not taken.
+          if (mine.waiting === 0) {
+            mine.stop.abort();
+            if (addOnAsked.current === mine) addOnAsked.current = null;
+          }
+          reject(signal.reason);
+        }
+        signal.addEventListener("abort", stopWaiting, { once: true });
+        mine.answer.then(
+          () => {
+            if (done) return;
+            leave();
+            resolve();
+          },
+          (error: unknown) => {
+            if (done) return;
+            leave();
+            reject(error);
+          },
+        );
+      });
+    },
+    [adopt],
+  );
+
   const connect = useMemo<Connect>(
     () => ({
-      browser: async (signal) => adopt(await (await loadConnect()).connectBrowser(signal)),
+      browser,
       phone: async (onLink, signal) => adopt(await (await loadConnect()).connectPhone({ onLink, signal, relays: relaysAt })),
       bunker: async (uri, signal) => adopt(await (await loadConnect()).connectBunker(uri, signal, relaysAt)),
     }),
-    [adopt, relaysAt],
+    [adopt, browser, relaysAt],
   );
 
   const value = useMemo(
@@ -171,7 +232,7 @@ export function useAccount(): AccountState {
   return useContext(AccountContext)?.state ?? SIGNED_OUT;
 }
 
-/** The ways to sign in, for the sign-in page. Use it inside an `AccountProvider`. */
+/** The ways to sign in, for the sign-in page and for signing in where the person is. Use it inside an `AccountProvider`. */
 export function useConnect(): Connect {
   const value = useContext(AccountContext);
   if (value === null) throw new Error("useConnect must be used inside <AccountProvider>.");

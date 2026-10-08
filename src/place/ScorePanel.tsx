@@ -1,5 +1,5 @@
-import { type JSX, useId, useRef } from "react";
-import { Link, type LinkProps, useLocation, useParams } from "react-router-dom";
+import { type ComponentProps, type JSX, useId, useRef } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
 import { copy } from "../copy/en.ts";
@@ -7,6 +7,7 @@ import { reviewPath } from "../review/paths.ts";
 import { formatScore } from "../score/score.ts";
 import type { ShownScore } from "../score/shown.ts";
 import { useWide } from "../shell/useWide.ts";
+import { BUSY_CONTROL, type InlineSignIn, InlineSignInLines, useInlineSignIn } from "../signin/InlineSignIn.tsx";
 import { primaryButton, retryButton } from "../ui/Banner.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Stars } from "../ui/Stars.tsx";
@@ -16,42 +17,71 @@ const NAME_MARK = "\u0000";
 
 /**
  * Where "Rate this place" goes, from the place's page: the review form (`/place/:d/review`), for a
- * person who has signed in, or is about to be (a session this tab kept being restored); for a person
- * signed out, sign in first, and then the form, in its place (ruling R12). Either way the place is
- * where they come back to. On a desktop the form is a dialog over the page, which stays where it was
+ * person who has signed in, or is about to be (a session this tab kept being restored). For a person
+ * signed out, sign in first, and then the form (ruling R12): one tap where the browser has an add-on
+ * (decision 23), which is asked at once, here, and then the form opens, with no sign-in page between
+ * (`inline`, whose lines say how it goes: src/signin/InlineSignIn.tsx). With no add-on, the sign-in
+ * page, which opens the form in its place once the person is signed in. Either way the place is where
+ * they come back to. On a desktop the form is a dialog over the page, which stays where it was
  * scrolled to.
  */
-function useRateLink(): Pick<LinkProps, "to" | "state" | "preventScrollReset"> {
+function useRate(): { link: ComponentProps<typeof Link>; inline: InlineSignIn | undefined } {
   const location = useLocation();
+  const navigate = useNavigate();
   const { d = "" } = useParams();
   const { account, restoring } = useAccount();
   const wide = useWide();
   const form = reviewPath(d);
-  if (account !== undefined || restoring) return { to: form, state: { from: location }, preventScrollReset: wide };
-  return { to: "/signin", state: { from: location, next: { pathname: form } } };
+  const toForm = { to: form, state: { from: location }, preventScrollReset: wide };
+  const inline = useInlineSignIn({ from: location, next: { pathname: form, search: "", hash: "" } }, () => {
+    void navigate(toForm.to, { state: toForm.state, preventScrollReset: toForm.preventScrollReset });
+  });
+  if (account !== undefined || restoring) return { link: toForm, inline: undefined };
+  const asking = inline.phase === "asking";
+  return {
+    link: {
+      to: "/signin",
+      state: inline.state,
+      onClick: inline.onClick,
+      ref: inline.control,
+      "aria-busy": asking ? true : undefined,
+      "aria-disabled": asking ? true : undefined,
+    },
+    inline,
+  };
 }
 
 /**
  * "Rate this place": the accent button, 52 px, the width of what it is in (PlaceNew.dc.html,
- * DeskPlace.dc.html). It opens the review form, after sign in for a person signed out (`useRateLink`).
+ * DeskPlace.dc.html). It opens the review form, after sign in for a person signed out (`useRate`),
+ * whose lines go under it.
  */
 export function RateButton(): JSX.Element {
+  const { link, inline } = useRate();
   return (
-    <Link {...useRateLink()} className={`${primaryButton} w-full`}>
-      {copy.place.rate}
-    </Link>
+    <>
+      <Link {...link} className={`${primaryButton} w-full ${BUSY_CONTROL}`}>
+        {copy.place.rate}
+      </Link>
+      {inline !== undefined && <InlineSignInLines inline={inline} />}
+    </>
   );
 }
 
 /**
  * The same, as a link in the accent colour beside the heading of a phone's reviews (Place.dc.html
- * has "Write a review" there): a place with a score has no button in its panel.
+ * has "Write a review" there): a place with a score has no button in its panel. Its lines go on a
+ * line of their own under the heading's.
  */
 export function RateLink(): JSX.Element {
+  const { link, inline } = useRate();
   return (
-    <Link {...useRateLink()} className="inline-flex min-h-touch shrink-0 items-center text-[15px] font-bold text-accent underline">
-      {copy.place.rate}
-    </Link>
+    <>
+      <Link {...link} className={`inline-flex min-h-touch shrink-0 items-center text-[15px] font-bold text-accent underline ${BUSY_CONTROL}`}>
+        {copy.place.rate}
+      </Link>
+      {inline !== undefined && <InlineSignInLines inline={inline} className="basis-full" />}
+    </>
   );
 }
 
@@ -61,7 +91,7 @@ export function RateLink(): JSX.Element {
  */
 export function EditLink({ className }: { className: string }): JSX.Element {
   return (
-    <Link {...useRateLink()} className={className}>
+    <Link {...useRate().link} className={className}>
       {copy.reviews.edit}
     </Link>
   );

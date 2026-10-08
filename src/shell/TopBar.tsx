@@ -1,4 +1,4 @@
-import { type FormEvent, type JSX, type ReactNode, useId, useState } from "react";
+import { type FormEvent, type JSX, type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
@@ -6,6 +6,8 @@ import { initialOf, useOwnName } from "../account/useOwnName.ts";
 import { copy } from "../copy/en.ts";
 import { NearButton } from "../location/CityPicker.tsx";
 import { LocationNotice } from "../location/LocationNotice.tsx";
+import { BUSY_CONTROL, type InlineSignIn, InlineSignInLines, useInlineSignIn } from "../signin/InlineSignIn.tsx";
+import { landingFrom } from "../signin/returnTo.ts";
 import { ThemeToggle } from "../theme/ThemeToggle.tsx";
 import { PersonIcon, SearchIcon } from "../ui/icons.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
@@ -13,50 +15,105 @@ import { ViewSwitch } from "../ui/ViewToggle.tsx";
 
 type AccountSize = "phone" | "desktop";
 
-/**
- * The round button itself, which goes to the You page, named `label`. `phone` is 44 px (Main.dc.html);
- * `desktop` is drawn at 40 px (DeskExplore.dc.html) inside a 44 px target.
- */
-function AccountButton({ size, label, children }: { size: AccountSize; label: string; children: ReactNode }): JSX.Element {
+/** The round target of the account button: 44 px. */
+const ROUND = "flex size-11 shrink-0 items-center justify-center rounded-full";
+
+/** The disc inside it: 44 px on a phone (Main.dc.html); drawn at 40 px on a desktop (DeskExplore.dc.html). */
+function Disc({ size, children }: { size: AccountSize; children: ReactNode }): JSX.Element {
   return (
-    <NavLink to="/you" end aria-label={label} className="flex size-11 shrink-0 items-center justify-center rounded-full">
-      <span
-        className={`flex items-center justify-center rounded-full bg-emphasis font-bold text-on-emphasis ${
-          size === "phone" ? "size-11 text-body" : "size-10 text-[15px]"
-        }`}
-      >
-        {children}
-      </span>
+    <span
+      className={`flex items-center justify-center rounded-full bg-emphasis font-bold text-on-emphasis ${
+        size === "phone" ? "size-11 text-body" : "size-10 text-[15px]"
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * The account button's signing in where the person is (decision 23), for the top that draws it: the
+ * button, and the lines under the top (`AccountSignInLines`). Signed in here, the button that is now
+ * the person's takes the focus (`focusNext`), as the one they pressed is gone; on a page that only
+ * asked them to sign in (You, Saved), they go on to Explore, as its own Sign in takes them. The top
+ * stays from page to page: on another page, what it said of signing in on the last one is over.
+ */
+export interface AccountSignIn {
+  inline: InlineSignIn;
+  focusNext: RefObject<boolean>;
+}
+
+export function useAccountSignIn(): AccountSignIn {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const focusNext = useRef(false);
+  const inline = useInlineSignIn({ from: location }, () => {
+    focusNext.current = true;
+    if (landingFrom({ from: location }) === undefined) void navigate("/");
+  });
+  const { reset } = inline;
+  const at = useRef(location.key);
+  useEffect(() => {
+    if (at.current === location.key) return;
+    at.current = location.key;
+    reset();
+  }, [location.key, reset]);
+  return { inline, focusNext };
+}
+
+/** The lines under the top while the account button signs the person in: at its end, under the button. */
+export function AccountSignInLines({ signIn, className = "" }: { signIn: AccountSignIn; className?: string }): JSX.Element {
+  const { account } = useAccount();
+  return <>{account === undefined && <InlineSignInLines inline={signIn.inline} align="end" className={className} />}</>;
+}
+
+/**
+ * The account button of the person signed in as `pubkey`, which goes to the You page: the first letter
+ * of their name, as the design draws it (DeskExplore.dc.html, Tuning.dc.html), named "Sofia, your
+ * account" for a screen reader. Until the name is known, or when their profile has none, the person
+ * icon, named "Your account". `focusNext`: it has just become theirs by a press of it, and takes the focus.
+ */
+function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: string; focusNext: RefObject<boolean> }): JSX.Element {
+  const name = useOwnName(pubkey);
+  const button = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (!focusNext.current) return;
+    focusNext.current = false;
+    button.current?.focus({ preventScroll: true });
+  }, [focusNext]);
+  return (
+    <NavLink ref={button} to="/you" end aria-label={name === undefined ? copy.nav.yourAccount : copy.nav.accountOf(name)} className={ROUND}>
+      <Disc size={size}>{name === undefined ? <PersonIcon size={20} /> : <span lang={scriptLang(name)}>{initialOf(name)}</span>}</Disc>
     </NavLink>
   );
 }
 
 /**
- * The account button of the person signed in as `pubkey`: the first letter of their name, as the
- * design draws it (DeskExplore.dc.html, Tuning.dc.html), named "Sofia, your account" for a screen
- * reader. Until the name is known, or when their profile has none, the person icon, named "Your account".
+ * The round account button. Before sign in, the person icon, which signs the person in (decision 23):
+ * where the browser has an add-on, at once, here, and they stay on the page; else it goes to the
+ * sign-in page, which brings them back here. While the add-on asks it is busy. After, it is theirs
+ * (`PersonButton`).
  */
-function PersonButton({ size, pubkey }: { size: AccountSize; pubkey: string }): JSX.Element {
-  const name = useOwnName(pubkey);
-  return (
-    <AccountButton size={size} label={name === undefined ? copy.nav.yourAccount : copy.nav.accountOf(name)}>
-      {name === undefined ? <PersonIcon size={20} /> : <span lang={scriptLang(name)}>{initialOf(name)}</span>}
-    </AccountButton>
-  );
-}
-
-/**
- * The round account button. Before sign in, the person icon: it goes to the You page, which asks
- * the person to sign in. After, it is theirs (`PersonButton`).
- */
-export function AccountLink({ size }: { size: AccountSize }): JSX.Element {
+export function AccountLink({ size, signIn }: { size: AccountSize; signIn: AccountSignIn }): JSX.Element {
   const { account } = useAccount();
-  return account === undefined ? (
-    <AccountButton size={size} label={copy.nav.account}>
-      <PersonIcon size={20} />
-    </AccountButton>
-  ) : (
-    <PersonButton size={size} pubkey={account.pubkey} />
+  const { inline } = signIn;
+  if (account !== undefined) return <PersonButton size={size} pubkey={account.pubkey} focusNext={signIn.focusNext} />;
+  const asking = inline.phase === "asking";
+  return (
+    <Link
+      ref={inline.control}
+      to="/signin"
+      state={inline.state}
+      onClick={inline.onClick}
+      aria-label={copy.nav.signIn}
+      aria-busy={asking ? true : undefined}
+      aria-disabled={asking ? true : undefined}
+      className={`${ROUND} ${BUSY_CONTROL}`}
+    >
+      <Disc size={size}>
+        <PersonIcon size={20} />
+      </Disc>
+    </Link>
   );
 }
 
@@ -117,9 +174,11 @@ function SearchField(): JSX.Element {
 /**
  * The desktop's one top bar (DeskExplore.dc.html): the wordmark, the search field with the
  * location inside it, the House picks / My circle toggle, the dark mode switch, Saved and the
- * account button. Under it, the region that says when the person's location could not be used.
+ * account button. Under it, the lines of the account button signing the person in, and the region
+ * that says when the person's location could not be used.
  */
 export function TopBar(): JSX.Element {
+  const signIn = useAccountSignIn();
   return (
     <>
       <header className="flex flex-wrap items-center gap-x-5 gap-y-3.5 border-b-token border-line px-gutter-desktop py-3.5">
@@ -140,9 +199,10 @@ export function TopBar(): JSX.Element {
           >
             {copy.nav.saved}
           </NavLink>
-          <AccountLink size="desktop" />
+          <AccountLink size="desktop" signIn={signIn} />
         </div>
       </header>
+      <AccountSignInLines signIn={signIn} className="px-gutter-desktop pt-2.5" />
       <LocationNotice className="px-gutter-desktop *:pt-2.5" />
     </>
   );

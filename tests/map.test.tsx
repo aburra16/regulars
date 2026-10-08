@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AccountProvider } from "../src/account/AccountProvider";
 import houseBadge64 from "../src/assets/house/house-64.png";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
@@ -100,9 +101,11 @@ async function openApp(path: string, { px = PHONE, events = fixtures }: { px?: n
   const view = render(
     <PlacesProvider reader={createMemoryReader(events)}>
       <ScoresProvider>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
+        <AccountProvider>
+          <HereProvider>
+            <RouterProvider router={router} />
+          </HereProvider>
+        </AccountProvider>
       </ScoresProvider>
     </PlacesProvider>,
   );

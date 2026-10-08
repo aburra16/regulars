@@ -11,8 +11,9 @@ import { describe, expect, it } from "vitest";
 // Posting a review sends it through the same relay code, loaded the same way (src/review/post.ts).
 // Signing in loads Nostrify too, and the keys of nostr-tools: src/account/connect.ts holds that code,
 // which the account provider reaches only through a dynamic import() (src/account/AccountProvider.tsx),
-// and Nostrify is then a chunk the two share. What Continue opens on the sign-in page, with the QR
-// code's library (uqr), is a chunk the sign-in page fetches (src/signin/SignInPage.tsx).
+// and Nostrify is then a chunk the two share. The phone's way of signing in on the sign-in page, with
+// the QR code's library (uqr), is a chunk the sign-in page fetches (src/signin/loadPhoneWay.ts); the
+// add-on's way, which the sign-in page and Rate this place take at once, loads only the signing code.
 // This builds the real app (vite.config.ts and index.html, in memory: nothing is written) and checks
 // that none of it is in the entry, or in anything the entry loads before it runs.
 const ROOT = process.cwd();
@@ -99,7 +100,7 @@ describe("the relay chunk", () => {
     // The relay code, and the signing code, each in a chunk of its own, which brings Nostrify.
     expect(bringsNostrify(lazyChunkOf(RELAY_READER))).toBe(true);
     expect(bringsNostrify(lazyChunkOf(CONNECT))).toBe(true);
-    // The QR library, in the chunk of what Continue opens.
+    // The QR library, in the chunk of the phone's way.
     lazyChunkOf(QR_LIBRARY);
   }, 120_000);
 });

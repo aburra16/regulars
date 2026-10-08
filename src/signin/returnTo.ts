@@ -42,3 +42,25 @@ export function cameFrom(state: unknown): Path | undefined {
 export function goingTo(state: unknown): Path | undefined {
   return pageIn(fieldOf(state, "next"));
 }
+
+/**
+ * Whether the link that sent the person here asks for the phone's way at once
+ * (`state={{ from: location, next: page, phone: true }}`): "Use an app on your phone instead", where
+ * signing in with the add-on where the person was did not work (Rate this place, the account button).
+ */
+export function wantsPhone(state: unknown): boolean {
+  return fieldOf(state, "phone") === true;
+}
+
+/** The pages that only ask the person to sign in, and have nothing more for them once they have: You and Saved. */
+const PROMPTS = new Set(["/you", "/saved"]);
+
+/**
+ * Where the person lands once signed in, when the link that sent them names nowhere they were going:
+ * the page they came from (`cameFrom`), unless it is one that only asked them to sign in, or there is
+ * none: then nowhere, and the sign-in page sends them to Explore (decision 23: never a page of its own).
+ */
+export function landingFrom(state: unknown): Path | undefined {
+  const from = cameFrom(state);
+  return from === undefined || PROMPTS.has(from.pathname) ? undefined : from;
+}

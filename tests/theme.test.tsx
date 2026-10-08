@@ -664,7 +664,7 @@ describe("the dark mode switch", () => {
     await openApp("/", { events: fixtures, px: PHONE });
     const top = screen.getByRole("banner");
     const button = within(top).getByRole("button", { name: copy.nav.darkMode });
-    expect(button.nextElementSibling).toBe(within(top).getByRole("link", { name: copy.nav.account }));
+    expect(button.nextElementSibling).toBe(within(top).getByRole("link", { name: copy.nav.signIn }));
     // The same row as the wordmark.
     expect(button.closest("div")?.parentElement).toContainElement(within(top).getByText(copy.app.name));
   });

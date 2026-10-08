@@ -8,8 +8,8 @@ import { hexToBytes } from "nostr-tools/utils";
 import type { JSX } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AccountChanged, AccountProvider, useAccount } from "../src/account/AccountProvider";
-import { CONNECT_TIMEOUT_MS, connectBunker, connectPhone, restoreAccount } from "../src/account/connect";
+import { AccountChanged, AccountProvider, type Connect, useAccount, useConnect } from "../src/account/AccountProvider";
+import { ADD_ON_TIMEOUT_MS, CONNECT_TIMEOUT_MS, connectBunker, connectPhone, restoreAccount } from "../src/account/connect";
 import { readSession, SESSION_KEY } from "../src/account/session";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
@@ -22,16 +22,34 @@ import { createMemoryReader } from "./support/memoryReader";
 
 const fixtures: NostrEvent[] = raw;
 
-// What Continue opens is a chunk of its own. `broken` makes fetching it fail, as on a flaky network
-// or after a deploy that removed the old chunk, until a test mends it.
-// `held`, while set, keeps it coming until the test lets it settle, as on a slow network.
-const choiceChunk = vi.hoisted(() => ({ broken: false, held: undefined as Promise<void> | undefined }));
-vi.mock("../src/signin/loadChooseHow", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/signin/loadChooseHow")>();
+// The phone's way, which Continue opens where the browser has no add-on, is a chunk of its own.
+// `broken` makes fetching it fail, as on a flaky network or after a deploy that removed the old
+// chunk, until a test mends it. `held`, while set, keeps it coming until the test lets it settle, as
+// on a slow network.
+const phoneChunk = vi.hoisted(() => ({ broken: false, held: undefined as Promise<void> | undefined }));
+vi.mock("../src/signin/loadPhoneWay", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/signin/loadPhoneWay")>();
   return {
-    loadChooseHow: async () => {
-      await choiceChunk.held;
-      return choiceChunk.broken ? Promise.reject(new TypeError("Failed to fetch dynamically imported module")) : actual.loadChooseHow();
+    loadPhoneWay: async () => {
+      await phoneChunk.held;
+      return phoneChunk.broken ? Promise.reject(new TypeError("Failed to fetch dynamically imported module")) : actual.loadPhoneWay();
+    },
+  };
+});
+
+// The sign-in page looks for an add-on that puts itself on the page a moment after it loads
+// (src/signin/addOn.ts, whose clock tests/addOn.test.ts plays). Here the page has just loaded
+// (`loadedAgo`), and the look ends at once, with what the page has, unless a test holds it open
+// (`held`), to play an add-on that comes late.
+const lookup = vi.hoisted(() => ({ held: undefined as Promise<void> | undefined, loadedAgo: 0 }));
+vi.mock("../src/signin/addOn", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/signin/addOn")>();
+  return {
+    ...actual,
+    msSinceLoad: () => lookup.loadedAgo,
+    lookForAddOn: async () => {
+      await lookup.held;
+      return actual.hasAddOn();
     },
   };
 });
@@ -103,8 +121,11 @@ const signinFrom = (pathname: string) => ({
 
 /** The account the provider gives, as the last render saw it. */
 let seen: ReturnType<typeof useAccount> | undefined;
+/** The ways to sign in the provider gives, as the last render saw them. */
+let ways: Connect | undefined;
 function AccountProbe(): JSX.Element | null {
   seen = useAccount();
+  ways = useConnect();
   return null;
 }
 
@@ -122,12 +143,15 @@ const sessionText = () => window.sessionStorage.getItem(SESSION_KEY);
 
 beforeEach(() => {
   seen = undefined;
+  ways = undefined;
   config.reviewRelays = [REVIEWS];
 });
 
 afterEach(() => {
-  choiceChunk.broken = false;
-  choiceChunk.held = undefined;
+  phoneChunk.broken = false;
+  phoneChunk.held = undefined;
+  lookup.held = undefined;
+  lookup.loadedAgo = 0;
   vi.useRealTimers();
   vi.restoreAllMocks();
   resetWidth();
@@ -399,7 +423,6 @@ describe("the session", () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText");
 
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.phone }));
     await user.click(await screen.findByRole("button", { name: copy.signin.copyLink }));
     const uri = writeText.mock.calls[0]![0];
     await app.scan(uri);
@@ -496,48 +519,170 @@ describe("the session", () => {
   });
 });
 
-// ---- Choosing how to sign in ----
+// ---- Continue: one tap where it can be (decision 23) ----
 
-describe("Continue with Nostr", () => {
-  it("opens the choice between this browser and an app on the phone, where the browser has an add-on", async () => {
-    installAddOn(generateSecretKey());
+/** Whether `later` comes after `earlier` in the page. */
+const follows = (earlier: Element, later: Element) => Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+describe("Continue with Nostr, where the browser has an add-on", () => {
+  it("signs in at once: one question to the add-on, kept for the tab, and back to where the person was", async () => {
+    const key = generateSecretKey();
+    const addOn = installAddOn(key);
+    const relays = vi.fn(() => new MemoryConnectRelay());
     const user = userEvent.setup();
-    await openApp("/signin", { events: fixtures });
+    const { router } = await openApp("/signin", {
+      events: fixtures,
+      px: DESKTOP,
+      relays,
+      entries: ["/about", signinFrom("/about")],
+      readers: readersWith([profileOf(getPublicKey(key), "Maya")]),
+    });
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
 
-    const choice = await screen.findByRole("group", { name: copy.signin.chooseLabel });
-    expect(within(choice).getAllByRole("button").map((button) => button.textContent)).toEqual([copy.signin.browser, copy.signin.phone]);
-    expect(within(choice).getByRole("button", { name: copy.signin.browser })).toHaveFocus();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/about"));
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+    expect(readSession()).toEqual({ how: "browser", pubkey: getPublicKey(key) });
+    // Nothing was asked in between, and the phone's way was never opened.
+    expect(relays).not.toHaveBeenCalled();
+    // The page the person came from, with the top bar, which is theirs now.
+    expect(await within(await screen.findByRole("banner")).findByRole("link", { name: copy.nav.accountOf("Maya") })).toHaveTextContent("M");
+  });
+
+  it("lands on Explore, with the person's initial at the top, when sign in does not know where they came from", async () => {
+    const key = generateSecretKey();
+    installAddOn(key);
+    const user = userEvent.setup();
+    const { router } = await openApp("/signin", { events: fixtures, readers: readersWith([profileOf(getPublicKey(key), "Maya")]) });
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    expect(router.state.historyAction).toBe("REPLACE");
+    expect(await within(await screen.findByRole("banner")).findByRole("link", { name: copy.nav.accountOf("Maya") })).toHaveTextContent("M");
+  });
+
+  it("offers an app on the phone instead, under Continue, which opens the phone's way without asking the add-on", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    const relay = new MemoryConnectRelay();
+    const user = userEvent.setup();
+    await openApp("/signin", { events: fixtures, relays: () => relay });
+    const instead = await screen.findByRole("button", { name: copy.signin.phoneInstead });
+    expect(copy.signin.phoneInstead).toBe("Use an app on your phone instead");
+    // Under Continue, above the way back.
+    expect(follows(screen.getByRole("button", { name: copy.signin.continueButton }), instead)).toBe(true);
+    expect(follows(instead, screen.getByRole("link", { name: copy.signin.keepHousePicks }))).toBe(true);
+
+    await user.click(instead);
+    expect(await screen.findByRole("img", { name: copy.signin.qrLabel })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: copy.signin.openApp })).toBeInTheDocument();
+    expect(addOn.getPublicKey).not.toHaveBeenCalled();
+    // Where the browser has an add-on, there is no line on how to get one.
     expect(screen.queryByText(copy.signin.noAddOn)).not.toBeInTheDocument();
+  });
+
+  it("says so while the add-on asks, and Cancel stops waiting and gives Continue back", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockImplementationOnce(() => new Promise<string>(() => {}));
+    const user = userEvent.setup();
+    const { router } = await openApp("/signin", { events: fixtures, px: DESKTOP });
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+
+    expect(await screen.findByText(copy.signin.browserWaiting)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.signin.continueButton })).toHaveAttribute("aria-busy", "true");
+    await user.click(screen.getByRole("button", { name: copy.signin.cancel }));
+    const again = screen.getByRole("button", { name: copy.signin.continueButton });
+    expect(again).toHaveFocus();
+    expect(again).not.toHaveAttribute("aria-busy");
+    expect(screen.queryByText(copy.signin.browserWaiting)).not.toBeInTheDocument();
+    expect(sessionText()).toBeNull();
+    expect(router.state.location.pathname).toBe("/signin");
+
+    // Continue asks again, and this time the add-on answers.
+    await user.click(again);
+    await waitFor(() => expect(readSession()).toMatchObject({ how: "browser" }));
+  });
+
+  it("says it didn't work when the add-on says no, with Try again and the phone's way", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
+    const user = userEvent.setup();
+    const { router } = await openApp("/signin", { events: fixtures });
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.signin.addOnFailed);
+    expect(copy.signin.addOnFailed).toBe("That didn't work. Try again, or use an app on your phone.");
+    expect(sessionText()).toBeNull();
+    const retry = screen.getByRole("button", { name: copy.signin.tryAgain });
+    expect(retry).toHaveFocus();
+    expect(screen.getByRole("button", { name: copy.signin.phoneInstead })).toBeInTheDocument();
+    // Still the sign-in page, with its way back.
+    expect(screen.getByRole("link", { name: copy.signin.keepHousePicks })).toBeInTheDocument();
+
+    await user.click(retry);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(2);
+    expect(readSession()).toMatchObject({ how: "browser" });
+  });
+
+  it("opens the phone's way from there when the add-on says no", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The add-on is locked"));
+    const relay = new MemoryConnectRelay();
+    const app = createSignerApp(relay);
+    const user = userEvent.setup();
+    const { router } = await openApp("/signin", { events: fixtures, relays: () => relay, entries: ["/about", signinFrom("/about")] });
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await screen.findByRole("alert");
+    await user.click(screen.getByRole("button", { name: copy.signin.phoneInstead }));
+
+    await screen.findByRole("img", { name: copy.signin.qrLabel });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await app.scan(screen.getByRole("link", { name: copy.signin.openApp }).getAttribute("href")!);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/about"));
+    expect(readSession()).toMatchObject({ how: "phone", pubkey: app.userPubkey });
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Continue with Nostr, where the browser has no add-on", () => {
+  it("opens the phone's way at once on a phone: the code, Copy the link, Open the app and the field for a pasted link", async () => {
+    const relay = new MemoryConnectRelay();
+    const user = userEvent.setup();
+    await openApp("/signin", { events: fixtures, relays: () => relay });
+    expect(screen.queryByRole("button", { name: copy.signin.phoneInstead })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+
+    expect(await screen.findByRole("img", { name: copy.signin.qrLabel })).toBeInTheDocument();
+    expect(screen.getByText(copy.signin.scan)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.signin.copyLink })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: copy.signin.openApp })).toHaveAttribute("href", expect.stringMatching(LINK));
+    expect(screen.getByLabelText(copy.signin.paste)).toBeInTheDocument();
+    // No choice in between, no line on add-ons, which phones' browsers seldom take, and no other way.
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+    expect(screen.queryByText(copy.signin.noAddOn)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.signin.phoneInstead })).not.toBeInTheDocument();
     // The way back and the notice stay.
     expect(screen.getByRole("link", { name: copy.signin.keepHousePicks })).toBeInTheDocument();
     expect(screen.getByText(copy.signin.notice)).toBeInTheDocument();
-    expect([copy.signin.browser, copy.signin.phone]).toEqual(["This browser", "An app on your phone"]);
   });
 
-  it("offers only the phone on a phone with no add-on, and no line about add-ons, which phones' browsers seldom take", async () => {
+  it("opens it at once on a desktop too, with the line on how to get an add-on under it", async () => {
+    const relay = new MemoryConnectRelay();
     const user = userEvent.setup();
-    await openApp("/signin", { events: fixtures });
-    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    const choice = await screen.findByRole("group", { name: copy.signin.chooseLabel });
-    expect(within(choice).getAllByRole("button").map((button) => button.textContent)).toEqual([copy.signin.phone]);
+    await openApp("/signin", { events: fixtures, px: DESKTOP, relays: () => relay });
     expect(screen.queryByText(copy.signin.noAddOn)).not.toBeInTheDocument();
-  });
-
-  it("offers only the phone on a desktop with no add-on, with a line on how to get one", async () => {
-    const user = userEvent.setup();
-    await openApp("/signin", { events: fixtures, px: DESKTOP });
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
 
-    const choice = await screen.findByRole("group", { name: copy.signin.chooseLabel });
-    expect(within(choice).getAllByRole("button").map((button) => button.textContent)).toEqual([copy.signin.phone]);
-    expect(screen.getByText(copy.signin.noAddOn)).toBeInTheDocument();
+    const code = await screen.findByRole("img", { name: copy.signin.qrLabel });
+    expect(follows(code, screen.getByText(copy.signin.noAddOn))).toBe(true);
+    expect(screen.queryByRole("link", { name: copy.signin.openApp })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.signin.phoneInstead })).not.toBeInTheDocument();
   });
 
-  it("says it did not connect when what Continue opens cannot be fetched, and Try again fetches it afresh", async () => {
+  it("says it did not connect when the phone's way cannot be fetched, and Try again fetches it afresh", async () => {
+    const relay = new MemoryConnectRelay();
     const user = userEvent.setup();
-    await openApp("/signin", { events: fixtures, px: DESKTOP });
-    choiceChunk.broken = true;
+    await openApp("/signin", { events: fixtures, px: DESKTOP, relays: () => relay });
+    phoneChunk.broken = true;
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
     expect(await screen.findByRole("alert")).toHaveTextContent(copy.signin.failed);
     // Not the page's error: the sign-in page is still there, with its way back.
@@ -546,17 +691,18 @@ describe("Continue with Nostr", () => {
     const retry = screen.getByRole("button", { name: copy.signin.tryAgain });
     expect(retry).toHaveFocus();
 
-    choiceChunk.broken = false;
+    phoneChunk.broken = false;
     await user.click(retry);
-    expect(await screen.findByRole("group", { name: copy.signin.chooseLabel })).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: copy.signin.qrLabel })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("keeps the focus on Continue while what it opens is fetched, and gives it to the choice once it comes", async () => {
+  it("keeps the focus on Continue while the phone's way is fetched, and gives it to the code's words once it comes", async () => {
+    const relay = new MemoryConnectRelay();
     const user = userEvent.setup();
-    await openApp("/signin", { events: fixtures, px: DESKTOP });
+    await openApp("/signin", { events: fixtures, px: DESKTOP, relays: () => relay });
     let arrive!: () => void;
-    choiceChunk.held = new Promise<void>((resolve) => (arrive = resolve));
+    phoneChunk.held = new Promise<void>((resolve) => (arrive = resolve));
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
 
     // While it comes, Continue stays, off and busy, with the focus: not lost to the page.
@@ -568,9 +714,10 @@ describe("Continue with Nostr", () => {
     await user.click(waiting);
 
     act(() => arrive());
-    const choice = await screen.findByRole("group", { name: copy.signin.chooseLabel });
-    await waitFor(() => expect(choice).toContainElement(document.activeElement as HTMLElement));
+    await waitFor(() => expect(screen.getByText(copy.signin.scan)).toHaveFocus());
     expect(screen.queryByRole("button", { name: copy.signin.continueButton })).not.toBeInTheDocument();
+    // Pressed twice, it opened one way, which waits on one link.
+    await waitFor(() => expect(relay.openSubscriptions).toBe(1));
   });
 
   it("keeps the sign-in page's notice, now that signing in is open", async () => {
@@ -581,39 +728,52 @@ describe("Continue with Nostr", () => {
   });
 });
 
-describe("signing in with this browser", () => {
-  it("asks the add-on who the person is once, keeps it for the tab, and goes back to where the person was", async () => {
-    const key = generateSecretKey();
-    const addOn = installAddOn(key);
+describe("an add-on that puts itself on the page late", () => {
+  it("is looked for, briefly, when Continue is pressed before it is there, and signs in: the code is never shown", async () => {
+    let arrive!: () => void;
+    lookup.held = new Promise<void>((resolve) => (arrive = resolve));
+    const relays = vi.fn(() => new MemoryConnectRelay());
     const user = userEvent.setup();
-    const { router } = await openApp("/signin", {
-      events: fixtures,
-      px: DESKTOP,
-      entries: ["/about", signinFrom("/about")],
-      readers: readersWith([profileOf(getPublicKey(key), "Maya")]),
-    });
+    const { router } = await openApp("/signin", { events: fixtures, relays });
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
 
-    await waitFor(() => expect(router.state.location.pathname).toBe("/about"));
+    // While it is looked for: Continue busy, a line that says so, and not the phone's way.
+    expect(await screen.findByText(copy.signin.lookingForAddOn)).toBeInTheDocument();
+    expect(copy.signin.lookingForAddOn).toBe("Looking for your add-on…");
+    expect(screen.getByRole("button", { name: copy.signin.continueButton })).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByRole("img", { name: copy.signin.qrLabel })).not.toBeInTheDocument();
+
+    const addOn = installAddOn(generateSecretKey());
+    act(() => arrive());
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
     expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
-    expect(readSession()).toEqual({ how: "browser", pubkey: getPublicKey(key) });
-    // The page the person came from, with the top bar, which is theirs now.
-    expect(await within(await screen.findByRole("banner")).findByRole("link", { name: copy.nav.accountOf("Maya") })).toHaveTextContent("M");
+    expect(relays).not.toHaveBeenCalled();
   });
 
-  it("says it did not connect, with Try again, when the add-on says no", async () => {
-    const addOn = installAddOn(generateSecretKey());
-    addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
+  it("opens the phone's way once the look ends with none", async () => {
+    let end!: () => void;
+    lookup.held = new Promise<void>((resolve) => (end = resolve));
+    const relay = new MemoryConnectRelay();
     const user = userEvent.setup();
-    await openApp("/signin", { events: fixtures });
+    await openApp("/signin", { events: fixtures, relays: () => relay });
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.browser }));
+    expect(await screen.findByText(copy.signin.lookingForAddOn)).toBeInTheDocument();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(copy.signin.failed);
-    expect(copy.signin.failed).toBe("That didn't connect. Try again.");
-    await user.click(screen.getByRole("button", { name: copy.signin.tryAgain }));
-    await waitFor(() => expect(readSession()).toMatchObject({ how: "browser" }));
+    act(() => end());
+    expect(await screen.findByRole("img", { name: copy.signin.qrLabel })).toBeInTheDocument();
+    expect(screen.queryByText(copy.signin.lookingForAddOn)).not.toBeInTheDocument();
+  });
+
+  it("is used when it comes after the page has looked, before Continue is pressed", async () => {
+    const relays = vi.fn(() => new MemoryConnectRelay());
+    const user = userEvent.setup();
+    const { router } = await openApp("/signin", { events: fixtures, relays });
+    const addOn = installAddOn(generateSecretKey());
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+    expect(relays).not.toHaveBeenCalled();
   });
 });
 
@@ -631,7 +791,6 @@ describe("signing in with an app on the phone", () => {
     });
     const writeText = vi.spyOn(navigator.clipboard, "writeText");
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.phone }));
 
     expect(await screen.findByRole("img", { name: copy.signin.qrLabel })).toBeInTheDocument();
     expect(screen.getByText(copy.signin.scan)).toBeInTheDocument();
@@ -655,7 +814,6 @@ describe("signing in with an app on the phone", () => {
     await openApp("/signin", { events: fixtures, relays: () => relay });
     const writeText = vi.spyOn(navigator.clipboard, "writeText");
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.phone }));
     await screen.findByRole("img", { name: copy.signin.qrLabel });
 
     const open = screen.getByRole("link", { name: copy.signin.openApp });
@@ -672,7 +830,6 @@ describe("signing in with an app on the phone", () => {
     await openApp("/signin", { events: fixtures, relays: () => relay });
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new DOMException("Write permission denied.", "NotAllowedError"));
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.phone }));
     await screen.findByRole("img", { name: copy.signin.qrLabel });
 
     await user.click(screen.getByRole("button", { name: copy.signin.copyLink }));
@@ -680,18 +837,18 @@ describe("signing in with an app on the phone", () => {
     expect(screen.queryByText(copy.signin.copied)).not.toBeInTheDocument();
   });
 
-  it("signs in with a link pasted from the phone app", async () => {
+  it("signs in with a link pasted from the phone app, and lands on Explore, not on You's prompt it came from", async () => {
     const relay = new MemoryConnectRelay();
     const app = createSignerApp(relay);
     const user = userEvent.setup();
     const { router } = await openApp("/signin", { events: fixtures, relays: () => relay, entries: ["/you", signinFrom("/you")] });
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.phone }));
 
     await user.click(await screen.findByLabelText(copy.signin.paste));
     await user.paste(app.bunkerLink());
     await user.click(screen.getByRole("button", { name: copy.signin.connect }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/you"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    expect(router.state.historyAction).toBe("REPLACE");
     expect(readSession()).toMatchObject({ how: "phone", pubkey: app.userPubkey });
     // The request the code was waiting on is closed.
     expect(relay.openSubscriptions).toBe(0);
@@ -703,7 +860,6 @@ describe("signing in with an app on the phone", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.phone }));
     await screen.findByRole("img", { name: copy.signin.qrLabel });
     const first = relay.openFilters;
     expect(first).toHaveLength(1);
@@ -727,7 +883,6 @@ describe("signing in with an app on the phone", () => {
     await openApp("/signin", { events: fixtures, relays: () => relay });
     const writeText = vi.spyOn(navigator.clipboard, "writeText");
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.phone }));
     await user.click(await screen.findByRole("button", { name: copy.signin.copyLink }));
     await app.scan(writeText.mock.calls[0]![0]);
 
@@ -736,17 +891,16 @@ describe("signing in with an app on the phone", () => {
     expect(sessionText()).toBeNull();
   });
 
-  it("goes back to the choice when it is cancelled, and leaves nothing open", async () => {
+  it("gives Continue back when it is cancelled, and leaves nothing open", async () => {
     const relay = new MemoryConnectRelay();
     const user = userEvent.setup();
     await openApp("/signin", { events: fixtures, relays: () => relay });
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.phone }));
     await screen.findByRole("img", { name: copy.signin.qrLabel });
     expect(relay.openSubscriptions).toBe(1);
 
     await user.click(screen.getByRole("button", { name: copy.signin.cancel }));
-    expect(screen.getByRole("button", { name: copy.signin.phone })).toHaveFocus();
+    expect(screen.getByRole("button", { name: copy.signin.continueButton })).toHaveFocus();
     expect(screen.queryByRole("img", { name: copy.signin.qrLabel })).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() => expect(relay.openSubscriptions).toBe(0));
@@ -758,12 +912,344 @@ describe("signing in with an app on the phone", () => {
     const user = userEvent.setup();
     const { router } = await openApp("/signin", { events: fixtures, relays: () => relay, entries: ["/about", signinFrom("/about")] });
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    await user.click(await screen.findByRole("button", { name: copy.signin.phone }));
     await screen.findByRole("img", { name: copy.signin.qrLabel });
 
     await user.click(screen.getByRole("link", { name: copy.signin.keepHousePicks }));
     expect(router.state.location.pathname).toBe("/about");
     await waitFor(() => expect(relay.openSubscriptions).toBe(0));
+  });
+});
+
+// ---- Where sign in lands, the account button, the add-on's minute, and the focus (fix round 1) ----
+
+/** Lets what is under way settle: a few turns of the event loop, with React's updates applied. */
+const settle = async () => {
+  for (let i = 0; i < 5; i += 1) await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+};
+
+describe("landing after sign in, from the pages that only ask the person to sign in", () => {
+  it.each(["/you", "/saved"])("goes on to Explore from %s's prompt, in place of sign in, not back to the prompt", async (path) => {
+    const key = generateSecretKey();
+    const addOn = installAddOn(key);
+    const user = userEvent.setup();
+    const { router } = await openApp(path, { events: fixtures, readers: readersWith([profileOf(getPublicKey(key), "Maya")]) });
+    await user.click(screen.getByRole("link", { name: copy.signin.button }));
+    expect(router.state.location.pathname).toBe("/signin");
+
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    expect(router.state.historyAction).toBe("REPLACE");
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+    expect(await within(await screen.findByRole("banner")).findByRole("link", { name: copy.nav.accountOf("Maya") })).toHaveTextContent("M");
+  });
+});
+
+describe("the account button, signed out", () => {
+  it("signs the person in where they are with the add-on, in one tap, and stays on the page", async () => {
+    const key = generateSecretKey();
+    const addOn = installAddOn(key);
+    const user = userEvent.setup();
+    const { router } = await openApp("/about", { events: fixtures, px: DESKTOP, readers: readersWith([profileOf(getPublicKey(key), "Maya")]) });
+    const visited: string[] = [];
+    router.subscribe((state) => visited.push(state.location.pathname));
+    const top = screen.getByRole("banner");
+    const button = within(top).getByRole("link", { name: copy.nav.signIn });
+    // Named for what it does, signed out: pressing it signs the person in.
+    expect(copy.nav.signIn).toBe("Sign in");
+    // Its address is sign in's, for a new tab, or a browser with no add-on.
+    expect(button).toHaveAttribute("href", "/signin");
+    await user.click(button);
+
+    const mine = await within(top).findByRole("link", { name: copy.nav.accountOf("Maya") });
+    expect(mine).toHaveTextContent("M");
+    // The button the person pressed is theirs now, and it keeps the focus.
+    expect(mine).toHaveFocus();
+    expect(router.state.location.pathname).toBe("/about");
+    expect(visited).toEqual([]);
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+    expect(readSession()).toEqual({ how: "browser", pubkey: getPublicKey(key) });
+  });
+
+  it("signs in on a phone's Explore too, which stays", async () => {
+    installAddOn(generateSecretKey());
+    const user = userEvent.setup();
+    const { router } = await openApp("/", { events: fixtures, readers: readersWith([]) });
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
+    expect(await within(screen.getByRole("banner")).findByRole("link", { name: copy.nav.yourAccount })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/");
+    expect(readSession()).toMatchObject({ how: "browser" });
+  });
+
+  it("goes to sign in from the page the person is on where the browser has no add-on, and back there once signed in", async () => {
+    const relay = new MemoryConnectRelay();
+    const app = createSignerApp(relay);
+    const user = userEvent.setup();
+    const { router } = await openApp("/about", { events: fixtures, px: DESKTOP, relays: () => relay, entries: ["/", "/about"] });
+    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
+    expect(router.state.location.pathname).toBe("/signin");
+    expect(router.state.location.state).toMatchObject({ from: { pathname: "/about" } });
+
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await user.click(await screen.findByRole("button", { name: copy.signin.copyLink }));
+    await app.scan(writeText.mock.calls[0]![0]);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/about"));
+    expect(router.state.historyAction).toBe("POP");
+  });
+
+  it("says so under the top bar while the add-on asks, with the button busy, and Cancel stops waiting", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockImplementationOnce(() => new Promise<string>(() => {}));
+    const user = userEvent.setup();
+    await openApp("/about", { events: fixtures, px: DESKTOP });
+    const button = within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn });
+    await user.click(button);
+
+    expect(await screen.findByText(copy.signin.waitingForAddOn)).toHaveAttribute("role", "status");
+    expect(copy.signin.waitingForAddOn).toBe("Waiting for your add-on…");
+    expect(button).toHaveAttribute("aria-busy", "true");
+    // Pressed again while it asks, it does nothing.
+    await user.click(button);
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: copy.signin.cancel }));
+    expect(screen.queryByText(copy.signin.waitingForAddOn)).not.toBeInTheDocument();
+    expect(button).not.toHaveAttribute("aria-busy");
+    expect(button).toHaveFocus();
+    expect(sessionText()).toBeNull();
+  });
+
+  it("says it didn't work where the person is when the add-on says no, and the phone's way opens sign in at the code", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
+    const relay = new MemoryConnectRelay();
+    const app = createSignerApp(relay);
+    const user = userEvent.setup();
+    const { router } = await openApp("/about", { events: fixtures, relays: () => relay, entries: ["/", "/about"], px: DESKTOP });
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.signin.addOnFailed);
+    expect(router.state.location.pathname).toBe("/about");
+    expect(screen.getByRole("button", { name: copy.signin.tryAgain })).toHaveFocus();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+    await user.click(screen.getByRole("link", { name: copy.signin.phoneInstead }));
+
+    // Sign in opens at the phone's way: no Continue to press.
+    expect(router.state.location.pathname).toBe("/signin");
+    await user.click(await screen.findByRole("button", { name: copy.signin.copyLink }));
+    expect(screen.queryByRole("button", { name: copy.signin.continueButton })).not.toBeInTheDocument();
+    await app.scan(writeText.mock.calls[0]![0]);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/about"));
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+  });
+  it.each(["/you", "/saved"])("lands on Explore from %s on a desktop, as the page's own Sign in does", async (path) => {
+    installAddOn(generateSecretKey());
+    const user = userEvent.setup();
+    const { router } = await openApp(path, { events: fixtures, px: DESKTOP, readers: readersWith([]) });
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    expect(readSession()).toMatchObject({ how: "browser" });
+  });
+
+  it("stops saying the add-on didn't work once the person goes to another page", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
+    const user = userEvent.setup();
+    const { router } = await openApp("/about", { events: fixtures, px: DESKTOP });
+    const top = screen.getByRole("banner");
+    await user.click(within(top).getByRole("link", { name: copy.nav.signIn }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.signin.addOnFailed);
+
+    await user.click(within(top).getByRole("link", { name: copy.app.name }));
+    expect(router.state.location.pathname).toBe("/");
+    await waitFor(() => expect(screen.queryByText(copy.signin.addOnFailed)).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: copy.signin.dismiss })).not.toBeInTheDocument();
+  });
+
+  it("stops saying it at Dismiss, and gives the focus back to the button", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
+    const user = userEvent.setup();
+    await openApp("/about", { events: fixtures, px: DESKTOP });
+    const button = within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn });
+    await user.click(button);
+    await screen.findByRole("alert");
+
+    expect(copy.signin.dismiss).toBe("Dismiss");
+    await user.click(screen.getByRole("button", { name: copy.signin.dismiss }));
+    expect(screen.queryByText(copy.signin.addOnFailed)).not.toBeInTheDocument();
+    expect(button).toHaveFocus();
+    expect(sessionText()).toBeNull();
+  });
+});
+
+describe("the add-on, asked from two places at once", () => {
+  /** The add-on, with its next answer held until the test gives it. */
+  function heldAddOn() {
+    const key = generateSecretKey();
+    const addOn = installAddOn(key);
+    let answer!: () => void;
+    addOn.getPublicKey.mockImplementationOnce(() => new Promise<string>((resolve) => (answer = () => resolve(getPublicKey(key)))));
+    return { addOn, pubkey: getPublicKey(key), answer: () => answer() };
+  }
+
+  it("is asked once: both wait on the one question, and both hear the person is signed in", async () => {
+    const { addOn, pubkey, answer } = heldAddOn();
+    renderAccount();
+    const first = ways!.browser(new AbortController().signal);
+    const second = ways!.browser(new AbortController().signal);
+    await waitFor(() => expect(addOn.getPublicKey).toHaveBeenCalledTimes(1));
+
+    answer();
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(seen?.account?.pubkey).toBe(pubkey));
+    expect(readSession()).toEqual({ how: "browser", pubkey });
+  });
+
+  it("goes on for the one still waiting when the other stops, and is given up once both have", async () => {
+    const { addOn, answer } = heldAddOn();
+    renderAccount();
+    const one = new AbortController();
+    const other = new AbortController();
+    const first = ways!.browser(one.signal);
+    const second = ways!.browser(other.signal);
+    first.catch(() => {});
+    second.catch(() => {});
+    await waitFor(() => expect(addOn.getPublicKey).toHaveBeenCalledTimes(1));
+
+    one.abort();
+    await expect(first).rejects.toThrow();
+    const stillWaiting = settled(second);
+    await settle();
+    expect(stillWaiting()).toBe(false);
+
+    other.abort();
+    await expect(second).rejects.toThrow();
+    // The add-on answers once nobody is waiting: nobody is signed in.
+    answer();
+    await settle();
+    expect(seen?.account).toBeUndefined();
+    expect(sessionText()).toBeNull();
+  });
+
+  it("asks afresh once the question before has ended", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("No"));
+    renderAccount();
+    await expect(ways!.browser(new AbortController().signal)).rejects.toThrow();
+    await ways!.browser(new AbortController().signal);
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("waiting on the add-on on the sign-in page", () => {
+  it("gives up after a minute with no answer, and says it didn't work, with Try again", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockImplementationOnce(() => new Promise<string>(() => {}));
+    await openApp("/signin", { events: fixtures });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await waitFor(() => expect(addOn.getPublicKey).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(copy.signin.browserWaiting)).toBeInTheDocument();
+
+    // A minute, not the phone's two.
+    await act(() => vi.advanceTimersByTimeAsync(ADD_ON_TIMEOUT_MS));
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.signin.addOnFailed);
+    expect(ADD_ON_TIMEOUT_MS).toBeLessThan(CONNECT_TIMEOUT_MS);
+    expect(sessionText()).toBeNull();
+  });
+});
+
+describe("the focus on the sign-in page", () => {
+  it("goes to Continue, busy, when Try again asks the add-on again: not to the page", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("No")).mockImplementationOnce(() => new Promise<string>(() => {}));
+    const user = userEvent.setup();
+    await openApp("/signin", { events: fixtures });
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await user.click(await screen.findByRole("button", { name: copy.signin.tryAgain }));
+
+    const busy = await screen.findByRole("button", { name: copy.signin.continueButton });
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    await waitFor(() => expect(busy).toHaveFocus());
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it.each([
+    ["under Continue", false],
+    ["on the screen that says the add-on said no", true],
+  ])("goes to Continue, busy, when the phone's way is fetched from 'Use an app on your phone instead' %s, then to the code's words", async (_, refused) => {
+    const addOn = installAddOn(generateSecretKey());
+    if (refused) addOn.getPublicKey.mockRejectedValueOnce(new Error("No"));
+    const relay = new MemoryConnectRelay();
+    const user = userEvent.setup();
+    await openApp("/signin", { events: fixtures, relays: () => relay });
+    if (refused) {
+      await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+      await screen.findByRole("alert");
+    }
+    let arrive!: () => void;
+    phoneChunk.held = new Promise<void>((resolve) => (arrive = resolve));
+    await user.click(await screen.findByRole("button", { name: copy.signin.phoneInstead }));
+
+    const busy = screen.getByRole("button", { name: copy.signin.continueButton });
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    await waitFor(() => expect(busy).toHaveFocus());
+    expect(document.activeElement).not.toBe(document.body);
+
+    act(() => arrive());
+    await waitFor(() => expect(screen.getByText(copy.signin.scan)).toHaveFocus());
+  });
+});
+
+describe("leaving the sign-in page while it looks for an add-on", () => {
+  it("does not ask an add-on that comes after the person has left", async () => {
+    let arrive!: () => void;
+    lookup.held = new Promise<void>((resolve) => (arrive = resolve));
+    const user = userEvent.setup();
+    const { router } = await openApp("/signin", { events: fixtures, entries: ["/about", signinFrom("/about")] });
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await screen.findByText(copy.signin.lookingForAddOn);
+    await user.click(screen.getByRole("link", { name: copy.signin.keepHousePicks }));
+    expect(router.state.location.pathname).toBe("/about");
+
+    const addOn = installAddOn(generateSecretKey());
+    act(() => arrive());
+    await settle();
+    expect(addOn.getPublicKey).not.toHaveBeenCalled();
+    expect(sessionText()).toBeNull();
+  });
+});
+
+describe("a page that loaded a while ago", () => {
+  it("never says it is looking for an add-on: Continue goes one way at once", async () => {
+    lookup.loadedAgo = 600;
+    // A look that would never end, were it waited for.
+    lookup.held = new Promise<void>(() => {});
+    const relay = new MemoryConnectRelay();
+    const user = userEvent.setup();
+    await openApp("/signin", { events: fixtures, relays: () => relay });
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    expect(screen.queryByText(copy.signin.lookingForAddOn)).not.toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: copy.signin.qrLabel })).toBeInTheDocument();
+    expect(screen.queryByText(copy.signin.lookingForAddOn)).not.toBeInTheDocument();
+  });
+});
+
+describe("sign in opened at the phone's way", () => {
+  it("shows the code at once, with no Continue to press, when the link that sent the person here asks for it", async () => {
+    installAddOn(generateSecretKey());
+    const relay = new MemoryConnectRelay();
+    await openApp("/signin", {
+      events: fixtures,
+      relays: () => relay,
+      entries: ["/about", { pathname: "/signin", state: { from: { pathname: "/about", search: "", hash: "" }, phone: true } }],
+    });
+    expect(await screen.findByRole("img", { name: copy.signin.qrLabel })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.signin.continueButton })).not.toBeInTheDocument();
   });
 });
 
@@ -794,7 +1280,7 @@ describe("signed in", () => {
     const top = screen.getByRole("banner");
     expect(copy.nav.yourAccount).toBe("Your account");
     expect(await within(top).findByRole("link", { name: copy.nav.yourAccount })).toHaveAttribute("href", "/you");
-    expect(within(top).queryByRole("link", { name: copy.nav.account })).not.toBeInTheDocument();
+    expect(within(top).queryByRole("link", { name: copy.nav.signIn })).not.toBeInTheDocument();
   });
 
   it("never calls the person Someone, which is what the store says for a profile with no name to show", async () => {
@@ -814,11 +1300,11 @@ describe("signed in", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/about"));
   });
 
-  it("sends someone already signed in to You when sign in does not know where they came from", async () => {
+  it("sends someone already signed in to Explore when sign in does not know where they came from", async () => {
     signedInWithBrowser();
     const { router } = await openApp("/signin", { events: fixtures, readers: readersWith([]) });
     expect(screen.queryByRole("button", { name: copy.signin.continueButton })).not.toBeInTheDocument();
-    await waitFor(() => expect(router.state.location.pathname).toBe("/you"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
     expect(router.state.historyAction).toBe("REPLACE");
   });
 
@@ -840,8 +1326,8 @@ describe("signed in", () => {
 
     expect(sessionText()).toBeNull();
     expect(screen.getByText(copy.you.signedOut)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: copy.signin.button })).toHaveAttribute("href", "/signin");
-    expect(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.account })).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).getByRole("link", { name: copy.signin.button })).toHaveAttribute("href", "/signin");
+    expect(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveFocus();
   });
 
