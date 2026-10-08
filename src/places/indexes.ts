@@ -58,6 +58,12 @@ export interface Indexes {
    */
   inRange(west: number, south: number, east: number, north: number): Place[];
   /**
+   * The `limit` places nearest a point that `keep` keeps, nearest first, walking out from the point:
+   * `keep` is asked about the places the walk reaches, not every place, so a costly test (whether a
+   * place is open) is asked of few when many pass. Nothing for a point that is not a place on Earth.
+   */
+  nearestWhere(lat: number, lon: number, limit: number, keep: (place: Place) => boolean): Place[];
+  /**
    * The places that match every word of `q`, best match first and, among matches that are
    * about as good, nearest first. With `radiusKm`, only those within it. An empty query lists
    * the places near the point, as `near` does. Nothing for a point that is not a place on Earth.
@@ -357,6 +363,11 @@ export function buildIndexes(places: readonly Place[]): Indexes {
     return tree.range(west, south, east, north).map((id) => places[id]!);
   }
 
+  function nearestWhere(lat: number, lon: number, limit: number, keep: (place: Place) => boolean): Place[] {
+    if (!isLocation(lat, lon) || !(limit > 0)) return [];
+    return around(tree, lon, lat, limit, undefined, (id) => keep(places[id]!)).map((id) => places[id]!);
+  }
+
   function near(lat: number, lon: number, radiusKm: number, limit?: number): PlaceDistance[] {
     // The tree reads a negative radius as its size, and a limit of zero as no limit.
     if (!isLocation(lat, lon) || !(radiusKm >= 0) || (limit !== undefined && !(limit > 0))) return [];
@@ -433,7 +444,7 @@ export function buildIndexes(places: readonly Place[]): Indexes {
 
   const isKindQuery = (q: string) => readKindQuery(q) !== undefined;
 
-  return { near, inRange, search, isKindQuery, chainOf, chainBySlug, chains, cities: buildCities(places), byD, byAddress };
+  return { near, inRange, nearestWhere, search, isKindQuery, chainOf, chainBySlug, chains, cities: buildCities(places), byD, byAddress };
 }
 
 /**

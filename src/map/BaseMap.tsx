@@ -93,8 +93,11 @@ export interface BaseMapProps {
   onSelect?(address: string | undefined, by?: ChosenBy): void;
   /** The id of what a chosen pin opens (the docked card, the list): each pin says it controls it. */
   pinsControl?: string;
-  /** The person moved the map (a drag, a pinch, the wheel, the keys, the zoom buttons): what it shows now. Not called for moves the page makes. */
-  onMoveEnd?(bbox: Bbox): void;
+  /**
+   * The person moved the map (a drag, a pinch, the wheel, the keys, the zoom buttons): what it shows
+   * now, and its centre, the middle of the map as drawn. Not called for moves the page makes.
+   */
+  onMoveEnd?(bbox: Bbox, centre: LngLat): void;
   /** Where the map starts, when it is not `center` at `zoom`: where it was left, on Back. */
   initialView?: MapView;
   /** After every move, the person's or the page's: where the map looks now. */
@@ -684,7 +687,7 @@ export function BaseMap({
           const { back: way, center: home, zoom: homeZoom } = latest.current;
           if (way !== undefined) setStrayed(!lookingAt(map, home, homeZoom));
           const bounds = map.getBounds();
-          latest.current.onMoveEnd?.([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
+          latest.current.onMoveEnd?.([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()], [lng, at]);
         });
 
         map.on("click", (event: { originalEvent?: Event }) => {

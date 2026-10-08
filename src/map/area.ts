@@ -18,13 +18,44 @@ function wrapLon(lon: number): number {
   return ((((lon + 180) % 360) + 360) % 360) - 180;
 }
 
+/** The farthest north or south a Mercator map draws, in degrees. */
+const MERCATOR_LIMIT = 85.051129;
+
 /**
- * The area a map shows: its box, however wide, with the middle of the view as its centre. A view
- * zoomed out to the world is the world.
+ * The latitude halfway up a map between two latitudes, as a Mercator map draws them: the middle of a
+ * view from 35°N to 70°N is near 56.3°N, not 52.5°N, since the map stretches what is farther north.
  */
-export function areaOf(box: Bbox): Area {
+function mercatorMiddle(south: number, north: number): number {
+  const y = (lat: number) => {
+    const clamped = Math.max(-MERCATOR_LIMIT, Math.min(MERCATOR_LIMIT, lat));
+    return Math.log(Math.tan(Math.PI / 4 + (clamped * Math.PI) / 360));
+  };
+  return (Math.atan(Math.sinh((y(south) + y(north)) / 2)) * 180) / Math.PI;
+}
+
+/**
+ * The area a map shows: its box, however wide, and the middle of the map as its centre. `centre` is
+ * the map's own (`getCenter`), longitude first; without one, the middle of the box as the map draws
+ * it. A view zoomed out to the world is the world.
+ */
+export function areaOf(box: Bbox, centre?: readonly [lon: number, lat: number]): Area {
   const [west, south, east, north] = box;
-  return { lat: (south + north) / 2, lon: wrapLon((west + east) / 2), box };
+  const lat = centre?.[1] ?? mercatorMiddle(south, north);
+  return { lat, lon: wrapLon(centre?.[0] ?? (west + east) / 2), box };
+}
+
+/**
+ * Whether a point is in a box of the map, read on the Earth as `placesInBox` reads it: across the 180th
+ * meridian, and the whole way round for a view that holds the Earth more than once.
+ */
+export function boxHolds([west, south, east, north]: Bbox): (lat: number, lon: number) => boolean {
+  const low = Math.min(south, north);
+  const high = Math.max(south, north);
+  if (!(east - west < 360)) return (lat) => lat >= low && lat <= high;
+  const from = wrapLon(west);
+  const to = wrapLon(east);
+  if (from <= to) return (lat, lon) => lat >= low && lat <= high && lon >= from && lon <= to;
+  return (lat, lon) => lat >= low && lat <= high && (lon >= from || lon <= to);
 }
 
 /**

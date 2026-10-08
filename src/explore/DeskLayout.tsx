@@ -14,7 +14,7 @@ import { useNow } from "../shell/useNow.ts";
 import { DetailsCredit } from "../ui/DetailsCredit.tsx";
 import { shownPageOf } from "../ui/shown.ts";
 import { Entries } from "./Entries.tsx";
-import { EveryPlaceMap } from "./EveryPlaceMap.tsx";
+import { EveryPlaceMap, type MapFilters } from "./EveryPlaceMap.tsx";
 import { viewAt } from "./mapFocus.ts";
 import { useRememberedView } from "./mapMemory.ts";
 import { START_ZOOM } from "./MapPage.tsx";
@@ -93,8 +93,8 @@ export interface DeskLayoutProps {
   mapKey: string;
   /** A box the map shows all of (see `BaseMap`'s `fit`); without one, it looks at where the person is near. */
   fit?: Bbox;
-  /** The person moved the map. */
-  onMoveEnd?(bbox: Bbox): void;
+  /** The person moved the map: what it shows, and its centre. */
+  onMoveEnd?(bbox: Bbox, centre: LngLat): void;
   /** Over the map: "Search this area". `unselect` lets the chosen pin go, for a new list. */
   overlay?(unselect: () => void): ReactNode;
   /** A place to open at (`useMapFocus`): its pin chosen, and the map at it unless it was left somewhere else. */
@@ -103,8 +103,9 @@ export interface DeskLayoutProps {
    * Every place on the map, at any zoom, whatever the list holds (Explore; decision 25), in place of a
    * pin for each entry. A pin chosen whose place is not one of the list's own cards puts its place's
    * card at the top of the list, picked out, with how far it is from `from`, until it is let go.
+   * `filters` narrow the map as the list's filters narrow the list (see `EveryPlaceMap`).
    */
-  everyPlace?: { from: { lat: number; lon: number } };
+  everyPlace?: { from: { lat: number; lon: number }; filters?: MapFilters };
 }
 
 /**
@@ -234,7 +235,7 @@ export function DeskLayout({
           <DetailsCredit />
         </footer>
       </section>
-      {everyPlace === undefined ? <BaseMap {...map} pins={pins} /> : <EveryPlaceMap {...map} />}
+      {everyPlace === undefined ? <BaseMap {...map} pins={pins} /> : <EveryPlaceMap {...map} filters={everyPlace.filters} />}
     </div>
   );
 }

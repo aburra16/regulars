@@ -6,7 +6,7 @@ import { useHere } from "../location/useLocation.ts";
 import { placeCount } from "../places/indexes.ts";
 import { useListScores } from "../score/useListScores.ts";
 import { useScoreActions } from "../score/useScore.ts";
-import { type Filters, filtersFromParams, sortInUse, withFilters } from "../search/filters.ts";
+import { type Filters, filtersFromParams, sortInUse, widestKm, withFilters } from "../search/filters.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { PageMessage } from "../ui/Banner.tsx";
@@ -25,7 +25,9 @@ import { useAreaEntries, useSearchedArea } from "./useArea.ts";
  * Above the list are the filters, as menus, kept in the address the way the search keeps them, so
  * the phone's filters page and these read one model. The map has every place, at any zoom, whatever
  * the list holds (decision 25). Once the person moves the map, "Search this area" lists the places
- * in its box: the 50 nearest its middle, with how many are in view when there are more. Back to this
+ * in its box: the 50 nearest its middle, with how many the area has when there are more, in a polite
+ * status so a screen reader hears it once the list has changed. The filters narrow the map as they
+ * narrow the list (see `EveryPlaceMap`). Back to this
  * page (from a place) finds the map where it was, with that area.
  */
 export function DeskExplore(): JSX.Element {
@@ -38,15 +40,27 @@ export function DeskExplore(): JSX.Element {
   const memoryKey = `desk:${historyKey}`;
   const searched = useSearchedArea(memoryKey);
   const { area } = searched;
-  const { nearby, entries: filtered, inView, from } = useAreaEntries(area, filters);
+  const { inArea, entries: filtered, inView, from } = useAreaEntries(area, filters);
   const sort = sortInUse(filters);
   // The scores of the whole list, asked for in one go for the cards and the pins; best first when asked.
   const { entries, scores } = useListScores(filtered, sort === "score");
   const { refresh } = useScoreActions();
   // Opened at a place, from a phone's link to the map ("See on map").
   const focused = useMapFocus();
-  // The map has every place; a chosen pin's card beyond the list measures its distance as the list does.
-  const everyPlace = useMemo(() => ({ from }), [from]);
+  // The map has every place, narrowed by the filters as the list is; a chosen pin's card beyond the
+  // list measures its distance as the list does.
+  const widest = filters.withinKm >= widestKm(locale);
+  const everyPlace = useMemo(
+    () => ({
+      from,
+      filters: {
+        kinds: filters.families,
+        within: { km: widest ? Number.POSITIVE_INFINITY : filters.withinKm, from },
+        openNow: filters.open,
+      },
+    }),
+    [from, filters, widest],
+  );
 
   // Where Explore is in the history, for the search's back arrow, as the phone's Explore records it:
   // as the page is drawn, before a link pressed meanwhile can move the history on.
@@ -58,7 +72,7 @@ export function DeskExplore(): JSX.Element {
   const setFilters = (next: Filters) => setParams((current) => withFilters(current, next, locale));
 
   let instead: JSX.Element | undefined;
-  if (nearby.length === 0) {
+  if (inArea === 0) {
     instead = searched.fromMap ? <PageMessage>{copy.map.noneInArea}</PageMessage> : <NoneNearby />;
   } else if (entries.length === 0) {
     instead = (

@@ -800,9 +800,11 @@ export const copy = {
     // DRAFT for Avi
     /**
      * In place of that, when an area searched on the map has more places than the list holds (the 50
-     * nearest its middle; decision 25): "2,345 places in view. Zoom in to see the rest."
+     * nearest its middle; decision 25): "2,345 places in this area. Zoom in to see the rest." It says
+     * the area that was searched, which a pan since does not change. With Open now on it counts the
+     * places, open or not: counting the open ones would need every place's hours.
      */
-    inView: (n: number) => `${places(n)} in view. Zoom in to see the rest.`,
+    inArea: (n: number) => `${places(n)} in this area. Zoom in to see the rest.`,
     /** The kinds menu, by what is chosen: none, one ("Cafes"), or several ("Kind of place · 2"). */
     kinds: (n: number, only: string) => (n === 0 ? kindOfPlace : n === 1 ? only : `${kindOfPlace} · ${n.toLocaleString("en")}`),
     /** The sort menu, by the order the list is in: nearest first, A to Z, or, for words, best match first. */

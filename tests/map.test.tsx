@@ -18,7 +18,7 @@ import { distanceKm } from "../src/places/distance";
 import * as hoursModule from "../src/places/hours";
 import { openLine, openState } from "../src/places/hours";
 import { buildIndexes, formatDistance, groupForList } from "../src/places/indexes";
-import { placeKindLabel } from "../src/places/kinds";
+import { kindOf, placeKindLabel } from "../src/places/kinds";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
@@ -274,17 +274,33 @@ describe("the pins", () => {
 });
 
 describe("the area a map shows", () => {
+  /** Where a latitude is drawn on a Mercator map, and back: the middle of a map is the middle of what it draws. */
+  const mercatorY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+  const fromMercatorY = (y: number) => (Math.atan(Math.sinh(y)) * 180) / Math.PI;
+
   it("is the view's box, with the middle of the view as its centre", () => {
     const area = areaOf([-16.92, 32.64, -16.9, 32.66]);
-    expect(area.lat).toBeCloseTo(32.65, 6);
+    expect(area.lat).toBeCloseTo(32.65, 4);
     expect(area.lon).toBeCloseTo(-16.91, 6);
     expect(area.box).toEqual([-16.92, 32.64, -16.9, 32.66]);
     expect(area).not.toHaveProperty("radiusKm");
   });
 
+  it("has the middle of the map as drawn as its centre, not the middle of its latitudes", () => {
+    // A view from 35°N to 70°N: the map's middle is near 56.3°N, well north of 52.5°N.
+    const area = areaOf([-10, 35, 30, 70]);
+    expect(area.lat).toBeCloseTo(fromMercatorY((mercatorY(35) + mercatorY(70)) / 2), 6);
+    expect(area.lat).toBeGreaterThan(56);
+    expect(area.lon).toBe(10);
+    // The map's own centre, when it is given, is the centre.
+    expect(areaOf([-10, 35, 30, 70], [11, 56.4])).toMatchObject({ lat: 56.4, lon: 11 });
+  });
+
   it("reaches as far as the view does, however wide: no city's radius caps it", () => {
-    expect(areaOf([-10, 36, -6, 42])).toEqual({ lat: 39, lon: -8, box: [-10, 36, -6, 42] });
-    expect(areaOf([-180, -85, 180, 85])).toEqual({ lat: 0, lon: 0, box: [-180, -85, 180, 85] });
+    expect(areaOf([-10, 36, -6, 42])).toMatchObject({ lon: -8, box: [-10, 36, -6, 42] });
+    const world = areaOf([-180, -85, 180, 85]);
+    expect(world).toMatchObject({ lon: 0, box: [-180, -85, 180, 85] });
+    expect(world.lat).toBeCloseTo(0, 9);
   });
 
   it("is on the Earth when the view has gone round it", () => {
@@ -609,7 +625,10 @@ describe("BaseMap", () => {
     expect(onMoveEnd).not.toHaveBeenCalled();
 
     act(() => map.dragTo(LISBON_VIEW));
-    expect(onMoveEnd).toHaveBeenCalledWith([-9.2, 38.68, -9.08, 38.76]);
+    expect(onMoveEnd).toHaveBeenCalledWith([-9.2, 38.68, -9.08, 38.76], [-9.14, 38.72]);
+    // The map's own centre, which is not the middle of the box's latitudes on a Mercator map.
+    act(() => map.dragTo({ west: -10, south: 35, east: 30, north: 70 }, 4, [10, 56.3]));
+    expect(onMoveEnd).toHaveBeenLastCalledWith([-10, 35, 30, 70], [10, 56.3]);
   });
 
   it("moves to a new centre, and back to the same one when asked again", async () => {
@@ -837,7 +856,11 @@ describe("Explore on a desktop", () => {
     const closed = fixturePlaces.filter((each) => openState(each, MORNING).kind === "closed");
     expect(closed.length).toBeGreaterThan(0);
     for (const each of closed) expect(cards().map(nameOf)).not.toContain(each.name);
-    // The map is every place, whatever the list leaves out (decision 25).
+    // The pins drawn on their own are the open places; the map's data is still every place, so a
+    // bubble's count still has the closed places in it.
+    const drawnPins = () =>
+      FakeMarker.instances.filter((marker) => marker.map !== undefined && marker.element.querySelector("button[aria-pressed]") !== null);
+    await waitFor(() => expect(drawnPins()).toHaveLength(fixturePlaces.length - closed.length));
     expect(pinAddresses(map)).toHaveLength(fixturePlaces.length);
   });
 
@@ -1330,14 +1353,44 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       expect(pinSource(map).setData).not.toHaveBeenCalled();
     });
 
-    it("are every place on the desktop's map too, whatever the list holds or its filters leave", async () => {
+    it("are every place on the desktop's map too, whatever the list holds", async () => {
       const user = userEvent.setup();
-      const { map } = await openApp("/?kinds=cafes", { px: DESKTOP, events: everyone });
+      const { map } = await openApp("/", { px: DESKTOP, events: everyone });
       expect(sortedPins(map)).toEqual(allAddresses);
       act(() => map.dragTo(WORLD, 1));
       await user.click(searchArea());
       expect(sortedPins(map)).toEqual(allAddresses);
       expect(pinSource(map).setData).not.toHaveBeenCalled();
+    });
+
+    it("are the places of the kinds chosen on the desktop, the same data for as long as the kinds are", async () => {
+      const user = userEvent.setup();
+      const cafes = (each: Place) => kindOf(each.category).family === "cafes";
+      const { map } = await openApp("/?kinds=cafes", { px: DESKTOP, events: everyone });
+      expect(sortedPins(map)).toEqual(everyPlace.filter(cafes).map((each) => each.address).sort());
+
+      // Moving, searching and another sort keep the source as it is.
+      act(() => map.dragTo(WORLD, 1));
+      await user.click(searchArea());
+      const menus = screen.getByRole("group", { name: copy.explore.filtersLabel });
+      await user.click(within(menus).getByRole("button", { name: "Sort: distance" }));
+      await user.click(within(screen.getByRole("group", { name: copy.filters.sortBy })).getByRole("button", { name: "Name" }));
+      expect(pinSource(map).setData).not.toHaveBeenCalled();
+
+      // Another kind is new data, sent once.
+      await user.click(within(menus).getByRole("button", { name: "Cafes" }));
+      await user.click(within(screen.getByRole("group", { name: copy.filters.kinds })).getByRole("button", { name: "Restaurants" }));
+      await waitFor(() => expect(pinSource(map).setData).toHaveBeenCalledTimes(1));
+      const both = (each: Place) => ["cafes", "restaurants"].includes(kindOf(each.category).family);
+      expect(sortedPins(map)).toEqual(everyPlace.filter(both).map((each) => each.address).sort());
+    });
+
+    it("are the places within the distance chosen on the desktop, as the list's are", async () => {
+      const { map } = await openApp("/?within=0.8", { px: DESKTOP });
+      const near = fixturePlaces.filter((each) => distanceKm(HERE.lat, HERE.lon, each.lat, each.lon) <= 0.8);
+      expect(near.length).toBeGreaterThan(3);
+      expect(near.length).toBeLessThan(fixturePlaces.length);
+      expect(sortedPins(map)).toEqual(near.map((each) => each.address).sort());
     });
 
     it("are each place of a chain on its own, with the place's own name", async () => {
@@ -1392,9 +1445,10 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       expect(screen.queryByRole("button", { name: copy.explore.showMore })).not.toBeInTheDocument();
 
       expect(houseLine()).toHaveTextContent(
-        `${copy.deskExplore.inView(everyPlace.length)} ${copy.explore.houseLine} How this works`,
+        `${copy.deskExplore.inArea(everyPlace.length)} ${copy.explore.houseLine} How this works`,
       );
-      expect(copy.deskExplore.inView(2345)).toBe("2,345 places in view. Zoom in to see the rest.");
+      // It says the area that was searched: a pan since does not make it wrong.
+      expect(copy.deskExplore.inArea(2345)).toBe("2,345 places in this area. Zoom in to see the rest.");
       expect(cards()[0]).toHaveAccessibleDescription(expect.stringContaining(` · ${formatDistance(rows[0]!.km, "en-US")} `));
     });
 
@@ -1405,7 +1459,7 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       await user.click(searchArea());
       expect(cards().map(nameOf).sort()).toEqual(["Lisbon place 1", "Lisbon place 2", "Lisbon place 3"]);
       expect(houseLine()).toHaveTextContent(`${copy.deskExplore.count(3)} ${copy.explore.houseLine}`);
-      expect(houseLine()).not.toHaveTextContent(/in view/);
+      expect(houseLine()).not.toHaveTextContent(/in this area/);
     });
 
     it("counts the places the filters leave, and lists the nearest 50 of them", async () => {
@@ -1427,7 +1481,76 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       for (const name of names) {
         if (name !== "A Confeitaria Coffee & Bakery") expect(nearest).toContain(name);
       }
-      expect(houseLine()).toHaveTextContent(copy.deskExplore.inView(everyPlace.length));
+      expect(houseLine()).toHaveTextContent(copy.deskExplore.inArea(everyPlace.length));
+    });
+
+    it("says the count in a polite status, alone, and not again as Open now's minutes pass", async () => {
+      const user = userEvent.setup();
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      try {
+        const { map } = await openApp("/?open=1", { px: DESKTOP, events: everyone });
+        act(() => map.dragTo(WORLD, 1));
+        await user.click(searchArea());
+        const status = within(houseLine()).getByRole("status");
+        // Places of the kinds and distance chosen: it does not say how many are open, which would need every place's hours.
+        expect(status).toHaveTextContent(new RegExp(`^${literal(copy.deskExplore.inArea(everyPlace.length))}$`));
+        expect(within(status).queryByRole("link")).not.toBeInTheDocument();
+
+        // A minute on, the list is worked out again; the line is the same, and nothing in it changes to be said again.
+        const changes: MutationRecord[] = [];
+        const watch = new MutationObserver((records) => changes.push(...records));
+        watch.observe(status, { subtree: true, childList: true, characterData: true });
+        vi.setSystemTime(new Date(MORNING.getTime() + 60_000));
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+        await act(async () => {});
+        watch.disconnect();
+        expect(within(houseLine()).getByRole("status")).toBe(status);
+        expect(changes).toEqual([]);
+      } finally {
+        Reflect.deleteProperty(document, "visibilityState");
+      }
+    });
+
+    it("lists, with Open now, the 50 open places nearest the middle, working out the hours of only those it reaches", async () => {
+      const user = userEvent.setup();
+      const events = [...everyone, ...crowd, ...many];
+      const all = parsePlaces(events);
+      const allIdx = buildIndexes(all);
+      const { map } = await openApp("/?open=1", { px: DESKTOP, events });
+      act(() => map.dragTo(WORLD, 1));
+      // Nothing drawn on its own, so the pins work out no hours meanwhile.
+      map.features = [bubbleOf(0, 0, all.length)];
+      act(() => map.fire("render"));
+      const hours = vi.spyOn(hoursModule, "openState");
+      await user.click(searchArea());
+      expect(hours.mock.calls.length).toBeGreaterThan(LIST_LIMIT);
+      expect(hours.mock.calls.length).toBeLessThan(all.length / 2);
+
+      const open = all
+        .map((each) => ({ place: each, km: distanceKm(0, 0, each.lat, each.lon) }))
+        .sort((a, b) => a.km - b.km)
+        .filter(({ place: each }) => openState(each, MORNING).kind !== "closed")
+        .slice(0, LIST_LIMIT);
+      await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+      // The same places (places the same distance away may come in either order), nearest first.
+      expect(cards().map(nameOf).sort()).toEqual(namesOf(groupForList(open, allIdx)).sort());
+      const shownKm = cards().map((card) => all.find((each) => each.name === nameOf(card))!).map((each) => distanceKm(0, 0, each.lat, each.lon));
+      expect(shownKm).toEqual([...shownKm].sort((a, b) => a - b));
+      expect(houseLine()).toHaveTextContent(copy.deskExplore.inArea(all.length));
+    });
+
+    it("is nearest the middle of the map as drawn", async () => {
+      const user = userEvent.setup();
+      // One place at the middle of a view from 35°N to 70°N as MapLibre draws it, one at the middle of its latitudes.
+      const middles = [
+        variant(nameOnly, { d: "drawn-middle", name: "At the drawn middle", lat: "56.3", lon: "10" }),
+        variant(nameOnly, { d: "mean-middle", name: "At the mean latitude", lat: "52.5", lon: "10" }),
+      ];
+      const { map } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...middles] });
+      act(() => map.dragTo({ west: -10, south: 35, east: 30, north: 70 }, 4, [10, 56.3]));
+      await user.click(searchArea());
+      expect(cards().map(nameOf)).toEqual(["At the drawn middle", "At the mean latitude"]);
+      expect(cards()[0]).toHaveAccessibleDescription(expect.stringContaining(` · ${formatDistance(0, "en-US")} `));
     });
 
     it("reaches past 25 km from its middle: a searched area has no city's radius", async () => {
@@ -1478,7 +1601,7 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       act(() => map.dragTo(WORLD, 1));
       want.mockClear();
       await user.click(searchArea());
-      await waitFor(() => expect(houseLine()).toHaveTextContent(copy.deskExplore.inView(manyPlaces.length)));
+      await waitFor(() => expect(houseLine()).toHaveTextContent(copy.deskExplore.inArea(manyPlaces.length)));
 
       // Every ask is the list's (at most 50) or the pins' (at most MAX_MARKERS), with the chosen pin.
       for (const call of asks(want)) expect(call.length).toBeLessThanOrEqual(Math.max(LIST_LIMIT, MAX_MARKERS) + 1);

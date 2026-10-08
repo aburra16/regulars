@@ -78,7 +78,9 @@ export function NoneNearby(): JSX.Element {
 /**
  * Whose scores the list shows, with the house's badge beside its name and a link to how that works
  * (Main.dc.html). The desktop's Explore says how many places there are first (DeskExplore.dc.html),
- * or, when an area searched on the map has more than the list holds, how many are in view (`inView`).
+ * or, when an area searched on the map has more than the list holds, how many the area has
+ * (`inView`). That sentence alone is a polite status: a screen reader hears it when it changes (a new
+ * search, a new filter), and not the line around it. It does not change as the minutes pass.
  * When House picks can't be worked out (`unavailable`), one quiet line under it says so, with Try
  * again, which asks again (`onRetry`). The focus goes to the lines then, where the button was: the
  * button goes once House picks are back, and the focus would fall to the page. `className` spaces the
@@ -102,7 +104,11 @@ export function HouseLine({
   return (
     <div ref={lines} tabIndex={-1} className={`flex flex-col outline-none ${className}`}>
       <p className="m-0 text-secondary leading-[1.4] text-muted">
-        {count !== undefined && `${inView === undefined ? copy.deskExplore.count(count) : copy.deskExplore.inView(inView)} `}
+        {count !== undefined && (
+          <>
+            <span role="status">{inView === undefined ? copy.deskExplore.count(count) : copy.deskExplore.inArea(inView)}</span>{" "}
+          </>
+        )}
         <HouseName text={copy.explore.houseLine} size="line" />{" "}
         <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
           {copy.explore.howThisWorks}
