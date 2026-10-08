@@ -177,3 +177,12 @@ export function MinusIcon(props: IconProps): JSX.Element {
     </Icon>
   );
 }
+
+/** Three quarters of a circle: the circle being worked out (Tuning.dc.html's banner). */
+export function WorkingIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props} strokeWidth={2.4}>
+      <path d="M12 3a9 9 0 1 0 9 9" />
+    </Icon>
+  );
+}

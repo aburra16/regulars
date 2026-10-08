@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountProvider } from "../src/account/AccountProvider";
 import { SESSION_KEY } from "../src/account/session";
+import { CircleContext, type CircleValue } from "../src/circle/CircleProvider";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { HereProvider } from "../src/location/HereProvider";
@@ -113,18 +114,38 @@ afterEach(() => {
   config.features.saved = false;
 });
 
-/** The whole app at `path`, as main.tsx puts it together, with a router that keeps its history in memory. */
-function renderApp(path = "/", opts: { width?: number } = {}) {
+/** A person's circle that is ready, as the circle's provider gives it (src/circle/CircleProvider.tsx). */
+const READY: CircleValue = {
+  state: "ready",
+  ready: true,
+  notice: false,
+  held: false,
+  updateStep: "idle",
+  edition: 0,
+  personalize: () => {},
+  retry: () => {},
+  update: () => {},
+  cancel: () => {},
+  dismissReady: () => {},
+  clearUpdate: () => {},
+};
+
+/**
+ * The whole app at `path`, as main.tsx puts it together, with a router that keeps its history in memory.
+ * `circle` is the person's circle; without it, the circle's provider is not there, and nobody's is ready.
+ */
+function renderApp(path = "/", opts: { width?: number; circle?: CircleValue } = {}) {
   setWidth(opts.width ?? PHONE);
   const router = createMemoryRouter(routes, { initialEntries: [path] });
+  const app = (
+    <AccountProvider>
+      <HereProvider>
+        <RouterProvider router={router} />
+      </HereProvider>
+    </AccountProvider>
+  );
   const view = render(
-    <ScoresProvider>
-      <AccountProvider>
-        <HereProvider>
-          <RouterProvider router={router} />
-        </HereProvider>
-      </AccountProvider>
-    </ScoresProvider>,
+    <ScoresProvider>{opts.circle === undefined ? app : <CircleContext value={opts.circle}>{app}</CircleContext>}</ScoresProvider>,
   );
   return { router, ...view };
 }
@@ -430,10 +451,10 @@ describe("the toggle while My circle is not open", () => {
     expect(within(toggle()).getByRole("button", { name: "My circle" })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("switches to My circle once My circle is open", async () => {
+  it("switches to My circle once My circle is open and the person's circle is ready", async () => {
     const user = userEvent.setup();
     config.features.circle = true;
-    const { router } = renderApp("/", { width: DESKTOP });
+    const { router } = renderApp("/", { width: DESKTOP, circle: READY });
     await user.click(within(toggle()).getByRole("button", { name: "My circle" }));
     expect(router.state.location.pathname).toBe("/");
     expect(within(toggle()).getByRole("button", { name: "My circle" })).toHaveAttribute("aria-pressed", "true");
@@ -441,7 +462,15 @@ describe("the toggle while My circle is not open", () => {
 });
 
 describe("ViewProvider", () => {
-  const renderView = () => renderHook(() => useView(), { wrapper: ({ children }) => <ViewProvider>{children}</ViewProvider> });
+  /** The view, under a circle that is ready unless `circle` says otherwise. */
+  const renderView = (circle: CircleValue = READY) =>
+    renderHook(() => useView(), {
+      wrapper: ({ children }) => (
+        <CircleContext value={circle}>
+          <ViewProvider>{children}</ViewProvider>
+        </CircleContext>
+      ),
+    });
 
   it("starts on House picks", () => {
     expect(renderView().result.current.view).toBe("house");
@@ -462,6 +491,17 @@ describe("ViewProvider", () => {
   it("is House picks while My circle is not open, whatever the session says", () => {
     window.sessionStorage.setItem(VIEW_STORAGE_KEY, "circle");
     expect(renderView().result.current.view).toBe("house");
+  });
+
+  it("is House picks while the person's circle is not ready, whatever the session says, and keeps House picks", () => {
+    config.features.circle = true;
+    window.sessionStorage.setItem(VIEW_STORAGE_KEY, "circle");
+    const { result } = renderView({ ...READY, state: "working", ready: false });
+    expect(result.current.view).toBe("house");
+    // Kept so: the view does not switch to My circle by itself once the circle is ready again.
+    expect(window.sessionStorage.getItem(VIEW_STORAGE_KEY)).toBe("house");
+    act(() => result.current.setView("circle"));
+    expect(result.current.view).toBe("house");
   });
 
   it("is House picks when the session holds something else", () => {

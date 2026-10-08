@@ -59,10 +59,13 @@ interface Config {
   mapTilerKey: string | undefined;
   /**
    * What is open. `signIn`: signing in, with a browser add-on or an app on a phone (docs/decisions.md
-   * #21). `circle`: My circle, the person's own scores, which needs their circle worked out; until it
-   * is open, the toggle's My circle half reads "soon" for a person who has signed in. `saved`: Saved
-   * in the phone's tabs and the desktop's top bar; it comes back with saved lists (brief § 13, step
-   * 7). Until then a link to /saved still opens its page, which says saving opens soon.
+   * #21). `circle`: My circle, the person's own scores, which needs their circle worked out: a person
+   * signed in can Personalize, which asks Brainstorm, and the toggle's My circle half turns on once
+   * their circle is ready (src/circle/CircleProvider.tsx), its scores worked out from their circle's
+   * ranks (src/score/store.ts; the M3 plan, Task 3). Closed, nothing asks Brainstorm, and the half
+   * reads "soon" for a person who has signed in.
+   * `saved`: Saved in the phone's tabs and the desktop's top bar; it comes back with saved lists
+   * (brief § 13, step 7). Until then a link to /saved still opens its page, which says saving opens soon.
    */
   features: { signIn: boolean; circle: boolean; saved: boolean };
   /**
@@ -90,6 +93,14 @@ interface Config {
   /** Where the house's kind 10040 is read, which names the scorer whose ranks are House picks. */
   houseTrustRelays: string[];
   /**
+   * Brainstorm's API, which works out a person's circle (My circle; src/circle/brainstorm.ts). Once a
+   * signed-in session, after the places load, the app asks it one unauthenticated `GET /setup/{pubkey}`,
+   * which reads a public setup and creates nothing, to find a circle worked out before (ruling R5).
+   * Every other request (its sign-in, which sets up the person's public scoring profile, and the
+   * person's runs) comes only after a tap: Personalize, Try again, Work out my circle again, Update now.
+   */
+  brainstormApi: string;
+  /**
    * `line`: the lowest rank that counts, out of 100 (docs/decisions.md #18). A list is ordered as
    * if each place also had `priorWeight` of a vote of `priorMean` stars, so one five-star review
    * does not top it (brief § 5). Tunable.
@@ -113,13 +124,14 @@ export const config: Config = {
   placesRelay: "wss://dcosl.brainstorm.world",
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
   mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
-  features: { signIn: true, circle: false, saved: false },
+  features: { signIn: true, circle: true, saved: false },
   connectRelay: "wss://relay.nsec.app",
   // In a production build `import.meta.env.DEV` is false, so neither variable is read there.
   reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay],
   relayReadExtras: { [searchRelay]: { search: "include:spam" } },
   relayListRelays: ["wss://purplepag.es"],
   houseTrustRelays: ["wss://scores.brainstorm.world"],
+  brainstormApi: "https://api.brainstorm.world",
   scoring: { line: 5, priorWeight: 1.5, priorMean: 3.5 },
   devScorer: import.meta.env.DEV ? scorerOverride(import.meta.env.VITE_DEV_SCORER) : undefined,
 };

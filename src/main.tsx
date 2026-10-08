@@ -28,6 +28,7 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
 import { AccountProvider } from "./account/AccountProvider.tsx";
+import { CircleProvider, ForgetCircleOnSignOut } from "./circle/CircleProvider.tsx";
 import { HereProvider } from "./location/HereProvider.tsx";
 import { PlacesProvider } from "./places/store.tsx";
 import { routes } from "./routes.tsx";
@@ -47,21 +48,26 @@ const router = createBrowserRouter(routes);
 
 // The places load once for the whole app; the reviews, ranks and names of the places that pages ask
 // about are read once a session (nothing until a page asks); who is signed in is restored from what
-// this tab kept; where the places are near is named from their towns; the pages, and the shell around
-// them, come from the router.
+// this tab kept; their circle (My circle) is where this tab left it; where the places are near is
+// named from their towns; the pages, and the shell around them, come from the router.
 //
-// ScoresProvider must stay outside AccountProvider: it gives the account provider what to forget when
-// the person signs out (src/account/forgetOnSignOut.ts), their reviews held for the tab, and a provider
-// can only use what a provider around it gives.
+// ScoresProvider and ForgetCircleOnSignOut must stay outside AccountProvider: they give the account
+// provider what to forget when the person signs out (src/account/forgetOnSignOut.ts), their reviews
+// held for the tab, their circle and Brainstorm's token, and a provider can only use what a provider
+// around it gives. CircleProvider is inside it, as it follows who is signed in.
 createRoot(root).render(
   <StrictMode>
     <PlacesProvider>
       <ScoresProvider>
-        <AccountProvider>
-          <HereProvider>
-            <RouterProvider router={router} />
-          </HereProvider>
-        </AccountProvider>
+        <ForgetCircleOnSignOut>
+          <AccountProvider>
+            <CircleProvider>
+              <HereProvider>
+                <RouterProvider router={router} />
+              </HereProvider>
+            </CircleProvider>
+          </AccountProvider>
+        </ForgetCircleOnSignOut>
       </ScoresProvider>
     </PlacesProvider>
   </StrictMode>,

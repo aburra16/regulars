@@ -262,13 +262,9 @@ describe("the about page: anchors", () => {
     expect(scrolledTo.mock.contexts.at(-1)).toBe(section(copy.about.signingInHeading));
   });
 
-  it("scrolls to how scores are worked out from Explore's 'How this works'", async () => {
-    const user = userEvent.setup();
-    const { router } = await openApp("/", { events: fixtures });
-    await user.click(await screen.findByRole("link", { name: copy.explore.howThisWorks }));
-
-    expect(router.state.location.pathname).toBe("/about");
-    expect(router.state.location.hash).toBe("#how-scores-work");
+  // Explore's "How this works" goes to the Why page now (tests/why.test.tsx); the section keeps its anchor.
+  it("scrolls to how scores are worked out when a link names it", async () => {
+    await openApp("/about#how-scores-work", { events: fixtures });
     await waitFor(() => expect(scrolledTo).toHaveBeenCalled());
     expect(scrolledTo.mock.contexts.at(-1)).toBe(section(copy.about.reviewsHeading));
   });

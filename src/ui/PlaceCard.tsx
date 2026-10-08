@@ -22,7 +22,7 @@ export interface PlaceCardProps {
    */
   variant: "normal" | "unrated-dashed";
   /**
-   * The place's score from the house's view (`ShownScore`): at the top right when it has one, and
+   * The place's score from the view on screen (`ShownScore`): at the top right when it has one, and
    * under the hours, where the line about who rated it goes, who it comes from. With none, a normal
    * card says nobody has reviewed the place yet ("No reviews yet"). Default: none.
    */

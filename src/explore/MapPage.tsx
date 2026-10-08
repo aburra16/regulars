@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useId, useMemo, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
+import { EmptyCircle } from "../circle/EmptyCircle.tsx";
 import { copy } from "../copy/en.ts";
 import { LocationNotice } from "../location/LocationNotice.tsx";
 import { useHere } from "../location/useLocation.ts";
@@ -146,7 +147,11 @@ export function MapPage(): JSX.Element {
         {/* 16 px in from the edges, as the design has them; between them the map can still be dragged. */}
         <div className="pointer-events-none absolute inset-x-4 top-4 flex flex-col gap-2.5 *:pointer-events-auto">
           <SearchLink onMap />
-          <ViewSwitch variant="map" />
+          {/* The toggle and the line under it share one block: no gap is kept for a line that is not there. */}
+          <div className="flex flex-col">
+            <ViewSwitch variant="map" />
+            <EmptyCircle className="*:mt-2.5 *:rounded-[12px] *:bg-ground *:px-3 *:py-2 *:shadow-float" />
+          </div>
           <LocationNotice className="*:rounded-[12px] *:bg-ground *:px-3 *:py-2 *:shadow-float" />
         </div>
       </EveryPlaceMap>

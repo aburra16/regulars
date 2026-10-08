@@ -63,12 +63,14 @@ export function entryAddress(entry: Entry): string {
 
 /**
  * What a place's pin says of its score to a screen reader, as the pill or the ring says it to the
- * eye: its score, or why it has none. Nothing while its reviews are being read.
+ * eye: its score, and whose view it is from, or why it has none. Nothing while its reviews are being read.
  */
 function scoreWords(score: ShownScore): string | undefined {
   switch (score.kind) {
     case "scored":
-      return copy.map.pinScored(formatScore(score.score), score.counted);
+      if (!score.circle) return copy.map.pinScored(formatScore(score.score), score.counted);
+      if (!score.yours) return copy.map.pinScoredCircle(formatScore(score.score), score.counted);
+      return score.counted === 1 ? copy.map.pinScoredYou(formatScore(score.score)) : copy.map.pinScoredYouAnd(formatScore(score.score), score.counted - 1);
     case "pending":
       return copy.map.pinCounting;
     case "unscored":
@@ -90,7 +92,7 @@ const spokenParts = new WeakMap<Pin, { name: string; kind: string; hours: string
 const withScore = new WeakMap<Pin, { score: ShownScore; pin: Pin }>();
 
 /**
- * `pins` (from `pinsFor`) with each place's score from the house's view (`scoreOf`) put to it: a
+ * `pins` (from `pinsFor`) with each place's score from the view on screen (`scoreOf`) put to it: a
  * scored place is a pill with its score, any other a ring, and each says which to a screen reader.
  * The hours are not worked out again, and a pin whose score is the same object as last time is the
  * same pin, so a map is redrawn only where a score changed.

@@ -43,6 +43,9 @@ const places = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "place" : "
 /** How many people: "3 people", "1 person". */
 const people = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "person" : "people"}`;
 
+/** "1 other person", "3 other people". */
+const otherPeople = (n: number) => `${n.toLocaleString("en")} other ${n === 1 ? "person" : "people"}`;
+
 /** "1 other person has", "3 other people have". */
 const othersHave = (n: number) => `${n.toLocaleString("en")} other ${n === 1 ? "person has" : "people have"}`;
 
@@ -63,6 +66,12 @@ const starWords = ["Would not go back", "Below average", "Fine", "Good", "One of
 
 /** The point of view a place's score comes from before sign in, as a reviews line names it. */
 const houseTrusts = "the house trusts";
+
+/** The person's own point of view, My circle, as a reviews line names it. */
+const inYourCircle = "in your circle";
+
+/** People outside it, as a line names them. */
+const outsideYourCircle = "outside your circle";
 
 /** The heading of the kinds filter, and the name of the desktop's kinds menu while none is chosen. */
 const kindOfPlace = "Kind of place";
@@ -90,6 +99,9 @@ const houseName = "Mise en Place";
 
 /** A link back to the first page. */
 const backToExplore = "Back to Explore";
+
+/** The name of the page that says how a score is worked out (Trust.dc.html, DeskTrust.dc.html). */
+const whyTitle = "Why you see what you see";
 
 /** "phone", "phone or website", "phone, website or hours". */
 const eitherOf = (items: readonly string[]) =>
@@ -156,6 +168,9 @@ export const copy = {
     sortedBy: {
       // DRAFT for Avi
       score: "Best in House picks first",
+      // DRAFT for Avi: the design's words (Search.dc.html).
+      /** The same, while My circle is the view. */
+      circleScore: "Best in My circle first",
       distance: "Nearest first",
       name: "A to Z",
       // DRAFT for Avi: words that are not a kind of place are listed best match first.
@@ -186,8 +201,11 @@ export const copy = {
     /** The cross at the top right, for a screen reader. */
     close: "Close filters",
     sortBy: "Sort by",
-    /** The ways to sort. The first is by House picks' scores, which need no sign in (DRAFT for Avi). */
-    sort: { score: "House picks' score", distance: "Distance", name: "Name" },
+    /**
+     * The ways to sort. The first is by the scores of the view on screen: House picks', which need no
+     * sign in, or My circle's (the design's, Filters.dc.html) while it is the view (DRAFT for Avi).
+     */
+    sort: { score: "House picks' score", circleScore: "My circle's score", distance: "Distance", name: "Name" },
     openNow: "Open now",
     openNowNote: "Keeps places with no hours listed.",
     distance: "Distance",
@@ -211,9 +229,60 @@ export const copy = {
     // DRAFT for Avi
     /**
      * The My circle half while the person's circle cannot be had yet, after they sign in: off, and
-     * saying so (the brief's screen 11; Tuning.dc.html).
+     * saying so, until it is ready (the brief's screen 11; Tuning.dc.html).
      */
     circleSoon: "My circle · soon",
+  },
+  /**
+   * Personalizing: the action under the toggle on Explore that asks Brainstorm, our scoring partner,
+   * to work out the person's circle, and what it says while it does (decisions 8 and 26; the brief's
+   * screen 11, Tuning.dc.html). "Brainstorm" is the partner's name.
+   */
+  circle: {
+    // DRAFT for Avi
+    /** The button. Tapping it is the person's consent (decision 26). */
+    personalize: "Personalize",
+    // DRAFT for Avi: decision 26's line, beside the button.
+    consent:
+      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle's scores are public.",
+    // DRAFT for Avi
+    /** While the person's browser add-on asks them to let Brainstorm know it is them. */
+    approveBrowser: "Approve the request in your browser add-on to go on.",
+    // DRAFT for Avi
+    /** The same, for a person who signed in with an app on their phone. */
+    approvePhone: "Approve the request in the app on your phone to go on.",
+    // DRAFT for Avi
+    /** Stops waiting on the add-on or the app, and gives Personalize back. */
+    cancel: "Cancel",
+    // DRAFT for Avi: the banner's heading (Tuning.dc.html).
+    workingTitle: "Working out your circle",
+    // DRAFT for Avi: the banner's words (Tuning.dc.html).
+    workingBody: "This takes a few minutes. Keep browsing House picks. We'll tell you when My circle is ready.",
+    // DRAFT for Avi
+    /** A quiet notice once it is ready. It never switches the view: the toggle's My circle half is now on. */
+    ready: "Your circle is ready.",
+    // DRAFT for Avi: the brief's § 6.
+    /** Brainstorm would not start a run, as one was made lately, and that run is the one used. */
+    recently: "Your circle was updated recently. We'll use that.",
+    // DRAFT for Avi
+    /** Brainstorm would not start a run (too many from this address), and the person has none yet. */
+    busy: "Brainstorm is busy right now. Try again in a little while.",
+    // DRAFT for Avi: the brief's § 6.
+    /** The run failed, or Brainstorm could not be reached. House picks still works. */
+    unavailable: "My circle isn't available right now.",
+    // DRAFT for Avi
+    /** Beside `busy` or `unavailable`: personalizes again. */
+    tryAgain: "Try again",
+    // DRAFT for Avi
+    /** Beside `ready` or `recently`: puts the notice away. */
+    dismiss: "Dismiss",
+    // DRAFT for Avi
+    /**
+     * Beside the line that says nobody in the circle has rated places yet, when the person's scorer
+     * was found with no ranks: whether its run is done, under way or failed is not known (ruling R10).
+     * Signs in to Brainstorm if needed, and follows the run, or starts one.
+     */
+    workOutAgain: "Work out my circle again",
   },
   score: {
     /** On a card with no score, under the hours, when nobody has reviewed the place (SCREENS.md, wording patterns). */
@@ -237,6 +306,45 @@ export const copy = {
     /** A place with reviews while House picks can't be worked out: "2 people have rated it". */
     peopleRated: (n: number) => `${peopleHave(n)} rated it`,
     // DRAFT for Avi
+    /** The same as `ratedByHouse`, while My circle is the view: "Rated by 3 people in your circle". */
+    ratedByCircle: (n: number) => `Rated by ${people(n)} ${inYourCircle}`,
+    // DRAFT for Avi
+    /** The same as `fromHouse`, in the place page's score panel: "From 3 people in your circle". */
+    fromCircle: (n: number) => `From ${people(n)} ${inYourCircle}`,
+    // DRAFT for Avi
+    /** In place of `ratedByCircle(1)` when the one person in the circle who rated the place is the person signed in. */
+    ratedByYou: "Rated by you",
+    // DRAFT for Avi
+    /** In place of `fromCircle(1)`, in the place page's score panel, likewise. */
+    fromYou: "From you",
+    // DRAFT for Avi (ruling R13)
+    /**
+     * In place of `ratedByCircle(n + 1)` when the person signed in is one of those counted, beside `n`
+     * others: "You and 2 other people in your circle".
+     */
+    ratedByYouAnd: (n: number) => `You and ${otherPeople(n)} ${inYourCircle}`,
+    // DRAFT for Avi (ruling R13)
+    /** In place of `fromCircle(n + 1)`, in the place page's score panel, likewise: "From you and 2 other people in your circle". */
+    fromYouAnd: (n: number) => `From you and ${otherPeople(n)} ${inYourCircle}`,
+    // DRAFT for Avi
+    /**
+     * A place with reviews, none by people in the person's circle, on a card or a row while My circle
+     * is the view (the brief's § 5): "2 people outside your circle have rated it".
+     */
+    outsideCircle: (n: number) => `${people(n)} ${outsideYourCircle} ${n === 1 ? "has" : "have"} rated it`,
+    // DRAFT for Avi
+    /**
+     * The same, first, in the place page's "No score yet" panel, before how many others have rated it
+     * (the brief's § 5: "No score yet. Nobody in your circle has been here yet. 11 other people have rated it.").
+     */
+    noneInCircle: "Nobody in your circle has rated it yet",
+    // DRAFT for Avi
+    /** The same as `starless`, while My circle is the view. */
+    starlessCircle: (n: number) => `${people(n)} ${inYourCircle} reviewed it without stars`,
+    // DRAFT for Avi
+    /** The same as `houseUnavailable`, for My circle: its scorer's ranks can't be read. */
+    circleUnavailable: "My circle can't be worked out right now.",
+    // DRAFT for Avi
     /**
      * A place with no score that the person signed in has reviewed, in place of counting them among
      * the others ("1 other person has rated it"): never whether the house counts their review (ruling R15).
@@ -255,7 +363,10 @@ export const copy = {
     /** One quiet line, when the house's view can't be read: every review is folded, and nothing is scored. */
     houseUnavailable: "House picks can't be worked out right now.",
   },
-  /** The reviews on a place's page (Place.dc.html, DeskPlace.dc.html), worded for House picks. */
+  /**
+   * The reviews on a place's page (Place.dc.html, DeskPlace.dc.html), worded for House picks, and for
+   * My circle where the words name the view.
+   */
   reviews: {
     // DRAFT for Avi
     /** A reviewer whose profile gives no name, or none that can be shown (Review Focus 4): never a code. */
@@ -264,11 +375,20 @@ export const copy = {
     /** The heading over the reviews by people inside House picks (the design's "From your circle"). */
     heading: "Rated by people the house trusts",
     // DRAFT for Avi
+    /** The same, while My circle is the view. */
+    headingCircle: "Rated by people in your circle",
+    // DRAFT for Avi
     /** The box of reviews from outside House picks, under the ones inside: "4 more reviews from outside House picks". */
     foldedMore: (n: number) => `${n.toLocaleString("en")} more ${n === 1 ? "review" : "reviews"} from outside House picks`,
     // DRAFT for Avi
     /** The same box when no review is inside House picks: "4 reviews from outside House picks". */
     foldedAll: (n: number) => `${reviewCount(n)} from outside House picks`,
+    // DRAFT for Avi
+    /** The box of reviews from outside the person's circle, while My circle is the view: "4 more reviews from outside your circle". */
+    foldedMoreCircle: (n: number) => `${n.toLocaleString("en")} more ${n === 1 ? "review" : "reviews"} from ${outsideYourCircle}`,
+    // DRAFT for Avi
+    /** The same box when no review is inside the circle: "4 reviews from outside your circle". */
+    foldedAllCircle: (n: number) => `${reviewCount(n)} from ${outsideYourCircle}`,
     // DRAFT for Avi
     /** The same box while House picks can't be worked out: "4 reviews, not counted right now". */
     uncounted: (n: number) => `${reviewCount(n)}, not counted right now`,
@@ -397,6 +517,7 @@ export const copy = {
     // DRAFT for Avi
     /** The review form is named after the place it reviews: "Your review of Jacafé · Regulars". */
     review: (name: string) => pageTitle(`${yourReviewOf} ${name}`),
+    why: pageTitle(whyTitle),
   },
   /** The sign-in page (SignIn.dc.html, DeskSignIn.dc.html), and the button that leads to it. */
   signin: {
@@ -479,6 +600,102 @@ export const copy = {
     signedOut: "Sign in to see your reviews and the people you trust.",
     // DRAFT for Avi
     signOut: "Sign out",
+  },
+  /**
+   * Why you see what you see (the brief's screen 12 and D4; Trust.dc.html, DeskTrust.dc.html): how a
+   * score is worked out, the person's circle in a count (a count of people, never a number on one:
+   * decision 19), and Update now. The people the person trusts, each with Remove, come with the Trust
+   * button (the brief's § 7), not here.
+   */
+  why: {
+    title: whyTitle,
+    intro: "There is no single score for a place. Every score here is worked out from a set of people. You choose which set.",
+    /** Over the toggle. */
+    lookingThrough: "You're looking through",
+    // DRAFT for Avi
+    /** The name of the panel with the circle's count (and of the desktop's side rail), for a screen reader. */
+    circleHeading: "Your circle",
+    // DRAFT for Avi: the signed-out version is not drawn. Signed out, the panel has the sign-in page's
+    // words (`signin.intro`) and Sign in; signed in, before the circle is worked out, these and Personalize.
+    housePicksNow:
+      "Right now you're seeing House picks. My circle works out every score from the people you trust, and the people they trust.",
+    /** The big number: how many people are in the circle, "212". */
+    count: (n: number) => n.toLocaleString("en"),
+    // DRAFT for Avi
+    /** The same, when only a floor is known: "2,400+". */
+    countAtLeast: (n: number) => `${n.toLocaleString("en")}+`,
+    /** Beside the big number. */
+    inYourCircle: (n: number) => (n === 1 ? "person in your circle" : "people in your circle"),
+    // DRAFT for Avi
+    /** The floor and its words, for a screen reader: "At least 2,400 people in your circle". */
+    atLeast: (n: number) => `At least ${people(n)} in your circle`,
+    /** The circle, split: the people the person trusts, and the people those people trust. */
+    youTrust: "People you trust",
+    theyTrust: "People they trust",
+    // DRAFT for Avi: "today" and "yesterday" (the design draws "Worked out 2 days ago").
+    /** When the circle was worked out: "Worked out 2 days ago". */
+    workedOut: (days: number, months: number) => {
+      let when: string;
+      if (days <= 0) when = "today";
+      else if (days === 1) when = "yesterday";
+      else if (days < 7) when = ago(days, "day");
+      else if (days < 30) when = ago(Math.floor(days / 7), "week");
+      else if (months < 12) when = ago(Math.max(1, months), "month");
+      else when = ago(Math.floor(months / 12), "year");
+      return `Worked out ${when}`;
+    },
+    // DRAFT for Avi
+    /** While the circle is counted. */
+    counting: "Counting your circle…",
+    // DRAFT for Avi
+    /** The circle could not be counted (its scores could not be read). Try again follows. */
+    countFailed: "Your circle can't be counted right now.",
+    // DRAFT for Avi: the brief's § 6 says to say plainly when the circle is empty.
+    /** The circle is ready, and nobody is in it but the person. */
+    emptyTitle: "Nobody in your circle yet",
+    // DRAFT for Avi
+    emptyBody:
+      "Your circle is the people you trust and the people they trust, and so far that's nobody. Until it grows, My circle counts only your own reviews, and House picks still has scores for you.",
+    updateNow: "Update now",
+    // DRAFT for Avi
+    /** After Update now, while Brainstorm works the circle out again. Scores use the circle the person has meanwhile. */
+    updating: "Updating your circle. This takes a few minutes.",
+    // DRAFT for Avi
+    /**
+     * Brainstorm is working it out again, and the page can no longer follow it (its sign-in ran out):
+     * scores use the new circle from the person's next visit, when its ranks are read afresh.
+     */
+    updateStarted: "Your circle is still being worked out. We'll use the new one on your next visit.",
+    // DRAFT for Avi
+    /** Brainstorm has worked it out again. */
+    updated: "Your circle is up to date.",
+    // DRAFT for Avi
+    /** The run failed, took too long, or Brainstorm could not be reached. */
+    updateFailed: "Your circle couldn't be updated right now. Scores still use the one you have.",
+    rulesHeading: "How a score is worked out",
+    /** The three rules: on a phone, each title is a sentence before its words; on a desktop, a card's heading. */
+    rules: {
+      only: { title: "Only your circle counts", body: "A review from someone outside it doesn't move your score at all." },
+      closer: { title: "Closer people count for more", body: "Someone you trust outweighs someone a friend of a friend trusts." },
+      oneSay: { title: "One say each", body: "A person has one review per place. Writing another replaces it." },
+    },
+    foldedHeading: "What gets folded away",
+    // DRAFT for Avi: the design's words, but for its last sentence ("Trust a reviewer and theirs count
+    // from the next update."), which points at the Trust button, not built yet (ruling R11). People
+    // trust others in the apps they use today.
+    /** On a phone (Trust.dc.html). */
+    foldedBody:
+      "Reviews from people outside your circle sit folded under each place. Nothing is deleted, and one tap opens them. If you trust someone new in another app, their reviews count here from your circle's next update.",
+    /** On a desktop (DeskTrust.dc.html): a click, not a tap. */
+    foldedBodyDesk:
+      "Reviews from people outside your circle sit folded under each place. Nothing is deleted, and one click opens them. If you trust someone new in another app, their reviews count here from your circle's next update.",
+    houseHeading: "And House picks?",
+    /** On a phone (Trust.dc.html). */
+    houseBody: `The same sums from a different starting point: the reviewers that ${houseName}, our house curator, trusts. It's what everyone sees before signing in, and it's always one tap away.`,
+    /** On a desktop (DeskTrust.dc.html), where the toggle is in the top bar too. */
+    houseBodyDesk: `The same sums from a different starting point: the reviewers that ${houseName}, our house curator, trusts. It's what everyone sees before signing in.`,
+    /** The link at the foot. */
+    about: `About ${config.appName} and its data`,
   },
   /** About and data (About.dc.html). */
   about: {
@@ -676,6 +893,19 @@ export const copy = {
     near: (label: string) => `Near ${label}`,
     /** Under the toggle, while it is on House picks (Main.dc.html). "How this works" follows it, as a link. */
     houseLine: `Scores from the reviewers that ${houseName}, our house curator, trusts.`,
+    // DRAFT for Avi
+    /** The same, while it is on My circle. "How this works" follows it, as a link. */
+    circleLine: "Scores from your circle: the people you trust, and the people they trust.",
+    // DRAFT for Avi
+    /**
+     * Under that, while My circle is the view and nobody in the person's circle has rated any place
+     * they have seen this session (a circle of one: the brief's § 6, rulings R7 and R8). The toggle
+     * above keeps House picks one tap away; nothing switches the view for them.
+     */
+    circleEmpty: "Nobody in your circle has rated places yet. House picks still has scores for you.",
+    // DRAFT for Avi
+    /** The same, when the person signed in has rated places, and nobody else in their circle has (ruling R8). */
+    circleOnlyYou: "Only you have rated places in your circle so far. House picks still has scores for you.",
     howThisWorks: "How this works",
     /** The filter chips, for a screen reader. */
     filtersLabel: "Filter places",
@@ -716,6 +946,13 @@ export const copy = {
     // DRAFT for Avi
     /** The same, when one location near has a score. */
     houseOne: (score: string) => `Near you, the house rates one ${score}.`,
+    // DRAFT for Avi
+    /** The same as `houseRange`, while My circle is the view. */
+    circleRange: (low: string, high: string) =>
+      low === high ? `Near you, your circle rates them ${low}.` : `Near you, your circle rates them from ${low} to ${high}.`,
+    // DRAFT for Avi
+    /** The same as `houseOne`, while My circle is the view. */
+    circleOne: (score: string) => `Near you, your circle rates one ${score}.`,
     /** The heading over the locations that are near. */
     near: "Near you",
     // DRAFT for Avi: the heading over the nearest three, when none is near.
@@ -750,6 +987,15 @@ export const copy = {
     // DRAFT for Avi
     /** The score part of a scored place's pin: "4.6 out of 5, rated by 3 people the house trusts". */
     pinScored: (score: string, n: number) => `${score} out of 5, rated by ${people(n)} ${houseTrusts}`,
+    // DRAFT for Avi
+    /** The same, while My circle is the view: "4.6 out of 5, rated by 3 people in your circle". */
+    pinScoredCircle: (score: string, n: number) => `${score} out of 5, rated by ${people(n)} ${inYourCircle}`,
+    // DRAFT for Avi
+    /** The same, when the one person in the circle who rated it is the person signed in: "4.0 out of 5, rated by you". */
+    pinScoredYou: (score: string) => `${score} out of 5, rated by you`,
+    // DRAFT for Avi (ruling R13)
+    /** The same, when the person signed in is one of those counted, beside `n` others: "4.3 out of 5, rated by you and 2 other people in your circle". */
+    pinScoredYouAnd: (score: string, n: number) => `${score} out of 5, rated by you and ${otherPeople(n)} ${inYourCircle}`,
     // DRAFT for Avi
     /** The same, for a place whose reviews are being counted. */
     pinCounting: "reviews being counted",
@@ -829,6 +1075,9 @@ export const copy = {
     sort: {
       // DRAFT for Avi
       score: "Sort: House picks' score",
+      // DRAFT for Avi
+      /** The same, while My circle is the view. */
+      circleScore: "Sort: My circle's score",
       distance: "Sort: distance",
       name: "Sort: name",
       // DRAFT for Avi

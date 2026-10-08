@@ -2,6 +2,7 @@ import type { JSX } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
+import { useCircle } from "../circle/CircleProvider.tsx";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { useView, type View } from "../view/ViewProvider.tsx";
@@ -76,22 +77,25 @@ export function ViewToggle({ value, onChange, scores, variant = "bar", circleSoo
 }
 
 /**
- * The toggle for the app's own view (`useView`). Until My circle opens (`config.features.circle`),
- * it has nothing to show, and the view stays House picks: tapping it goes to the sign-in page for a
- * person who has not signed in, which can come back to where they were, as signing in comes first;
- * after sign in, its half is off and reads "soon".
+ * The toggle for the app's own view (`useView`). My circle can be chosen once it is open
+ * (`config.features.circle`) and the person's circle is ready (`useCircle`, after Personalize):
+ * choosing it puts away the notice that said so. Until then the view stays House picks: tapping My
+ * circle goes to the sign-in page for a person who has not signed in, which can come back to where
+ * they were, as signing in comes first; after sign in, its half is off and reads "soon".
  */
 export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "circleSoon">): JSX.Element {
   const { view, setView } = useView();
   const { account } = useAccount();
+  const circle = useCircle();
   const navigate = useNavigate();
   const location = useLocation();
-  const open = config.features.circle;
+  const open = config.features.circle && circle.ready;
   const choose = (next: View) => {
     if (next === "circle" && !open) {
       if (account === undefined) void navigate("/signin", { state: { from: location } });
       return;
     }
+    if (next === "circle") circle.dismissReady();
     setView(next);
   };
   return <ViewToggle {...props} value={view} onChange={choose} circleSoon={!open && account !== undefined} />;

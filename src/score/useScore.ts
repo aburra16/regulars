@@ -4,14 +4,16 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import type { Review } from "../reviews/review.ts";
+import { useCurrentView, type View } from "../view/ViewProvider.tsx";
 import type { PlaceScore } from "./score.ts";
-import { type HouseState, useScoresStore } from "./ScoresProvider.tsx";
+import { useScoresStore, type ViewState } from "./ScoresProvider.tsx";
 import type { ReadState, ReviewCoordinate, ScoresStore } from "./store.ts";
 
 /*
- * What pages ask the scores store for: places' scores and reviews, reviewers' names, and the person's
- * own picture. They give reviews, place scores, names and that picture, and never a number about a
- * person (decision 19).
+ * What pages ask the scores store for: places' scores from the view on screen (House picks, or My
+ * circle), their reviews, reviewers' names, and the person's own picture. They give reviews, place
+ * scores, names and that picture, and never a number about a person (decision 19). Toggling the view
+ * asks the store for nothing new: the scores are worked out again from what it holds (Review Focus 5).
  */
 
 /** Re-renders the component when places' reviews or scores may have changed; their version, for memos. */
@@ -53,22 +55,26 @@ function useSameList(items: readonly string[]): readonly string[] {
 }
 
 /**
- * The scores of the places at `addresses` from the house's view, by address, and where the house's
- * view stands. Asks for their reviews the first time each is asked for, all of them in one go: a
- * page asks for its whole list at once, not a card at a time. A place is missing from `scores` until
- * its reviews have been read, and always when there are no review relays. `pending` holds the
- * places that have reviews and no score yet, while the house is asked about their reviewers. `reads`
- * says where the reading of each place stands (`ScoresStore.readStateOf`), "reading" from the first
- * drawing; a place is missing from it when there are no review relays.
+ * The scores of the places at `addresses` from the view on screen (`view`), by address, and where
+ * that view's ranks stand (`state`); `house` is where House picks' stand. Asks for their reviews the
+ * first time each is asked for, all of them in one go: a page asks for its whole list at once, not a
+ * card at a time. A place is missing from `scores` until its reviews have been read, and always when
+ * there are no review relays. `pending` holds the places that have reviews and no score yet, while
+ * the view's scorer is asked about their reviewers. `reads` says where the reading of each place
+ * stands (`ScoresStore.readStateOf`), "reading" from the first drawing; a place is missing from it
+ * when there are no review relays.
  */
 export function useScores(addresses: readonly string[]): {
   scores: Map<string, PlaceScore>;
   pending: ReadonlySet<string>;
   reads: ReadonlyMap<string, ReadState>;
-  house: HouseState;
+  house: ViewState;
+  view: View;
+  state: ViewState;
 } {
   const store = useScoresStore("useScores");
   const version = useScoresVersion(store);
+  const view = useCurrentView();
   const asked = useSameList(addresses);
 
   useEffect(() => store.want(asked), [store, asked]);
@@ -79,14 +85,14 @@ export function useScores(addresses: readonly string[]): {
     const pending = new Set<string>();
     const reads = new Map<string, ReadState>();
     for (const address of asked) {
-      const score = store.scoreOf(address);
+      const score = store.scoreOf(address, view);
       if (score !== undefined) scores.set(address, score);
       else if (store.reviewsOf(address).length > 0) pending.add(address);
       const read = readStateFor(store, address);
       if (read !== undefined) reads.set(address, read);
     }
-    return { scores, pending, reads, house: store.house };
-  }, [store, asked, version]);
+    return { scores, pending, reads, house: store.house, view, state: store.stateOf(view) };
+  }, [store, asked, version, view]);
 }
 
 /**
@@ -99,22 +105,42 @@ export function useScore(address: string): {
   score: PlaceScore | undefined;
   reviews: Review[];
   read: ReadState | undefined;
-  house: HouseState;
+  house: ViewState;
+  view: View;
+  state: ViewState;
 } {
   const store = useScoresStore("useScore");
   const version = useScoresVersion(store);
+  const view = useCurrentView();
 
   useEffect(() => store.want([address]), [store, address]);
 
   return useMemo(() => {
     void version; // What the store gives changes with it.
     return {
-      score: store.scoreOf(address),
+      score: store.scoreOf(address, view),
       reviews: store.reviewsOf(address),
       read: readStateFor(store, address),
       house: store.house,
+      view,
+      state: store.stateOf(view),
     };
-  }, [store, address, version]);
+  }, [store, address, version, view]);
+}
+
+/**
+ * For the line that says the person's circle has nobody in it yet (brief § 6, rulings R7, R8): whether
+ * that is so among the reviewers seen this session (`ScoresStore.circleEmpty`, which keeps its last
+ * answer while new reviewers are ranked), and whether the person has rated places themselves
+ * (`ScoresStore.circleOwnerRated`), which the line says. Yes or no, never a number about anyone.
+ */
+export function useCircleEmptiness(): { empty: boolean; youRated: boolean } {
+  const store = useScoresStore("useCircleEmptiness");
+  const version = useScoresVersion(store);
+  return useMemo(() => {
+    void version; // What the store gives changes with it.
+    return { empty: store.circleEmpty(), youRated: store.circleOwnerRated() };
+  }, [store, version]);
 }
 
 /**

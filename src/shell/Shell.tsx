@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { Outlet, ScrollRestoration, useMatches } from "react-router-dom";
 
+import { useClearUpdateOffWhy } from "../circle/leaveWhy.ts";
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
 import { type PlacesValue, usePlaces } from "../places/store.tsx";
@@ -66,6 +67,8 @@ function loadState(
 }
 
 function Frame(): JSX.Element {
+  // Update now's last word is for the Why page's visit it was said in.
+  useClearUpdateOffWhy();
   const wide = useWide();
   const chrome = useChrome();
   const places = usePlaces();

@@ -40,22 +40,29 @@ export function ScoreFigure({ id, score, size }: { id: string; score: number; si
 }
 
 /**
- * The line under a place's hours about its score, when it has reviews: who a score comes from, in
- * the trust colour ("Rated by 3 people the house trusts"); or, in the muted one, why a place with
- * reviews has none (people the house trusts reviewed it without stars, or only others rated it), how
- * many have rated it while House picks can't be worked out, that its reviews are being counted, or
- * that they couldn't be loaded. For the person signed in who has rated it (`yours`), the others
- * without them, or "You've rated it" when there are none (ruling R16). Nothing for a place nobody has
+ * The line under a place's hours about its score, when it has reviews, worded for the view it comes
+ * from: who a score comes from, in the trust colour ("Rated by 3 people the house trusts", "Rated by 3
+ * people in your circle", "Rated by you" when the one counted is the person, or "You and 2 other people
+ * in your circle" when they are one of those counted); or, in the muted one,
+ * why a place with reviews has none (people inside the
+ * view reviewed it without stars, or only others rated it: in My circle, "outside your circle"), how
+ * many have rated it while the view can't be worked out, that its reviews are being counted, or that
+ * they couldn't be loaded. For the person signed in who has rated it (`yours`), the others without
+ * them, or "You've rated it" when there are none (ruling R16). Nothing for a place nobody has
  * reviewed, which each list says its own way, nor while its reviews are being read.
  */
 export function whoLine(shown: ShownScore): { text: string; house: boolean } | undefined {
   switch (shown.kind) {
     case "scored":
-      return { text: copy.score.ratedByHouse(shown.counted), house: true };
+      if (!shown.circle) return { text: copy.score.ratedByHouse(shown.counted), house: true };
+      if (!shown.yours) return { text: copy.score.ratedByCircle(shown.counted), house: true };
+      return { text: shown.counted === 1 ? copy.score.ratedByYou : copy.score.ratedByYouAnd(shown.counted - 1), house: true };
     case "unscored":
-      if (shown.starless > 0) return { text: copy.score.starless(shown.starless), house: false };
+      if (shown.starless > 0) {
+        return { text: shown.circle ? copy.score.starlessCircle(shown.starless) : copy.score.starless(shown.starless), house: false };
+      }
       if (shown.yours && shown.others === 0) return { text: copy.score.youRated, house: false };
-      return { text: copy.score.othersRated(shown.others), house: false };
+      return { text: shown.circle ? copy.score.outsideCircle(shown.others) : copy.score.othersRated(shown.others), house: false };
     case "unavailable":
       if (!shown.yours) return { text: copy.score.peopleRated(shown.reviewers), house: false };
       return { text: shown.reviewers > 0 ? copy.score.othersRated(shown.reviewers) : copy.score.youRated, house: false };

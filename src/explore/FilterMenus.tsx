@@ -6,6 +6,7 @@ import { KindOptions, SortOptions, WithinOptions } from "../search/FilterControl
 import { type Filters, sortInUse, widestKm, withinLabel } from "../search/filters.ts";
 import type { Order } from "../search/useResults.ts";
 import { ChevronDownIcon } from "../ui/icons.tsx";
+import { useCurrentView } from "../view/ViewProvider.tsx";
 
 /**
  * A chip of the menu row (DeskExplore.dc.html): drawn 40 px tall, with an invisible 2 px above and
@@ -112,6 +113,7 @@ export function FilterMenus({
   locale: string;
 }): JSX.Element {
   const sort = sortInUse(filters);
+  const view = useCurrentView();
   const [firstKind] = filters.families;
   const within =
     filters.withinKm === widestKm(locale) ? copy.filters.distance : copy.search.within(withinLabel(filters.withinKm, locale));
@@ -150,7 +152,10 @@ export function FilterMenus({
           />
         )}
       </Menu>
-      <Menu label={copy.deskExplore.sort[order]} title={copy.filters.sortBy}>
+      <Menu
+        label={order === "score" && view === "circle" ? copy.deskExplore.sort.circleScore : copy.deskExplore.sort[order]}
+        title={copy.filters.sortBy}
+      >
         {(headingId, close) => (
           <SortOptions
             value={sort}

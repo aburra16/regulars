@@ -24,7 +24,7 @@ export interface PlaceRowProps {
   /** The browser's language: it decides miles or kilometres, and the 12- or 24-hour clock. */
   locale: string;
   now: Date;
-  /** The place's score from the house's view (`ShownScore`). Default: none, "No reviews yet". */
+  /** The place's score from the view on screen (`ShownScore`). Default: none, "No reviews yet". */
   score?: ShownScore;
 }
 

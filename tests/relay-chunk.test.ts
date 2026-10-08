@@ -14,6 +14,11 @@ import { describe, expect, it } from "vitest";
 // and Nostrify is then a chunk the two share. The phone's way of signing in on the sign-in page, with
 // the QR code's library (uqr), is a chunk the sign-in page fetches (src/signin/loadPhoneWay.ts); the
 // add-on's way, which the sign-in page and Rate this place take at once, loads only the signing code.
+// Brainstorm's client, which works out a person's circle (src/circle/brainstorm.ts), is a chunk of its
+// own too: one module imports it, through a dynamic import() (src/circle/loadBrainstorm.ts), which the
+// circle's provider (src/circle/CircleProvider.tsx) and the Why page's count (src/circle/circleSize.ts)
+// call when they first need it: the person taps Personalize or Update now, a signed-in tab looks for a
+// circle worked out before, or the Why page counts the circle with the token the tab has.
 // This builds the real app (vite.config.ts and index.html, in memory: nothing is written) and checks
 // that none of it is in the entry, or in anything the entry loads before it runs.
 const ROOT = process.cwd();
@@ -24,6 +29,8 @@ const ACCOUNT_PROVIDER = /[\\/]src[\\/]account[\\/]AccountProvider\.tsx$/;
 const POST = /[\\/]src[\\/]review[\\/]post\.ts$/;
 const CONNECT = /[\\/]src[\\/]account[\\/]connect\.ts$/;
 const QR_LIBRARY = /[\\/]node_modules[\\/]uqr[\\/]/;
+const BRAINSTORM = /[\\/]src[\\/]circle[\\/]brainstorm\.ts$/;
+const CIRCLE_PROVIDER = /[\\/]src[\\/]circle[\\/]CircleProvider\.tsx$/;
 
 type Output = Awaited<ReturnType<typeof build>>;
 interface Chunk {
@@ -66,7 +73,7 @@ describe("the relay chunk", () => {
       }),
     );
     const lazyCode = (chunk: Chunk | undefined) =>
-      (chunk?.moduleIds ?? []).filter((id) => [RELAY_READER, NOSTRIFY, CONNECT, QR_LIBRARY].some((code) => code.test(id)));
+      (chunk?.moduleIds ?? []).filter((id) => [RELAY_READER, NOSTRIFY, CONNECT, QR_LIBRARY, BRAINSTORM].some((code) => code.test(id)));
 
     const entries = chunks.filter((chunk) => chunk.isEntry);
     expect(entries).toHaveLength(1);
@@ -77,9 +84,12 @@ describe("the relay chunk", () => {
     expect(entry.moduleIds.some((id) => ACCOUNT_PROVIDER.test(id))).toBe(true);
     // So is the review form, which posts through the relay code it loads when the person posts.
     expect(entry.moduleIds.some((id) => POST.test(id))).toBe(true);
+    // And the circle's provider, which loads Brainstorm's client when it is first needed.
+    expect(entry.moduleIds.some((id) => CIRCLE_PROVIDER.test(id))).toBe(true);
     expect(lazyCode(entry)).toEqual([]);
 
-    // Everything the entry loads before it runs: none of it is the relay code, Nostrify, the signing code or the QR library.
+    // Everything the entry loads before it runs: none of it is the relay code, Nostrify, the signing code,
+    // the QR library or Brainstorm's client.
     const byName = new Map(chunks.map((chunk) => [chunk.fileName, chunk]));
     const eager = new Set<string>([entry.fileName]);
     for (const name of eager) for (const imported of byName.get(name)?.imports ?? []) eager.add(imported);
@@ -102,5 +112,7 @@ describe("the relay chunk", () => {
     expect(bringsNostrify(lazyChunkOf(CONNECT))).toBe(true);
     // The QR library, in the chunk of the phone's way.
     lazyChunkOf(QR_LIBRARY);
+    // Brainstorm's client, in a chunk of its own, which brings no Nostrify: it signs through the account's signer.
+    expect(bringsNostrify(lazyChunkOf(BRAINSTORM))).toBe(false);
   }, 120_000);
 });

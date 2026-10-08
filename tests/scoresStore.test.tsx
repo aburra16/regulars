@@ -945,8 +945,10 @@ describe("ScoresProvider: scores", () => {
     }
     const shown = JSON.stringify(result.current);
     for (const number of ["73.25", "0.7325", "7325"]) expect(shown).not.toContain(number);
-    // The person's own picture is an address, no number: useOwnPicture.
+    // What the hooks give: reviews, place scores, names, whether the person's circle is empty (yes or no),
+    // and the person's own picture, an address, no number (useOwnPicture).
     expect(Object.keys(await import("../src/score/useScore")).sort()).toEqual([
+      "useCircleEmptiness",
       "useNames",
       "useOwnPicture",
       "useScore",

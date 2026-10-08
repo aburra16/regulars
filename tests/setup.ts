@@ -13,6 +13,7 @@ import { forgetUnloadablePictures } from "../src/shell/unloadablePictures";
 import { forgetShownInMemory } from "../src/ui/shown";
 import { forgetThemeInMemory } from "../src/theme/theme";
 import { resetFakeMaplibre } from "./support/fakeMaplibre";
+import { noFetch, takeReached } from "./support/noFetch";
 
 // jsdom has no WebGL, so no map can be drawn. Every test gets the stand-in in place of the map
 // library: a page with a map works as it does in a browser, without tiles, and a test can play the
@@ -31,7 +32,13 @@ const defaults = structuredClone({
 // .env.local says, and with the default trust relays, relay-list relays, scoring and read extras, whatever a test before
 // it set. Saved is out (`features.saved`, until saved lists exist), and no picture is known not to load:
 // a test that wants Saved, or a picture that fails, sets it. A test that wants something else sets it.
+//
+// My circle starts closed (config.features.circle), though the app has it open: open, a signed-in tab
+// asks Brainstorm, once the places are in, whether the person's circle is ready
+// (src/circle/CircleProvider.tsx), which a test must stub. The tests of My circle open it
+// (tests/circle.test.tsx, tests/circleScores.test.tsx).
 beforeEach(() => {
+  config.features.circle = false;
   config.features.saved = false;
   forgetUnloadablePictures();
   config.mapTilerKey = undefined;
@@ -52,6 +59,10 @@ class NoSocket {
 }
 globalThis.WebSocket = NoSocket as unknown as typeof WebSocket;
 
+// Nor do they reach the network over fetch (ruling R3): a test that needs it stubs it, and one that
+// calls the real one fails below, even where the code under test caught what it threw.
+globalThis.fetch = noFetch;
+
 // jsdom lays nothing out and scrolls nothing: it logs "not implemented" for window.scrollTo, which
 // the router calls on every page change. Tests that care about scrolling spy on this.
 if (typeof window !== "undefined") {
@@ -59,6 +70,7 @@ if (typeof window !== "undefined") {
 }
 
 afterEach(async () => {
+  const reached = takeReached();
   cleanup();
   // Each test starts with nothing saved on the device, as on a first visit, and a page that has just been opened.
   await clear();
@@ -75,5 +87,9 @@ afterEach(async () => {
     forgetThemeInMemory();
     // The history of the window is the test's own: no entry index from a router that came before.
     window.history.replaceState(null, "", "/");
+  }
+  // Last, once the next test's start is clean: a test that reached the network fails.
+  if (reached.length > 0) {
+    throw new Error(`A test called the real fetch: ${reached.join(", ")}. Stub fetch instead (vi.stubGlobal).`);
   }
 });

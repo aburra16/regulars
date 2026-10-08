@@ -1,9 +1,11 @@
 import type { NostrEvent, NRelay } from "@nostrify/nostrify";
 import { render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { createMemoryRouter, type InitialEntry, RouterProvider } from "react-router-dom";
 import { expect } from "vitest";
 
 import { AccountProvider } from "../../src/account/AccountProvider";
+import { CircleProvider, ForgetCircleOnSignOut } from "../../src/circle/CircleProvider";
 import { copy } from "../../src/copy/en";
 import { HereProvider } from "../../src/location/HereProvider";
 import type { RelayReader, RelayWriter } from "../../src/nostr/events";
@@ -76,6 +78,8 @@ export interface OpenOptions {
    * app's own, which opens a socket (tests/setup.ts forbids it), so pass one to connect.
    */
   relays?: (url: string) => NRelay;
+  /** Renders the app in React's strict mode, as main.tsx does: every effect runs, is cleaned up, and runs again. Default: no. */
+  strict?: boolean;
 }
 
 /**
@@ -83,21 +87,29 @@ export interface OpenOptions {
  * person is signed in if `sessionStorage` says so. It resolves once the page is past the "Finding
  * places" line, which a page that needs no places never shows.
  */
-export async function openApp(path: string, { px = PHONE, events, entries, delayMs, readers, writers, relays }: OpenOptions) {
+export async function openApp(
+  path: string,
+  { px = PHONE, events, entries, delayMs, readers, writers, relays, strict = false }: OpenOptions,
+) {
   setWidth(px);
   const initialEntries = entries ?? [path];
   const router = createMemoryRouter(routes, { initialEntries, initialIndex: initialEntries.length - 1 });
-  const view = render(
+  const app = (
     <PlacesProvider reader={createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
       <ScoresProvider readers={readers} writers={writers}>
-        <AccountProvider relays={relays}>
-          <HereProvider>
-            <RouterProvider router={router} />
-          </HereProvider>
-        </AccountProvider>
+        <ForgetCircleOnSignOut>
+          <AccountProvider relays={relays}>
+            <CircleProvider>
+              <HereProvider>
+                <RouterProvider router={router} />
+              </HereProvider>
+            </CircleProvider>
+          </AccountProvider>
+        </ForgetCircleOnSignOut>
       </ScoresProvider>
-    </PlacesProvider>,
+    </PlacesProvider>
   );
+  const view = render(strict ? <StrictMode>{app}</StrictMode> : app);
   await waitFor(() => expect(screen.queryByText(copy.load.loading)).not.toBeInTheDocument());
   return { router, ...view };
 }
@@ -120,11 +132,15 @@ export async function openAppWithSaved(path: string, saved: NostrEvent[], latest
     <PlacesProvider reader={createMemoryReader(latest, { delayMs: 200 })}>
       <Probe />
       <ScoresProvider>
-        <AccountProvider>
-          <HereProvider>
-            <RouterProvider router={router} />
-          </HereProvider>
-        </AccountProvider>
+        <ForgetCircleOnSignOut>
+          <AccountProvider>
+            <CircleProvider>
+              <HereProvider>
+                <RouterProvider router={router} />
+              </HereProvider>
+            </CircleProvider>
+          </AccountProvider>
+        </ForgetCircleOnSignOut>
       </ScoresProvider>
     </PlacesProvider>,
   );

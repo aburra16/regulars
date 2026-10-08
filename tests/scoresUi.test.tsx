@@ -24,6 +24,7 @@ import { DESKTOP, openApp, resetWidth } from "./support/app";
 import { hex64, shapedEvent } from "./support/events";
 import { FakeMap } from "./support/fakeMaplibre";
 import { createMemoryReader, type MemoryReader } from "./support/memoryReader";
+import { expectNoNumbersAboutPeople } from "./support/noNumbers";
 
 /*
  * House scores and reviews on screen (M2b Task 3): the cards, rows and pins of every list, the place
@@ -553,8 +554,10 @@ const reviewerOf = (article: HTMLElement) => within(article).getByRole("heading"
 
 /**
  * Ranks that would be easy to spot: Alice 87.37 and Bob 63.41 inside House picks, Carol 4.38 below the
- * line. No place, distance, hour or address in the fixtures has these numbers, whole or not.
+ * line. No place, distance, hour or address in the fixtures has these numbers, whole or not. The page
+ * must never show any of them, nor their weights or roundings (tests/support/noNumbers.ts).
  */
+const NUMBERS = [87.37, 63.41, 4.38];
 const NUMBER_RANKS = [rankOf(ALICE, 87.37), rankOf(BOB, 63.41), rankOf(CAROL, 4.38)];
 /** Jacafé reviewed by all three; a location of A Confeitaria by Alice and Carol. */
 const numbersReviews = () => [
@@ -563,26 +566,6 @@ const numbersReviews = () => [
   reviewOf(ALICE, CONFEITARIA.places[0]!, 4),
   reviewOf(CAROL, CONFEITARIA.places[0]!, 3),
 ];
-
-/**
- * That nothing on the page says a number about a person: not in its text, not in any attribute a
- * screen reader may read, and not in any element's accessible name or description. Each rank, its
- * weight, their roundings (to whole numbers too), a percentage, and the words for them.
- */
-function expectNoNumbersAboutPeople(): void {
-  const aboutPeople =
-    /87\.37|63\.41|4\.38|87\.4|63\.4|4\.4\b|0\.8737|0\.6341|0\.0438|0\.87|0\.63|0\.04|\b87\b|\b63\b|%|\brank|\bweight|\bcounts? for|trust score/i;
-  expect(document.body.textContent).not.toMatch(aboutPeople);
-  for (const element of document.body.querySelectorAll("*")) {
-    for (const attribute of ["aria-label", "aria-description", "title", "alt", "aria-valuetext", "aria-valuenow"]) {
-      expect(element.getAttribute(attribute) ?? "").not.toMatch(aboutPeople);
-    }
-    expect(element).not.toHaveAccessibleName(aboutPeople);
-    expect(element).not.toHaveAccessibleDescription(aboutPeople);
-  }
-  expect(screen.queryAllByRole("meter")).toEqual([]);
-  expect(screen.queryAllByRole("progressbar")).toEqual([]);
-}
 
 describe("the place page, scored", () => {
   it("has the score panel: the big number, its stars, and who it comes from", async () => {
@@ -722,7 +705,7 @@ describe("the place page, scored", () => {
     await user.click(screen.getByRole("button", { name: copy.reviews.show }));
     await screen.findByText("Too sweet.");
 
-    expectNoNumbersAboutPeople();
+    expectNoNumbersAboutPeople(NUMBERS);
     // The place's own rating is there: (0.8737 × 5 + 0.6341 × 4) / 1.5078.
     expect(screen.getByRole("img", { name: "4.6 out of 5" })).toBeInTheDocument();
   });
@@ -735,7 +718,7 @@ describe("the place page, scored", () => {
     await openApp(path, { events: places, readers, ...(px === undefined ? {} : { px }) });
     if (path === "/") await waitFor(() => expect(card("Jacafé")).toHaveTextContent("4.6"));
     await screen.findByRole("button", { name: /^Jacafé, .*4\.6 out of 5/ });
-    expectNoNumbersAboutPeople();
+    expectNoNumbersAboutPeople(NUMBERS);
   });
 
   it("never shows a number about a person in a chain's rows", async () => {
@@ -748,7 +731,7 @@ describe("the place page, scored", () => {
       return found;
     });
     expect(row).toHaveTextContent("4.0");
-    expectNoNumbersAboutPeople();
+    expectNoNumbersAboutPeople(NUMBERS);
   });
 
   it("on a desktop, has the panel in the column and Rate this place heading the rail", async () => {

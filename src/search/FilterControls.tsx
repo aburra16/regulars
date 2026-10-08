@@ -5,6 +5,7 @@ import { FAMILIES, type FamilyId } from "../places/kinds.ts";
 import { Chips } from "../ui/Chips.tsx";
 import { FamilyIcon } from "../ui/KindTile.tsx";
 import { Switch } from "../ui/Switch.tsx";
+import { useCurrentView } from "../view/ViewProvider.tsx";
 import { type Sort, widestKm, withinChoices } from "./filters.ts";
 import type { Order } from "./useResults.ts";
 
@@ -19,7 +20,8 @@ import type { Order } from "./useResults.ts";
 const AUTO = "auto";
 
 /**
- * How to sort: House picks' score, which needs no sign in, Distance and Name. With no sort chosen
+ * How to sort: by the score of the view on screen (House picks', which needs no sign in, or My
+ * circle's while it is the view), Distance and Name. With no sort chosen
  * (`value` is undefined) the page picks the order, `order`, and this shows it: Distance pressed when
  * the list is nearest first, and none pressed, with a line that says so, when it is best match
  * first. Pressing a sort chooses it, and the one that only shows the order in use too; pressing the
@@ -38,6 +40,7 @@ export function SortOptions({
   labelledBy: string;
 }): JSX.Element {
   const inUse = useId();
+  const view = useCurrentView();
   const chosen = value;
   const shown = chosen ?? (order === "distance" ? "distance" : AUTO);
   const bestMatch = chosen === undefined && order === "relevance";
@@ -47,7 +50,7 @@ export function SortOptions({
         labelledBy={labelledBy}
         describedBy={bestMatch ? inUse : undefined}
         options={[
-          { id: "score", label: copy.filters.sort.score },
+          { id: "score", label: view === "circle" ? copy.filters.sort.circleScore : copy.filters.sort.score },
           { id: "distance", label: copy.filters.sort.distance },
           { id: "name", label: copy.filters.sort.name },
         ]}
