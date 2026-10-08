@@ -3,7 +3,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { aboutFigures } from "../src/about/figures";
+import { aboutFigures, formatRefreshed } from "../src/about/figures";
 import { NOTICES_FILE } from "../src/about/notices";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
@@ -111,6 +111,18 @@ describe("the about page: where the places come from", () => {
     // 23:25 UTC on the 5th is the 6th in Madeira in summer, which is not the day the places were refreshed.
     await waitFor(() => expect(figure(copy.about.figures.lastRefreshed)).toHaveTextContent("5 de outubro de 2026"));
     expect(figure(copy.about.figures.places)).toHaveTextContent("43");
+  });
+
+  it("writes the date in Latin digits, as every number the app writes, in any language", async () => {
+    vi.spyOn(navigator, "language", "get").mockReturnValue("ar-EG");
+    await openApp("/about", { events: fixtures });
+    await waitFor(() => expect(figure(copy.about.figures.lastRefreshed)).not.toHaveTextContent(copy.about.figures.none));
+    const date = figure(copy.about.figures.lastRefreshed).textContent ?? "";
+    // 5 October 2026, in Arabic, with 5 and 2026 in the digits the rest of the page uses.
+    expect(date).toMatch(/\b5\b/);
+    expect(date).toContain("2026");
+    expect(date).not.toMatch(/[\u0660-\u0669\u06F0-\u06F9]/);
+    expect(formatRefreshed(REFRESHED_AT, "ar-EG")).toBe(date);
   });
 
   it("opens before the places do, with a dash in place of each figure, and fills them in when they come", async () => {

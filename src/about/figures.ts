@@ -32,10 +32,12 @@ export function formatCount(n: number, locale: string): string {
 }
 
 /**
- * A date in the browser's language, long: "5 October 2026", "October 5, 2026". It is the day in
- * Greenwich, so the same list says the same day to everyone; a refresh at 23:25 UTC is not a day
- * later for a person in Madeira.
+ * A date in the browser's language, long: "5 October 2026", "October 5, 2026", in Latin digits like
+ * every number the app writes. It is the day in Greenwich, so the same list says the same day to
+ * everyone; a refresh at 23:25 UTC is not a day later for a person in Madeira.
  */
 export function formatRefreshed(seconds: number, locale: string): string {
-  return new Intl.DateTimeFormat(safeLocale(locale), { dateStyle: "long", timeZone: "UTC" }).format(new Date(seconds * 1000));
+  return new Intl.DateTimeFormat(safeLocale(locale), { dateStyle: "long", timeZone: "UTC", numberingSystem: "latn" }).format(
+    new Date(seconds * 1000),
+  );
 }
