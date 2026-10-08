@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 import type { NostrEvent } from "@nostrify/nostrify";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createBrowserRouter, createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { HereProvider } from "../src/location/HereProvider";
+import { HereContext, type HereValue } from "../src/location/useLocation";
 import { PIN_SOURCE } from "../src/map/pins";
 import { actionsOf } from "../src/place/Actions";
 import { goUrl, osmNoteUrl, osmUrl } from "../src/place/osmLinks";
@@ -98,20 +99,30 @@ function setWidth(px: number) {
 /** The app at the last of `entries`, with the places read from `events`; resolves once the page has its places. */
 async function openPlace(
   path: string,
-  { px = PHONE, events = fixtures, entries }: { px?: number; events?: NostrEvent[]; entries?: string[] } = {},
+  {
+    px = PHONE,
+    events = fixtures,
+    entries,
+    here,
+  }: { px?: number; events?: NostrEvent[]; entries?: string[]; here?: HereValue } = {},
 ) {
   setWidth(px);
   const initialEntries = entries ?? [path];
   const router = createMemoryRouter(routes, { initialEntries, initialIndex: initialEntries.length - 1 });
+  const page = <RouterProvider router={router} />;
   const view = render(
     <PlacesProvider reader={createMemoryReader(events)}>
-      <HereProvider>
-        <RouterProvider router={router} />
-      </HereProvider>
+      {/* `here`: where the person is, given; otherwise where the app works it out, which starts at the default city. */}
+      {here === undefined ? <HereProvider>{page}</HereProvider> : <HereContext value={here}>{page}</HereContext>}
     </PlacesProvider>,
   );
   await waitFor(() => expect(screen.queryByText(copy.load.loading)).not.toBeInTheDocument());
   return { router, ...view };
+}
+
+/** Where the person is, as the app knows it: near a point, from the default city, a town they picked, or their device. */
+function hereAt(lat: number, lon: number, source: HereValue["source"]): HereValue {
+  return { label: source === "device" ? copy.location.you : "Funchal", lat, lon, source, pending: false, useDevice() {}, pickCity() {} };
 }
 
 const heading = () => screen.getByRole("heading", { level: 1 });
@@ -143,20 +154,49 @@ afterEach(() => {
 // ---- The header ----
 
 describe("the place page: header", () => {
-  it("shows the kind tile, the name, what it is and how far, and whether it is open, in place form", async () => {
+  it("shows the kind tile, the name, what it is, and whether it is open, in place form", async () => {
     await openPlace(`/place/${JACAFE.d}`);
     const header = heading().closest("section")!;
 
     expect(header.querySelector('[aria-hidden="true"] svg')).not.toBeNull();
     expect(heading()).toHaveTextContent(JACAFE.name);
 
-    const away = formatDistance(distanceKm(HERE.lat, HERE.lon, JACAFE.lat, JACAFE.lon), US);
     const kind = placeKindLabel(JACAFE.category, JACAFE.cuisine);
-    expect(within(header).getByText(`${kind} · ${away} away`)).toBeInTheDocument();
-    expect(copy.place.kindAway(kind, away)).toBe(`${kind} · ${away} away`);
+    // The device has not said where the person is: how far the place is from the default city is not how far it is from them.
+    expect(within(header).getByText(kind)).toBeInTheDocument();
+    expect(header).not.toHaveTextContent(/away/);
+    expect(copy.place.kindAway(kind, "")).toBe(kind);
     // 15:00 on a Wednesday; the hours are Mo-Fr 09:30-17:30.
     expect(header).toHaveTextContent("Open now · closes 5:30 pm");
     expect(within(header).getByText("Open now")).toHaveClass("font-bold");
+  });
+
+  it.each([
+    ["the default city", "default" as const],
+    ["a town the person picked", "city" as const],
+  ])("says nothing of how far when the places are near %s, on a phone and a desktop", async (_, source) => {
+    const here = hereAt(32.66, -16.92, source);
+    for (const px of [PHONE, DESKTOP]) {
+      const { unmount } = await openPlace(`/place/${JACAFE.d}`, { px, here });
+      const kind = placeKindLabel(JACAFE.category, JACAFE.cuisine);
+      expect(heading().parentElement!.parentElement).toHaveTextContent(kind);
+      expect(screen.queryByText(/ away/)).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("says how far away the place is when the device has said where the person is, on a phone and a desktop", async () => {
+    const here = hereAt(32.66, -16.92, "device");
+    const away = formatDistance(distanceKm(32.66, -16.92, JACAFE.lat, JACAFE.lon), US);
+    const kind = placeKindLabel(JACAFE.category, JACAFE.cuisine);
+    expect(copy.place.kindAway(kind, away)).toBe(`${kind} · ${away} away`);
+
+    await openPlace(`/place/${JACAFE.d}`, { here });
+    expect(within(heading().closest("section")!).getByText(`${kind} · ${away} away`)).toBeInTheDocument();
+    cleanup();
+
+    await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP, here });
+    expect(within(heading().closest("section")!).getByText(`${kind} · ${away} away`, { exact: false })).toBeInTheDocument();
   });
 
   it("says the hours are not listed, in grey, when there are none", async () => {
@@ -756,11 +796,15 @@ describe("the place page at 1360 px (D2)", () => {
   });
 
   it("shows the kind, the distance and the hours on one line under the name", async () => {
-    await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP });
+    await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP, here: hereAt(HERE.lat, HERE.lon, "device") });
     const header = heading().closest("section")!;
     const kind = placeKindLabel(JACAFE.category, JACAFE.cuisine);
     // DeskPlace.dc.html: "Seafood restaurant · 0.4 mi away · Open now, closes 10 pm".
     expect(header).toHaveTextContent(new RegExp(`${kind} · .+ away · Open now, closes 5:30 pm`));
+    cleanup();
+    // With no distance, the kind and the hours.
+    await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP });
+    expect(heading().closest("section")!).toHaveTextContent(`${kind} · Open now, closes 5:30 pm`);
     expect(within(header).getByText("Open now")).toHaveClass("font-bold");
     expect(copy.hours.openNowClosesInline("10 pm")).toBe("Open now, closes 10 pm");
     expect(copy.hours.closedOpensInline("7 am")).toBe("Closed, opens 7 am");

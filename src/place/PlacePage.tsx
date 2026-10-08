@@ -328,7 +328,9 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
   const state = useMemo(() => openState(place, now), [place, now]);
   const actions = useMemo(() => actionsOf(place), [place]);
   const nearby = useMemo(() => nearbyOf(indexes, place), [indexes, place]);
-  const away = formatDistance(distanceKm(here.lat, here.lon, place.lat, place.lon), locale);
+  // How far away is said only from where the device says the person is. From the default city, or a
+  // town they picked, it would be how far the place is from somewhere they may not be.
+  const away = here.source === "device" ? formatDistance(distanceKm(here.lat, here.lon, place.lat, place.lon), locale) : "";
   const view: View = {
     place,
     kindAway: copy.place.kindAway(placeKindLabel(place.category, place.cuisine), away),
