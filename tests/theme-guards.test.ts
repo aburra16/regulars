@@ -171,12 +171,21 @@ function paletteOffences(lists: ClassList[]): string[] {
   );
 }
 
-/** A scrim: a fixed element over the whole page with a see-through ground. It is the shade's, never another colour's. */
+/**
+ * A scrim: a fixed element over the whole page with a see-through ground, or a dialog's backdrop. It is
+ * the shade's, never another colour's: DeskReview.dc.html draws the review dialog's in ink-soft, which
+ * would be a light wash in the dark.
+ */
 function scrimOffences(lists: ClassList[]): string[] {
   return lists.flatMap((list) => {
-    if (!list.classes.includes("fixed") || !list.classes.includes("inset-0")) return [];
+    const fixedLayer = list.classes.includes("fixed") && list.classes.includes("inset-0");
     return list.classes.flatMap((name) => {
       const { variants, base } = split(name);
+      if (variants.includes("backdrop")) {
+        const ground = /^bg-([\w-]+?)(?:\/(?:\d+|\[[^\]]+\]))?$/.exec(base);
+        return ground !== null && ground[1] !== "shade" && ground[1] !== "transparent" ? [where(list, name)] : [];
+      }
+      if (!fixedLayer) return [];
       const wash = /^bg-([\w-]+)\/(?:\d+|\[[^\]]+\])$/.exec(base);
       return wash !== null && wash[1] !== "shade" && !passing(variants) ? [where(list, name)] : [];
     });
@@ -195,8 +204,11 @@ function accentOffences(lists: ClassList[]): string[] {
   });
 }
 
-/** The night colours and an ink fill, which stay the same in both themes, go only where the light theme's colours are kept. */
-const LIGHT_ONLY = /^(?:bg-night|text-on-night-soft|text-wordmark-on-night|bg-ink)$/;
+/**
+ * The night colours, and a fill in the ink or the soft ink, which turn light in the dark theme, go only
+ * where the light theme's colours are kept. A fill that marks a choice is the emphasis; a scrim, the shade.
+ */
+const LIGHT_ONLY = /^(?:bg-night|text-on-night-soft|text-wordmark-on-night|bg-ink|bg-ink-soft)$/;
 
 function lightOnlyOffences(elements: ElementClasses[], outside: ClassList[]): string[] {
   const offending = (list: ClassList) => list.classes.filter((name) => {
@@ -267,6 +279,16 @@ describe("a scrim", () => {
     `);
     expect(scrim).toEqual(["bg-ink/60", "wide:bg-black/40"]);
   });
+
+  it("catches a dialog's backdrop in any colour but the shade, as a scrim (DeskReview.dc.html draws it in ink-soft)", () => {
+    const { scrim } = sample(`
+      const a = <dialog className="rounded-dialog bg-ground backdrop:bg-ink-soft/60" />;
+      const b = <dialog className="wide:backdrop:bg-ink" />;
+      const ok1 = <dialog className="backdrop:bg-shade/60" />;
+      const ok2 = <dialog className="backdrop:bg-shade" />;
+    `);
+    expect(scrim).toEqual(["backdrop:bg-ink-soft/60", "wide:backdrop:bg-ink"]);
+  });
 });
 
 describe("the lighter accent", () => {
@@ -289,7 +311,7 @@ describe("the lighter accent", () => {
   });
 });
 
-describe("the night colours and the ink fill", () => {
+describe("the night colours and the ink fills", () => {
   it("are only where the light theme's colours are kept: the sign-in page and About's dark card", () => {
     expect(lightOnlyOffences(all.elements, all.outside)).toEqual([]);
     const kept = all.elements.filter((element) => element.keptLight && element.classes.some((name) => LIGHT_ONLY.test(split(name).base)));
@@ -302,7 +324,7 @@ describe("the night colours and the ink fill", () => {
         return <div data-theme="light" className="bg-night"><p className="text-on-night-soft">x</p><b className={\`bg-ink \${y}\`} /></div>;
       }
       function Bare() {
-        return <section><p className="text-wordmark-on-night" /><i className="wide:bg-ink hover:bg-ink/5" /></section>;
+        return <section><p className="text-wordmark-on-night" /><i className="wide:bg-ink hover:bg-ink/5" /><b className="bg-ink-soft text-ink-soft" /></section>;
       }
       function Inner() {
         // A component of its own: the light theme of whatever draws it is not seen here.
@@ -310,6 +332,6 @@ describe("the night colours and the ink fill", () => {
       }
       const tone = "bg-ink text-ground";
     `);
-    expect(lightOnly).toEqual(["text-wordmark-on-night", "wide:bg-ink", "bg-night", "bg-ink (outside a className)"]);
+    expect(lightOnly).toEqual(["text-wordmark-on-night", "wide:bg-ink", "bg-ink-soft", "bg-night", "bg-ink (outside a className)"]);
   });
 });

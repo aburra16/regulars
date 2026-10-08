@@ -380,7 +380,7 @@
    layer, so it wins over MapLibre's rule, which the map's chunk loads after this stylesheet. */
 .maplibregl-map .maplibregl-cooperative-gesture-screen {
   padding: 16px calc(var(--touch) + 20px);
-  background: color-mix(in srgb, var(--emphasis) 70%, transparent);
+  background: color-mix(in srgb, var(--emphasis) 80%, transparent);
   color: var(--on-emphasis);
   font-family: var(--font-text);
   font-size: var(--size-body);

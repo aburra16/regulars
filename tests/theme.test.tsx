@@ -208,6 +208,25 @@ describe("the dark theme's colours", () => {
     expect(luminance(colourOf("dark", "line-dashed"))).toBeGreaterThan(luminance(colourOf("dark", "line-strong")));
   });
 
+  it("keeps the map's gesture note at 4.5 to 1 over any map colour, black and white included, in both themes", () => {
+    const note = /\.maplibregl-map \.maplibregl-cooperative-gesture-screen\s*\{([^}]*)\}/.exec(indexCss)?.[1] ?? "";
+    const share = Number(/background:\s*color-mix\(in srgb, var\(--emphasis\) (\d+)%, transparent\);/.exec(note)?.[1]) / 100;
+    expect(share).toBeGreaterThan(0);
+    /** The note's ground over a map colour: the emphasis at its share, the map showing through the rest. */
+    const over = (theme: "light" | "dark", map: string) => {
+      const fill = colourOf(theme, "emphasis");
+      const channel = (hex: string, i: number) => Number.parseInt(hex.slice(i, i + 2), 16);
+      return `#${[1, 3, 5]
+        .map((i) => Math.round(channel(fill, i) * share + channel(map, i) * (1 - share)).toString(16).padStart(2, "0"))
+        .join("")}`;
+    };
+    for (const theme of ["light", "dark"] as const) {
+      for (const map of ["#000000", "#FFFFFF", colourOf(theme, "map-land"), colourOf(theme, "map-water")]) {
+        expect(contrast(colourOf(theme, "on-emphasis"), over(theme, map)), `${theme} over ${map}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
   it("keeps a part of a page in the light theme's colours, whatever the theme: the sign-in page", () => {
     // Every colour the dark theme changes, put back as the light theme has it.
     expect([...lightScope.keys()].sort()).toEqual([...darkDeclared.keys()].sort());
@@ -676,6 +695,26 @@ describe("the dark mode switch", () => {
     }
     await openApp("/saved", { events: fixtures, px: PHONE });
     expect(screen.queryByRole("switch", { name: copy.nav.darkMode })).not.toBeInTheDocument();
+  });
+
+  it("on the You page, turns when its words or its row are tapped, and once when the switch itself is", async () => {
+    const user = userEvent.setup();
+    await openApp("/you", { events: fixtures, px: PHONE });
+    const row = screen.getByRole("switch", { name: copy.nav.darkMode });
+    const words = screen.getByText(copy.nav.darkMode);
+    await user.click(words);
+    expect(row).toHaveAttribute("aria-checked", "true");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    // The row is the switch's label, all of it.
+    const label = words.closest("label");
+    expect(label).not.toBeNull();
+    expect(label).toContainElement(row);
+    await user.click(label!);
+    expect(row).toHaveAttribute("aria-checked", "false");
+    await user.click(row);
+    expect(row).toHaveAttribute("aria-checked", "true");
+    // Still a switch named by its words, not by everything in its row.
+    expect(row).toHaveAccessibleName(copy.nav.darkMode);
   });
 
   it("is not on the sign-in page, which is dark already", async () => {

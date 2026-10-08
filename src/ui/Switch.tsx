@@ -6,11 +6,14 @@ import type { JSX } from "react";
  * to tap. It is named by the words beside it, and can be described by a line under them.
  */
 export function Switch({
+  id,
   checked,
   onChange,
   labelledBy,
   describedBy,
 }: {
+  /** Its id, for a <label> around its row that turns it too. */
+  id?: string;
   checked: boolean;
   onChange(checked: boolean): void;
   /** The id of the words that name it. */
@@ -20,6 +23,7 @@ export function Switch({
 }): JSX.Element {
   return (
     <button
+      id={id}
       type="button"
       role="switch"
       aria-checked={checked}
