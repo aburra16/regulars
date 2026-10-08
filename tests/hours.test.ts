@@ -737,15 +737,16 @@ describe("the parsed hours are remembered", () => {
   });
 
   it("remembers the hours of every place in a dense city, so Open now parses nobody twice", () => {
-    // Open now asks about every place near the point: thousands, in a big city.
-    expect(PARSE_CACHE_LIMIT).toBeGreaterThanOrEqual(10_000);
+    // Open now asks about every place near the point: thousands, in a big city. A parse keeps about
+    // 24 KB, so the memory is held to 3,000 (about 70 MB) for a phone's sake.
+    expect(PARSE_CACHE_LIMIT).toBe(3000);
     const before = built();
-    const city = distinct(5_000, "23:56");
+    const city = distinct(2_500, "23:56");
     const pass = () => city.forEach((hours) => openState({ ...FUNCHAL, openingHours: hours }, NOW));
     pass();
-    expect(built() - before).toBe(5_000);
+    expect(built() - before).toBe(2_500);
     pass();
-    expect(built() - before).toBe(5_000);
+    expect(built() - before).toBe(2_500);
   });
 
   it("keeps a bounded number of them, dropping the one used longest ago", () => {

@@ -320,12 +320,59 @@ describe("Explore on a phone: the list", () => {
     expect(cards()).toHaveLength(60);
   });
 
-  it("keeps nothing for the first page of a tab or an address that was typed, which share one key", async () => {
+  it("keeps nothing on the device for the first page of a tab or an address that was typed, which share one key", async () => {
     const user = userEvent.setup();
     await openExplore("/", line(75));
     await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
     expect(cards()).toHaveLength(60);
     expect(shownKeys()).toEqual([]);
+  });
+
+  it("remembers the depth of the first page of a tab for as long as the page is open, so Back to it lands where the person was", async () => {
+    const user = userEvent.setup();
+    const first = await openExplore("/", line(75));
+    await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+    expect(cards()).toHaveLength(60);
+
+    // The page is left and drawn again, as when the router brings the first entry back.
+    first.unmount();
+    await openExplore("/", line(75));
+    expect(cards()).toHaveLength(60);
+    expect(shownKeys()).toEqual([]);
+  });
+
+  it("brings Back to the first entry of the tab the depth it had", async () => {
+    const user = userEvent.setup();
+    const { router } = await openExplore("/", line(75));
+    await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+    expect(cards()).toHaveLength(60);
+
+    await user.click(chip("Restaurants"));
+    expect(cards()).toHaveLength(30);
+    await act(() => router.navigate(-1));
+    expect(router.state.location.key).toBe("default");
+    expect(cards()).toHaveLength(60);
+  });
+
+  it("keeps the first page's depth for its own filter and place only", async () => {
+    const user = userEvent.setup();
+    const events = [...line(75), ...cafes(40)];
+    const first = await openExplore("/", events);
+    await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+    first.unmount();
+
+    // The same first entry, another chip: another list.
+    const second = await openExplore("/?chip=cafes", events);
+    expect(cards()).toHaveLength(30);
+    second.unmount();
+
+    // Another point to be near: another list, though it has the same places.
+    window.localStorage.setItem(
+      "regulars.here",
+      JSON.stringify({ name: "Monte", country: "PT", lat: 32.66, lon: -16.9 }),
+    );
+    await openExplore("/", events);
+    expect(cards()).toHaveLength(30);
   });
 
   it("does not take the depth of one list to another", async () => {

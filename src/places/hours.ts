@@ -170,9 +170,11 @@ function holidayContext(country: string | undefined): nominatim_object | undefin
 /**
  * How many parsed hours to remember. A list shows far fewer places than this at once, but Open
  * now asks about every place near the point, and a dense city has thousands within the radius:
- * a memory smaller than that is parsed over again on every pass (every minute).
+ * a memory smaller than that is parsed over again on every pass (every minute). A parsed
+ * schedule keeps about 24 KB (measured), so this many are about 70 MB, which a phone can spare;
+ * ten thousand would be about 250 MB, which it cannot.
  */
-export const PARSE_CACHE_LIMIT = 10_000;
+export const PARSE_CACHE_LIMIT = 3000;
 
 /** Parsed hours by country and text, oldest use first. `null` is hours that cannot be used. */
 const parsed = new Map<string, OpeningHours | null>();

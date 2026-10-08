@@ -6,6 +6,8 @@ import { cleanup } from "@testing-library/react";
 import { clear } from "idb-keyval";
 import { afterEach } from "vitest";
 
+import { forgetShownInMemory } from "../src/ui/shown";
+
 // Tests never open a network socket. Anything that tries fails here, loudly, instead of
 // reaching a real server. Tests read places through a RelayReader (tests/support/memoryReader.ts).
 class NoSocket {
@@ -23,8 +25,9 @@ if (typeof window !== "undefined") {
 
 afterEach(async () => {
   cleanup();
-  // Each test starts with nothing saved on the device, as on a first visit.
+  // Each test starts with nothing saved on the device, as on a first visit, and a page that has just been opened.
   await clear();
+  forgetShownInMemory();
   // A test that runs in Node, not jsdom, has no window.
   if (typeof window !== "undefined") {
     window.localStorage.clear();

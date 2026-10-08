@@ -16,6 +16,7 @@ import { ChainCard } from "../ui/ChainCard.tsx";
 import { ChipLink, Chips } from "../ui/Chips.tsx";
 import { SearchIcon } from "../ui/icons.tsx";
 import { PlaceCard } from "../ui/PlaceCard.tsx";
+import { type ShownPage, shownMemory, shownPageOf, useShownCount } from "../ui/shown.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
 import { CHIP_LABELS, CHIP_PARAM, chipFromParam, chipKeeps, EXPLORE_CHIPS, type ExploreChip } from "./chips.ts";
 
@@ -25,8 +26,8 @@ const PAGE_SIZE = 30;
 /** The end of the list is looked for this far below the screen, so the next cards are there before they are scrolled to. */
 const LOOK_AHEAD = "0px 0px 600px 0px";
 
-/** Where each page of the list keeps how many cards it has shown, in `sessionStorage`. */
-const SHOWN_KEY = "regulars.explore.shown";
+/** Where each page of the list keeps how many cards it has shown. */
+const shown = shownMemory("regulars.explore.shown", PAGE_SIZE);
 
 type Entry = PlaceDistance | ChainGroup<PlaceDistance>;
 
@@ -50,34 +51,11 @@ function SearchLink(): JSX.Element {
 }
 
 /**
- * How many cards this page of the list showed last time, never more than it has, and at least
- * the first thirty.
- */
-function readShown(page: string, length: number): number {
-  try {
-    const count = Number(window.sessionStorage.getItem(`${SHOWN_KEY}:${page}`));
-    return Number.isInteger(count) ? Math.max(PAGE_SIZE, Math.min(count, length)) : PAGE_SIZE;
-  } catch {
-    // Storage that is blocked: the list starts from thirty.
-    return PAGE_SIZE;
-  }
-}
-
-function writeShown(page: string, count: number): void {
-  try {
-    window.sessionStorage.setItem(`${SHOWN_KEY}:${page}`, String(count));
-  } catch {
-    // Blocked or full. Back to this page starts from thirty.
-  }
-}
-
-/**
  * The cards, thirty at first and thirty more each time the end comes into view. Where the browser
  * cannot watch for that, or the person would rather not scroll, the button after the last card
  * does it. When it is pressed the focus moves to the first new card, so a keyboard goes on from
  * where the list left off. `page` is this page of the history and its list: Back to it shows as
- * many cards as it had, so the scroll position the router restores is still on the page. A page
- * with none keeps nothing.
+ * many cards as it had, so the scroll position the router restores is still on the page.
  */
 function Entries({
   page,
@@ -85,12 +63,12 @@ function Entries({
   locale,
   now,
 }: {
-  page: string | undefined;
+  page: ShownPage;
   entries: Entry[];
   locale: string;
   now: Date;
 }): JSX.Element {
-  const [count, setCount] = useState(() => (page === undefined ? PAGE_SIZE : readShown(page, entries.length)));
+  const [count, setCount] = useShownCount(shown, page, entries.length);
   const more = count < entries.length;
   const list = useRef<HTMLUListElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -110,11 +88,6 @@ function Entries({
     observer.observe(target);
     return () => observer.disconnect();
   }, [more, count]);
-
-  const length = entries.length;
-  useEffect(() => {
-    if (page !== undefined) writeShown(page, Math.min(count, length));
-  }, [page, count, length]);
 
   useEffect(() => {
     if (focusAt.current === null) return;
@@ -234,10 +207,10 @@ export function ExploreList(): JSX.Element {
     );
   } else {
     // A new chip is a new page of the history, and a new town is a new list: each starts from its first thirty.
-    // The first page of a tab, and any address typed in or followed from elsewhere, have the key "default"
-    // between them, so a depth kept under it would belong to whichever of them was there last: none is kept.
+    // The first page of a tab has the key "default", and so has any address typed in or followed from elsewhere:
+    // its depth is kept in memory only, where a reload clears it (see `ShownPage`).
     const list = `${chip}|${here.lat}|${here.lon}`;
-    const page = historyKey === "default" ? undefined : `${historyKey}|${list}`;
+    const page = shownPageOf(historyKey, list);
     body = (
       <div className="px-gutter-phone pt-[18px]">
         <Entries key={`${historyKey}|${list}`} page={page} entries={entries} locale={locale} now={now} />
