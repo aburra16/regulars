@@ -1,4 +1,4 @@
-import type { JSX } from "react";
+import { type JSX, useId, useRef } from "react";
 import { Link, type LinkProps, useLocation, useParams } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
@@ -7,7 +7,7 @@ import { reviewPath } from "../review/paths.ts";
 import { formatScore } from "../score/score.ts";
 import type { ShownScore } from "../score/shown.ts";
 import { useWide } from "../shell/useWide.ts";
-import { primaryButton } from "../ui/Banner.tsx";
+import { primaryButton, retryButton } from "../ui/Banner.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Stars } from "../ui/Stars.tsx";
 
@@ -140,11 +140,7 @@ function Failed({ wide, onRetry }: { wide: boolean; onRetry(): void }): JSX.Elem
   return (
     <section className={filledPanel(wide)}>
       <p className="m-0 text-[15px] font-semibold text-muted">{copy.score.failed}</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="h-11 cursor-pointer self-start rounded-chip border-token border-line-strong bg-ground px-4 font-text text-secondary font-bold text-ink"
-      >
+      <button type="button" onClick={onRetry} className={retryButton}>
         {copy.load.retry}
       </button>
       {!wide && <RateButton />}
@@ -170,10 +166,19 @@ function Counting({ wide }: { wide: boolean }): JSX.Element {
  * A place with reviews and no score: "No score yet", in the dashed panel of a place with none, and
  * why: people the house trusts reviewed it without stars, or how many others have rated it (their
  * reviews are folded below). When House picks can't be worked out, how many have rated it, and one
- * quiet line under the panel says why there is no score. For the person signed in who has reviewed
- * it, "You've rated it" first, and the others counted without them (ruling R15).
+ * quiet line under the panel says why there is no score, with Try again (`onRetry`). For the person
+ * signed in who has reviewed it, "You've rated it" first, and the others counted without them (ruling R15).
  */
-function NoScore({ shown, wide }: { shown: Extract<ShownScore, { kind: "unscored" | "unavailable" }>; wide: boolean }): JSX.Element {
+function NoScore({
+  shown,
+  wide,
+  onRetry,
+}: {
+  shown: Extract<ShownScore, { kind: "unscored" | "unavailable" }>;
+  wide: boolean;
+  onRetry(): void;
+}): JSX.Element {
+  const quietId = useId();
   const lines: string[] = [];
   if (shown.yours) lines.push(copy.score.youRated);
   if (shown.kind === "unavailable") {
@@ -199,18 +204,45 @@ function NoScore({ shown, wide }: { shown: Extract<ShownScore, { kind: "unscored
   return (
     <div className="flex flex-col gap-2.5">
       {panel}
-      <p className="m-0 text-secondary leading-[1.4] text-muted">{copy.score.houseUnavailable}</p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <p id={quietId} className="m-0 text-secondary leading-[1.4] text-muted">
+          {copy.score.houseUnavailable}
+        </p>
+        <button type="button" aria-describedby={quietId} onClick={onRetry} className={retryButton}>
+          {copy.load.retry}
+        </button>
+      </div>
     </div>
   );
+}
+
+/** What the panel shows, by what there is to show; `onRetry` for its Try again. */
+function PanelOf({ name, wide, shown, onRetry }: { name: string; wide: boolean; shown: ShownScore; onRetry(): void }): JSX.Element {
+  switch (shown.kind) {
+    case "scored":
+      return <HouseScore score={shown.score} counted={shown.counted} wide={wide} />;
+    case "reading":
+      return <Reading wide={wide} />;
+    case "failed":
+      return <Failed wide={wide} onRetry={onRetry} />;
+    case "pending":
+      return <Counting wide={wide} />;
+    case "unscored":
+    case "unavailable":
+      return <NoScore shown={shown} wide={wide} onRetry={onRetry} />;
+    case "none":
+      return <BeFirst name={name} wide={wide} />;
+  }
 }
 
 /**
  * Where the place's score goes, under its name, by what there is to show (`ShownScore`): the house's
  * score; the reviews being counted; no score yet; or, before anyone has reviewed it, the dashed panel
  * that asks the person to be the first. While the reviews are read it waits quietly; when they
- * couldn't be, it says so, with Try again (`onRetry`). On a phone "Rate this place" is in a panel
- * with no score (beside the reviews' heading when it has one); on a desktop it heads the rail
- * (DeskPlace.dc.html).
+ * couldn't be, or House picks can't be worked out, it says so, with Try again (`onRetry`), which puts
+ * the focus on the panel: the button goes once what it asked for comes, and the focus would fall to
+ * the page. On a phone "Rate this place" is in a panel with no score (beside the reviews' heading
+ * when it has one); on a desktop it heads the rail (DeskPlace.dc.html).
  */
 export function ScorePanel({
   name,
@@ -223,19 +255,14 @@ export function ScorePanel({
   shown: ShownScore;
   onRetry(): void;
 }): JSX.Element {
-  switch (shown.kind) {
-    case "scored":
-      return <HouseScore score={shown.score} counted={shown.counted} wide={wide} />;
-    case "reading":
-      return <Reading wide={wide} />;
-    case "failed":
-      return <Failed wide={wide} onRetry={onRetry} />;
-    case "pending":
-      return <Counting wide={wide} />;
-    case "unscored":
-    case "unavailable":
-      return <NoScore shown={shown} wide={wide} />;
-    case "none":
-      return <BeFirst name={name} wide={wide} />;
-  }
+  const panel = useRef<HTMLDivElement>(null);
+  const retry = () => {
+    panel.current?.focus({ preventScroll: true });
+    onRetry();
+  };
+  return (
+    <div ref={panel} tabIndex={-1} className="outline-none">
+      <PanelOf name={name} wide={wide} shown={shown} onRetry={retry} />
+    </div>
+  );
 }

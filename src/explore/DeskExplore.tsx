@@ -5,6 +5,7 @@ import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
 import { placeCount } from "../places/indexes.ts";
 import { useListScores } from "../score/useListScores.ts";
+import { useScoreActions } from "../score/useScore.ts";
 import { type Filters, filtersFromParams, sortInUse, withFilters } from "../search/filters.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
@@ -40,6 +41,7 @@ export function DeskExplore(): JSX.Element {
   const sort = sortInUse(filters);
   // The scores of the whole list, asked for in one go for the cards and the pins; best first when asked.
   const { entries, scores } = useListScores(filtered, sort === "score");
+  const { refresh } = useScoreActions();
   // Opened at a place, from a phone's link to the map ("See on map").
   const focused = useMapFocus();
 
@@ -78,7 +80,7 @@ export function DeskExplore(): JSX.Element {
             onChange={setFilters}
             locale={locale}
           />
-          <HouseLine count={placeCount(entries)} unavailable={scores.house === "unavailable"} />
+          <HouseLine count={placeCount(entries)} unavailable={scores.house === "unavailable"} onRetry={refresh} className="gap-3.5" />
         </>
       }
       entries={entries}

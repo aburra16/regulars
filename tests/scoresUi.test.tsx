@@ -368,6 +368,32 @@ describe("a place's card while its reviews are read, and when they can't be", ()
 });
 
 describe("Explore, when House picks can't be worked out", () => {
+  it.each([
+    ["a phone", undefined],
+    ["a desktop", DESKTOP],
+  ])("offers Try again beside the line on %s, which gets House picks back, with the focus kept on the line", async (_, px) => {
+    const user = userEvent.setup();
+    const trust = flakyReader([trustList()]);
+    const { readers } = houseNetwork(jacafeScored(), HOUSE_RANKS, { [TRUST]: trust });
+    await openApp("/", { events: places, readers, px });
+
+    const quiet = await screen.findByText(copy.score.houseUnavailable);
+    const retry = screen.getByRole("button", { name: copy.load.retry });
+    expect(retry).toHaveAccessibleDescription(copy.score.houseUnavailable);
+    expect(screen.getAllByRole("button", { name: copy.load.retry })).toHaveLength(1);
+    const line = quiet.closest("[tabindex='-1']");
+    expect(line).not.toBeNull();
+
+    trust.bringUp();
+    await user.click(retry);
+    await waitFor(() => expect(card("Jacafé")).toHaveTextContent("4.6"));
+    expect(screen.queryByText(copy.score.houseUnavailable)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.load.retry })).not.toBeInTheDocument();
+    // The focus stays on the line about whose scores they are, not on the page.
+    expect(line).toHaveFocus();
+    expect(line).toHaveTextContent(copy.explore.houseLine);
+  });
+
   it("says so once, under the line about whose scores they are, and each card says how many have rated it", async () => {
     const { readers } = houseNetwork(jacafeScored(), HOUSE_RANKS, { [TRUST]: downReader });
     await openApp("/", { events: places, readers });
@@ -772,6 +798,9 @@ describe("the place page, not scored", () => {
     await user.click(retry);
     expect(await screen.findByText(copy.score.fromHouse(2))).toBeInTheDocument();
     expect(screen.queryByText(copy.score.failed)).not.toBeInTheDocument();
+    // The focus goes to the score panel, where the button was, not to the page.
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toContainElement(screen.getByText(copy.score.fromHouse(2)));
   });
 
   it("says 'No score yet' for reviews by people the house trusts with no stars, and lists them", async () => {
@@ -828,6 +857,27 @@ describe("the place page, not scored", () => {
     const shown = await screen.findAllByRole("article");
     expect(shown).toHaveLength(2);
     for (const article of shown) expect(article).toHaveAttribute("data-folded", "true");
+  });
+
+  it.each([
+    ["a phone", undefined],
+    ["a desktop", DESKTOP],
+  ])("offers Try again beside the quiet line on %s, which gets the score back, with the focus on the score panel", async (_, px) => {
+    const user = userEvent.setup();
+    const trust = flakyReader([trustList()]);
+    const { readers } = houseNetwork(jacafeScored(), HOUSE_RANKS, { [TRUST]: trust });
+    await openApp(placePath(JACAFE), { events: places, readers, px });
+
+    await screen.findByText(copy.score.houseUnavailable);
+    const retry = screen.getByRole("button", { name: copy.load.retry });
+    expect(retry).toHaveAccessibleDescription(copy.score.houseUnavailable);
+
+    trust.bringUp();
+    await user.click(retry);
+    expect(await screen.findByText(copy.score.fromHouse(2))).toBeInTheDocument();
+    expect(screen.queryByText(copy.score.houseUnavailable)).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toContainElement(screen.getByText(copy.score.fromHouse(2)));
   });
 });
 

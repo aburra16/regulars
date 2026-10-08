@@ -39,13 +39,20 @@ export type HouseState = "idle" | "loading" | "ready" | "unavailable";
 export type ReadState = "reading" | "read" | "failed";
 
 /** The most places one request for reviews names. */
-const REVIEW_BATCH = 100;
+const REVIEW_BATCH = 50;
 
 /**
- * The most reviews one request asks for, for its 100 places (Brainstorm reads at most 500 items at
- * a time). A relay sends no more than its own limit either: reviews past it are not read.
+ * The most reviews one request asks for, for its 50 places (Brainstorm reads at most 500 items at a
+ * time). A request that comes back full is followed by the next page, back in time (`REVIEW_PAGES`).
  */
 const REVIEW_LIMIT = 500;
+
+/**
+ * The most pages one batch's request reads from one relay: the first, and the older ones after it.
+ * Without paging, one place with hundreds of reviews (spam, say) would fill the request and push the
+ * other places' reviews out of it. Past five pages (2,500 reviews), the batch is cut short.
+ */
+export const REVIEW_PAGES = 5;
 
 /** The most people one request for profiles names. */
 const NAME_BATCH = 100;
@@ -54,9 +61,12 @@ const NAME_BATCH = 100;
  * How many batches of reviews are read at once; the rest wait their turn. Each batch is two requests
  * to every review relay, side by side: one by the places' `a`, one by their `d` (decision 16). So a
  * relay has at most four of the store's review requests open at a time, however many places a page asks
- * about. Names are read the same way, two batches at a time.
+ * about. Names are read the same way, two batches at a time, and so are the house's ranks.
  */
 export const BATCHES_IN_FLIGHT = 2;
+
+/** The most people one read of the house's ranks names: one request to the scorer's relay (`fetchRanks`). */
+const RANK_BATCH = 500;
 
 /**
  * How long the store gathers what pages ask for before it reads it, from the first ask: a list shown
@@ -169,6 +179,31 @@ function runsOf<T>(items: readonly T[], size: number): T[][] {
   const runs: T[][] = [];
   for (let start = 0; start < items.length; start += size) runs.push(items.slice(start, start + size));
   return runs;
+}
+
+/**
+ * Every value `reader` sends for `filter`, page after page: while a page comes back full (`filter.limit`
+ * values), the next asks for those up to the oldest time seen so far (`until`, which includes that
+ * second: the values read twice are the same events, which the caller keeps once). At most `pages`
+ * pages; it stops sooner at a page that is not full, or one that gets no further back in time (a full
+ * page of one second). Throws as `readAll` does: half a read is no read.
+ */
+async function readPaged(reader: RelayReader, filter: NostrFilter, pages: number, signal: AbortSignal): Promise<unknown[]> {
+  const values: unknown[] = [];
+  let until: number | undefined;
+  for (let page = 0; page < pages; page++) {
+    const read = await readAll(reader, until === undefined ? filter : { ...filter, until }, signal);
+    values.push(...read);
+    if (filter.limit === undefined || read.length < filter.limit) break;
+    let oldest = Number.POSITIVE_INFINITY;
+    for (const value of read) {
+      const ev = asEvent(value);
+      if (ev !== null && ev.created_at < oldest) oldest = ev.created_at;
+    }
+    if (!Number.isFinite(oldest) || (until !== undefined && oldest >= until)) break;
+    until = oldest;
+  }
+  return values;
 }
 
 /**
@@ -311,6 +346,8 @@ export class ScoresStore {
   readonly #reviewLane = new Lane(BATCHES_IN_FLIGHT);
   /** The name reads, two batches at a time. */
   readonly #nameLane = new Lane(BATCHES_IN_FLIGHT);
+  /** The reads of the house's ranks, two at a time. */
+  readonly #rankLane = new Lane(BATCHES_IN_FLIGHT);
   /**
    * The person's own reviews, by `keyOf`, with the relays that took each: shown before the relays send
    * them back (`noteOwnReview`), and kept for this tab (`HELD_REVIEWS_KEY`) until then, so that a
@@ -380,9 +417,10 @@ export class ScoresStore {
     return this.#house;
   }
 
-  /** Starts reading what is asked for. */
+  /** Starts reading what is asked for, and reading again what could not be read once the device is back on line. */
   start(): void {
     this.#life = new AbortController();
+    window.addEventListener("online", this.#onOnline);
     this.#newRound();
     this.#queueFlush();
     this.#weigh();
@@ -390,6 +428,7 @@ export class ScoresStore {
 
   /** Aborts every read. What was being read is read again if the store starts again. */
   stop(): void {
+    window.removeEventListener("online", this.#onOnline);
     this.#life?.abort();
     this.#life = null;
     this.#roundSignal = null;
@@ -397,6 +436,7 @@ export class ScoresStore {
     this.#flushTimer = undefined;
     this.#reviewLane.clear();
     this.#nameLane.clear();
+    this.#rankLane.clear();
     this.#failed.clear();
     this.#asked = new Set([...this.#asked].filter((address) => this.#read.has(address)));
     this.#namesAsked = new Set(this.#namesKnown);
@@ -603,6 +643,18 @@ export class ScoresStore {
     this.#changed("reviews");
   };
 
+  /**
+   * Back on line (the browser says so), as the places' store does: reads again what could not be read,
+   * or was being read when the connection went (`refresh`): places no review relay answered for, a
+   * house's view that was unavailable, reads still under way. Otherwise it asks the house about the
+   * reviewers whose rank read failed. With everything read, nothing is asked.
+   */
+  readonly #onOnline = (): void => {
+    const reading = [...this.#asked].some((address) => !this.#read.has(address) && !this.#failed.has(address));
+    if (this.#failed.size > 0 || this.#house === "unavailable" || reading) this.refresh();
+    else this.#weigh();
+  };
+
   /** Aborts the review reads of this round, forgets those waiting their turn, and starts the next. */
   #newRound(): void {
     this.#reviewLane.clear();
@@ -654,9 +706,10 @@ export class ScoresStore {
 
   /**
    * Reads the reviews of the places at `batch` from every review relay, side by side: by their `a`,
-   * and by their `d`, bare or after `place:`, for reviews other apps wrote with no `a` (decision 16).
-   * What comes is put in place of what was read of those places before. A place no relay answered
-   * for keeps what it had: `refresh` asks again.
+   * and by their `d`, bare or after `place:`, for reviews other apps wrote with no `a` (decision 16),
+   * each page after page while the pages come back full (`readPaged`, `REVIEW_PAGES`). What comes is
+   * put in place of what was read of those places before. A place no relay answered for keeps what it
+   * had: `refresh` asks again.
    */
   async #readReviews(batch: readonly string[], signal: AbortSignal): Promise<void> {
     const byA: NostrFilter = { kinds: [REVIEW_KIND], "#a": [...batch], limit: REVIEW_LIMIT };
@@ -666,7 +719,10 @@ export class ScoresStore {
       // answers both requests or neither: half its answer must not replace what was read before.
       config.reviewRelays.map(async (url) => {
         const reader = this.#readers(url);
-        const [named, filed] = await Promise.all([readAll(reader, byA, signal), readAll(reader, byD, signal)]);
+        const [named, filed] = await Promise.all([
+          readPaged(reader, byA, REVIEW_PAGES, signal),
+          readPaged(reader, byD, REVIEW_PAGES, signal),
+        ]);
         return [...named, ...filed];
       }),
     );
@@ -719,8 +775,9 @@ export class ScoresStore {
   }
 
   /**
-   * Asks the house about the reviewers it has not been asked about. Nothing is asked of it until a
-   * place has a review: then its scorer is read, once a session, and the ranks the scorer gives.
+   * Asks the house about the reviewers it has not been asked about, `RANK_BATCH` to a read, two reads
+   * at a time (`BATCHES_IN_FLIGHT`). Nothing is asked of it until a place has a review: then its
+   * scorer is read, once a session, and the ranks the scorer gives.
    */
   #weigh(): void {
     const life = this.#life;
@@ -735,9 +792,18 @@ export class ScoresStore {
       this.#house = "loading";
       this.#changed("scores");
     }
-    void this.#readRanks([...unknown], life.signal);
+    for (const people of runsOf([...unknown], RANK_BATCH)) {
+      this.#rankLane.add(life.signal, () => this.#readRanks(people, life.signal));
+    }
   }
 
+  /**
+   * Reads the ranks of `people`. When the house names no scorer, or its list can't be read, its view
+   * is unavailable. When the ranks can't be read, only `people` are let go of: they are asked about
+   * again at the next try (another place's reviews, the device back on line, `refresh`), and the
+   * ranks known stay, with the places they score. Only before any rank has come is the house's view
+   * unavailable then: there is none to keep.
+   */
   async #readRanks(people: readonly string[], signal: AbortSignal): Promise<void> {
     try {
       this.#scorerRead ??= resolveScorer(this.#readers, signal).then((scorer) => {
@@ -756,16 +822,20 @@ export class ScoresStore {
         const rank = ranks.get(pubkey);
         if (rank !== undefined) this.#ranks.set(pubkey, rank);
       }
-      if (this.#house === "loading") this.#house = "ready";
+      // A read that comes after one failed before any rank had come gets the house's view back.
+      const recovered = this.#house === "unavailable";
+      if (this.#house === "loading" || recovered) this.#house = "ready";
       this.#changed("scores");
+      if (recovered) this.#weigh();
     } catch (error) {
       if (signal.aborted) return;
       debug("the house's ranks could not be read", error);
-      this.#unavailable();
+      for (const pubkey of people) this.#ranksAsked.delete(pubkey);
+      if (this.#ranksKnown.size === 0) this.#unavailable();
     }
   }
 
-  /** The house's view is not to be had: every review is folded until `refresh` tries again. */
+  /** The house's view is not to be had: every review is folded until it is tried again (`refresh`, back on line). */
   #unavailable(): void {
     if (this.#house === "unavailable") return;
     this.#house = "unavailable";

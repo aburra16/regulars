@@ -1,4 +1,4 @@
-import type { NostrEvent } from "@nostrify/nostrify";
+import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { memo, type ReactNode, StrictMode, useContext } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -115,21 +115,56 @@ function heldReader(events: NostrEvent[], { from = 0 }: { from?: number } = {}):
   };
 }
 
+/** A reader that fails every request while `down`, counting the failures, and answers from `events` otherwise. */
+interface SwitchedReader extends MemoryReader {
+  down: boolean;
+  readonly failed: number;
+}
+
+function switchedReader(events: NostrEvent[]): SwitchedReader {
+  const memory = createMemoryReader(events);
+  let failed = 0;
+  let down = false;
+  return {
+    requests: memory.requests,
+    get down() {
+      return down;
+    },
+    set down(value: boolean) {
+      down = value;
+    },
+    get failed() {
+      return failed;
+    },
+    async *req(filter, signal) {
+      if (down) {
+        memory.requests.push(filter);
+        failed += 1;
+        throw new Error("The relay answered 503");
+      }
+      yield* memory.req(filter, signal);
+    },
+  };
+}
+
 /**
  * A reader whose every request waits until the test lets it go (`release`), and which counts how
- * many requests for reviews by place address (`#a`) were waiting or being answered at once: the
- * batches it had in flight.
+ * many requests `counts` picks (by default, for reviews by place address, `#a`) were waiting or being
+ * answered at once: the batches it had in flight.
  */
 interface GatedReader extends MemoryReader {
   /** Lets go of every request waiting now. Returns how many there were. */
   release(): number;
-  /** The most `#a` requests in flight at one time. */
+  /** The most requests that `counts` picks in flight at one time. */
   readonly mostBatches: number;
   /** The `#a` of every request, in the order they were sent. */
   readonly sent: (string[] | undefined)[];
 }
 
-function gatedReader(events: NostrEvent[]): GatedReader {
+function gatedReader(
+  events: NostrEvent[],
+  counts: (filter: NostrFilter) => boolean = (filter) => filter["#a"] !== undefined,
+): GatedReader {
   const memory = createMemoryReader(events);
   const waiting: (() => void)[] = [];
   const sent: (string[] | undefined)[] = [];
@@ -147,7 +182,7 @@ function gatedReader(events: NostrEvent[]): GatedReader {
       return now.length;
     },
     async *req(filter, signal) {
-      const batch = filter["#a"] !== undefined;
+      const batch = counts(filter);
       sent.push(filter["#a"]);
       if (batch) {
         inFlight += 1;
@@ -254,15 +289,15 @@ describe("ScoresProvider: what it reads", () => {
     expect(result.current.house).toBe("idle");
   });
 
-  it("asks for reviews by #a and by #d, 100 places to a request, with include:spam on the search relay only", async () => {
+  it("asks for reviews by #a and by #d, 50 places to a request, with include:spam on the search relay only", async () => {
     config.reviewRelays = [SEARCH, MIRROR];
     const mirror = createMemoryReader([]);
     const { readers, search } = houseNetwork([], [], { [MIRROR]: mirror });
-    const addresses = Array.from({ length: 250 }, (_, n) => placeNo(n));
+    const addresses = Array.from({ length: 120 }, (_, n) => placeNo(n));
     renderStore(() => useScores(addresses), { readers });
 
     await waitFor(() => expect(search.requests).toHaveLength(6));
-    expect(batchesOf(search).map((batch) => batch?.length)).toEqual([100, 100, 50]);
+    expect(batchesOf(search).map((batch) => batch?.length)).toEqual([50, 50, 20]);
     expect(batchesOf(search).flat()).toEqual(addresses);
     // The same places by the d of their reviews: the bare address and place: (decision 16).
     expect(byD(search).map((filter) => filter["#d"])).toEqual(batchesOf(search).map((batch) => dsOf(batch ?? [])));
@@ -435,7 +470,7 @@ describe("ScoresProvider: how much it reads at once", () => {
     const search = gatedReader([]);
     const mirror = gatedReader([]);
     const { readers } = network({ [SEARCH]: search, [MIRROR]: mirror });
-    const addresses = Array.from({ length: 500 }, (_, n) => placeNo(n));
+    const addresses = Array.from({ length: 250 }, (_, n) => placeNo(n));
     const { result } = renderStore(() => useScores(addresses), { readers });
 
     // Two batches go out to each relay, by a and by d; the other three wait.
@@ -444,7 +479,7 @@ describe("ScoresProvider: how much it reads at once", () => {
     expect(search.sent).toHaveLength(4);
     expect(mirror.sent).toHaveLength(4);
     // Let each relay answer what it has, until every batch has been sent and answered.
-    for (let round = 0; round < 10 && (search.sent.length < 10 || result.current.scores.size < 500); round++) {
+    for (let round = 0; round < 10 && (search.sent.length < 10 || result.current.scores.size < 250); round++) {
       search.release();
       mirror.release();
       await settle();
@@ -453,7 +488,160 @@ describe("ScoresProvider: how much it reads at once", () => {
     expect(mirror.sent.filter((batch) => batch !== undefined)).toHaveLength(5);
     expect(search.mostBatches).toBe(2);
     expect(mirror.mostBatches).toBe(2);
-    expect(result.current.scores.size).toBe(500);
+    expect(result.current.scores.size).toBe(250);
+  });
+});
+
+describe("ScoresProvider: the house's ranks, two reads at a time", () => {
+  it("has at most two rank reads in flight, and sends the rest as those finish", async () => {
+    config.reviewRelays = [SEARCH];
+    // Three places in batches of their own, each with a reviewer of its own: three rank reads, one per batch read.
+    const addresses = Array.from({ length: 250 }, (_, n) => placeNo(n));
+    const reviews = [reviewOf(ALICE, placeNo(0), 5), reviewOf(BOB, placeNo(100), 4), reviewOf(CAROL, placeNo(200), 3)];
+    const scorer = gatedReader([rankOf(ALICE, 80), rankOf(BOB, 60), rankOf(CAROL, 40)], (filter) => filter.kinds?.includes(30382) === true);
+    const { readers } = houseNetwork(reviews, [], { [SCORER_RELAY]: scorer });
+    const { result } = renderStore(() => useScores(addresses), { readers });
+
+    // Two are sent; the third waits its turn.
+    await waitFor(() => expect(scorer.sent).toHaveLength(2));
+    await settle();
+    expect(scorer.sent).toHaveLength(2);
+    for (let round = 0; round < 10 && result.current.scores.size < 250; round++) {
+      scorer.release();
+      await settle();
+    }
+    expect(scorer.requests.map((filter) => filter["#d"]).flat().sort()).toEqual([ALICE, BOB, CAROL].sort());
+    expect(scorer.mostBatches).toBe(2);
+    expect(result.current.house).toBe("ready");
+    expect(result.current.scores.get(placeNo(200))).toMatchObject({ counted: 1, outside: 0 });
+  });
+});
+
+describe("ScoresProvider: back on line, and Try again", () => {
+  it("reads the house's view again when the device is back on line, once it was unavailable", async () => {
+    config.reviewRelays = [SEARCH];
+    const trust = switchedReader([trustList()]);
+    trust.down = true;
+    const { readers } = houseNetwork([reviewOf(ALICE, JACAFE, 5)], [rankOf(ALICE, 80)], { [TRUST]: trust });
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+    await waitFor(() => expect(result.current.house).toBe("unavailable"));
+    expect(result.current.score).toMatchObject({ score: null, counted: 0, outside: 1 });
+
+    trust.down = false;
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(result.current.house).toBe("ready"));
+    await waitFor(() => expect(result.current.score).toMatchObject({ score: 5, counted: 1, outside: 0 }));
+  });
+
+  it("reads the reviews again when the device is back on line, once no relay answered", async () => {
+    config.reviewRelays = [SEARCH];
+    const search = switchedReader([reviewOf(ALICE, JACAFE, 5)]);
+    search.down = true;
+    const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+    await waitFor(() => expect(result.current.read).toBe("failed"));
+
+    search.down = false;
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(result.current.score).toMatchObject({ score: 5, counted: 1 }));
+    expect(result.current.read).toBe("read");
+  });
+
+  it("reads nothing again when the device is back on line and everything was read", async () => {
+    config.reviewRelays = [SEARCH];
+    const { readers, search, scorer, trust } = houseNetwork([reviewOf(ALICE, JACAFE, 5)], [rankOf(ALICE, 80)]);
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+    await waitFor(() => expect(result.current.score?.counted).toBe(1));
+    const sent = [search.requests.length, scorer.requests.length, trust.requests.length];
+
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect([search.requests.length, scorer.requests.length, trust.requests.length]).toEqual(sent);
+  });
+
+  it("stops hearing that the device is back on line when it unmounts", async () => {
+    config.reviewRelays = [SEARCH];
+    const search = switchedReader([reviewOf(ALICE, JACAFE, 5)]);
+    search.down = true;
+    const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
+    const { result, unmount } = renderStore(() => useScore(JACAFE), { readers });
+    await waitFor(() => expect(result.current.read).toBe("failed"));
+    const sent = search.requests.length;
+
+    unmount();
+    window.dispatchEvent(new Event("online"));
+    await settle();
+    expect(search.requests).toHaveLength(sent);
+  });
+
+  it("gets the house's view back with refresh (Try again) once it was unavailable", async () => {
+    config.reviewRelays = [SEARCH];
+    const scorer = switchedReader([rankOf(ALICE, 80)]);
+    scorer.down = true;
+    const { readers } = houseNetwork([reviewOf(ALICE, JACAFE, 5)], [], { [SCORER_RELAY]: scorer });
+    const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
+    // The scorer's relay fails before it has given any rank: the house's view can't be had.
+    await waitFor(() => expect(result.current.house).toBe("unavailable"));
+
+    scorer.down = false;
+    act(() => result.current.actions.refresh());
+    await waitFor(() => expect(result.current.score).toMatchObject({ score: 5, counted: 1, outside: 0 }));
+    expect(result.current.house).toBe("ready");
+  });
+});
+
+describe("ScoresProvider: a place with more reviews than a request returns", () => {
+  /** A distinct reviewer for each `n`: none is Alice, Bob, Carol, Dave or Erin. */
+  const spammer = (n: number) => `f${n.toString(16).padStart(63, "0")}`;
+  /** `count` reviews of `address`, each by its own reviewer, one second apart, the newest from `newest` back. */
+  const spamOf = (address: string, count: number, newest = 1_700_100_000) =>
+    Array.from({ length: count }, (_, n) => reviewOf(spammer(n), address, 5, { created_at: newest - n }));
+
+  it("pages back by time, so 600 reviews of one place leave the other places' reviews in its batch read", async () => {
+    config.reviewRelays = [SEARCH];
+    const spam = spamOf(JACAFE, 600);
+    const alice = reviewOf(ALICE, OTHER, 4, { created_at: 1_700_000_000 });
+    const { readers, search } = houseNetwork([...spam, alice], [rankOf(ALICE, 80)]);
+    const { result } = renderStore(() => useScores([JACAFE, OTHER]), { readers });
+
+    await waitFor(() => expect(result.current.scores.get(OTHER)).toMatchObject({ score: 4, counted: 1 }));
+    // A full page (500) is followed by the next, until the oldest review seen; a short one ends it.
+    const oldestOfFirstPage = 1_700_100_000 - 499;
+    expect(byA(search).map((filter) => filter.until)).toEqual([undefined, oldestOfFirstPage]);
+    expect(byD(search).map((filter) => filter.until)).toEqual([undefined, oldestOfFirstPage]);
+    for (const filter of search.requests.filter((each) => each.kinds?.includes(REVIEW_KIND))) {
+      expect(filter).toMatchObject({ limit: 500, search: "include:spam" });
+    }
+  });
+
+  it("reads at most five pages for one batch's request, then stops", async () => {
+    config.reviewRelays = [SEARCH];
+    const { readers, search } = houseNetwork(spamOf(JACAFE, 3_000), []);
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+
+    await waitFor(() => expect(result.current.read).toBe("read"));
+    expect(byA(search)).toHaveLength(5);
+    expect(byD(search)).toHaveLength(5);
+    const untils = byA(search).map((filter) => filter.until);
+    expect(untils).toEqual([undefined, ...[1, 2, 3, 4].map((page) => 1_700_100_000 - 499 * page)]);
+    // Five pages of 500, the first and last second of each page shared with the next: 2,496 reviews.
+    expect(result.current.reviews).toHaveLength(2_496);
+  });
+
+  it("stops paging when a full page holds one second only: the next would be the same", async () => {
+    config.reviewRelays = [SEARCH];
+    const sameSecond = Array.from({ length: 600 }, (_, n) => reviewOf(spammer(n), JACAFE, 5, { created_at: 1_700_100_000 }));
+    const { readers, search } = houseNetwork(sameSecond, []);
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+
+    await waitFor(() => expect(result.current.read).toBe("read"));
+    expect(byA(search).map((filter) => filter.until)).toEqual([undefined, 1_700_100_000]);
   });
 });
 
@@ -587,16 +775,10 @@ describe("ScoresProvider: scores", () => {
     expect(result.current.score?.outside).toBe(0);
   });
 
-  it("folds every place's reviews once the house's view is unavailable, the places it had ranked too", async () => {
+  it("keeps the house's view when a later rank read fails: the places it ranked stay scored, and only that read's reviewers are asked again", async () => {
     config.reviewRelays = [SEARCH];
-    // The first rank request (Alice's) answers; the second (Carol's) fails.
-    const ranks = createMemoryReader([rankOf(ALICE, 80), rankOf(CAROL, 60)]);
-    const scorer: RelayReader = {
-      async *req(filter, signal) {
-        if (ranks.requests.length > 0) throw new Error("wss://ranks.example.test answered 503");
-        yield* ranks.req(filter, signal);
-      },
-    };
+    // Alice's rank is read; then the scorer's relay goes down for Carol's, and comes back.
+    const scorer = switchedReader([rankOf(ALICE, 80), rankOf(CAROL, 60)]);
     const { readers } = houseNetwork([reviewOf(ALICE, JACAFE, 5), reviewOf(CAROL, OTHER, 1)], [], {
       [SCORER_RELAY]: scorer,
     });
@@ -606,10 +788,25 @@ describe("ScoresProvider: scores", () => {
     });
     await waitFor(() => expect(result.current.scores.get(JACAFE)?.score).toBe(5));
 
+    scorer.down = true;
     rerender({ addresses: [JACAFE, OTHER] });
-    await waitFor(() => expect(result.current.house).toBe("unavailable"));
-    expect(result.current.scores.get(JACAFE)).toMatchObject({ score: null, counted: 0, outside: 1 });
-    expect(result.current.scores.get(OTHER)).toMatchObject({ score: null, counted: 0, outside: 1 });
+    await waitFor(() => expect(scorer.failed).toBe(1));
+    await settle();
+    // Not unavailable: Jacafé keeps its score; Other waits for Carol's rank, with nobody folded.
+    expect(result.current.house).toBe("ready");
+    expect(result.current.scores.get(JACAFE)).toMatchObject({ score: 5, counted: 1, outside: 0 });
+    expect(result.current.scores.has(OTHER)).toBe(false);
+    expect(result.current.pending.has(OTHER)).toBe(true);
+    expect(scorer.requests.map((filter) => filter["#d"])).toEqual([[ALICE], [CAROL]]);
+
+    // The next try asks for Carol again, and only her.
+    scorer.down = false;
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(result.current.scores.get(OTHER)).toMatchObject({ counted: 1, outside: 0 }));
+    expect(scorer.requests.map((filter) => filter["#d"])).toEqual([[ALICE], [CAROL], [CAROL]]);
+    expect(result.current.scores.get(JACAFE)?.score).toBe(5);
   });
 
   it.each<[string, Record<string, RelayReader>]>([
