@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { Area, Bbox } from "../map/area.ts";
+import type { Bbox } from "../map/area.ts";
 import type { MapView } from "../map/BaseMap.tsx";
 
-/** What a map page's "Search this area" holds: where the person was near, what they searched, and how they last moved the map. */
+/** What a map page's "Search this area" holds: where the person was near, the box of the map they searched, and how they last moved the map. */
 export interface SearchState {
   near: string;
-  searched?: Area;
+  searched?: Bbox;
   moved?: Bbox;
 }
 

@@ -77,7 +77,8 @@ export function NoneNearby(): JSX.Element {
 
 /**
  * Whose scores the list shows, with the house's badge beside its name and a link to how that works
- * (Main.dc.html). The desktop's Explore says how many places there are first (DeskExplore.dc.html).
+ * (Main.dc.html). The desktop's Explore says how many places there are first (DeskExplore.dc.html),
+ * or, when an area searched on the map has more than the list holds, how many are in view (`inView`).
  * When House picks can't be worked out (`unavailable`), one quiet line under it says so, with Try
  * again, which asks again (`onRetry`). The focus goes to the lines then, where the button was: the
  * button goes once House picks are back, and the focus would fall to the page. `className` spaces the
@@ -85,11 +86,13 @@ export function NoneNearby(): JSX.Element {
  */
 export function HouseLine({
   count,
+  inView,
   unavailable = false,
   onRetry,
   className,
 }: {
   count?: number;
+  inView?: number;
   unavailable?: boolean;
   onRetry(): void;
   className: string;
@@ -99,7 +102,7 @@ export function HouseLine({
   return (
     <div ref={lines} tabIndex={-1} className={`flex flex-col outline-none ${className}`}>
       <p className="m-0 text-secondary leading-[1.4] text-muted">
-        {count !== undefined && `${copy.deskExplore.count(count)} `}
+        {count !== undefined && `${inView === undefined ? copy.deskExplore.count(count) : copy.deskExplore.inView(inView)} `}
         <HouseName text={copy.explore.houseLine} size="line" />{" "}
         <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
           {copy.explore.howThisWorks}

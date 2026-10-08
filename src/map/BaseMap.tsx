@@ -12,7 +12,7 @@ import { Attribution } from "../ui/Attribution.tsx";
 import { BackToPlaceIcon, MinusIcon, PlusIcon } from "../ui/icons.tsx";
 import { FamilyIcon } from "../ui/KindTile.tsx";
 import type { Bbox } from "./area.ts";
-import { CLUSTER_OPTIONS, MAX_MARKERS, type Pin, PIN_SOURCE, pinsGeoJSON } from "./pins.ts";
+import { CLUSTER_OPTIONS, MAX_MARKERS, type Pin, PIN_SOURCE, type PinPoint, pinsGeoJSON } from "./pins.ts";
 import { mapStyle, recolour } from "./style.ts";
 
 export type { Pin } from "./pins.ts";
@@ -59,7 +59,25 @@ export interface BaseMapProps {
    * with it, in place of the map's own region, which it hides; its attribution stays reachable.
    */
   label?: string;
+  /**
+   * The pins: the map's source gathers them into bubbles where they crowd, and each is drawn as it
+   * is where the map shows it on its own. A map given `points` has those in its place.
+   */
   pins?: readonly Pin[];
+  /**
+   * Every place, as points and no more, in place of `pins` (Explore's maps; decision 25): the source
+   * holds them all and gathers them into bubbles at any zoom, and a pin is worked out (`pinOf`) only
+   * for a point the map draws on its own, or the chosen or picked-out one. The same array is the same
+   * data: the source is sent it once, whatever else changes.
+   */
+  points?: readonly PinPoint[];
+  /** With `points`: the pin of the point at an address, as it is drawn. Undefined draws none. */
+  pinOf?(address: string): Pin | undefined;
+  /**
+   * The addresses of the pins drawn now, each time they change (a move, a zoom, a pin chosen): what a
+   * page asks the scores of, and no more. A bubble's places are not among them.
+   */
+  onPinsDrawn?(addresses: readonly string[]): void;
   /** The address of the chosen pin: drawn in the accent colour, and pressed. */
   selected?: string;
   /** The address of a pin to pick out, as the card of it is pointed at: drawn in the accent colour. */
@@ -189,15 +207,37 @@ function seenOf(map: MapLibreMap): Seen[] {
   return kept.sort((a, b) => b.lngLat[1] - a.lngLat[1] || a.lngLat[0] - b.lngLat[0]);
 }
 
-/** The pins as a signature: the same places at the same points are the same data, whatever their names say. */
-const signatureOf = (pins: readonly Pin[]) => pins.map((pin) => `${pin.address}@${pin.lon},${pin.lat}`).join("\n");
+/** Each array of points as a signature, worked out once: Explore's every place is one array for as long as the places are. */
+const signatures = new WeakMap<readonly PinPoint[], string>();
+
+/** The points as a signature: the same places at the same points are the same data, whatever their names say. */
+function signatureOf(points: readonly PinPoint[]): string {
+  let signature = signatures.get(points);
+  if (signature === undefined) {
+    signature = points.map((point) => `${point.address}@${point.lon},${point.lat}`).join("\n");
+    signatures.set(points, signature);
+  }
+  return signature;
+}
+
+/** Each array of points by address, made once for each array. */
+const lookups = new WeakMap<readonly PinPoint[], ReadonlyMap<string, PinPoint>>();
+
+function byAddressOf(points: readonly PinPoint[]): ReadonlyMap<string, PinPoint> {
+  let lookup = lookups.get(points);
+  if (lookup === undefined) {
+    lookup = new Map(points.map((point) => [point.address, point]));
+    lookups.set(points, lookup);
+  }
+  return lookup;
+}
 
 /**
- * The pins the map's source holds, which it gathers into bubbles: all but the chosen one, which is
+ * The points the map's source holds, which it gathers into bubbles: all but the chosen one, which is
  * drawn once, on its own, so no bubble counts it as well.
  */
-const gathered = (pins: readonly Pin[], selected: string | undefined): readonly Pin[] =>
-  selected === undefined ? pins : pins.filter((pin) => pin.address !== selected);
+const gathered = (points: readonly PinPoint[], without: string | undefined): readonly PinPoint[] =>
+  without === undefined ? points : points.filter((point) => point.address !== without);
 
 /** The star of a score's pin, in the pin's text colour. */
 function Star({ className }: { className: string }): JSX.Element {
@@ -371,6 +411,9 @@ export function BaseMap({
   flat = false,
   label,
   pins = NO_PINS,
+  points,
+  pinOf,
+  onPinsDrawn,
   selected,
   highlighted,
   you,
@@ -396,6 +439,14 @@ export function BaseMap({
   // Whether the person has moved the map away from where it started, for the way back.
   const [strayed, setStrayed] = useState(false);
 
+  // What the source holds: every place, or the pins; each by its address; and the chosen one, which
+  // the source is without while it is one of them. The same points and the same chosen one are the
+  // same data, whichever array they come in.
+  const source = points ?? pins;
+  const pointAt = useMemo(() => byAddressOf(source), [source]);
+  const without = selected !== undefined && pointAt.has(selected) ? selected : undefined;
+  const signature = useMemo(() => `${signatureOf(source)}\n-${without ?? ""}`, [source, without]);
+
   // What the map's handlers read when they run: the latest of each, not those it was made with.
   const latestProps = {
     center,
@@ -405,13 +456,17 @@ export function BaseMap({
     cooperative,
     flat,
     label,
-    pins,
+    source,
+    pointAt,
+    without,
+    signature,
     selected,
     highlighted,
     onSelect,
     onMoveEnd,
     initialView,
     onViewChange,
+    onPinsDrawn,
     back,
   };
   const latest = useRef(latestProps);
@@ -542,10 +597,10 @@ export function BaseMap({
           // data last sent, which was without this pin.
           const without = appliedWithout.current;
           // The pins picked out are drawn wherever they are, inside a bubble too: whether they are in view.
-          const { pins: now, selected: chosen, highlighted: pointed } = latest.current;
+          const { pointAt: at, selected: chosen, highlighted: pointed } = latest.current;
           for (const address of [chosen, pointed, without]) {
-            const pin = address === undefined ? undefined : now.find((each) => each.address === address);
-            if (pin !== undefined && visible([pin.lon, pin.lat])) inView.add(`pin:${pin.address}`);
+            const point = address === undefined ? undefined : at.get(address);
+            if (point !== undefined && visible([point.lon, point.lat])) inView.add(`pin:${point.address}`);
           }
           // Drawn again only when what is drawn, or what is in view, has changed: not every frame of a move.
           setShown((current) =>
@@ -580,9 +635,9 @@ export function BaseMap({
           styled = true;
           recolour(map, theme);
           if (map.getSource(PIN_SOURCE) === undefined) {
-            const now = gathered(latest.current.pins, latest.current.selected);
-            appliedWithout.current = latest.current.selected;
-            map.addSource(PIN_SOURCE, { type: "geojson", data: pinsGeoJSON(now), ...CLUSTER_OPTIONS });
+            const { source: now, without: chosen, signature: data } = latest.current;
+            appliedWithout.current = chosen;
+            map.addSource(PIN_SOURCE, { type: "geojson", data: pinsGeoJSON(gathered(now, chosen)), ...CLUSTER_OPTIONS });
             // Drawn by no one: the markers draw the pins. Without a layer the source would load no tiles to read them from.
             map.addLayer({
               id: PIN_SOURCE,
@@ -590,7 +645,7 @@ export function BaseMap({
               source: PIN_SOURCE,
               paint: { "circle-radius": 0, "circle-opacity": 0, "circle-stroke-width": 0 },
             });
-            applied.current = signatureOf(now);
+            applied.current = data;
           }
           setReady(true);
           look();
@@ -667,17 +722,16 @@ export function BaseMap({
     mapRef.current?.getCanvas().setAttribute("aria-label", label ?? copy.map.label);
   }, [label]);
 
-  // New pins, or a new chosen one: new data for the map, which gathers them again.
-  const inSource = useMemo(() => gathered(pins, selected), [pins, selected]);
-  const signature = useMemo(() => signatureOf(inSource), [inSource]);
+  // New points, or a new chosen one among them: new data for the map, which gathers them again. A new
+  // score, a new minute or a move is none: Explore's every place is sent once.
   useEffect(() => {
     if (!ready || applied.current === signature) return;
-    const source = mapRef.current?.getSource<GeoJSONSource>(PIN_SOURCE);
-    if (source === undefined) return;
+    const geojson = mapRef.current?.getSource<GeoJSONSource>(PIN_SOURCE);
+    if (geojson === undefined) return;
     applied.current = signature;
-    appliedWithout.current = selected;
-    source.setData(pinsGeoJSON(inSource));
-    // `inSource` goes with `signature`, which says when they are new.
+    appliedWithout.current = without;
+    geojson.setData(pinsGeoJSON(gathered(source, without)));
+    // `source` and `without` go with `signature`, which says when they are new.
   }, [ready, signature]);
 
   // A new centre, or the same one asked for again: move there. The map is made at the first. While
@@ -708,34 +762,53 @@ export function BaseMap({
     // `fit` goes with `fitKey`, which says when it is a new box.
   }, [fitKey]);
 
-  // What to draw: what the map shows of the pins, the chosen and picked-out pins wherever they are
-  // (a pin inside a bubble too), and where the person is.
-  const byAddress = useMemo(() => new Map(pins.map((pin) => [pin.address, pin])), [pins]);
+  // The pins to draw, by address: what the map shows of them on their own, in its reading order; then
+  // the chosen and picked-out ones wherever they are (a pin inside a bubble too); and the pin the source
+  // was without when the map was read, until the map has gathered it again: a pin let go is not
+  // missing for a frame.
+  const drawn = useMemo(() => {
+    const kept = new Set<string>();
+    const add = (address: string | undefined) => {
+      if (address !== undefined && pointAt.has(address)) kept.add(address);
+    };
+    for (const each of shown.items) if (!("cluster" in each)) add(each.address);
+    for (const address of [selected, highlighted, shown.without]) add(address);
+    return [...kept];
+  }, [shown, pointAt, selected, highlighted]);
+  // The page hears which they are, to ask for their scores. They do not hang on the pins' looks: a
+  // new score draws a pin again, and asks nothing again.
+  const drawnKey = drawn.join("\n");
+  useEffect(() => latest.current.onPinsDrawn?.(drawn), [drawnKey]);
+
+  // Each pin as it is drawn: the one given, or the one worked out for its point.
+  const pinAt = useMemo(() => {
+    if (points !== undefined) return (address: string) => pinOf?.(address);
+    const given = new Map(pins.map((pin) => [pin.address, pin]));
+    return (address: string) => given.get(address);
+  }, [points, pinOf, pins]);
+
+  // What to draw: the bubbles and the pins, in the order the map reads them, then the pins picked out
+  // that it does not show; and where the person is.
   const [youLon, youLat] = you ?? [];
   const items = useMemo(() => {
     const list: Item[] = [];
-    const drawn = new Set<string>();
-    const add = (pin: Pin) => {
-      drawn.add(pin.address);
-      list.push({ key: `pin:${pin.address}`, kind: "pin", lngLat: [pin.lon, pin.lat], pin });
+    const add = (address: string) => {
+      const pin = pinAt(address);
+      if (pin !== undefined) list.push({ key: `pin:${pin.address}`, kind: "pin", lngLat: [pin.lon, pin.lat], pin });
     };
+    const read = new Set<string>();
     for (const each of shown.items) {
       if ("cluster" in each) {
         list.push({ key: each.key, kind: "cluster", lngLat: each.lngLat, ...each.cluster });
-      } else {
-        const pin = byAddress.get(each.address);
-        if (pin !== undefined) add(pin);
+      } else if (pointAt.has(each.address)) {
+        read.add(each.address);
+        add(each.address);
       }
     }
-    // The chosen and picked-out pins wherever they are; and the pin the source was without when the map
-    // was read, until the map has gathered it again: a pin let go is not missing for a frame.
-    for (const address of [selected, highlighted, shown.without]) {
-      const pin = address === undefined || drawn.has(address) ? undefined : byAddress.get(address);
-      if (pin !== undefined) add(pin);
-    }
+    for (const address of drawn) if (!read.has(address)) add(address);
     if (youLon !== undefined && youLat !== undefined) list.push({ key: "you", kind: "you", lngLat: [youLon, youLat] });
     return list;
-  }, [shown, byAddress, selected, highlighted, youLon, youLat]);
+  }, [shown, pointAt, drawn, pinAt, youLon, youLat]);
 
   // Put each marker on the map, and take off those that have gone. The chosen pin sits on top.
   useEffect(() => {

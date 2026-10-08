@@ -52,6 +52,12 @@ export interface Indexes {
   /** The places within `radiusKm` of a point, nearest first; at most `limit` of them. Nothing for a point that is not a place on Earth. */
   near(lat: number, lon: number, radiusKm: number, limit?: number): PlaceDistance[];
   /**
+   * The places from `west` to `east` and from `south` to `north`, in degrees, edges included, in no
+   * order: a box on the Earth that does not cross the 180th meridian (`placesInBox`, in
+   * src/map/area.ts, reads a map's box as these). Nothing for a box that is not one.
+   */
+  inRange(west: number, south: number, east: number, north: number): Place[];
+  /**
    * The places that match every word of `q`, best match first and, among matches that are
    * about as good, nearest first. With `radiusKm`, only those within it. An empty query lists
    * the places near the point, as `near` does. Nothing for a point that is not a place on Earth.
@@ -81,6 +87,8 @@ export interface Indexes {
   cities: City[];
   /** Places by their `d`, the last part of the route `/place/:d`. */
   byD: Map<string, Place>;
+  /** Places by their address (`39999:<curator>:<d>`), which a map's pin is known by. */
+  byAddress: Map<string, Place>;
 }
 
 /** Names that stand for no name. A shared one says nothing about what two places have in common. */
@@ -323,6 +331,8 @@ export function buildIndexes(places: readonly Place[]): Indexes {
 
   const byD = new Map<string, Place>();
   for (const place of places) if (!byD.has(place.d)) byD.set(place.d, place);
+  const byAddress = new Map<string, Place>();
+  for (const place of places) if (!byAddress.has(place.address)) byAddress.set(place.address, place);
 
   const chains = buildChains(places);
 
@@ -340,6 +350,12 @@ export function buildIndexes(places: readonly Place[]): Indexes {
   const readKindQuery = kindQueryReader(vocabulary);
 
   const isLocation = (lat: number, lon: number) => Number.isFinite(lat) && Number.isFinite(lon);
+
+  function inRange(west: number, south: number, east: number, north: number): Place[] {
+    // The tree takes any numbers; a box with an edge that is not a number holds nothing.
+    if (![west, south, east, north].every(Number.isFinite) || west > east || south > north) return [];
+    return tree.range(west, south, east, north).map((id) => places[id]!);
+  }
 
   function near(lat: number, lon: number, radiusKm: number, limit?: number): PlaceDistance[] {
     // The tree reads a negative radius as its size, and a limit of zero as no limit.
@@ -417,7 +433,7 @@ export function buildIndexes(places: readonly Place[]): Indexes {
 
   const isKindQuery = (q: string) => readKindQuery(q) !== undefined;
 
-  return { near, search, isKindQuery, chainOf, chainBySlug, chains, cities: buildCities(places), byD };
+  return { near, inRange, search, isKindQuery, chainOf, chainBySlug, chains, cities: buildCities(places), byD, byAddress };
 }
 
 /**

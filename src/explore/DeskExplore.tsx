@@ -23,9 +23,10 @@ import { useAreaEntries, useSearchedArea } from "./useArea.ts";
  * which the shell draws, has the search and the toggle.
  *
  * Above the list are the filters, as menus, kept in the address the way the search keeps them, so
- * the phone's filters page and these read one model. Once the person moves the map, "Search this
- * area" lists the places where it is now, in both. Back to this page (from a place) finds the map
- * where it was, with that area.
+ * the phone's filters page and these read one model. The map has every place, at any zoom, whatever
+ * the list holds (decision 25). Once the person moves the map, "Search this area" lists the places
+ * in its box: the 50 nearest its middle, with how many are in view when there are more. Back to this
+ * page (from a place) finds the map where it was, with that area.
  */
 export function DeskExplore(): JSX.Element {
   useDocumentTitle(copy.titles.explore);
@@ -37,13 +38,15 @@ export function DeskExplore(): JSX.Element {
   const memoryKey = `desk:${historyKey}`;
   const searched = useSearchedArea(memoryKey);
   const { area } = searched;
-  const { nearby, entries: filtered } = useAreaEntries(area, filters);
+  const { nearby, entries: filtered, inView, from } = useAreaEntries(area, filters);
   const sort = sortInUse(filters);
   // The scores of the whole list, asked for in one go for the cards and the pins; best first when asked.
   const { entries, scores } = useListScores(filtered, sort === "score");
   const { refresh } = useScoreActions();
   // Opened at a place, from a phone's link to the map ("See on map").
   const focused = useMapFocus();
+  // The map has every place; a chosen pin's card beyond the list measures its distance as the list does.
+  const everyPlace = useMemo(() => ({ from }), [from]);
 
   // Where Explore is in the history, for the search's back arrow, as the phone's Explore records it:
   // as the page is drawn, before a link pressed meanwhile can move the history on.
@@ -70,7 +73,7 @@ export function DeskExplore(): JSX.Element {
       title={copy.pages.explore}
       historyKey={historyKey}
       // A new filter, or a new area, is a new list, which starts from its first cards at its top.
-      list={`desk|${params.toString()}|${area.lat}|${area.lon}|${area.radiusKm}`}
+      list={`desk|${params.toString()}|${area.lat}|${area.lon}|${area.box?.join(",") ?? area.radiusKm}`}
       head={
         <>
           {/* Explore has no words to match: its list is nearest first, by name, or best first by House picks. */}
@@ -80,7 +83,13 @@ export function DeskExplore(): JSX.Element {
             onChange={setFilters}
             locale={locale}
           />
-          <HouseLine count={placeCount(entries)} unavailable={scores.house === "unavailable"} onRetry={refresh} className="gap-3.5" />
+          <HouseLine
+            count={placeCount(entries)}
+            inView={inView}
+            unavailable={scores.house === "unavailable"}
+            onRetry={refresh}
+            className="gap-3.5"
+          />
         </>
       }
       entries={entries}
@@ -88,6 +97,7 @@ export function DeskExplore(): JSX.Element {
       instead={instead}
       mapKey={memoryKey}
       focus={focused}
+      everyPlace={everyPlace}
       onMoveEnd={searched.moved}
       overlay={(unselect) =>
         searched.canSearch && (

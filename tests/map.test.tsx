@@ -8,12 +8,14 @@ import houseBadge64 from "../src/assets/house/house-64.png";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { HereProvider } from "../src/location/HereProvider";
-import { areaOf } from "../src/map/area";
+import { LIST_LIMIT } from "../src/explore/useArea";
+import { areaOf, placesInBox } from "../src/map/area";
 import { BaseMap } from "../src/map/BaseMap";
-import { CLUSTER_OPTIONS, type Pin, PIN_SOURCE, pinsFor, pinsGeoJSON } from "../src/map/pins";
+import { CLUSTER_OPTIONS, MAX_MARKERS, type Pin, PIN_SOURCE, pinsFor, pinsGeoJSON } from "../src/map/pins";
 import { filtersFromParams, withFilters } from "../src/search/filters";
 import { MAPTILER_STYLE_URL, mapStyle, recolour } from "../src/map/style";
 import { distanceKm } from "../src/places/distance";
+import * as hoursModule from "../src/places/hours";
 import { openLine, openState } from "../src/places/hours";
 import { buildIndexes, formatDistance, groupForList } from "../src/places/indexes";
 import { placeKindLabel } from "../src/places/kinds";
@@ -21,6 +23,7 @@ import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
 import { ScoresProvider } from "../src/score/ScoresProvider";
+import { ScoresStore } from "../src/score/store";
 import { routes } from "../src/routes";
 import raw from "./fixtures/funchal-items.json";
 import { type FakeFeature, FakeMap, FakeMarker, type FakeSource, MAPTILER_LAYERS } from "./support/fakeMaplibre";
@@ -271,19 +274,33 @@ describe("the pins", () => {
 });
 
 describe("the area a map shows", () => {
-  it("is around the middle of the view, half its diagonal across", () => {
+  it("is the view's box, with the middle of the view as its centre", () => {
     const area = areaOf([-16.92, 32.64, -16.9, 32.66]);
     expect(area.lat).toBeCloseTo(32.65, 6);
     expect(area.lon).toBeCloseTo(-16.91, 6);
-    expect(area.radiusKm).toBeCloseTo(distanceKm(32.64, -16.92, 32.66, -16.9) / 2, 6);
+    expect(area.box).toEqual([-16.92, 32.64, -16.9, 32.66]);
+    expect(area).not.toHaveProperty("radiusKm");
   });
 
-  it("reaches no farther than a city's radius", () => {
-    expect(areaOf([-10, 36, -6, 42]).radiusKm).toBe(25);
+  it("reaches as far as the view does, however wide: no city's radius caps it", () => {
+    expect(areaOf([-10, 36, -6, 42])).toEqual({ lat: 39, lon: -8, box: [-10, 36, -6, 42] });
+    expect(areaOf([-180, -85, 180, 85])).toEqual({ lat: 0, lon: 0, box: [-180, -85, 180, 85] });
   });
 
   it("is on the Earth when the view has gone round it", () => {
     expect(areaOf([179, -1, 183, 1]).lon).toBeCloseTo(-179, 6);
+  });
+
+  it("holds the places of a box that crosses the 180th meridian, or goes round the Earth, once each", () => {
+    const at = (lon: number, i: number) =>
+      variant(nameOnly, { d: `meridian-${i}`, name: `Meridian place ${i}`, lat: "0", lon: String(lon) });
+    const meridian = parsePlaces([at(179.5, 0), at(-179.5, 1), at(0, 2)]);
+    const meridianIdx = buildIndexes(meridian);
+    const names = (box: [number, number, number, number]) => placesInBox(meridianIdx, box).map((each) => each.name).sort();
+    expect(names([179, -1, 181, 1])).toEqual(["Meridian place 0", "Meridian place 1"]);
+    expect(names([-181, -1, -179, 1])).toEqual(["Meridian place 0", "Meridian place 1"]);
+    expect(names([-1, -1, 1, 1])).toEqual(["Meridian place 2"]);
+    expect(names([-250, -90, 250, 90])).toEqual(["Meridian place 0", "Meridian place 1", "Meridian place 2"]);
   });
 });
 
@@ -643,15 +660,12 @@ describe("the map on a phone", () => {
     await waitFor(() => expect(document.title).toBe(copy.titles.map));
   });
 
-  it("starts at the place the list is near, at zoom 13, with a pin for each place and chain there", async () => {
+  it("starts at the place the list is near, at zoom 13, with a pin for every place, a chain's each on its own", async () => {
     const { map } = await openApp("/map");
     expect(map.options).toMatchObject({ center: [HERE.lon, HERE.lat], zoom: 13 });
-    const entries = groupForList(idx.near(HERE.lat, HERE.lon, HERE.radiusKm), idx);
-    expect(pinAddresses(map)).toEqual(
-      entries.map((entry) => ("chain" in entry ? entry.nearby[0]!.place.address : entry.place.address)),
-    );
+    expect([...pinAddresses(map)].sort()).toEqual(fixturePlaces.map((each) => each.address).sort());
     expect(await findPin("Jacafé")).toBeInTheDocument();
-    expect(pin("A Confeitaria Coffee & Bakery")).toHaveAccessibleName("A Confeitaria Coffee & Bakery, a chain, 4 locations nearby");
+    expect(screen.getAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ })).toHaveLength(4);
   });
 
   it("docks the place's card at the foot of the map when its pin is tapped; the card opens the place", async () => {
@@ -675,33 +689,32 @@ describe("the map on a phone", () => {
     expect(router.state.location.pathname).toBe(`/place/${place("Jacafé").d}`);
   });
 
-  it("docks a chain's card for a chain's pin; it opens the chain", async () => {
+  it("docks a chain's place's own card for its pin; it opens the place", async () => {
     const user = userEvent.setup();
     await openApp("/map");
-    await user.click(await findPin("A Confeitaria Coffee & Bakery"));
+    await findPin("Jacafé");
+    await user.click(screen.getAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ })[0]!);
     const card = screen.getByRole("link", { name: "A Confeitaria Coffee & Bakery" });
-    expect(card.getAttribute("href")).toMatch(/^\/chain\//);
+    expect(card.getAttribute("href")).toMatch(/^\/place\//);
   });
 
-  it("offers to search this area only after the person moves the map, and then lists the places there", async () => {
+  it("offers to search this area only after the person moves the map; the pins are every place either way", async () => {
     const user = userEvent.setup();
     const { map } = await openApp("/map", { events: [...fixtures, ...lisbon] });
     const button = () => screen.queryByRole("button", { name: copy.map.searchArea });
+    const every = parsePlaces([...fixtures, ...lisbon]).map((each) => each.address).sort();
     expect(button()).not.toBeInTheDocument();
+    expect([...pinAddresses(map)].sort()).toEqual(every);
 
     act(() => void map.easeTo({ center: [-9.14, 38.72] }));
     expect(button()).not.toBeInTheDocument();
 
     act(() => map.dragTo(LISBON_VIEW));
     expect(button()).toBeInTheDocument();
-    expect(pinAddresses(map)).not.toContain(parsePlaces(lisbon)[0]!.address);
 
     await user.click(button()!);
     expect(button()).not.toBeInTheDocument();
-    await waitFor(() =>
-      expect(pinAddresses(map)).toEqual(expect.arrayContaining(parsePlaces(lisbon).map((each) => each.address))),
-    );
-    expect(pinAddresses(map)).not.toContain(place("Jacafé").address);
+    expect([...pinAddresses(map)].sort()).toEqual(every);
   });
 
   it("asks for the device's location with Locate me, and goes there", async () => {
@@ -778,12 +791,12 @@ describe("Explore on a desktop", () => {
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
   });
 
-  it("lists what the phone's Explore lists, as cards, and pins the same places", async () => {
+  it("lists what the phone's Explore lists, as cards, and pins every place", async () => {
     const { map } = await openApp("/", { px: DESKTOP });
     const entries = groupForList(idx.near(HERE.lat, HERE.lon, HERE.radiusKm), idx);
     const names = entries.map((entry) => ("chain" in entry ? entry.chain.name : entry.place.name));
     expect(cards().map(nameOf)).toEqual(names.slice(0, 30));
-    expect(pinAddresses(map)).toHaveLength(entries.length);
+    expect(pinAddresses(map)).toHaveLength(fixturePlaces.length);
     const houseLine = screen.getByRole("link", { name: copy.explore.howThisWorks }).parentElement!;
     expect(houseLine).toHaveTextContent(
       `${copy.deskExplore.count(fixturePlaces.length)} ${copy.explore.houseLine} How this works`,
@@ -805,14 +818,14 @@ describe("Explore on a desktop", () => {
   it("keeps Open now in the address, as the search does, and lists only the places that are open", async () => {
     const user = userEvent.setup();
     const { router, map } = await openApp("/", { px: DESKTOP });
-    const before = pinAddresses(map).length;
     await user.click(within(menus()).getByRole("button", { name: "Open now" }));
     expect(router.state.location.search).toBe("?open=1");
     expect(within(menus()).getByRole("button", { name: "Open now" })).toHaveAttribute("aria-pressed", "true");
     const closed = fixturePlaces.filter((each) => openState(each, MORNING).kind === "closed");
     expect(closed.length).toBeGreaterThan(0);
     for (const each of closed) expect(cards().map(nameOf)).not.toContain(each.name);
-    await waitFor(() => expect(pinAddresses(map).length).toBeLessThan(before));
+    // The map is every place, whatever the list leaves out (decision 25).
+    expect(pinAddresses(map)).toHaveLength(fixturePlaces.length);
   });
 
   it("chooses kinds of place in a menu, which the address keeps; the phone's filters read the same address", async () => {
@@ -904,9 +917,9 @@ describe("Explore on a desktop", () => {
       expect(scrollIntoView).toHaveBeenCalled();
       expect(scrollIntoView.mock.contexts.at(-1)).toBe(card.closest("li"));
 
-      await user.click(pin("A Confeitaria Coffee & Bakery"));
+      await user.click(pin("Museu Café"));
       expect(card).not.toHaveClass("border-2");
-      expect(within(list()).getByRole("link", { name: "A Confeitaria Coffee & Bakery" })).toHaveClass("border-2", "border-ink");
+      expect(within(list()).getByRole("link", { name: "Museu Café" })).toHaveClass("border-2", "border-ink");
     } finally {
       Reflect.deleteProperty(Element.prototype, "scrollIntoView");
     }
@@ -1001,7 +1014,9 @@ describe("the map and the keyboard", () => {
     act(() => map.fire("render"));
     expect(pin("Jacafé")).not.toHaveAttribute("tabindex", "-1");
     expect(pin("Museu Café")).toHaveAttribute("tabindex", "-1");
-    expect(pin("A Confeitaria Coffee & Bakery")).toHaveAttribute("tabindex", "-1");
+    for (const each of screen.getAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ })) {
+      expect(each).toHaveAttribute("tabindex", "-1");
+    }
   });
 
   it("leaves out of the keyboard's order the pins under what floats over the map", async () => {
@@ -1128,10 +1143,8 @@ describe("distances on the map's pages, when the device has said where the perso
     act(() => map.dragTo(EAST_OF_FUNCHAL));
     await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
 
-    const area = areaOf([EAST_OF_FUNCHAL.west, EAST_OF_FUNCHAL.south, EAST_OF_FUNCHAL.east, EAST_OF_FUNCHAL.north]);
-    const rows = idx
-      .near(area.lat, area.lon, area.radiusKm)
-      .map(({ place: each }) => ({ place: each, km: distanceKm(HERE.lat, HERE.lon, each.lat, each.lon) }))
+    const rows = placesInBox(idx, [EAST_OF_FUNCHAL.west, EAST_OF_FUNCHAL.south, EAST_OF_FUNCHAL.east, EAST_OF_FUNCHAL.north])
+      .map((each) => ({ place: each, km: distanceKm(HERE.lat, HERE.lon, each.lat, each.lon) }))
       .filter((row) => row.km <= 0.8)
       .sort((a, b) => a.km - b.km);
     const names = groupForList(rows, idx).map((entry) => ("chain" in entry ? entry.chain.name : entry.place.name));
@@ -1170,7 +1183,8 @@ describe("an area searched on the map with nothing to show", () => {
     await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
     const said = screen.getByText(copy.map.noneInArea);
     expect(regions).toContain(said.closest("[role=status]"));
-    expect(pinAddresses(map)).toEqual([]);
+    // The map still has every place on it, elsewhere.
+    expect(pinAddresses(map)).toHaveLength(fixturePlaces.length);
   });
 
   it("names the area, not the town, when the desktop's filters leave none of it", async () => {
@@ -1233,5 +1247,387 @@ describe("the map on Back", () => {
     const fresh = await mapNumber(2);
     expect(fresh.options).toMatchObject({ center: [HERE.lon, HERE.lat], zoom: 13 });
     expect(pinAddresses(fresh)).toContain(place("Jacafé").address);
+  });
+});
+
+// ---- Every place on the map, at any zoom (decision 25) ----
+
+describe("every place on Explore's maps, at any zoom (decision 25)", () => {
+  /** The whole world, as a map zoomed all the way out gives it. */
+  const WORLD = { west: -180, south: -85, east: 180, north: 85 };
+
+  /** 120 places over the world, none near another and none sharing a name: no chains among them. */
+  const worldwide = Array.from({ length: 120 }, (_, i) =>
+    variant(nameOnly, {
+      d: `world-${i}`,
+      name: `World place ${String(i).padStart(3, "0")}`,
+      lat: String(-50 + (i % 10) * 11),
+      lon: String(-175 + Math.floor(i / 10) * 29),
+    }),
+  );
+  const everyone = [...fixtures, ...lisbon, ...worldwide];
+  /** 600 places over the world, spread wider still. */
+  const many = Array.from({ length: 600 }, (_, i) =>
+    variant(nameOnly, {
+      d: `many-${i}`,
+      name: `Many place ${i}`,
+      lat: String(-60 + (i % 30) * 4.1),
+      lon: String(-170 + Math.floor(i / 30) * 17),
+    }),
+  );
+  /** 300 places in the middle of Funchal, in the map's first view: more than a map draws at once. */
+  const crowd = Array.from({ length: 300 }, (_, i) =>
+    variant(nameOnly, {
+      d: `crowd-${i}`,
+      name: `Crowd place ${i}`,
+      lat: String(32.63 + (i % 20) * 0.002),
+      lon: String(-16.94 + Math.floor(i / 20) * 0.004),
+    }),
+  );
+  const everyPlace = parsePlaces(everyone);
+  const everyIdx = buildIndexes(everyPlace);
+  const allAddresses = everyPlace.map((each) => each.address).sort();
+
+  const searchArea = () => screen.getByRole("button", { name: copy.map.searchArea });
+  const list = () => screen.getByRole("list");
+  const cards = () => within(list()).getAllByRole("link");
+  const houseLine = () => screen.getByRole("link", { name: copy.explore.howThisWorks }).parentElement!;
+  const sortedPins = (map: FakeMap) => [...pinAddresses(map)].sort();
+  /** The names a list of entries shows, a chain by its own. */
+  const namesOf = (entries: ReturnType<typeof groupForList>) =>
+    entries.map((entry) => ("chain" in entry ? entry.chain.name : entry.place.name));
+
+  /** A point of the map's source on its own, as `querySourceFeatures` gives it. */
+  const pointOf = (each: Place): FakeFeature => ({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [each.lon, each.lat] },
+    properties: { address: each.address },
+  });
+  const bubbleOf = (lon: number, lat: number, count: number): FakeFeature => ({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [lon, lat] },
+    properties: { cluster: true, cluster_id: 9, point_count: count },
+  });
+
+  /** The addresses each `want` of the scores store was asked, in order, leaving out asks of nothing. */
+  const asks = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.map(([addresses]) => [...(addresses as Iterable<string>)]).filter((addresses) => addresses.length > 0);
+
+  describe("the pins", () => {
+    it("are every place, on the phone's map, before and after the person zooms out and searches the world", async () => {
+      const user = userEvent.setup();
+      const { map } = await openApp("/map", { events: everyone });
+      expect(sortedPins(map)).toEqual(allAddresses);
+
+      act(() => map.dragTo(WORLD, 1));
+      expect(sortedPins(map)).toEqual(allAddresses);
+      await user.click(searchArea());
+      expect(sortedPins(map)).toEqual(allAddresses);
+      // The same places: the map's source is never sent them again.
+      expect(pinSource(map).setData).not.toHaveBeenCalled();
+    });
+
+    it("are every place on the desktop's map too, whatever the list holds or its filters leave", async () => {
+      const user = userEvent.setup();
+      const { map } = await openApp("/?kinds=cafes", { px: DESKTOP, events: everyone });
+      expect(sortedPins(map)).toEqual(allAddresses);
+      act(() => map.dragTo(WORLD, 1));
+      await user.click(searchArea());
+      expect(sortedPins(map)).toEqual(allAddresses);
+      expect(pinSource(map).setData).not.toHaveBeenCalled();
+    });
+
+    it("are each place of a chain on its own, with the place's own name", async () => {
+      await openApp("/map");
+      await findPin("Jacafé");
+      const confeitaria = screen.getAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ });
+      expect(confeitaria).toHaveLength(4);
+      for (const each of confeitaria) expect(each).not.toHaveAccessibleName(/a chain/);
+      expect(screen.queryByText(/^×\d/)).not.toBeInTheDocument();
+    });
+
+    it("work out the hours of the pins drawn on their own, not of every place", async () => {
+      const hours = vi.spyOn(hoursModule, "openState");
+      const { map } = await openApp("/map", { events: [...fixtures, ...crowd, ...many] });
+      await screen.findAllByRole("button", { name: /^Crowd place \d+,/ });
+      expect(pinAddresses(map)).toHaveLength(fixtures.length + crowd.length + many.length);
+      // The pins drawn, at most MAX_MARKERS of them; never the 343 places near, nor the 943 in all.
+      expect(hours.mock.calls.length).toBeGreaterThan(0);
+      expect(hours.mock.calls.length).toBeLessThanOrEqual(MAX_MARKERS);
+    });
+
+    it("leave the desktop's search results map with the results alone, a chain as one pin", async () => {
+      const { map } = await openApp("/search?q=confeitaria", { px: DESKTOP, events: everyone });
+      const chain = everyIdx.chains.get("PT:a confeitaria coffee & bakery")!;
+      const nearest = groupForList(everyIdx.search("confeitaria", { lat: HERE.lat, lon: HERE.lon, radiusKm: 25 }), everyIdx).map((entry) =>
+        "chain" in entry ? entry.nearby[0]!.place.address : entry.place.address,
+      );
+      expect(pinAddresses(map)).toEqual(nearest);
+      expect(pinAddresses(map)).not.toContain(parsePlaces(lisbon)[0]!.address);
+      expect(await findPin("A Confeitaria Coffee & Bakery")).toHaveAccessibleName(
+        `A Confeitaria Coffee & Bakery, a chain, ${chain.places.length} locations nearby`,
+      );
+    });
+  });
+
+  describe("the list of an area searched on the map", () => {
+    it("is the 50 places nearest the middle of a world-wide box, with how many are in view", async () => {
+      const user = userEvent.setup();
+      const { map } = await openApp("/", { px: DESKTOP, events: everyone });
+      act(() => map.dragTo(WORLD, 1));
+      await user.click(searchArea());
+
+      // No device: the distances, and the nearest, are from the middle of the view.
+      const rows = everyPlace
+        .map((each) => ({ place: each, km: distanceKm(0, 0, each.lat, each.lon) }))
+        .sort((a, b) => a.km - b.km)
+        .slice(0, LIST_LIMIT);
+      const expected = namesOf(groupForList(rows, everyIdx));
+      expect(cards().map(nameOf)).toEqual(expected.slice(0, 30));
+      await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+      expect(cards().map(nameOf)).toEqual(expected);
+      expect(screen.queryByRole("button", { name: copy.explore.showMore })).not.toBeInTheDocument();
+
+      expect(houseLine()).toHaveTextContent(
+        `${copy.deskExplore.inView(everyPlace.length)} ${copy.explore.houseLine} How this works`,
+      );
+      expect(copy.deskExplore.inView(2345)).toBe("2,345 places in view. Zoom in to see the rest.");
+      expect(cards()[0]).toHaveAccessibleDescription(expect.stringContaining(` · ${formatDistance(rows[0]!.km, "en-US")} `));
+    });
+
+    it("says how many places as it always has when it lists every place in view", async () => {
+      const user = userEvent.setup();
+      const { map } = await openApp("/", { px: DESKTOP, events: everyone });
+      act(() => map.dragTo(LISBON_VIEW));
+      await user.click(searchArea());
+      expect(cards().map(nameOf).sort()).toEqual(["Lisbon place 1", "Lisbon place 2", "Lisbon place 3"]);
+      expect(houseLine()).toHaveTextContent(`${copy.deskExplore.count(3)} ${copy.explore.houseLine}`);
+      expect(houseLine()).not.toHaveTextContent(/in view/);
+    });
+
+    it("counts the places the filters leave, and lists the nearest 50 of them", async () => {
+      const user = userEvent.setup();
+      const { map } = await openApp("/?sort=name", { px: DESKTOP, events: everyone });
+      act(() => map.dragTo(WORLD, 1));
+      await user.click(searchArea());
+      const nearest = new Set(
+        everyPlace
+          .map((each) => ({ each, km: distanceKm(0, 0, each.lat, each.lon) }))
+          .sort((a, b) => a.km - b.km)
+          .slice(0, LIST_LIMIT)
+          .map(({ each }) => each.name),
+      );
+      await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+      const names = cards().map(nameOf);
+      // A to Z, as the menu says, among the 50 nearest the middle.
+      expect(names).toEqual([...names].sort(new Intl.Collator("en").compare));
+      for (const name of names) {
+        if (name !== "A Confeitaria Coffee & Bakery") expect(nearest).toContain(name);
+      }
+      expect(houseLine()).toHaveTextContent(copy.deskExplore.inView(everyPlace.length));
+    });
+
+    it("reaches past 25 km from its middle: a searched area has no city's radius", async () => {
+      const user = userEvent.setup();
+      const spread = [40, 80].map((km) =>
+        variant(nameOnly, { d: `spread-${km}`, name: `Spread place ${km} km`, lat: String(38.72 + km / 111.2), lon: "-9.14" }),
+      );
+      const { map } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisbon, ...spread] });
+      act(() => map.dragTo({ west: -10.64, south: 37.72, east: -7.64, north: 39.72 }, 8));
+      await user.click(searchArea());
+      expect(cards().map(nameOf)).toEqual(["Lisbon place 1", "Lisbon place 2", "Lisbon place 3", "Spread place 40 km", "Spread place 80 km"]);
+    });
+
+    it("leaves where the person is near as it was before any search: the town, as far as a city reaches", async () => {
+      const far = variant(nameOnly, { d: "far-out", name: "Thirty km out", lat: String(HERE.lat + 30 / 111.2), lon: String(HERE.lon) });
+      await openApp("/", { px: DESKTOP, events: [...fixtures, far] });
+      await waitFor(() => expect(cards().length).toBeGreaterThan(20));
+      expect(cards().map(nameOf)).not.toContain("Thirty km out");
+      expect(houseLine()).toHaveTextContent(copy.deskExplore.count(fixturePlaces.length));
+    });
+
+    it("is searched at world zoom on a phone without a list to show, and says nothing is missing", async () => {
+      const user = userEvent.setup();
+      const { map } = await openApp("/map", { events: everyone });
+      act(() => map.dragTo(WORLD, 1));
+      await user.click(searchArea());
+      expect(screen.queryByText(copy.map.noneInArea)).not.toBeInTheDocument();
+      expect(sortedPins(map)).toEqual(allAddresses);
+    });
+  });
+
+  describe("the scores asked for", () => {
+    const manyEvents = [...fixtures, ...crowd, ...many];
+    const manyPlaces = parsePlaces(manyEvents);
+
+    it("on the phone, are the pins drawn on their own, and never a bubble's places", async () => {
+      const want = vi.spyOn(ScoresStore.prototype, "want");
+      const { map } = await openApp("/map", { events: manyEvents });
+      await screen.findAllByRole("button", { name: /^Crowd place \d+,/ });
+      for (const call of asks(want)) expect(call.length).toBeLessThanOrEqual(MAX_MARKERS);
+
+      // Zoomed out: one bubble, and two pins on their own.
+      act(() => map.dragTo(WORLD, 1));
+      want.mockClear();
+      map.features = [bubbleOf(0, 0, manyPlaces.length - 2), pointOf(place("Jacafé")), pointOf(place("Maia"))];
+      act(() => map.fire("render"));
+      await waitFor(() => expect(asks(want).at(-1)?.sort()).toEqual([place("Jacafé").address, place("Maia").address].sort()));
+      for (const call of asks(want)) expect(call.length).toBeLessThanOrEqual(2);
+    });
+
+    it("on a desktop, are the places listed and the pins drawn on their own, never every place", async () => {
+      const user = userEvent.setup();
+      const want = vi.spyOn(ScoresStore.prototype, "want");
+      const { map } = await openApp("/", { px: DESKTOP, events: manyEvents });
+      await screen.findAllByRole("button", { name: /^Crowd place \d+,/ });
+      // Before a search the list is the town's, as it was, and asks for its places as it did.
+      act(() => map.dragTo(WORLD, 1));
+      want.mockClear();
+      await user.click(searchArea());
+      await waitFor(() => expect(houseLine()).toHaveTextContent(copy.deskExplore.inView(manyPlaces.length)));
+
+      // Every ask is the list's (at most 50) or the pins' (at most MAX_MARKERS), with the chosen pin.
+      for (const call of asks(want)) expect(call.length).toBeLessThanOrEqual(Math.max(LIST_LIMIT, MAX_MARKERS) + 1);
+      expect(new Set(asks(want).flat()).size).toBeLessThan(manyPlaces.length);
+      const listedAddresses = new Set(
+        everyPlaceRows(manyPlaces)
+          .slice(0, LIST_LIMIT)
+          .map(({ place: each }) => each.address),
+      );
+      expect(asks(want)).toContainEqual(expect.arrayContaining([...listedAddresses].filter((address) => !inChain(address))));
+
+      // Zoomed out: one bubble, and one pin on its own. Only that pin is asked about now.
+      want.mockClear();
+      map.features = [bubbleOf(0, 0, manyPlaces.length - 1), pointOf(place("Jacafé"))];
+      act(() => map.fire("render"));
+      await waitFor(() => expect(asks(want).at(-1)).toEqual([place("Jacafé").address]));
+      expect(asks(want)).toEqual([[place("Jacafé").address]]);
+    });
+
+    /** The places nearest the middle of the world, nearest first. */
+    function everyPlaceRows(all: Place[]) {
+      return all.map((each) => ({ place: each, km: distanceKm(0, 0, each.lat, each.lon) })).sort((a, b) => a.km - b.km);
+    }
+    /** Whether the place at `address` is one of a chain in the fixtures (its card is the chain's, which asks for none). */
+    function inChain(address: string) {
+      const found = manyPlaces.find((each) => each.address === address);
+      return found !== undefined && idx.chainOf(found) !== undefined;
+    }
+  });
+
+  describe("a pin chosen outside the list", () => {
+    it("on the phone, docks its place's card, with how far it is from where the list is near", async () => {
+      const user = userEvent.setup();
+      const { map } = await openApp("/map", { events: [...fixtures, ...lisbon] });
+      act(() => map.dragTo(LISBON_VIEW, 15));
+      await user.click(await findPin("Lisbon place 1"));
+      const region = screen.getByRole("region", { name: copy.map.selected });
+      const card = within(region).getByRole("link", { name: "Lisbon place 1" });
+      expect(card).toHaveAttribute("href", "/place/lisbon-0");
+      const lisbon1 = parsePlaces(lisbon)[0]!;
+      const km = formatDistance(distanceKm(HERE.lat, HERE.lon, lisbon1.lat, lisbon1.lon), "en-US");
+      expect(card).toHaveAccessibleDescription(expect.stringContaining(` · ${km} `));
+      expect(pin("Lisbon place 1")).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("on the phone, docks a chain's place's own card, which opens the place", async () => {
+      const user = userEvent.setup();
+      const { router } = await openApp("/map");
+      await findPin("Jacafé");
+      const [first] = screen.getAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ });
+      await user.click(first!);
+      const region = screen.getByRole("region", { name: copy.map.selected });
+      const card = within(region).getByRole("link", { name: "A Confeitaria Coffee & Bakery" });
+      expect(card.getAttribute("href")).toMatch(/^\/place\//);
+      await user.click(card);
+      expect(router.state.location.pathname).toMatch(/^\/place\//);
+    });
+
+    it("on a desktop, puts its place's card at the top of the list, picked out, until it is let go", async () => {
+      const user = userEvent.setup();
+      Element.prototype.scrollIntoView = vi.fn();
+      try {
+        const { map } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisbon] });
+        const before = cards().map(nameOf);
+        expect(before).not.toContain("Lisbon place 1");
+
+        await user.click(await findPin("Lisbon place 1"));
+        const card = within(list()).getByRole("link", { name: "Lisbon place 1" });
+        expect(card).toHaveClass("border-2", "border-ink");
+        expect(card.closest("li")).toBe(list().firstElementChild);
+        expect(cards().map(nameOf).slice(1)).toEqual(before);
+        expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+        const lisbon1 = parsePlaces(lisbon)[0]!;
+        const km = formatDistance(distanceKm(HERE.lat, HERE.lon, lisbon1.lat, lisbon1.lon), "en-US");
+        expect(card).toHaveAccessibleDescription(expect.stringContaining(` · ${km} `));
+
+        act(() => map.fire("click", { originalEvent: new MouseEvent("click") }));
+        expect(within(list()).queryByRole("link", { name: "Lisbon place 1" })).not.toBeInTheDocument();
+        expect(cards().map(nameOf)).toEqual(before);
+      } finally {
+        Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+      }
+    });
+
+    it("on a desktop, moves the focus to that card when the pin is chosen from the keyboard", async () => {
+      const user = userEvent.setup();
+      await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisbon] });
+      const far = await findPin("Lisbon place 1");
+      act(() => far.focus());
+      await user.keyboard("{Enter}");
+      expect(within(list()).getByRole("link", { name: "Lisbon place 1" })).toHaveFocus();
+    });
+
+    it("on a desktop, gives a chain's place its own card, and leaves the chain's card as it is", async () => {
+      const user = userEvent.setup();
+      Element.prototype.scrollIntoView = vi.fn();
+      try {
+        await openApp("/", { px: DESKTOP });
+        const chainCard = within(list()).getByRole("link", { name: "A Confeitaria Coffee & Bakery" });
+        expect(chainCard.getAttribute("href")).toMatch(/^\/chain\//);
+        const [first] = screen.getAllByRole("button", { name: /^A Confeitaria Coffee & Bakery,/ });
+        await user.click(first!);
+        const top = within(list().firstElementChild as HTMLElement).getByRole("link");
+        expect(top.getAttribute("href")).toMatch(/^\/place\//);
+        expect(top).toHaveClass("border-2", "border-ink");
+        expect(chainCard).not.toHaveClass("border-2");
+      } finally {
+        Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+      }
+    });
+
+    it("on a desktop, shows its card above what the list says when the area searched has no places", async () => {
+      const user = userEvent.setup();
+      Element.prototype.scrollIntoView = vi.fn();
+      try {
+        const { map } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisbon] });
+        act(() => map.dragTo({ west: -20.1, south: 30, east: -20, north: 30.1 }));
+        await user.click(searchArea());
+        expect(screen.getByText(copy.map.noneInArea)).toBeInTheDocument();
+        expect(screen.queryByRole("list")).not.toBeInTheDocument();
+
+        await user.click(await findPin("Lisbon place 1"));
+        const card = within(list()).getByRole("link", { name: "Lisbon place 1" });
+        expect(card).toHaveClass("border-2", "border-ink");
+        expect(cards()).toHaveLength(1);
+        expect(card.compareDocumentPosition(screen.getByText(copy.map.noneInArea)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      } finally {
+        Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+      }
+    });
+
+    it("on a desktop, picks out a listed place's own card, as before", async () => {
+      const user = userEvent.setup();
+      Element.prototype.scrollIntoView = vi.fn();
+      try {
+        await openApp("/", { px: DESKTOP });
+        const before = cards().map(nameOf);
+        await user.click(await findPin("Jacafé"));
+        expect(cards().map(nameOf)).toEqual(before);
+        expect(within(list()).getByRole("link", { name: "Jacafé" })).toHaveClass("border-2", "border-ink");
+      } finally {
+        Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+      }
+    });
   });
 });

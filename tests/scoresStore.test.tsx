@@ -1533,14 +1533,11 @@ describe("the relay code, kept out of the first screen", () => {
     expect(search.requests).toHaveLength(2);
   });
 
-  it.each([
-    ["a phone", PHONE],
-    ["a desktop", DESKTOP],
-  ])("is loaded once Explore's list is on %s, which asks for its places' reviews in one go", async (_, px) => {
+  it("is loaded once Explore's list is on a phone, which asks for its places' reviews in one go", async () => {
     const search = createMemoryReader([]);
     const { loaded, opened } = await withRelayCode({ [SEARCH]: search });
     const { openApp: open } = await import("./support/app");
-    await open("/", { px, events: places });
+    await open("/", { px: PHONE, events: places });
 
     expect((await screen.findAllByText("Jacafé")).length).toBeGreaterThan(0);
     await waitFor(() => expect(byA(search).length).toBeGreaterThan(0));
@@ -1550,6 +1547,29 @@ describe("the relay code, kept out of the first screen", () => {
     // One request by place address for the list: Jacafé among its places.
     expect(batchesOf(search)).toHaveLength(1);
     expect(batchesOf(search)[0]).toContain(JACAFE);
+  });
+
+  it("is loaded once Explore is on a desktop, whose list and map ask for their places' reviews a list at a time", async () => {
+    const search = createMemoryReader([]);
+    const { loaded, opened } = await withRelayCode({ [SEARCH]: search });
+    const { openApp: open } = await import("./support/app");
+    const { parsePlaces } = await import("../src/places/load");
+    await open("/", { px: DESKTOP, events: places });
+
+    expect((await screen.findAllByText("Jacafé")).length).toBeGreaterThan(0);
+    // The list's places, Jacafé among them; and the map's pins, every place it draws on its own (here
+    // all of them, each of a chain's places too: decision 25), once the map is drawn.
+    const every = parsePlaces(places).map((place) => place.address).sort();
+    await waitFor(() => expect(batchesOf(search).flat().sort()).toEqual(every));
+    await settle();
+    expect(loaded).toHaveBeenCalledTimes(1);
+    // Asked for with the list's when the map is drawn in time, or in one request more for those the
+    // list did not ask about: a list at a time, never a card or a pin at a time, and none twice.
+    const batches = batchesOf(search);
+    expect(batches.length).toBeLessThanOrEqual(2);
+    expect(batches[0]).toContain(JACAFE);
+    expect(batches.flat()).toHaveLength(every.length);
+    expect(opened.mock.calls.map(([url]) => url)).toEqual(batches.flatMap(() => [SEARCH, SEARCH]));
   });
 
   it.each([

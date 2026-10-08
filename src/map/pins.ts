@@ -28,6 +28,17 @@ export interface Pin {
   look?: "drop";
 }
 
+/**
+ * A point the map's source holds: an address at a place on the Earth, and nothing more. A `Pin` is
+ * one, and so is a `Place`: Explore's maps give the source every place as it is (decision 25), and
+ * work out a pin only for a place the map draws on its own.
+ */
+export interface PinPoint {
+  address: string;
+  lat: number;
+  lon: number;
+}
+
 /** The map's source of pins. */
 export const PIN_SOURCE = "pins";
 
@@ -144,7 +155,7 @@ export function pinsFor(
 }
 
 /** What the map's source holds: a point for each pin, longitude first, with the pin's address and nothing else. */
-export function pinsGeoJSON(pins: readonly Pin[]): FeatureCollection<Point, { address: string }> {
+export function pinsGeoJSON(pins: readonly PinPoint[]): FeatureCollection<Point, { address: string }> {
   return {
     type: "FeatureCollection",
     features: pins.map((pin) => ({

@@ -509,17 +509,20 @@ describe("one ask of the store per list", () => {
     expect(calls.at(-1)).toEqual(expect.arrayContaining(shown));
   });
 
-  it("asks for the desktop's cards and the map's pins together, in one go", async () => {
+  it("asks for the desktop's cards in one go, and the pins the map draws in one go", async () => {
     const want = vi.spyOn(ScoresStore.prototype, "want");
     const { readers } = houseNetwork(jacafeScored(), HOUSE_RANKS);
     await openApp("/", { events: places, readers, px: DESKTOP });
     await waitFor(() => expect(card("Jacafé")).toHaveTextContent("4.6"));
     await screen.findByRole("button", { name: /^Jacafé, .*4\.6 out of 5/ });
 
+    // Never a card or a pin at a time: the list's places together, and the drawn pins' together
+    // (here every place, as the map draws them all on their own).
     const shown = placeLinks().map(addressOfLink);
     const calls = asks(want);
     for (const call of calls) expect(call.length).toBeGreaterThanOrEqual(shown.length);
-    expect(calls.at(-1)).toEqual(expect.arrayContaining([...shown, JACAFE.address]));
+    expect(calls).toContainEqual(expect.arrayContaining(shown));
+    expect(calls).toContainEqual(expect.arrayContaining(parsePlaces(places).map((place) => place.address)));
   });
 });
 
