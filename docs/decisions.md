@@ -31,3 +31,12 @@ Avi's answers on 2026-10-07 to the questions in `handoff/START_HERE.md` and the 
 | 20 | Place-page map | It can be zoomed and moved (Avi's request), and stays flat. This replaces the handoff's static map. |
 | 21 | Signing in | Browser extensions (NIP-07) and every phone signer app (NIP-46: nostrconnect and bunker links). The person's key never reaches the app. |
 | 22 | First reviewers | Avi seeds Funchal's first reviewers. People ranked 5 or more count at once; anyone else needs Mise en Place to follow them (or someone close), then a score recalculation. |
+
+## Avi's answers on 2026-10-08, after reviews went live
+
+| # | Topic | Decision |
+|---|---|---|
+| 23 | Signing in | Make it one tap where possible. With a browser add-on present, "Continue with Nostr" signs in at once. Without one (most phones), it goes straight to "Open the app" and the QR code. A small link offers the other way. Afterwards the person lands where they were, or on Explore (never a standalone page). |
+| 24 | Where a first visit starts | Use the device's location if the browser already allows it, with no prompt. Otherwise guess from the device's time zone (nothing leaves the device) and start at the biggest nearby town with places. "Use my location" stays one tap away. Funchal is only the last fallback. |
+| 25 | Zoomed-out map | Every place in view appears as pins, grouped into count bubbles at any zoom. The list shows the 50 places nearest the middle of the map, with a line like "2,345 places in view. Zoom in to see the rest." The 25 km cap on a searched area goes. |
+| 26 | My circle consent | The deliberate Personalize tap is the consent, with one plain line beside it saying that Brainstorm works out their circle and the result is public. No separate consent screen. |
