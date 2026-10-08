@@ -58,9 +58,6 @@ const nearYou = (n: number) => `${n === 0 ? "none" : n.toLocaleString("en")} nea
 /** What joins the two parts of the hours inside a line that dots join already (DeskPlace.dc.html): "Open now, closes 10 pm". */
 const comma = ", ";
 
-/** The link beside where the details come from, to the page that says more. */
-const aboutData = "About this data";
-
 /** A link back to the first page. */
 const backToExplore = "Back to Explore";
 
@@ -81,6 +78,8 @@ export const copy = {
     newTab: "(opens in a new tab)",
     /** What joins the parts of a line: "Cafe · 0.3 mi". */
     joiner: dot,
+    /** The link beside where the place details come from, to the page that says more. */
+    aboutData: "About this data",
   },
   /** The tabs on a phone, and the links in the desktop top bar. */
   nav: {
@@ -355,7 +354,6 @@ export const copy = {
     // DRAFT for Avi
     /** At the foot of the page, a link to the place's own record. */
     viewOnOsm: "View on OpenStreetMap",
-    aboutData,
     // DRAFT for Avi
     /** The map of the place, which does not move, as one picture for a screen reader. */
     mapLabel: (name: string) => `Map showing where ${name} is`,
@@ -494,8 +492,6 @@ export const copy = {
     kinds: (n: number, only: string) => (n === 0 ? kindOfPlace : n === 1 ? only : `${kindOfPlace} · ${n.toLocaleString("en")}`),
     /** The sort menu, by the order the list is in. With nothing chosen the list is nearest first. */
     sort: { distance: "Sort: distance", name: "Sort: name" },
-    /** After the line on where the details come from, at the foot of the list. */
-    aboutData,
   },
   location: {
     // DRAFT for Avi: every string in this group is a first draft and needs your edit.

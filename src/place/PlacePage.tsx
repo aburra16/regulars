@@ -15,8 +15,8 @@ import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
 import { useWide } from "../shell/useWide.ts";
-import { Attribution } from "../ui/Attribution.tsx";
 import { BackLink } from "../ui/BackLink.tsx";
+import { DetailsCredit } from "../ui/DetailsCredit.tsx";
 import { SavedIcon } from "../ui/icons.tsx";
 import { KindTile } from "../ui/KindTile.tsx";
 import { NewTabHint } from "../ui/NewTab.tsx";
@@ -231,12 +231,7 @@ function FootLinks({ place }: { place: Place }): JSX.Element {
           {copy.place.viewOnOsm}
         </OutLink>
       )}
-      <div className="flex flex-wrap items-baseline gap-x-1">
-        <Attribution kind="details" />
-        <Link to="/about" className="font-semibold text-ink underline hover:text-accent">
-          {copy.place.aboutData}
-        </Link>
-      </div>
+      <DetailsCredit />
     </>
   );
 }

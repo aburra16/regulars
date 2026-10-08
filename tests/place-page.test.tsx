@@ -600,7 +600,7 @@ describe("the place page: footer", () => {
     expect(osm).toHaveAttribute("rel", "noopener noreferrer");
 
     expect(footer).toHaveTextContent(copy.attribution.details);
-    expect(within(footer).getByRole("link", { name: copy.place.aboutData })).toHaveAttribute("href", "/about");
+    expect(within(footer).getByRole("link", { name: copy.common.aboutData })).toHaveAttribute("href", "/about");
     expect(document.body).not.toHaveTextContent(/Also listed by/);
   });
 

@@ -386,7 +386,7 @@ describe("the chain page on a phone", () => {
     await openApp(confeitariaPath, { events: fixtures });
     const credit = screen.getByText((_, element) => element?.tagName === "P" && element.textContent === copy.attribution.details);
     expect(credit).toBeVisible();
-    expect(screen.getByRole("link", { name: copy.place.aboutData })).toHaveAttribute("href", "/about");
+    expect(screen.getByRole("link", { name: copy.common.aboutData })).toHaveAttribute("href", "/about");
   });
 });
 
@@ -408,7 +408,7 @@ describe("the chain page on a desktop", () => {
     expect(picture).toBeInTheDocument();
     const credit = within(rail).getByText((_, element) => element?.tagName === "P" && element.textContent === copy.attribution.details);
     expect(picture.compareDocumentPosition(credit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(rail).getByRole("link", { name: copy.place.aboutData })).toHaveAttribute("href", "/about");
+    expect(within(rail).getByRole("link", { name: copy.common.aboutData })).toHaveAttribute("href", "/about");
 
     // The phone's link to the map is not needed beside one.
     expect(screen.queryByRole("link", { name: copy.chain.seeOnMap })).not.toBeInTheDocument();

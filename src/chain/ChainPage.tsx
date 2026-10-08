@@ -12,9 +12,9 @@ import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
 import { useWide } from "../shell/useWide.ts";
-import { Attribution } from "../ui/Attribution.tsx";
 import { BackLink } from "../ui/BackLink.tsx";
 import { commonKind } from "../ui/ChainCard.tsx";
+import { DetailsCredit } from "../ui/DetailsCredit.tsx";
 import { KindTile } from "../ui/KindTile.tsx";
 import { NotListedOrLoading } from "../ui/NotListed.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
@@ -140,18 +140,6 @@ function Locations({ info, shown, showMap }: { info: ChainInfo; shown: Shown; sh
   );
 }
 
-/** The foot of the page: where the details come from, with a link to say more. */
-function Credit(): JSX.Element {
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-1 text-caption text-muted">
-      <Attribution kind="details" />
-      <Link to="/about" className="font-semibold text-ink underline hover:text-accent">
-        {copy.place.aboutData}
-      </Link>
-    </div>
-  );
-}
-
 /**
  * The locations the list shows, on a map that does not move (the rail's): each a ring, the nearest
  * chosen, the view fitted to all of them. When the list shows more, so does the map.
@@ -202,7 +190,7 @@ function PhoneChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Ele
         <Locations info={info} shown={shown} showMap />
       </div>
       <footer className="mt-auto px-gutter-phone pt-[18px] pb-[22px]">
-        <Credit />
+        <DetailsCredit />
       </footer>
     </div>
   );
@@ -233,7 +221,7 @@ function DeskChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Elem
         </div>
         <aside aria-label={copy.chain.railLabel} className="flex w-rail min-w-0 shrink-0 flex-col gap-4">
           <ChainMap chain={chain} shown={pinned} className="h-[220px] rounded-panel" />
-          <Credit />
+          <DetailsCredit />
         </aside>
       </div>
     </div>

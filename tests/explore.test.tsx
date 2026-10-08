@@ -225,6 +225,21 @@ describe("Explore on a phone: the list", () => {
     expect(names()).toEqual(everything.slice(0, PAGE));
   });
 
+  it("says where the place details come from under the list, as the desktop's Explore does", async () => {
+    await openExplore();
+    const about = screen.getByRole("link", { name: copy.common.aboutData });
+    const credit = about.parentElement!;
+    expect(credit).toHaveTextContent(`${copy.attribution.details}${copy.common.aboutData}`);
+    expect(within(credit).getByRole("link", { name: copy.attribution.openStreetMap })).toHaveAttribute(
+      "href",
+      "https://www.openstreetmap.org/copyright",
+    );
+    expect(about).toHaveAttribute("href", "/about");
+    // After the cards and the button for more, at the foot of the page.
+    const list = screen.getByRole("list");
+    expect(list.compareDocumentPosition(credit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("is a list of links, one to a place", async () => {
     await openExplore();
     const items = within(screen.getByRole("list")).getAllByRole("listitem");

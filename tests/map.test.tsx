@@ -684,7 +684,7 @@ describe("Explore on a desktop", () => {
     expect(screen.getByText(copy.explore.houseLine, { exact: false })).toHaveTextContent(
       `${copy.deskExplore.count(fixturePlaces.length)} ${copy.explore.houseLine} How this works`,
     );
-    expect(screen.getByRole("link", { name: copy.deskExplore.aboutData })).toHaveAttribute("href", "/about");
+    expect(screen.getByRole("link", { name: copy.common.aboutData })).toHaveAttribute("href", "/about");
   });
 
   it("keeps Open now in the address, as the search does, and lists only the places that are open", async () => {

@@ -1,5 +1,5 @@
 import { type JSX, type RefObject, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
@@ -9,8 +9,8 @@ import { type Filters, filtersFromParams, withFilters } from "../search/filters.
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
-import { Attribution } from "../ui/Attribution.tsx";
 import { PageMessage } from "../ui/Banner.tsx";
+import { DetailsCredit } from "../ui/DetailsCredit.tsx";
 import { shownPageOf } from "../ui/shown.ts";
 import { Entries } from "./Entries.tsx";
 import { HouseLine, NoneNearby } from "./ExploreList.tsx";
@@ -152,11 +152,8 @@ export function DeskExplore(): JSX.Element {
         <FilterMenus filters={filters} onChange={setFilters} locale={locale} />
         <HouseLine count={rows.length} />
         {body}
-        <footer className="mt-auto flex flex-wrap items-baseline gap-x-1 pt-1.5 text-caption text-muted">
-          <Attribution kind="details" />
-          <Link to="/about" className="font-semibold text-ink underline hover:text-accent">
-            {copy.deskExplore.aboutData}
-          </Link>
+        <footer className="mt-auto pt-1.5">
+          <DetailsCredit />
         </footer>
       </section>
       <BaseMap

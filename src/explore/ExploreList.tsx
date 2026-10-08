@@ -13,6 +13,7 @@ import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
 import { PageMessage, primaryButton } from "../ui/Banner.tsx";
 import { ChipLink, Chips } from "../ui/Chips.tsx";
+import { DetailsCredit } from "../ui/DetailsCredit.tsx";
 import { SearchIcon } from "../ui/icons.tsx";
 import { shownPageOf } from "../ui/shown.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
@@ -170,6 +171,9 @@ export function ExploreList(): JSX.Element {
         </Chips>
       </div>
       {body}
+      <footer className="mt-auto px-gutter-phone pt-[18px]">
+        <DetailsCredit />
+      </footer>
     </div>
   );
 }
