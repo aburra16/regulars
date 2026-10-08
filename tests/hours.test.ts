@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
-import { type OpenState, PARSE_CACHE_LIMIT, openLine, openState, timeZoneOf } from "../src/places/hours";
+import { type OpenState, PARSE_CACHE_LIMIT, openLine, openState, timeZoneOf, weekTable } from "../src/places/hours";
 import { parsePlace } from "../src/places/place";
 import raw from "./fixtures/funchal-items.json";
 
@@ -810,5 +810,133 @@ describe("the parser's own noise", () => {
     stateOf("Mo-Su 11:00-23:00; PH off", WED_15_00, GB);
     expect(console.error).toBe(error);
     expect(console.warn).toBe(warn);
+  });
+});
+
+describe("weekTable", () => {
+  const tableOf = (openingHours: string | undefined, locale = "en-US", iso = WED_15_00, where: Where = FUNCHAL) =>
+    weekTable({ ...where, openingHours }, at(iso), locale);
+  /** Each day's line as the page shows it: the ranges, or nothing for a day it is closed. */
+  const lines = (table: ReturnType<typeof weekTable>) => table?.map(({ day, ranges }) => `${day} ${ranges.join(", ")}`.trim());
+
+  it("lists the coming seven days, Monday first, with each day's hours", () => {
+    // Wed 7 Oct 2026 in Funchal: the week is Wed to Tue, listed Monday first.
+    expect(lines(tableOf("Mo-Fr 09:30-17:30; Sa-Su 09:30-13:30"))).toEqual([
+      "Mon 9:30 am to 5:30 pm",
+      "Tue 9:30 am to 5:30 pm",
+      "Wed 9:30 am to 5:30 pm",
+      "Thu 9:30 am to 5:30 pm",
+      "Fri 9:30 am to 5:30 pm",
+      "Sat 9:30 am to 1:30 pm",
+      "Sun 9:30 am to 1:30 pm",
+    ]);
+  });
+
+  it("names the days from the copy module", () => {
+    expect(tableOf("24/7")?.map(({ day }) => day)).toEqual([...copy.hours.weekdaysShort]);
+  });
+
+  it("writes the times on the locale's clock", () => {
+    expect(tableOf("Mo-Su 09:30-17:00", "pt-PT")?.[0]).toEqual({ day: "Mon", ranges: ["09:30 to 17:00"] });
+    expect(tableOf("Mo-Su 12:00-13:00", "en-US")?.[0]).toEqual({ day: "Mon", ranges: ["12 pm to 1 pm"] });
+  });
+
+  it("lists each opening of a day, and no hours for a day it is closed", () => {
+    const table = tableOf("Tu-Sa 09:00-12:00,14:00-18:00");
+    expect(table?.[0]).toEqual({ day: "Mon", ranges: [] });
+    expect(table?.[1]).toEqual({ day: "Tue", ranges: ["9 am to 12 pm", "2 pm to 6 pm"] });
+    expect(table?.[6]).toEqual({ day: "Sun", ranges: [] });
+  });
+
+  it("gives a day open round the clock as open 24 hours", () => {
+    expect(tableOf("24/7")?.every(({ ranges }) => ranges.length === 1 && ranges[0] === copy.hours.open24)).toBe(true);
+    const weekdays = tableOf("Mo-Fr 00:00-24:00");
+    expect(weekdays?.[4]).toEqual({ day: "Fri", ranges: [copy.hours.open24] });
+    expect(weekdays?.[5]).toEqual({ day: "Sat", ranges: [] });
+  });
+
+  it("puts a night that runs past midnight on the day it starts", () => {
+    expect(lines(tableOf("Mo-Sa 11:00-24:00, Fr-Sa 11:00-02:00"))).toEqual([
+      "Mon 11 am to midnight",
+      "Tue 11 am to midnight",
+      "Wed 11 am to midnight",
+      "Thu 11 am to midnight",
+      "Fri 11 am to 2 am",
+      "Sat 11 am to 2 am",
+      // Saturday's night runs into Sunday, which does not open.
+      "Sun",
+    ]);
+  });
+
+  it("says when it closes at midnight", () => {
+    expect(tableOf("Mo-Su 09:30-24:00")?.[0]).toEqual({ day: "Mon", ranges: [`9:30 am to ${copy.hours.midnight}`] });
+  });
+
+  it("follows the place's calendar, not the runtime's", () => {
+    // 16:00Z on Wednesday 7 Oct is 01:00 on Thursday 8 in Tokyo: its week runs Thursday to
+    // Wednesday 14, so the closure on the 14th is this week's Wednesday. In UTC it would be next week's.
+    const table = tableOf("Mo-Su 10:00-20:00; Oct 14 off", "en-US", "2026-10-07T16:00:00Z", TOKYO);
+    expect(table?.[2]).toEqual({ day: "Wed", ranges: [] });
+    expect(table?.[3]).toEqual({ day: "Thu", ranges: ["10 am to 8 pm"] });
+  });
+
+  it("lists every day as closed for hours that say the place is shut", () => {
+    expect(tableOf("off")?.every(({ ranges }) => ranges.length === 0)).toBe(true);
+  });
+
+  it("is null for hours that are missing or that the app cannot read", () => {
+    expect(tableOf(undefined)).toBeNull();
+    expect(tableOf("  ")).toBeNull();
+    expect(tableOf("no such hours at all")).toBeNull();
+    expect(tableOf("sunrise-sunset")).toBeNull();
+    expect(tableOf("Sa 09:00+")).toBeNull();
+    expect(tableOf("x".repeat(300))).toBeNull();
+  });
+
+  it("is null when a week of the table would leave out what the hours say", () => {
+    // A comment on a rule.
+    expect(tableOf('Mo-Fr 09:00-17:00 "by appointment"')).toBeNull();
+    // A season that is over for now: a week of "closed" would hide when it opens again.
+    expect(tableOf("Apr-Sep Mo-Su 11:00-23:00")).toBeNull();
+  });
+
+  it("is null rather than an hour off when the runtime's clock skips one of the times", () => {
+    // 2027-03-28: Rome's clocks go 02:00 -> 03:00, so a 02:30 that Funchal has does not exist there.
+    const hours = "Mo-Su 02:30-04:00";
+    expect(tableOf(hours, "en-US", "2027-03-25T12:00:00Z")?.[6]).toEqual({ day: "Sun", ranges: ["2:30 am to 4 am"] });
+    vi.stubEnv("TZ", "Europe/Rome");
+    expect(tableOf(hours, "en-US", "2027-03-25T12:00:00Z")).toBeNull();
+  });
+
+  it("never throws, and writes nothing to the console", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const hours of ["PH off", "Mo-Su 25:00-26:00", "; ; ;", "Mo-Su 11:00-23:00; PH off"]) {
+      expect(() => tableOf(hours, "en-US", WED_15_00, { lat: 51.5074, lon: -0.1278, country: "GB" })).not.toThrow();
+    }
+    expect(() => tableOf("Mo-Su 11:00-23:00", "not a locale")).not.toThrow();
+    expect(error).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("reads every hours string of the Funchal fixtures that openState reads", () => {
+    const places = (raw as NostrEvent[]).flatMap((event) => {
+      const place = parsePlace(event, config.headerCoordinate);
+      return place === null ? [] : [place];
+    });
+    for (const place of places) {
+      const state = openState(place, at(WED_15_00));
+      const table = weekTable(place, at(WED_15_00), "en-US");
+      if (state.kind === "open" || state.kind === "closed") {
+        expect(table, place.openingHours).toHaveLength(7);
+      } else {
+        expect(table).toBeNull();
+      }
+    }
+  });
+
+  it("takes the words from the copy module", () => {
+    expect(copy.hours.range("9 am", "5 pm")).toBe("9 am to 5 pm");
+    expect(copy.hours.midnight).toBe("midnight");
   });
 });

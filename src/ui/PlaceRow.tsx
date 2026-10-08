@@ -14,6 +14,11 @@ export interface PlaceRowProps {
   place: Place;
   /** How far the place is from where the list is near, in kilometres. */
   km: number;
+  /**
+   * What `km` is measured from: where the list is near ("Cafe · 0.3 mi"), or the place whose page
+   * the row is on, which the row says ("Cafe · 0.3 mi from here", PlaceNew.dc.html). Default `list`.
+   */
+  from?: "list" | "place";
   /** The browser's language: it decides miles or kilometres, and the 12- or 24-hour clock. */
   locale: string;
   now: Date;
@@ -26,10 +31,14 @@ export interface PlaceRowProps {
  * yet. The whole row is one link to the place; the link is named by the place's name, and the rest
  * is its description.
  */
-export function PlaceRow({ place, km, locale, now }: PlaceRowProps): JSX.Element {
+export function PlaceRow({ place, km, from = "list", locale, now }: PlaceRowProps): JSX.Element {
   const id = useId();
   const state = useMemo(() => openState(place, now), [place, now]);
-  const kindLine = copy.explore.kindLine(placeKindLabel(place.category, place.cuisine), formatDistance(km, locale));
+  const distance = formatDistance(km, locale);
+  const kindLine = copy.explore.kindLine(
+    placeKindLabel(place.category, place.cuisine),
+    from === "place" && distance !== "" ? copy.place.fromHere(distance) : distance,
+  );
   const hoursLine = openLine(state, locale, "card");
   // Hours the app could not read are the text as written, which can be any length: they get a line to be cut off on.
   const unread = state.kind === "unparsed";

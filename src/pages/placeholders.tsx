@@ -4,7 +4,7 @@ import { copy } from "../copy/en.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 
 /** A page that is not built yet: its heading and its title in the tab, and nothing else. Each later task replaces its own. */
-function Placeholder({ page }: { page: keyof typeof copy.titles & keyof typeof copy.pages }): JSX.Element {
+function Placeholder({ page }: { page: "chain" | "about" | "signin" | "saved" | "you" }): JSX.Element {
   const title = copy.pages[page];
   useDocumentTitle(copy.titles[page]);
   return (
@@ -16,7 +16,6 @@ function Placeholder({ page }: { page: keyof typeof copy.titles & keyof typeof c
   );
 }
 
-export const PlacePage = (): JSX.Element => <Placeholder page="place" />;
 export const ChainPage = (): JSX.Element => <Placeholder page="chain" />;
 export const AboutPage = (): JSX.Element => <Placeholder page="about" />;
 export const SignInPage = (): JSX.Element => <Placeholder page="signin" />;

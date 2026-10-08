@@ -46,6 +46,16 @@ const kindOfPlace = "Kind of place";
 /** A page's title in the browser's tab: "Search · Regulars". */
 const pageTitle = (page: string) => `${page} · ${config.appName}`;
 
+/** The link beside where the details come from, to the page that says more. */
+const aboutData = "About this data";
+
+/** A link back to the first page. */
+const backToExplore = "Back to Explore";
+
+/** "phone", "phone or website", "phone, website or hours". */
+const eitherOf = (items: readonly string[]) =>
+  items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
+
 export const copy = {
   app: {
     name: config.appName,
@@ -74,7 +84,7 @@ export const copy = {
     label: "Search places",
     placeholder: "Tacos, coffee, a place name",
     /** The arrow at the top left of the results, for a screen reader. */
-    back: "Back to Explore",
+    back: backToExplore,
     /** The button at the end of the field, for a screen reader. */
     clear: "Clear search",
     /** The chip that opens the filters, with how many are on (Search.dc.html): "Filters · 3". */
@@ -185,13 +195,13 @@ export const copy = {
   /** An address in the app that has no page. */
   missing: {
     text: "We can't find that page.",
-    home: "Back to Explore",
+    home: backToExplore,
   },
   // DRAFT for Avi
   /** A page that broke while it was drawn. */
   broken: {
     text: "Something went wrong on this page.",
-    home: "Back to Explore",
+    home: backToExplore,
   },
   /** The title of each page in the browser's tab. Explore is the app's name; the rest put theirs before it. */
   titles: {
@@ -199,7 +209,11 @@ export const copy = {
     map: pageTitle(pages.map),
     search: pageTitle(pages.search),
     filters: pageTitle(pages.filters),
-    place: pageTitle(pages.place),
+    /** A place's page is named after the place: "Jacafé · Regulars". */
+    place: (name: string) => pageTitle(name),
+    // DRAFT for Avi
+    /** The page of a place that is not on the list any more. */
+    notListed: pageTitle("No longer listed"),
     chain: pageTitle(pages.chain),
     about: pageTitle(pages.about),
     signin: pageTitle(pages.signin),
@@ -211,7 +225,56 @@ export const copy = {
   signin: {
     continueButton: ALLOWED_PROTOCOL_STRINGS.signInButton,
   },
+  /** A place's page (Place.dc.html, PlaceNew.dc.html, DeskPlace.dc.html). */
   place: {
+    /** The arrow at the top left, for a screen reader, and the link above the page on a desktop, when it goes back the way the person came. */
+    back: "Back to results",
+    /** The same, when the place was the first page opened: it goes to Explore. */
+    backHome: backToExplore,
+    /** The bookmark at the top right, for a screen reader. */
+    save: "Save this place to a list",
+    /** The same, in words, among the desktop's buttons (DeskPlace.dc.html). */
+    saveShort: "Save",
+    /** Under the name: what it is and how far: "Coffee shop · 0.4 mi away". */
+    kindAway: (kind: string, distance: string) => (distance === "" ? kind : `${kind} · ${distance} away`),
+    /** The dashed panel where the score goes, before anyone has reviewed the place (PlaceNew.dc.html). */
+    beFirst: "Be the first in your circle",
+    nobodyYet: (name: string) => `Nobody has reviewed ${name} yet. Yours is the one the people who trust you will see.`,
+    rate: "Rate this place",
+    /** The buttons under it: directions, a call, the website. One on its own is "Get directions". */
+    go: "Go",
+    directions: "Get directions",
+    call: "Call",
+    site: "Site",
+    /** The labels of the facts. */
+    facts: { address: "Address", hours: "Hours", phone: "Phone", payment: "Payment" },
+    /** The hours fact, for a place with none (PlaceNew.dc.html). */
+    hoursNotListed: "Not listed",
+    /**
+     * What the place lacks, asked for (PlaceNew.dc.html): "No phone, website or hours listed. Know
+     * them?" A link, `suggestFix`, follows it. Nothing when it lacks none.
+     */
+    missingDetails: (phone: boolean, website: boolean, hours: boolean) => {
+      const missing = (["phone", "website", "hours"] as const).filter((_, i) => [phone, website, hours][i]);
+      if (missing.length === 0) return "";
+      const plural = missing.length > 1 || hours;
+      return `No ${eitherOf(missing)} listed. Know ${plural ? "them" : "it"}?`;
+    },
+    suggestFix: "Suggest a fix",
+    /** At the foot of the page, a link to say what is wrong with the details. */
+    somethingWrong: "Something wrong? Suggest a fix",
+    // DRAFT for Avi
+    /** At the foot of the page, a link to the place's own record. */
+    viewOnOsm: "View on OpenStreetMap",
+    aboutData,
+    /** The places closest to this one. Before sign in nothing is rated, so not "Nearby, rated by your circle". */
+    nearby: "Nearby",
+    /** How far a place nearby is from this one: "0.3 mi from here". */
+    fromHere: (distance: string) => `${distance} from here`,
+    /** A place that was on the list and is not now (the brief, screen 13). */
+    noLongerListed: "No longer listed.",
+    noLongerListedDetail: "It came off the map at the last monthly refresh.",
+    backToExplore,
     bitcoinChip: ALLOWED_PROTOCOL_STRINGS.bitcoinChip,
   },
   hours: {
@@ -227,6 +290,10 @@ export const copy = {
     pm: "pm",
     /** Monday first. The weekday before a time that is more than a day away: "Closed · opens Mon 9 am". */
     weekdaysShort: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    /** One opening in a day of the week's hours, as Place.dc.html words it: "9:30 am to 5:30 pm". */
+    range: (from: string, to: string) => `${from} to ${to}`,
+    /** The end of an opening that closes as the day ends: "11 am to midnight". */
+    midnight: "midnight",
   },
   explore: {
     // DRAFT for Avi
@@ -302,7 +369,7 @@ export const copy = {
     /** The sort menu, by the order the list is in. With nothing chosen the list is nearest first. */
     sort: { distance: "Sort: distance", name: "Sort: name" },
     /** After the line on where the details come from, at the foot of the list. */
-    aboutData: "About this data",
+    aboutData,
   },
   location: {
     // DRAFT for Avi: every string in this group is a first draft and needs your edit.

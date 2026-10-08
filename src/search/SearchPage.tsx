@@ -1,4 +1,4 @@
-import { type JSX, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
@@ -14,6 +14,7 @@ import { Attribution } from "../ui/Attribution.tsx";
 import { ChainCard } from "../ui/ChainCard.tsx";
 import { BackIcon, FilterIcon } from "../ui/icons.tsx";
 import { PlaceRow } from "../ui/PlaceRow.tsx";
+import { isPlainClick } from "../ui/plainClick.ts";
 import { type ShownPage, shownMemory, shownPageOf, useShownCount } from "../ui/shown.ts";
 import {
   cameFromFilters,
@@ -52,9 +53,6 @@ function withQuery(params: URLSearchParams, words: string): URLSearchParams {
 
 const filtersPath = (params: URLSearchParams) => (params.toString() === "" ? "/filters" : `/filters?${params}`);
 
-/** A click that is the link's own to handle: a new tab or window is the browser's, with the link's address as it is. */
-const isPlainClick = (event: MouseEvent<HTMLElement>) =>
-  event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
 /** Each active filter as the chip that takes it off: Open now, the distance, then each kind. */
 function activeChips(filters: Filters, locale: string): { id: string; label: string; off: Filters }[] {

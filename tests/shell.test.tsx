@@ -635,7 +635,8 @@ describe("the routes", () => {
     ["/map", copy.pages.map],
     ["/search?q=pizza&open=1&kinds=cafes&within=5&sort=name", copy.pages.search],
     ["/filters", copy.pages.filters],
-    ["/place/osm-node-123", copy.pages.place],
+    ["/place/osm-node-11330857543", "Jacafé"],
+    ["/place/osm-node-123", copy.place.noLongerListed],
     ["/chain/copper-kettle-pt", copy.pages.chain],
     ["/about", copy.pages.about],
     ["/signin", copy.pages.signin],
@@ -792,7 +793,8 @@ describe("the document title", () => {
     ["/map", "Map · Regulars"],
     ["/search?q=pizza", "Search · Regulars"],
     ["/filters", "Filters · Regulars"],
-    ["/place/osm-node-123", "Place · Regulars"],
+    ["/place/osm-node-11330857543", "Jacafé · Regulars"],
+    ["/place/osm-node-123", "No longer listed · Regulars"],
     ["/chain/copper-kettle-pt", "All locations · Regulars"],
     ["/about", "About · Regulars"],
     ["/signin", "Sign in · Regulars"],
@@ -815,7 +817,9 @@ describe("the document title", () => {
   it("is the app's name for Explore, and each other page's name before it", () => {
     expect(copy.titles.explore).toBe(copy.app.name);
     for (const [page, title] of Object.entries(copy.titles)) {
-      if (page !== "explore") expect(title).toMatch(new RegExp(` · ${copy.app.name}$`));
+      // A page named after what it shows (a place) gives its name to its title.
+      const text = typeof title === "function" ? title("Sample") : title;
+      if (page !== "explore") expect(text).toMatch(new RegExp(` · ${copy.app.name}$`));
     }
   });
 

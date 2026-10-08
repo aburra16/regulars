@@ -1080,7 +1080,8 @@ describe("the map on Back", () => {
     expect(map.remove).toHaveBeenCalled();
 
     await act(() => router.navigate(-1));
-    const back = await mapNumber(2);
+    // The first map was Explore's, the second the place page's own.
+    const back = await mapNumber(3);
     expect(back.options).toMatchObject({ center: [-9.14, 38.72], zoom: 15 });
     expect(pinAddresses(back)).toEqual(expect.arrayContaining(parsePlaces(lisbon).map((each) => each.address)));
     expect(back.easeTo).not.toHaveBeenCalled();
@@ -1097,7 +1098,8 @@ describe("the map on Back", () => {
     expect(router.state.location.pathname).toBe("/place/lisbon-1");
 
     await act(() => router.navigate(-1));
-    const back = await mapNumber(2);
+    // The first map was Explore's, the second the place page's own.
+    const back = await mapNumber(3);
     expect(back.options).toMatchObject({ center: [-9.14, 38.72], zoom: 14 });
     expect(within(screen.getByRole("list")).getAllByRole("link").map(nameOf).sort()).toEqual([
       "Lisbon place 1",

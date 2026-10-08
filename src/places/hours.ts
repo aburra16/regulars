@@ -337,3 +337,79 @@ export function openLine(state: OpenState, locale: string, where: "card" | "plac
     }
   }
 }
+
+/** One day of a place's week: its short name, and each opening in it as words ("9:30 am to 5:30 pm"). None: it is closed. */
+export interface WeekDay {
+  day: string;
+  ranges: string[];
+}
+
+/** The days of the week ahead, with the parser that read the hours, on the place's calendar. */
+function buildWeek(raw: string, place: HoursPlace, now: Date, locale: string): WeekDay[] | null {
+  const hours = parse(raw, place.country?.toLowerCase());
+  if (hours === null) return null;
+  const here = wallClock(now, timeZoneOf(place.lat, place.lon));
+  if (here === undefined) return null;
+  const twelveHour = usesTwelveHour(locale);
+  const time = (at: Date) => formatTime(at, twelveHour, false);
+  /** Midnight at the start of the day `offset` days from today, on the place's clock. */
+  const midnight = (offset: number) => new Date(here.getFullYear(), here.getMonth(), here.getDate() + offset);
+
+  const week: { weekday: number; ranges: string[] }[] = [];
+  for (let offset = 0; offset < 7; offset += 1) {
+    const start = midnight(offset);
+    const end = midnight(offset + 1);
+    if (maybeMoved(start) || maybeMoved(end)) return null;
+    const intervals = hours.getOpenIntervals(start, end);
+    // An opening the parser cannot vouch for, or one with a note, is more than a time: the hours as written say it.
+    if (intervals.some(([from, to, unknown, comment]) => unknown || comment !== undefined || maybeMoved(from) || maybeMoved(to))) {
+      return null;
+    }
+    const ranges: string[] = [];
+    const [first] = intervals;
+    if (intervals.length === 1 && first !== undefined && first[0] <= start && first[1] >= end) {
+      ranges.push(copy.hours.open24);
+    } else {
+      for (const [from, to] of intervals) {
+        // The end of the night before, which that day's opening says.
+        if (from.getTime() === start.getTime() && hours.getState(new Date(start.getTime() - 60_000))) continue;
+        let until = time(to);
+        if (to.getTime() === end.getTime()) {
+          // Open as the day ends: until it closes in the small hours, or until midnight.
+          const closes = hours.getState(end) ? hours.getNextChange(end, midnight(offset + 2)) : undefined;
+          if (closes !== undefined && closes < midnight(offset + 2) && !maybeMoved(closes)) until = time(closes);
+          else until = copy.hours.midnight;
+        }
+        ranges.push(copy.hours.range(time(from), until));
+      }
+    }
+    // getDay() counts from Sunday, the copy list from Monday.
+    week.push({ weekday: (start.getDay() + 6) % 7, ranges });
+  }
+  // Closed all week and not for good: a season that is over for now. The hours as written say when it opens.
+  if (week.every(({ ranges }) => ranges.length === 0) && !SHUT.test(raw)) return null;
+  return week
+    .sort((a, b) => a.weekday - b.weekday)
+    .map(({ weekday, ranges }) => ({ day: copy.hours.weekdaysShort[weekday] ?? "", ranges }));
+}
+
+/**
+ * A place's hours for the seven days from `now`, Monday first, as a table for the place page: each
+ * day's openings in the locale's clock ("9:30 am to 5:30 pm", "11 am to 2 am" for a night that runs
+ * past midnight, put on the day it starts), "Open 24 hours" for a day that never closes, and none for
+ * a day it is closed. The days are the place's own, on its clock and calendar, with its holidays.
+ *
+ * Null when the app cannot state the hours as a table: when there are none, or when `openState`
+ * would show them as written, or when a table would leave out what they say (a note on a rule, an
+ * opening the parser cannot vouch for, a season that is over until next year). Never throws.
+ */
+export function weekTable(place: HoursPlace, now: Date, locale: string): WeekDay[] | null {
+  const state = openState(place, now);
+  const raw = place.openingHours;
+  if (state.kind === "unknown" || state.kind === "unparsed" || raw === undefined) return null;
+  try {
+    return quietly(() => buildWeek(raw, place, now, locale));
+  } catch {
+    return null;
+  }
+}
