@@ -8,9 +8,11 @@ import type { RelayReader, RelayWriter } from "../src/nostr/events";
 import { parsePlaces } from "../src/places/load";
 import {
   NotPosted,
+  type Posted,
   PUBLISH_TIMEOUT_MS,
   postReview,
   reviewStamp,
+  sendReview,
   WRITE_RELAYS_WAIT_MS,
   whereToPost,
 } from "../src/review/post";
@@ -21,9 +23,10 @@ import { createMemoryReader } from "./support/memoryReader";
 import { createMemoryWriter, type MemoryWriter } from "./support/memoryWriter";
 
 /*
- * Posting a review (M2b Task 6, ruling R12): where it goes, bounded in time; signing it with the
- * person's signer; sending it to each relay with a limit of its own; and the time it is stamped
- * with. Relays are held in memory; nothing opens a socket.
+ * Posting a review (M2b Task 6, rulings R12 to R14): where it goes, bounded in time; signing it with
+ * the person's signer; sending it to every relay at once, posted as soon as a review relay takes it,
+ * the others going on under one limit; and the time it is stamped with. Relays are held in memory;
+ * nothing opens a socket.
  */
 
 const places: NostrEvent[] = raw;
@@ -59,8 +62,13 @@ function writersOver(relays: Record<string, MemoryWriter>): (url: string) => Rel
 /** The review the tests post: Jacafé, 4 stars, "Get the bolo", at a fixed time. */
 const template = () => reviewTemplate(JACAFE, 4, "Get the bolo", 1_800_000_000);
 
-const run = (relays: string[], writers: (url: string) => RelayWriter, signal = new AbortController().signal, by = signer()) =>
-  postReview(template(), by, relays, signal, writers);
+const run = (
+  relays: string[],
+  writers: (url: string) => RelayWriter,
+  signal = new AbortController().signal,
+  by = signer(),
+  onAnswer?: (posted: Posted) => void,
+) => postReview(template(), by, relays, signal, { writers, onAnswer });
 
 afterEach(() => {
   vi.useRealTimers();
@@ -84,6 +92,7 @@ describe("postReview", () => {
     expect(posted.event).toMatchObject({ ...template(), pubkey: PUBKEY });
     expect(search.published).toEqual([posted.event]);
     expect(own.published).toEqual([posted.event]);
+    await posted.settled;
     expect(posted.accepted).toEqual([SEARCH, OWN]);
     expect(posted.refused).toEqual({});
   });
@@ -93,6 +102,7 @@ describe("postReview", () => {
       [SEARCH, OWN],
       writersOver({ [SEARCH]: createMemoryWriter(), [OWN]: createMemoryWriter({ refuse: "blocked: not on the list" }) }),
     );
+    await posted.settled;
     expect(posted.accepted).toEqual([SEARCH]);
     expect(posted.refused).toEqual({ [OWN]: "blocked: not on the list" });
   });
@@ -110,6 +120,7 @@ describe("postReview", () => {
   it("knows a review relay however its address is written", async () => {
     config.reviewRelays = ["wss://Search.Brainstorm.world/"];
     const posted = await run([SEARCH, OWN], writersOver({ [SEARCH]: createMemoryWriter(), [OWN]: createMemoryWriter() }));
+    await posted.settled;
     expect(posted.accepted).toEqual([SEARCH, OWN]);
   });
 
@@ -133,6 +144,10 @@ describe("postReview", () => {
     );
     await expect(posting).rejects.toBeInstanceOf(NotPosted);
     await expect(posting).rejects.toMatchObject({ refused: { [SEARCH]: "invalid: bad tag", [OWN]: "blocked" } });
+    // With the event that was signed, so that Try again can send it again without asking for it to be signed again.
+    const error = (await posting.catch((caught: unknown) => caught)) as NotPosted;
+    expect(error.event).toMatchObject({ ...template(), pubkey: PUBKEY });
+    expect(verifyEvent(error.event!)).toBe(true);
   });
 
   it("fails when a writer cannot be made for a relay, as when it refuses", async () => {
@@ -140,25 +155,85 @@ describe("postReview", () => {
     await expect(posting).rejects.toBeInstanceOf(NotPosted);
   });
 
-  it("gives up on relays still silent when its one limit for them all is reached, and keeps what the others said", async () => {
+  it("is posted as soon as a review relay takes it; a slower relay goes on, and its answer is recorded when it comes", async () => {
     vi.useFakeTimers();
-    const silent = createMemoryWriter({ silent: true });
     const search = createMemoryWriter();
-    let outcome: Awaited<ReturnType<typeof postReview>> | undefined;
-    void run([SEARCH, OWN], writersOver({ [SEARCH]: search, [OWN]: silent })).then((posted) => {
+    const own = createMemoryWriter({ delayMs: 5_000 });
+    const answers: string[][] = [];
+    let outcome: Posted | undefined;
+    void run([SEARCH, OWN], writersOver({ [SEARCH]: search, [OWN]: own }), undefined, undefined, (posted) => {
+      answers.push([...posted.accepted]);
+    }).then((posted) => {
       outcome = posted;
     });
 
+    // Posted at once, while the other relay has not answered.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(outcome).toBeDefined();
+    expect(outcome!.accepted).toEqual([SEARCH]);
+    expect(answers).toEqual([]);
+
+    // It answers later: what it said is added, and the caller is told.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(outcome!.accepted).toEqual([SEARCH, OWN]);
+    expect(answers).toEqual([[SEARCH, OWN]]);
+    await outcome!.settled;
+  });
+
+  it("gives up on the relays still silent when its one limit for them all is reached, after it is posted", async () => {
+    vi.useFakeTimers();
+    const silent = createMemoryWriter({ silent: true });
+    const search = createMemoryWriter();
+    let outcome: Posted | undefined;
+    let settled = false;
+    void run([SEARCH, OWN], writersOver({ [SEARCH]: search, [OWN]: silent })).then((posted) => {
+      outcome = posted;
+      void posted.settled.then(() => {
+        settled = true;
+      });
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(outcome?.accepted).toEqual([SEARCH]);
     await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS - 1);
-    expect(outcome).toBeUndefined();
     expect(silent.signals[0]?.aborted).toBe(false);
+    expect(settled).toBe(false);
 
     await vi.advanceTimersByTimeAsync(1);
     expect(silent.signals[0]?.aborted).toBe(true);
-    await vi.waitFor(() => expect(outcome).toBeDefined());
+    await vi.waitFor(() => expect(settled).toBe(true));
     expect(outcome!.accepted).toEqual([SEARCH]);
     expect(Object.keys(outcome!.refused)).toEqual([OWN]);
     expect(PUBLISH_TIMEOUT_MS).toBe(12_000);
+  });
+
+  it("goes on sending to the others once posted, even when the caller stops: only its limit stops them then", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const slow = createMemoryWriter({ delayMs: 3_000 });
+    const posted = run([SEARCH, OWN], writersOver({ [SEARCH]: createMemoryWriter(), [OWN]: slow }), controller.signal);
+    await vi.advanceTimersByTimeAsync(0);
+    const outcome = await posted;
+    // The person has gone back to the place, and the form is gone.
+    controller.abort(new Error("The form was closed"));
+    expect(slow.signals[0]?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(outcome.accepted).toEqual([SEARCH, OWN]);
+  });
+
+  it("waits for a review relay while only the person's own relays have taken it", async () => {
+    vi.useFakeTimers();
+    let outcome: Posted | undefined;
+    void run(
+      [SEARCH, OWN],
+      writersOver({ [SEARCH]: createMemoryWriter({ delayMs: 3_000 }), [OWN]: createMemoryWriter() }),
+    ).then((posted) => {
+      outcome = posted;
+    });
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome?.accepted).toEqual([SEARCH, OWN]);
   });
 
   it("sends to every relay at once, under that one limit: none waits for another", async () => {
@@ -176,6 +251,15 @@ describe("postReview", () => {
     await vi.advanceTimersByTimeAsync(1);
     await expect(posting).rejects.toBeInstanceOf(NotPosted);
     expect(first.signals[0]?.aborted && second.signals[0]?.aborted).toBe(true);
+  });
+
+  it("sends an event signed already, as it is, to the relays given: no one is asked to sign it again (sendReview)", async () => {
+    const event = finalizeEvent(template(), KEY);
+    const search = createMemoryWriter();
+    const posted = await sendReview(event, [SEARCH], new AbortController().signal, { writers: writersOver({ [SEARCH]: search }) });
+    expect(search.published).toEqual([event]);
+    expect(posted.event).toBe(event);
+    expect(posted.accepted).toEqual([SEARCH]);
   });
 
   it("fails with nowhere to send it, and asks nobody to sign", async () => {

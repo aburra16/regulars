@@ -1,3 +1,4 @@
+import type { NostrEvent } from "@nostrify/nostrify";
 import { type JSX, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -13,7 +14,7 @@ import { primaryButton } from "../ui/Banner.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Star } from "../ui/Stars.tsx";
 import { dropDraft, readDraft, saveDraft } from "./draft.ts";
-import { NotPosted, postReview, reviewStamp, whereToPost } from "./post.ts";
+import { NotPosted, type Posted, postReview, reviewStamp, sendReview, whereToPost } from "./post.ts";
 
 /*
  * The review form (screen 8, Review.dc.html; D3, DeskReview.dc.html): the stars, each with its word,
@@ -150,6 +151,18 @@ function StarRadios({
  */
 type Status = "editing" | "posting" | "failed" | "not on Regulars";
 
+/**
+ * A review signed and sent that no review relay took: the event, the stars it gives, where it was sent
+ * and where it was taken. Try again sends it again as it is, to the relays that have not taken it,
+ * while the form still says what it says, for the same person: nobody is asked to sign it again.
+ */
+interface Unposted {
+  event: NostrEvent;
+  stars: WholeStars;
+  relays: readonly string[];
+  accepted: readonly string[];
+}
+
 /** The phone's Post (Review.dc.html): the accent, 56 px, as wide as the page. */
 const PHONE_POST =
   "flex h-14 w-full cursor-pointer items-center justify-center rounded-[18px] border-0 bg-accent-solid font-text text-[17px] font-bold text-on-accent";
@@ -160,15 +173,17 @@ const PHONE_POST =
  * is off until a star is chosen. Posting signs the review with the person's signer and sends it where
  * they publish (`whereToPost`, `postReview`); once a relay has taken it, the place shows it at once,
  * held until the relays send it back (`noteOwnReview`), and `onPosted` takes the person back to the
- * place. When no relay Regulars reads reviews from takes it, it says so (and whether the person's own
- * relays did), Post becomes Try again, and what was typed stays. A person who is signed out, or
+ * place, while the person's own relays may still be answering. When no relay Regulars reads reviews
+ * from takes it, it says so (and whether the person's own relays did), Post becomes Try again, and what
+ * was typed stays; Try again sends the same signed review again while nothing in the form has changed,
+ * and signs a new one when something has. A person who is signed out, or
  * whose add-on or phone app now signs as someone else (they are signed out, `AccountChanged`), is
  * sent to sign in, and back here with what they typed. `wide` lays it out for the desktop's dialog.
  */
 export function ReviewForm({ place, wide, onPosted }: { place: Place; wide: boolean; onPosted(): void }): JSX.Element {
   const { account, restoring } = useAccount();
   const { readers, writers } = useRelays();
-  const { noteOwnReview, ownCoordinates, ownRemovedAt } = useScoreActions();
+  const { noteOwnReview, noteOwnRelays, ownCoordinates, ownRemovedAt } = useScoreActions();
   const { reviews } = useScore(place.address);
   const navigate = useNavigate();
   const location = useLocation();
@@ -184,6 +199,8 @@ export function ReviewForm({ place, wide, onPosted }: { place: Place; wide: bool
   const life = useRef<AbortController | null>(null);
   /** Whether a post is under way: a second press before the page has redrawn posts nothing more. */
   const busy = useRef(false);
+  /** The last review signed that no review relay took, for Try again. */
+  const unposted = useRef<Unposted | null>(null);
 
   const howId = useId();
   const textId = useId();
@@ -223,18 +240,42 @@ export function ReviewForm({ place, wide, onPosted }: { place: Place; wide: bool
     if (account === undefined) return toSignIn(stars);
     busy.current = true;
     setStatus("posting");
+    const words = text.trim();
+    const again = unposted.current;
+    const resend = again !== null && again.event.pubkey === account.pubkey && again.stars === stars && again.event.content === words;
+    /** Where it is sent, and where it was taken already (by an earlier try). */
+    let relays: readonly string[] = [];
+    const before = resend ? again.accepted : [];
+    /** Whether it is held yet: relays that take it after that add to where it went. */
+    let held = false;
+    const onAnswer = (posted: Posted) => {
+      if (held) noteOwnRelays(posted.event.id, [...before, ...posted.accepted]);
+    };
     try {
-      const relays = await whereToPost(account.pubkey, account.signer, readers, signal);
-      const now = Math.floor(Date.now() / 1000);
-      const stamp = reviewStamp(now, ownCoordinates(account.pubkey, place.address), ownRemovedAt(account.pubkey, place.address));
-      const posted = await postReview(reviewTemplate(place, stars, text.trim(), stamp), account.signer, relays, signal, writers);
-      // Held with where it went, so that removing it goes there too (Task 7).
-      noteOwnReview(posted.event, posted.accepted);
+      let posted: Posted;
+      if (resend) {
+        relays = again.relays;
+        posted = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers, onAnswer });
+      } else {
+        unposted.current = null;
+        relays = await whereToPost(account.pubkey, account.signer, readers, signal);
+        const now = Math.floor(Date.now() / 1000);
+        const stamp = reviewStamp(now, ownCoordinates(account.pubkey, place.address), ownRemovedAt(account.pubkey, place.address));
+        posted = await postReview(reviewTemplate(place, stars, words, stamp), account.signer, [...relays], signal, { writers, onAnswer });
+      }
+      unposted.current = null;
+      // Held with where it went, so that removing it goes there too (Task 7); the relays still sending add to it.
+      noteOwnReview(posted.event, [...before, ...posted.accepted]);
+      held = true;
       onPosted();
     } catch (error) {
       if (signal.aborted) return;
       if (error instanceof AccountChanged) return toSignIn(stars);
-      setStatus(error instanceof NotPosted && error.accepted.length > 0 ? "not on Regulars" : "failed");
+      const taken = error instanceof NotPosted ? [...before, ...error.accepted] : [];
+      if (error instanceof NotPosted && error.event !== undefined) {
+        unposted.current = { event: error.event, stars, relays, accepted: taken };
+      }
+      setStatus(taken.length > 0 ? "not on Regulars" : "failed");
     } finally {
       busy.current = false;
     }

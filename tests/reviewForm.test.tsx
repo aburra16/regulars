@@ -80,16 +80,26 @@ interface World {
   ranks: NostrEvent[];
   /** The relays that are sent reviews, by URL. One not here refuses. */
   writers: Record<string, MemoryWriter>;
+  /** How many times the search relay has been asked for reviews. */
+  reviewReads: number;
 }
 
 function newWorld(): World {
-  return { search: [], directory: [], ranks: [], writers: {} };
+  return { search: [], directory: [], ranks: [], writers: {}, reviewReads: 0 };
 }
 
 const readersOf =
   (world: World) =>
   (url: string): RelayReader => {
-    if (url === SEARCH) return createMemoryReader(world.search);
+    if (url === SEARCH) {
+      const reader = createMemoryReader(world.search);
+      return {
+        req(filter, signal) {
+          if (filter.kinds?.includes(REVIEW_KIND)) world.reviewReads += 1;
+          return reader.req(filter, signal);
+        },
+      };
+    }
     if (url === TRUST) return createMemoryReader([trustList()]);
     if (url === SCORER_RELAY) return createMemoryReader(world.ranks);
     if (url === DIRECTORY) return createMemoryReader(world.directory);
@@ -136,10 +146,18 @@ const open = (world: World, entries: Parameters<typeof openApp>[1]["entries"], p
   openApp(String(entries?.at(-1)), { events: places, entries, px, readers: readersOf(world), writers: writersOf(world) });
 
 /**
- * The first "Rate this place" on the page, once there is one (a phone's score panel has none while
- * the place's reviews are read): on a desktop, the one in the rail.
+ * The first "Rate this place" on the page (on a desktop, the one in the rail), once the place's panel
+ * has settled. A phone's panel goes from what a page just opened says, to its reviews being read, to
+ * their being counted, to its score, each with its own button, or none: the one to press is the one
+ * it settles on. A page just opened says "Be the first" until it asks for its reviews, so the search
+ * relay must have been asked for them in `world`.
  */
-const rateLink = async () => {
+const rateLink = async (world: World) => {
+  await waitFor(() => {
+    expect(world.reviewReads).toBeGreaterThan(0);
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(screen.queryByText(copy.score.counting)).toBeNull();
+  });
   const rail = screen.queryByRole("complementary", { name: copy.place.railLabel });
   return (await within(rail ?? document.body).findAllByRole("link", { name: copy.place.rate }))[0]!;
 };
@@ -173,6 +191,9 @@ const noReviewWords = (text: string) => screen.queryByText(text, { selector: "ar
 
 /** What the tab holds of the person's own reviews, before the relays send them back. */
 const heldText = () => window.sessionStorage.getItem(HELD_REVIEWS_KEY);
+
+/** The relays the tab says its one held review went to, in any order. */
+const heldRelays = () => new Set((JSON.parse(heldText() ?? "[]") as { relays: string[] }[])[0]?.relays ?? []);
 
 beforeEach(() => {
   config.reviewRelays = [SEARCH];
@@ -309,8 +330,8 @@ describe("posting a review", () => {
     const { router } = await open(world, fromExplore(PLACE_PATH));
 
     // Signed in, Rate this place opens the form.
-    expect(await rateLink()).toHaveAttribute("href", REVIEW_PATH);
-    await user.click(await rateLink());
+    expect(await rateLink(world)).toHaveAttribute("href", REVIEW_PATH);
+    await user.click(await rateLink(world));
     expect(router.state.location.pathname).toBe(REVIEW_PATH);
     await reviewingAs(me.name);
     await user.click((await starButtons())[3]!);
@@ -351,12 +372,16 @@ describe("posting a review", () => {
     expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Worth it");
     expect(heldText()).toBeNull();
 
-    // Try again, and the review relay takes it this time.
+    // Try again, and the review relay takes it this time: the same review, sent again only where it
+    // was not taken, and not signed again.
+    const first = sentTo(world, OWN)[0]!;
     world.writers[SEARCH] = createMemoryWriter();
     await user.click(tryAgainButton());
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
-    expect(sentTo(world, SEARCH)[0]).toMatchObject({ content: "Worth it" });
-    expect(heldText()).not.toBeNull();
+    expect(sentTo(world, SEARCH)).toEqual([first]);
+    expect(sentTo(world, OWN)).toHaveLength(1);
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+    expect(heldRelays()).toEqual(new Set([OWN, SEARCH]));
   });
 
   it("says it didn't post, keeping what was typed, when every relay refuses it; and nothing of it is shown or held", async () => {
@@ -381,11 +406,70 @@ describe("posting a review", () => {
     expect(tryAgainButton()).not.toHaveAttribute("aria-disabled");
     expect(copy.review.tryAgain).toBe("Try again");
 
-    // The relay takes it the second time.
+    // The relay takes it the second time: the review signed the first time, sent again.
+    const first = sentTo(world, SEARCH)[0]!;
     world.writers[SEARCH] = createMemoryWriter();
     await user.click(tryAgainButton());
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
-    expect(sentTo(world, SEARCH)[0]).toMatchObject({ content: "Slow tonight" });
+    expect(sentTo(world, SEARCH)).toEqual([first]);
+    expect(first).toMatchObject({ content: "Slow tonight" });
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      "the words",
+      async (user: ReturnType<typeof userEvent.setup>) => user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), ", very"),
+      { content: "Slow tonight, very", stars: "2" },
+    ],
+    [
+      "the stars",
+      async (user: ReturnType<typeof userEvent.setup>) => user.click((await starButtons())[0]!),
+      { content: "Slow tonight", stars: "1" },
+    ],
+  ])("signs the review again on Try again when %s changed since", async (_, change, expected) => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.writers[SEARCH] = createMemoryWriter({ refuse: "blocked" });
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[1]!);
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Slow tonight");
+    await user.click(postButton());
+    await screen.findByRole("alert");
+
+    await change(user);
+    world.writers[SEARCH] = createMemoryWriter();
+    await user.click(tryAgainButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(2);
+    const [sent] = sentTo(world, SEARCH);
+    expect(verifyEvent(sent!)).toBe(true);
+    expect(sent!.content).toBe(expected.content);
+    expect(sent!.tags.find((tag) => tag[0] === "s")?.[1]).toBe(expected.stars);
+  });
+
+  it("goes back to the place once the review relay takes it, and adds a slower relay to where it went when that one does", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.directory.push(listOf(me.pubkey, [OWN]));
+    world.writers[SEARCH] = createMemoryWriter();
+    let answer!: () => void;
+    world.writers[OWN] = createMemoryWriter({ until: new Promise<void>((resolve) => (answer = resolve)) });
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[3]!);
+    await user.click(postButton());
+    // Back at the place while the person's own relay has not answered.
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(heldRelays()).toEqual(new Set([SEARCH]));
+
+    answer();
+    await waitFor(() => expect(heldRelays()).toEqual(new Set([SEARCH, OWN])));
   });
 
   it("says it didn't post when there is nowhere to send it, and asks nobody to sign", async () => {
@@ -446,14 +530,14 @@ describe("posting a review", () => {
     const user = userEvent.setup();
     const { router } = await open(world, fromExplore(PLACE_PATH));
 
-    await user.click(await rateLink());
+    await user.click(await rateLink(world));
     await reviewingAs(me.name);
     await user.click((await starButtons())[3]!);
     await user.click(postButton());
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
 
     // Again, in the same second: the form has the review just posted, and the edit is stamped after it.
-    await user.click(await rateLink());
+    await user.click(await rateLink(world));
     const stars = await starButtons();
     await waitFor(() => expect(stars[3]).toHaveAttribute("aria-checked", "true"));
     await user.click(stars[4]!);
@@ -495,10 +579,13 @@ describe("the person's own review, before the relays send it back (Review Focus 
     expect(await reviewWords("Get the bolo")).toBeInTheDocument();
     await waitFor(() => expect(heldText()).toBeNull());
 
-    // So once the relay drops it, it is gone.
+    // So once the relay drops it, it is gone. (A page just opened says "Be the first" until it asks for
+    // its reviews: what it says once they are read is what counts.)
     world.search.splice(world.search.indexOf(sentTo(world, SEARCH)[0]!), 1);
     cleanup();
+    const reads = world.reviewReads;
     await open(world, [PLACE_PATH]);
+    await waitFor(() => expect(world.reviewReads).toBeGreaterThan(reads));
     expect(await screen.findByText(copy.place.beFirst)).toBeInTheDocument();
     expect(noReviewWords("Get the bolo")).not.toBeInTheDocument();
   });
@@ -513,8 +600,8 @@ describe("signing in to rate", () => {
     const user = userEvent.setup();
     const { router } = await open(world, fromExplore(PLACE_PATH));
 
-    expect(await rateLink()).toHaveAttribute("href", "/signin");
-    await user.click(await rateLink());
+    expect(await rateLink(world)).toHaveAttribute("href", "/signin");
+    await user.click(await rateLink(world));
     expect(router.state.location.pathname).toBe("/signin");
     expect(router.state.location.state).toMatchObject({ from: { pathname: PLACE_PATH }, next: { pathname: REVIEW_PATH } });
 
@@ -567,7 +654,7 @@ describe("signing in to rate", () => {
     installAddOn(generateSecretKey());
     const user = userEvent.setup();
     const { router } = await open(world, fromExplore(PLACE_PATH));
-    await user.click(await rateLink());
+    await user.click(await rateLink(world));
     await user.click(screen.getByRole("link", { name: copy.signin.keepHousePicks }));
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
   });
@@ -641,7 +728,7 @@ describe("signing in to rate", () => {
 
     // The add-on now signs as someone else.
     installAddOn(generateSecretKey());
-    await user.click(await rateLink());
+    await user.click(await rateLink(world));
     const stars = await starButtons();
     await user.click(stars[1]!);
     const text = screen.getByRole("textbox", { name: copy.review.textLabel });
@@ -685,7 +772,7 @@ describe("on a desktop: a dialog over the place page (DeskReview.dc.html)", () =
     const user = userEvent.setup();
     const { router } = await open(world, fromExplore(PLACE_PATH), DESKTOP);
 
-    const rate = await rateLink();
+    const rate = await rateLink(world);
     await user.click(rate);
     const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
     expect(dialog).toHaveAttribute("aria-modal", "true");
@@ -708,7 +795,7 @@ describe("on a desktop: a dialog over the place page (DeskReview.dc.html)", () =
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(router.state.location.pathname).toBe(PLACE_PATH);
-    expect(await rateLink()).toHaveFocus();
+    expect(await rateLink(world)).toHaveFocus();
   });
 
   it("closes with its cross, and after posting, back to the place page with the review on it", async () => {
@@ -719,12 +806,12 @@ describe("on a desktop: a dialog over the place page (DeskReview.dc.html)", () =
     const user = userEvent.setup();
     const { router } = await open(world, fromExplore(PLACE_PATH), DESKTOP);
 
-    await user.click(await rateLink());
+    await user.click(await rateLink(world));
     await user.click(await screen.findByRole("button", { name: copy.review.close }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(await rateLink()).toHaveFocus();
+    expect(await rateLink(world)).toHaveFocus();
 
-    await user.click(await rateLink());
+    await user.click(await rateLink(world));
     const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
     await reviewingAs(me.name, within(dialog));
     await user.click((await starButtons())[4]!);
@@ -746,7 +833,7 @@ describe("on a desktop: a dialog over the place page (DeskReview.dc.html)", () =
 
     // The place has read the person's review.
     expect(await reviewWords("Bolo do caco")).toBeInTheDocument();
-    await user.click(await rateLink());
+    await user.click(await rateLink(world));
     await screen.findByRole("dialog", { name: copy.review.dialogLabel });
     const stars = await starButtons();
     expect(stars[2]).toHaveAttribute("aria-checked", "true");
@@ -761,7 +848,7 @@ describe("on a desktop: a dialog over the place page (DeskReview.dc.html)", () =
     const user = userEvent.setup();
     const { router } = await open(world, fromExplore(PLACE_PATH), DESKTOP);
 
-    await user.click(await rateLink());
+    await user.click(await rateLink(world));
     const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
     await reviewingAs(me.name, within(dialog));
     await user.click((await starButtons())[3]!);
@@ -784,7 +871,7 @@ describe("on a phone: a page of its own (Review.dc.html)", () => {
     const user = userEvent.setup();
     const { router } = await open(world, fromExplore(PLACE_PATH));
 
-    await user.click(await rateLink());
+    await user.click(await rateLink(world));
     expect(router.state.location.pathname).toBe(REVIEW_PATH);
     await starButtons();
     // The place's own page is not under it.

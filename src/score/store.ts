@@ -521,6 +521,20 @@ export class ScoresStore {
   };
 
   /**
+   * Says where the held review with id `eventId` went, now: `relays`, which more of them have taken
+   * since it was posted (they answer after the first review relay does). Nothing for a review not held,
+   * or held no longer (the relays have sent it back).
+   */
+  readonly noteOwnRelays = (eventId: string, relays: readonly string[]): void => {
+    for (const [key, held] of this.#own) {
+      if (held.event.id !== eventId) continue;
+      this.#own.set(key, { event: held.event, relays: [...relays] });
+      keepHeld(this.#own.values());
+      return;
+    }
+  };
+
+  /**
    * Lets go of every own review held, here and in the tab: the person signed out, or their add-on or
    * phone app now signs as someone else. Held reviews are one person's, never the next one's. Their
    * reviews on the relays stay, and show as anyone's do.
