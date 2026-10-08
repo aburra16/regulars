@@ -490,8 +490,13 @@ export const copy = {
     count: (n: number) => `${places(n)}.`,
     /** The kinds menu, by what is chosen: none, one ("Cafes"), or several ("Kind of place · 2"). */
     kinds: (n: number, only: string) => (n === 0 ? kindOfPlace : n === 1 ? only : `${kindOfPlace} · ${n.toLocaleString("en")}`),
-    /** The sort menu, by the order the list is in. With nothing chosen the list is nearest first. */
-    sort: { distance: "Sort: distance", name: "Sort: name" },
+    /** The sort menu, by the order the list is in: nearest first, A to Z, or, for words, best match first. */
+    sort: {
+      distance: "Sort: distance",
+      name: "Sort: name",
+      // DRAFT for Avi
+      relevance: "Sort: best match",
+    },
   },
   location: {
     // DRAFT for Avi: every string in this group is a first draft and needs your edit.

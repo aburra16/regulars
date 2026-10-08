@@ -58,7 +58,7 @@ export function FiltersPage(): JSX.Element {
     return { ...asked, sort: sortInUse(asked) };
   });
   const change = (part: Partial<Filters>) => setDraft((current) => ({ ...current, ...part }));
-  const { entries } = useResults(query, draft);
+  const { entries, order } = useResults(query, draft);
   const count = entries.length;
 
   const apply = () =>
@@ -83,7 +83,7 @@ export function FiltersPage(): JSX.Element {
 
       <Section title={copy.filters.sortBy} className="pt-[18px]">
         {(headingId) => (
-          <SortOptions value={draft.sort} onChange={(sort) => change({ sort })} labelledBy={headingId} />
+          <SortOptions value={draft.sort} order={order} onChange={(sort) => change({ sort })} labelledBy={headingId} />
         )}
       </Section>
 

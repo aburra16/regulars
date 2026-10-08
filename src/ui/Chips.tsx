@@ -30,6 +30,7 @@ export interface ChipOption<T extends string> {
 export function Chips<T extends string>({
   label,
   labelledBy,
+  describedBy,
   options,
   value,
   resting,
@@ -40,6 +41,8 @@ export function Chips<T extends string>({
   label?: string;
   /** ... or the id of the heading drawn above it, which is the name without a second copy of the words. One of the two. */
   labelledBy?: string;
+  /** The id of a line that says more about the row (the sort in use when none is chosen). */
+  describedBy?: string;
   options: readonly ChipOption<T>[];
   value: T;
   resting: T;
@@ -47,7 +50,7 @@ export function Chips<T extends string>({
   children?: ReactNode;
 }): JSX.Element {
   return (
-    <div role="group" aria-label={label} aria-labelledby={labelledBy} className="flex flex-wrap gap-2">
+    <div role="group" aria-label={label} aria-labelledby={labelledBy} aria-describedby={describedBy} className="flex flex-wrap gap-2">
       {options.map((option) => {
         const chosen = option.id === value;
         return (

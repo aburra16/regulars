@@ -5,6 +5,7 @@ import { FAMILIES, type FamilyId } from "../places/kinds.ts";
 import { Chips } from "../ui/Chips.tsx";
 import { FamilyIcon } from "../ui/KindTile.tsx";
 import { type Sort, widestKm, withinChoices } from "./filters.ts";
+import type { Order } from "./useResults.ts";
 
 /*
  * The controls of Filters.dc.html, one for each filter, without the headings: the filters page
@@ -13,38 +14,58 @@ import { type Sort, widestKm, withinChoices } from "./filters.ts";
  * named by the heading that is drawn above it, `labelledBy` being that heading's id.
  */
 
-/** What is pressed when no sort is: none of the three, and not a sort that can be asked for. */
+/** What is pressed when no sort is shown: none of the three, and not a sort that can be asked for. */
 const AUTO = "auto";
 
 /**
  * How to sort: My circle's score, which cannot be chosen before sign in and says why, Distance and
- * Name. With no sort chosen (`value` is undefined) none is pressed, and the page picks. Pressing the
- * one that is on goes back to no sort.
+ * Name. With no sort chosen (`value` is undefined) the page picks the order, `order`, and this shows
+ * it: Distance pressed when the list is nearest first, and none pressed, with a line that says so,
+ * when it is best match first. Pressing a sort chooses it, and the one that only shows the order in
+ * use too; pressing the one the person chose goes back to no sort.
  */
 export function SortOptions({
   value,
+  order,
   onChange,
   labelledBy,
 }: {
   value: Sort | undefined;
+  /** The order the list is in. */
+  order: Order;
   onChange(sort: Sort | undefined): void;
   labelledBy: string;
 }): JSX.Element {
   const whyNot = useId();
+  const inUse = useId();
+  // The score is not on offer: a sort asked for by an address that cannot have it is no sort.
+  const chosen = value === "score" ? undefined : value;
+  const shown = chosen ?? (order === "distance" ? "distance" : AUTO);
+  const bestMatch = chosen === undefined && order === "relevance";
   return (
     <div className="flex flex-col gap-2">
       <Chips<Sort | typeof AUTO>
         labelledBy={labelledBy}
+        describedBy={bestMatch ? inUse : undefined}
         options={[
           { id: "score", label: copy.filters.sort.score, disabled: true, describedBy: whyNot },
           { id: "distance", label: copy.filters.sort.distance },
           { id: "name", label: copy.filters.sort.name },
         ]}
-        // The score is not on offer: a sort asked for by an address that cannot have it is no sort.
-        value={value === undefined || value === "score" ? AUTO : value}
+        value={shown}
         resting={AUTO}
-        onChange={(chosen) => onChange(chosen === AUTO ? undefined : chosen)}
+        onChange={(pressed) => {
+          // A chip pressed again comes back as AUTO. One the person chose goes back to no sort; one that
+          // only showed the order in use is chosen now.
+          if (pressed !== AUTO) onChange(pressed);
+          else onChange(chosen === undefined && shown !== AUTO ? shown : undefined);
+        }}
       />
+      {bestMatch && (
+        <p id={inUse} className="m-0 text-caption text-muted">
+          {copy.search.sortedBy.relevance}
+        </p>
+      )}
       <p id={whyNot} className="m-0 text-caption text-muted">
         {copy.filters.sortScoreSignedOut}
       </p>

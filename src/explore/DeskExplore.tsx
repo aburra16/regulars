@@ -3,7 +3,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
-import { type Filters, filtersFromParams, withFilters } from "../search/filters.ts";
+import { type Filters, filtersFromParams, sortInUse, withFilters } from "../search/filters.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { PageMessage } from "../ui/Banner.tsx";
@@ -62,7 +62,13 @@ export function DeskExplore(): JSX.Element {
       list={`desk|${params.toString()}|${area.lat}|${area.lon}|${area.radiusKm}`}
       head={
         <>
-          <FilterMenus filters={filters} onChange={setFilters} locale={locale} />
+          {/* Explore has no words to match: its list is nearest first, or by name. */}
+          <FilterMenus
+            filters={filters}
+            order={sortInUse(filters) === "name" ? "name" : "distance"}
+            onChange={setFilters}
+            locale={locale}
+          />
           <HouseLine count={rows.length} />
         </>
       }

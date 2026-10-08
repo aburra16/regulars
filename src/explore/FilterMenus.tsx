@@ -4,6 +4,7 @@ import { copy } from "../copy/en.ts";
 import { familyLabel } from "../places/kinds.ts";
 import { KindOptions, SortOptions, WithinOptions } from "../search/FilterControls.tsx";
 import { type Filters, sortInUse, widestKm, withinLabel } from "../search/filters.ts";
+import type { Order } from "../search/useResults.ts";
 import { ChevronDownIcon } from "../ui/icons.tsx";
 
 /**
@@ -94,15 +95,19 @@ function Menu({
 /**
  * The desktop's filters, in a row above Explore's list (DeskExplore.dc.html): Open now, which is a
  * chip of its own, and the kinds, the distance and the sort, each a menu of the same controls the
- * phone's filters page has. Each menu is named for what it is set to ("Within 2 mi", "Sort: name").
+ * phone's filters page has. Each menu is named for what it is set to ("Within 2 mi"), the sort for the
+ * order the list is in ("Sort: name", "Sort: best match").
  * A choice is made at once; the page keeps the filters in the address, as the search does.
  */
 export function FilterMenus({
   filters,
+  order,
   onChange,
   locale,
 }: {
   filters: Filters;
+  /** The order the list is in, which the sort menu is named for and shows when no sort is chosen. */
+  order: Order;
   onChange(next: Filters): void;
   locale: string;
 }): JSX.Element {
@@ -145,10 +150,11 @@ export function FilterMenus({
           />
         )}
       </Menu>
-      <Menu label={sort === "name" ? copy.deskExplore.sort.name : copy.deskExplore.sort.distance} title={copy.filters.sortBy}>
+      <Menu label={copy.deskExplore.sort[order]} title={copy.filters.sortBy}>
         {(headingId, close) => (
           <SortOptions
             value={sort}
+            order={order}
             onChange={(next) => {
               onChange({ ...filters, sort: next });
               close();

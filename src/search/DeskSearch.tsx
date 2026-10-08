@@ -56,7 +56,7 @@ export function DeskSearch(): JSX.Element {
       list={`search|${query}|${params.toString()}|${here.lat}|${here.lon}`}
       head={
         <>
-          <FilterMenus filters={filters} onChange={setFilters} locale={locale} />
+          <FilterMenus filters={filters} order={order} onChange={setFilters} locale={locale} />
           <ResultsLine empty={empty} count={entries.length} near={here.label} order={order} />
         </>
       }

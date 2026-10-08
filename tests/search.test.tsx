@@ -1762,6 +1762,30 @@ describe("Search on a desktop (D1: the phone's screens 1 to 4 in Explore's layou
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
+  it("names the sort menu for the order in use, and shows it in the menu as the filters page does", async () => {
+    wideWindow();
+    const user = userEvent.setup();
+    await openSearch("/search?q=pizza");
+    const menu = within(menus()).getByRole("button", { name: copy.deskExplore.sort.relevance });
+    expect(copy.deskExplore.sort.relevance).toBe("Sort: best match");
+    await user.click(menu);
+    const group = screen.getByRole("group", { name: copy.filters.sortBy });
+    for (const button of within(group).getAllByRole("button")) expect(button).toHaveAttribute("aria-pressed", "false");
+    expect(group).toHaveAccessibleDescription(copy.search.sortedBy.relevance);
+
+    await user.click(within(group).getByRole("button", { name: "Distance" }));
+    expect(within(menus()).getByRole("button", { name: copy.deskExplore.sort.distance })).toBeInTheDocument();
+  });
+
+  it("names the sort menu Sort: distance for a kind of place, with Distance pressed in it", async () => {
+    wideWindow();
+    const user = userEvent.setup();
+    await openSearch("/search?q=cafe");
+    await user.click(within(menus()).getByRole("button", { name: copy.deskExplore.sort.distance }));
+    const group = screen.getByRole("group", { name: copy.filters.sortBy });
+    expect(within(group).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("does not put the cursor in the field", async () => {
     wideWindow();
     await openSearch("/search?q=pizza");
@@ -1827,43 +1851,71 @@ describe("Filters", () => {
       expect(copy.filters.sortScoreSignedOut).toBe("Sign in to sort by your circle's scores");
     });
 
-    it("has none pressed to begin with: the sort is left to the page, which picks it from what was searched for", async () => {
-      await openFilters();
-      const sort = groupNamed(copy.filters.sortBy);
-      for (const button of within(sort).getAllByRole("button")) expect(button).toHaveAttribute("aria-pressed", "false");
+    const sortButton = (name: string) => within(groupNamed(copy.filters.sortBy)).getByRole("button", { name });
+    const pressedSorts = () =>
+      within(groupNamed(copy.filters.sortBy))
+        .getAllByRole("button")
+        .filter((button) => button.getAttribute("aria-pressed") === "true")
+        .map((button) => button.textContent);
+
+    it.each([
+      ["nothing typed", "/filters"],
+      ["a kind of place", "/filters?q=cafe"],
+    ])("shows the order in use when none is chosen: for %s it is nearest first, so Distance is pressed", async (_, path) => {
+      await openFilters(path);
+      expect(pressedSorts()).toEqual(["Distance"]);
+      expect(screen.queryByText(copy.search.sortedBy.relevance)).not.toBeInTheDocument();
     });
 
-    it("presses Name when the person does, and goes back to none when Name is pressed again", async () => {
+    it("presses none for words that are not a kind of place, and says those are best match first", async () => {
+      await openFilters("/filters?q=pizza");
+      expect(pressedSorts()).toEqual([]);
+      const note = screen.getByText(copy.search.sortedBy.relevance);
+      expect(copy.search.sortedBy.relevance).toBe("Best match first");
+      expect(groupNamed(copy.filters.sortBy)).toHaveAccessibleDescription(copy.search.sortedBy.relevance);
+      expect(note).toHaveClass("text-caption", "text-muted");
+    });
+
+    it("presses Name when the person does, and goes back to the order in use when Name is pressed again", async () => {
       const user = userEvent.setup();
       await openFilters();
-      const sort = groupNamed(copy.filters.sortBy);
-      await user.click(within(sort).getByRole("button", { name: "Name" }));
-      expect(within(sort).getByRole("button", { name: "Name" })).toHaveAttribute("aria-pressed", "true");
-      expect(within(sort).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "false");
-      await user.click(within(sort).getByRole("button", { name: "Name" }));
-      for (const button of within(sort).getAllByRole("button")) expect(button).toHaveAttribute("aria-pressed", "false");
+      await user.click(sortButton("Name"));
+      expect(pressedSorts()).toEqual(["Name"]);
+      await user.click(sortButton("Name"));
+      expect(pressedSorts()).toEqual(["Distance"]);
     });
 
-    it("presses Distance, and goes back to none when Distance is pressed again", async () => {
+    it("chooses Distance for words, and goes back to best match when Distance is pressed again", async () => {
       const user = userEvent.setup();
-      await openFilters();
-      const sort = groupNamed(copy.filters.sortBy);
-      await user.click(within(sort).getByRole("button", { name: "Distance" }));
-      expect(within(sort).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "true");
-      await user.click(within(sort).getByRole("button", { name: "Distance" }));
-      expect(within(sort).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "false");
+      await openFilters("/filters?q=pizza");
+      await user.click(sortButton("Distance"));
+      expect(pressedSorts()).toEqual(["Distance"]);
+      expect(screen.queryByText(copy.search.sortedBy.relevance)).not.toBeInTheDocument();
+      await user.click(sortButton("Distance"));
+      expect(pressedSorts()).toEqual([]);
+      expect(screen.getByText(copy.search.sortedBy.relevance)).toBeInTheDocument();
     });
 
-    it("has the one the address asks for pressed", async () => {
-      await openFilters("/filters?sort=distance");
-      expect(within(groupNamed(copy.filters.sortBy)).getByRole("button", { name: "Distance" })).toHaveAttribute("aria-pressed", "true");
+    it("chooses Distance when it is pressed while it shows the order in use, and the address gets it", async () => {
+      const user = userEvent.setup();
+      const { router } = await openFilters("/filters?q=cafe");
+      await user.click(sortButton("Distance"));
+      expect(pressedSorts()).toEqual(["Distance"]);
+      await user.click(screen.getByRole("button", { name: /^Show \d+ places?$/ }));
+      expect(new URLSearchParams(router.state.location.search).get("sort")).toBe("distance");
     });
 
-    it("has none pressed for an address that asks for the score, which cannot be had", async () => {
+    it.each([
+      ["/filters?q=pizza&sort=distance", "Distance"],
+      ["/filters?sort=name", "Name"],
+    ])("has the one the address asks for pressed: %s", async (path, pressed) => {
+      await openFilters(path);
+      expect(pressedSorts()).toEqual([pressed]);
+    });
+
+    it("shows the order in use for an address that asks for the score, which cannot be had", async () => {
       await openFilters("/filters?sort=score");
-      for (const button of within(groupNamed(copy.filters.sortBy)).getAllByRole("button")) {
-        expect(button).toHaveAttribute("aria-pressed", "false");
-      }
+      expect(pressedSorts()).toEqual(["Distance"]);
     });
 
     it("goes to the results with no sort in the address when none is pressed, and with the one that is", async () => {
@@ -2101,9 +2153,11 @@ describe("Filters", () => {
         expect(button).toHaveAttribute("aria-pressed", "false");
       }
       expect(within(groupNamed(copy.filters.distance)).getByRole("button", { name: "15 mi" })).toHaveAttribute("aria-pressed", "true");
-      for (const button of within(groupNamed(copy.filters.sortBy)).getAllByRole("button")) {
-        expect(button).toHaveAttribute("aria-pressed", "false");
-      }
+      // No sort chosen: the order in use for a kind of place, nearest first, is the one shown.
+      const pressed = within(groupNamed(copy.filters.sortBy))
+        .getAllByRole("button")
+        .filter((button) => button.getAttribute("aria-pressed") === "true");
+      expect(pressed.map((button) => button.textContent)).toEqual(["Distance"]);
       expect(screen.getByRole("button", { name: copy.filters.show(listed("cafe").length) })).toBeInTheDocument();
       expect(copy.filters.clearAll).toBe("Clear all");
     });
