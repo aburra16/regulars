@@ -1,0 +1,4560 @@
+[
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-11330857543"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Jacafé"
+      ],
+      [
+        "category",
+        "cafe"
+      ],
+      [
+        "address",
+        "138 Rua dos Ferreiros Funchal 9000-082"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-082"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "coffee_shop"
+      ],
+      [
+        "osm-id",
+        "node:11330857543"
+      ],
+      [
+        "lat",
+        "32.650618"
+      ],
+      [
+        "lon",
+        "-16.9096355"
+      ],
+      [
+        "website",
+        "https://www.jacahostel.com"
+      ],
+      [
+        "phone",
+        "+351 926 958 673"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 09:30-17:30; Sa-Su 09:30-13:30"
+      ],
+      [
+        "accepts-bitcoin",
+        "both"
+      ],
+      [
+        "btcmap-id",
+        "16251"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxpyg8"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "cafe"
+      ],
+      [
+        "t",
+        "coffee_shop"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Jacafé, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "5b9ca6aa3224bb2670b5837fc17af8a95c274f4ce109b9319ca1afbe54749da1",
+    "sig": "26284017b8ea1fc1c77a90f43384de982fc095de25690c301f9a6b6c9d26bb5c1c8116a758a89b35a7810ff4bd69b2a7bc93faa6085a561c18cb4c989ffddc41"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-3884132779"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Loft Brunch & Cocktails"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "49 Rua da Conceição Funchal 9050-026"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9050-026"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "brunch"
+      ],
+      [
+        "osm-id",
+        "node:3884132779"
+      ],
+      [
+        "lat",
+        "32.6505695"
+      ],
+      [
+        "lon",
+        "-16.9068992"
+      ],
+      [
+        "phone",
+        "+351 291 640 513"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 09:00-18:00; Sa 09:00-15:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "20134"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxrbg2"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "brunch"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Loft Brunch & Cocktails, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "a0d988d04b6e80af7b44779f39589fc315d76405a29a18e30d6d499d8edf3681",
+    "sig": "0260b4140fa08073fc500e5fdd1ed7f758f2c299e1969042d152fb671f26db77c6cc3fc0494e6d04513bcdeb1af789d666e0e059907f0b518b62a105a589c9db"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-1782789982"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Museu Café"
+      ],
+      [
+        "category",
+        "cafe"
+      ],
+      [
+        "address",
+        "85 Praça do Munícipio Funchal 9000-043"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-043"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "coffee_shop"
+      ],
+      [
+        "osm-id",
+        "node:1782789982"
+      ],
+      [
+        "lat",
+        "32.6493039"
+      ],
+      [
+        "lon",
+        "-16.9087116"
+      ],
+      [
+        "website",
+        "https://museucafe.vercel.app/"
+      ],
+      [
+        "phone",
+        "+351 291 620 510"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 11:00-20:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "both"
+      ],
+      [
+        "btcmap-id",
+        "16366"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxpx7y"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "cafe"
+      ],
+      [
+        "t",
+        "coffee_shop"
+      ],
+      [
+        "t",
+        "regional"
+      ],
+      [
+        "t",
+        "sandwich"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Museu Café, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "3361d3291700231b3495f03a5030420195d7ab84927e3648837787f54e3b9dae",
+    "sig": "8077b3f3d39c92ca4f7097d571cab9849a9b4ed3437824290a1dc4c53994d97ab7c2201e0bf9ae44bf24dd61dac49884d2c84ff7a863bb80feaefc0a13347354"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-11764620468"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Queijaria da Avó - Açores Cheese Shop"
+      ],
+      [
+        "category",
+        "cheese"
+      ],
+      [
+        "address",
+        "59 Rua da Queimada de Cima Funchal 9000-077"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-077"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:11764620468"
+      ],
+      [
+        "lat",
+        "32.6491926"
+      ],
+      [
+        "lon",
+        "-16.9080859"
+      ],
+      [
+        "website",
+        "https://www.instagram.com/queijariadaavo"
+      ],
+      [
+        "phone",
+        "+351 960 207 729"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 10:30-19:30, Sa 10:00-14:00"
+      ],
+      [
+        "description",
+        "Azores cheese shop"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "18587"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxpxgm"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "cheese"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Queijaria da Avó - Açores Cheese Shop, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "d3d92f94fa1f6cbce14c3dc651a2434d2b6eb75b9f0aaad5fc2781145fc7b1fd",
+    "sig": "2927f7e67ea304e0b5fa812d710df03e8db0e8c09c2495cf4d586d240f7be7904cb574d2fac3f0d3f65deeb8065489880e7627d49c927e2d5f21b2bf145b584e"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-7020274896"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Between Cafe & Healthy Food"
+      ],
+      [
+        "category",
+        "cafe"
+      ],
+      [
+        "address",
+        "14 Rua João Tavira Funchal 9000-075"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-075"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:7020274896"
+      ],
+      [
+        "lat",
+        "32.6486083"
+      ],
+      [
+        "lon",
+        "-16.9090325"
+      ],
+      [
+        "phone",
+        "+351 960 001 508"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 08:00-16:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "29254"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxprpy"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "cafe"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Between Cafe & Healthy Food, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "33534c0c094d89c08b9d87876fde02ac4793217c48154010f98540e497b1cda9",
+    "sig": "4f8d5fa60e0663c5801b30016f915afc2da85823535bda6318dd0aa7980f2060e6f64df1c0bd754fb0c2e8148349dd4843be0f0f47890a4e97b387ef9c64ce11"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-10169374926"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Maia"
+      ],
+      [
+        "category",
+        "cafe"
+      ],
+      [
+        "address",
+        "25 Avenida Zarco Funchal 9000-069"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-069"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:10169374926"
+      ],
+      [
+        "lat",
+        "32.6489863"
+      ],
+      [
+        "lon",
+        "-16.9101835"
+      ],
+      [
+        "phone",
+        "+351 960 000 992"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 08:00-19:00, Sa 08:30-13:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "both"
+      ],
+      [
+        "btcmap-id",
+        "1128"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxpw6h"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "cafe"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Maia, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "474fa152b6a1a924dc05825c85f34bc7e311beb69754516e2ec239d526c20ae6",
+    "sig": "78fa9d65e225f65461fba965d987b80d9b2443174630e584d98451a91883eeff905f4220cb6936e62d1d00b88072ba15d9136fdb5388c821b1b24a265b6a66ae"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-12615578978"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Novo Tahiti"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "19 Rua das Pretas Funchal 9000-049"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-049"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:12615578978"
+      ],
+      [
+        "lat",
+        "32.649354"
+      ],
+      [
+        "lon",
+        "-16.910663"
+      ],
+      [
+        "phone",
+        "+351 291 620 087"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 07:00-22:00, Sa 08:00-22:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "24096"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxpwh2"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Novo Tahiti, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "ef4de6243b7d9d2ab6fd9a279222b33eb08c36f20ec7f8ba5a8ae675c35a2d47",
+    "sig": "d3c6ced1340d50794f94e8d260256b3142627132b61a3aad8020a368ca04951ff303b7c8be3ffc1955d193cfaf19c26d1186b58f54f1b4f5d34e7cb7c7408e63"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-12095671945"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Motya Specialty Coffee & Mochi"
+      ],
+      [
+        "category",
+        "cafe"
+      ],
+      [
+        "address",
+        "8 Rua João Tavira Funchal 9000-075"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-075"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "coffee_shop"
+      ],
+      [
+        "osm-id",
+        "node:12095671945"
+      ],
+      [
+        "lat",
+        "32.6483991"
+      ],
+      [
+        "lon",
+        "-16.9088937"
+      ],
+      [
+        "website",
+        "https://motya.pt"
+      ],
+      [
+        "phone",
+        "+351 938 873 847"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 08:00-18:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "21525"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxprqd"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "cafe"
+      ],
+      [
+        "t",
+        "coffee_shop"
+      ],
+      [
+        "t",
+        "tea"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Motya Specialty Coffee & Mochi, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "675b95baa8e4a12de00dee07b574ded6b80e14669723024e33120e1e4a1c66b6",
+    "sig": "775d16b49800d69a13abc5a9e80c31fe31c1d6eae58ab155fc2bb358292aebff83560370c0aa87f4527f267ee1d613f5beff986707408dab6df5af1e8a9e050d"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-11394277900"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "A Carruagem Snack Bar"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "82 Rua do Sabão Funchal 9000-056"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-056"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:11394277900"
+      ],
+      [
+        "lat",
+        "32.6484461"
+      ],
+      [
+        "lon",
+        "-16.9071803"
+      ],
+      [
+        "website",
+        "https://www.instagram.com/a.carruagem/"
+      ],
+      [
+        "phone",
+        "+351 291 603 003"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 10:00-22:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "16659"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxr2wf"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: A Carruagem Snack Bar, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "cc4fb9d72d10bf3f92a806c8fa27286276841657db970288e696928861fdaaf0",
+    "sig": "a7773a71b54048820f6727b684370b18e56f36333ba586cd8b2cfc6746ddb3f21a1a0e18eb1e5aa660cab82a094fb2bd2f2335375c6fa4d1436d210899f65858"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-12971275599"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Pátio Brunch & Bistro"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "43 Rua da Carreira Funchal 9000-042"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-042"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:12971275599"
+      ],
+      [
+        "lat",
+        "32.6487563"
+      ],
+      [
+        "lon",
+        "-16.9103241"
+      ],
+      [
+        "website",
+        "https://www.instagram.com/patiobrunchbistro/"
+      ],
+      [
+        "phone",
+        "+351 935 777 644"
+      ],
+      [
+        "opening-hours",
+        "Tu-Sa 09:00-18:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "28989"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxpw2b"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Pátio Brunch & Bistro, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "6dafde85b3b38c6bf3f846a1b62225e44c53e52d4a00d92b2d7f5100e3228e32",
+    "sig": "e11e2410ba6ce5bb7b98a4ea0bfdbd9c225affc7b0c9a28094f94abfbb146cc06df8ffaa2daf9e4d9aae5ea8b6df5a8d29c919cd278c748286999eecc87fb8cd"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-10899529872"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Ciao Pizzeria"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "35 Rua Direita Funchal 9050-450"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9050-450"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "pizza"
+      ],
+      [
+        "osm-id",
+        "node:10899529872"
+      ],
+      [
+        "lat",
+        "32.6488089"
+      ],
+      [
+        "lon",
+        "-16.9059473"
+      ],
+      [
+        "website",
+        "https://www.instagram.com/ciaopizzeriafunchal"
+      ],
+      [
+        "phone",
+        "+351 291 619 007"
+      ],
+      [
+        "opening-hours",
+        "Mo-Sa 11:30-22:00"
+      ],
+      [
+        "description",
+        "Small but mighty"
+      ],
+      [
+        "accepts-bitcoin",
+        "both"
+      ],
+      [
+        "btcmap-id",
+        "3696"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxr93n"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "pizza"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Ciao Pizzeria, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "e0b42df21632cdc47fdac4db7893231be9b033e4f9a291422d7f776c0b941945",
+    "sig": "27a854872c4f0d19554811cb55dcf0763727f15fc1caacdb974635fb45054f0f74f3707492322f45c8e3b427d84c0a0747b147e66f518140dfa6670b6499a7b4"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-11691928781"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Tranvía Food"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "35 Rua Direita Funchal 9050-450"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9050-450"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:11691928781"
+      ],
+      [
+        "lat",
+        "32.648811"
+      ],
+      [
+        "lon",
+        "-16.9057241"
+      ],
+      [
+        "phone",
+        "+351 935 039 546"
+      ],
+      [
+        "opening-hours",
+        "Mo-Sa 12:00-22:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "both"
+      ],
+      [
+        "btcmap-id",
+        "18178"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxr99h"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Tranvía Food, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "89bc1b2650833d5a5aa525804e6a7ce1af6922c6ccf61ee14fc9f65c2de438cd",
+    "sig": "4e13a2b751c8b859fce817d20f20a6abebe6c969669b6c2b4525176c618cec8be8a53ee767b3dd5f00ea4b4be0e5b80b9595a9f76ce746dbfad3c657bdfc2b97"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-11866832384"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Kampo by Chef Júlio Pereira"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "74 Rua da Alfândega Funchal 9000-059"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-059"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:11866832384"
+      ],
+      [
+        "lat",
+        "32.6476321"
+      ],
+      [
+        "lon",
+        "-16.9072081"
+      ],
+      [
+        "website",
+        "https://kampo.pt"
+      ],
+      [
+        "phone",
+        "+351 924 438 080"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 12:30-23:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "19102"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxr2d1"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Kampo by Chef Júlio Pereira, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "12676e8a1c021c2a7f8c478d4cad49470441b9c8b36be627cafe0a6e4346e34b",
+    "sig": "2967116c9e1f61743fd9dabd3c0667af8be94b27538ef5b19d96cbfa3acfb83acb90be21c704609f234036ec8366ebb39c166230049f4fc43709b540260063cb"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-14144104757"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Yuki by Chef Júlio Pereira"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "6 Rua do Sabão Funchal 9000-058"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-058"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "japanese"
+      ],
+      [
+        "osm-id",
+        "node:14144104757"
+      ],
+      [
+        "lat",
+        "32.6475429"
+      ],
+      [
+        "lon",
+        "-16.9071827"
+      ],
+      [
+        "website",
+        "https://yukifunchal.pt"
+      ],
+      [
+        "phone",
+        "+351 935 697 679"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 12:30-23:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "42650"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxr29d"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "japanese"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Yuki by Chef Júlio Pereira, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "20fe181f401f878730734d452931464b7f09f69bfc9976aa5b6c761cbb0b887c",
+    "sig": "c88215cdbcd3aed0622505833c6a2ddbf79f0026a867e61ee03d827f1b538474a3266b1f5fe30658222aaf73621c061e79398cf6486eba607795d11cb91f8a30"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-9404362755"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Akua by Chef Júlio Pereira"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "6 Rua dos Murças Funchal 9000-058"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-058"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "international"
+      ],
+      [
+        "osm-id",
+        "node:9404362755"
+      ],
+      [
+        "lat",
+        "32.6474838"
+      ],
+      [
+        "lon",
+        "-16.9093783"
+      ],
+      [
+        "website",
+        "https://akuafunchal.pt"
+      ],
+      [
+        "phone",
+        "+351 938 034 758"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 12:30-22:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "19100"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxpqcq"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "international"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Akua by Chef Júlio Pereira, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "61ced4d2b915ebe8902788a0b3429c33fc39b33a0884843e1537ba3da8596dc1",
+    "sig": "331f8927739b53c2cb8c4e8294805c3217af115a64cadef11a388fb080a59e0f05d5c7adc6f9654a428428d3e9661dcab7ca3822af1379c3253613ad110efa14"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-3886246589"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Theo’s by Chef Júlio Pereira"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "2A Avenida Zarco Funchal 9000-069"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-069"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:3886246589"
+      ],
+      [
+        "lat",
+        "32.6473881"
+      ],
+      [
+        "lon",
+        "-16.9094923"
+      ],
+      [
+        "website",
+        "https://theos.pt/"
+      ],
+      [
+        "phone",
+        "+351 939 698 979"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 12:30-23:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "19101"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxpqbu"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Theo’s by Chef Júlio Pereira, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "d226ac2973bffab29b808c5083d9db874e55a9c18a28aa33cbe19f2965a4f700",
+    "sig": "bb19e4253ed7142c807eb9a33496ac6e43d52333b9c1f7c9ad1c75daccbcaba881d9d7c8cf20d1ddfe265b81c971e4caf008b9e7f6c1f396925605d391a63320"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-11587597356"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Loja Coral Funchal - Flagship Store"
+      ],
+      [
+        "category",
+        "pub"
+      ],
+      [
+        "address",
+        "Rua Alferes Veiga Pestana Funchal 9050-054"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9050-054"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:11587597356"
+      ],
+      [
+        "lat",
+        "32.6523248"
+      ],
+      [
+        "lon",
+        "-16.9042614"
+      ],
+      [
+        "website",
+        "https://www.lojacoral.pt"
+      ],
+      [
+        "phone",
+        "+351 291 222 345"
+      ],
+      [
+        "opening-hours",
+        "Mo-Sa 09:00-20:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "17796"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcz24tw"
+      ],
+      [
+        "g",
+        "etgcz2"
+      ],
+      [
+        "g",
+        "etgcz"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "pub"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Loja Coral Funchal - Flagship Store, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "297536fc2cc2b3c61d5e40dc49ce721a9b23f9e44785e932ed4c16893180fddd",
+    "sig": "3d20e1317be7a668b2b1124b7aeb3c9df25f9829dc867f23d50f3b95aaf1d675b8dcc2ab10ce9fe0210f1ca7f6802a9a77a1fefbba4f88b488ac447aecec46cd"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-4183148414"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "A Confeitaria Coffee & Bakery"
+      ],
+      [
+        "category",
+        "bakery"
+      ],
+      [
+        "address",
+        "4 Rua do Hospital Velho Funchal 9060-129"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9060-129"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:4183148414"
+      ],
+      [
+        "lat",
+        "32.6487912"
+      ],
+      [
+        "lon",
+        "-16.9039226"
+      ],
+      [
+        "phone",
+        "+351 291 621 325"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 08:00-19:00; Sa 08:00-14:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "18172"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxrdby"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "bakery"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: A Confeitaria Coffee & Bakery, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "58c6802c76ce11e26120f5052510199dfcfaa72634d8cc63c27fd753e6d857c2",
+    "sig": "da77e831acb4a95265482e0f458e7e50e43894b7c9c7e6fd29c966ab8a8fde0e306123547ce2dae3efd977f0acc41cb6db7cef933ff96a8b3be6edc2dc0ddc84"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-1472522742"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Jaket Restaurante"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "5 Rua de Santa Maria Funchal 9000"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:1472522742"
+      ],
+      [
+        "lat",
+        "32.6481219"
+      ],
+      [
+        "lon",
+        "-16.9041614"
+      ],
+      [
+        "website",
+        "https://www.instagram.com/jaket_restaurante/"
+      ],
+      [
+        "phone",
+        "+351 939 557 377"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 12:30-22:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "29316"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxr6v0"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Jaket Restaurante, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "1268be2491e649757496df24049f1e1ff2136c274ac4b8f18899cdfaf742a6d7",
+    "sig": "6d32e1d83d2832e024a7060a8850ceb37b7d20b8fe10ba7656a0017c7ae73c82e71321773ff6d27343fa0d6e889528377e6375d32997cb6e72f239010b10c638"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-3274980731"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Boba & Chill - Bubble Tea"
+      ],
+      [
+        "category",
+        "beverages"
+      ],
+      [
+        "address",
+        "28 Rua do Hospital Velho Funchal 9060-129"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9060-129"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:3274980731"
+      ],
+      [
+        "lat",
+        "32.6487263"
+      ],
+      [
+        "lon",
+        "-16.9030264"
+      ],
+      [
+        "website",
+        "https://www.bobaandchill.pt"
+      ],
+      [
+        "phone",
+        "+351 916 314 935"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 12:00-19:00, Sa-Su 13:00-19:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "21651"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxre8d"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "beverages"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Boba & Chill - Bubble Tea, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "b454053c7d24958a6e61297bc0f740f5652caa02fe2a4e8c7897ebe4c7e54afe",
+    "sig": "048709d418503ca3b94e1ef48a55aa0936b0e5dd9f471044de05f6a31d19176734a1bd9b2bf1b9df4080791d1b0774221fdba7fc587d00964f510f0a4bb81c97"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-4648482791"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "A Confeitaria"
+      ],
+      [
+        "category",
+        "bakery"
+      ],
+      [
+        "address",
+        "52 Rua dos Aranhas Funchal 9000-044"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-044"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:4648482791"
+      ],
+      [
+        "lat",
+        "32.6475908"
+      ],
+      [
+        "lon",
+        "-16.9131324"
+      ],
+      [
+        "website",
+        "https://aconfeitaria.pt/"
+      ],
+      [
+        "phone",
+        "+351 291 621 325"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 08:00-19:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "18174"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxpk4p"
+      ],
+      [
+        "g",
+        "etgcxp"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "bakery"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: A Confeitaria, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "5dc3883598f2df2bd3a75a7c773f2611bd8263645854547d7c081052a7a08d4b",
+    "sig": "d10c13e898a46386ffebaa3d8703a6867c978a63e5448fce859449f76324386cf358bdc03b361bf19f58546c6a8ec5c4fd90d2fe718a04dbbbec9877f2fbd3d6"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-12128667974"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Loft Brunch & Cocktails"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "Rua de Dom Carlos I Funchal 9060-397"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9060-397"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:12128667974"
+      ],
+      [
+        "lat",
+        "32.6478592"
+      ],
+      [
+        "lon",
+        "-16.9026995"
+      ],
+      [
+        "phone",
+        "+351 291 650 859"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 09:00-19:00; Sa-Su 09:00-16:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "20608"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxr7gd"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Loft Brunch & Cocktails, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "3436e6e20f8cc2ec2d6c0012080ab682e280c641fa1e672b726286bc39cc394c",
+    "sig": "079aa7c4e856ca4e8b648b71173ddbcdaaec564a41daa6a44571be771f3fe0749ea0183b1fc16d1b4f293652c89e6e2e24740c5c472ae10abc0389ce85d23d99"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-1760247844"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Xarambinha Pizzeria Expresso"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "16 Largo do Corpo Santo Funchal 9060-075"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9060-075"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "pizza"
+      ],
+      [
+        "osm-id",
+        "node:1760247844"
+      ],
+      [
+        "lat",
+        "32.647641"
+      ],
+      [
+        "lon",
+        "-16.9000832"
+      ],
+      [
+        "phone",
+        "+351 291 234 777"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 12:00-23:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "20663"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxrmdr"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "pizza"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Xarambinha Pizzeria Expresso, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "a38b74a25c5d91202d060d8af809cbd5ef42929da1384a09fd23e75eb8be0492",
+    "sig": "65dba20de7b57c8e58c6cfa89ad2aa86942724a3a955d573c33fea2e8839c3d1fbc89d9345b978f6edb560cc22c6686ac77ed883971e6581b9514c0ddaebafd8"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-3948387460"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Why Not?"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "28 Avenida do Infante Funchal 9000-015"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-015"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "grill"
+      ],
+      [
+        "osm-id",
+        "node:3948387460"
+      ],
+      [
+        "lat",
+        "32.6452494"
+      ],
+      [
+        "lon",
+        "-16.9171342"
+      ],
+      [
+        "website",
+        "https://whynotgrill.com"
+      ],
+      [
+        "phone",
+        "+351 291 627 590"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 12:00-22:30"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "20852"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxnck6"
+      ],
+      [
+        "g",
+        "etgcxn"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "grill"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Why Not?, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "f17cf071410254757794afb1593b96c8413a47c5a0291e90c48c089da1b9b431",
+    "sig": "afa5c0417807e55c17327adfd8f364b81883f0501d80f6e2c5f289a1ff5f8d1f634762bbd5082d06a3d7726abff268ef0e5eff4205e6ced83b54daf9f8fa90cf"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-11844100083"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Joker"
+      ],
+      [
+        "category",
+        "bar"
+      ],
+      [
+        "address",
+        "28B Avenida do Infante Funchal 9000-015"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-015"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:11844100083"
+      ],
+      [
+        "lat",
+        "32.6451991"
+      ],
+      [
+        "lon",
+        "-16.9172486"
+      ],
+      [
+        "website",
+        "https://www.facebook.com/jokerfunchal"
+      ],
+      [
+        "phone",
+        "+351 291 644 270"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 08:00-22:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "19005"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxnchp"
+      ],
+      [
+        "g",
+        "etgcxn"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "bar"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Joker, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "07821f3785405362217013e5a509ae75d46ec86c309d0c2d1dd83f694d1e3c21",
+    "sig": "5b2b65c395781dd78f15502fba75c9f45636d4a7966872fdee222c5d9edd28566ede890545b4bb8f3a41480427e27ca2584d64b942626b051765b5454d965a06"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-5818418732"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Le Bistrot Jacarandá"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "28F Avenida do Infante Funchal 9000-015"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-015"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "international"
+      ],
+      [
+        "osm-id",
+        "node:5818418732"
+      ],
+      [
+        "lat",
+        "32.6451247"
+      ],
+      [
+        "lon",
+        "-16.9173787"
+      ],
+      [
+        "website",
+        "https://www.facebook.com/bistrotmadeira"
+      ],
+      [
+        "phone",
+        "+351 291 644 270"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 12:00-23:00, Sa Closed"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "19004"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxnc5s"
+      ],
+      [
+        "g",
+        "etgcxn"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "international"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Le Bistrot Jacarandá, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "5d84e3a41f5bb183ff3cc81b5ac27559431238a5897d5c55622ec631e8462c5e",
+    "sig": "34db5727ede2340077c0be777e5af1eee6983878d9b861a090c1ee6d0308cfbef9308541b989818d5853cade19bbd13189b703951d2327f6ac6b8f4ce82a0a78"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-3884742383"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "A Confeitaria Coffee & Bakery"
+      ],
+      [
+        "category",
+        "bakery"
+      ],
+      [
+        "address",
+        "28 Avenida do Infante Funchal 9000-015"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-015"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:3884742383"
+      ],
+      [
+        "lat",
+        "32.6450193"
+      ],
+      [
+        "lon",
+        "-16.9177076"
+      ],
+      [
+        "phone",
+        "+351 291 621 325"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 07:00-20:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "18157"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxnbgh"
+      ],
+      [
+        "g",
+        "etgcxn"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "bakery"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: A Confeitaria Coffee & Bakery, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "4bd4e3cb91784b90a67697b1174d94897765c6329c6a90525a16920edbef7b5f",
+    "sig": "f8d72dfe57bd51a81e953e08b598c00d9d038c02a20ea464cb46e7a9301ff2eb89753ce3af7d0ccdfa54620a71099993c8bdd85442bbd186f5672fc1e0723bc2"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-12830339237"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Basalto"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "Largo do Socorro Funchal 9060-305"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9060-305"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:12830339237"
+      ],
+      [
+        "lat",
+        "32.6467716"
+      ],
+      [
+        "lon",
+        "-16.897544"
+      ],
+      [
+        "phone",
+        "+351 291 111 207"
+      ],
+      [
+        "opening-hours",
+        "We-Su 12:00-22:00, Mo-Tu Closed"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "25449"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxrpt4"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Basalto, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "c78e1d7ad2e57a0eeda52a3e4b826fd0c141f7c0fabf218e9d534b02fa965781",
+    "sig": "08d305a795ede147748be5b51c45431028fc9e3bb28b7ddbb434b4b4aa0a3c6400707686c0b8db66c247824f89fea31b4d8244aaeb1f5af0f9d4316cbf6c134b"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-4319235351"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Barreirinha Bar Café"
+      ],
+      [
+        "category",
+        "bar"
+      ],
+      [
+        "address",
+        "Largo do Socorro Funchal 9060-305"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9060-305"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:4319235351"
+      ],
+      [
+        "lat",
+        "32.6470255"
+      ],
+      [
+        "lon",
+        "-16.8973262"
+      ],
+      [
+        "website",
+        "https://primenet.primedrinks.pt/PrimeMenu/MenuPublic.aspx?MenuPublicToken=evVZP9dUcIwgNmIFl9LDB5LCORt8biTkEpHR9nGDlty05LSSvH&fbclid=IwAR1tAGatUiitpqL2KCDKbcon5QMmhoblCAiOOUkgMfoN0MRuxvket6sWUaI"
+      ],
+      [
+        "phone",
+        "+351 291 627 418"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 09:00-24:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "both"
+      ],
+      [
+        "btcmap-id",
+        "16374"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcxrpwx"
+      ],
+      [
+        "g",
+        "etgcxr"
+      ],
+      [
+        "g",
+        "etgcx"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "bar"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Barreirinha Bar Café, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "1056dbb43af29629781bf5d5f39de4868bdb50dd09541b75fa48cbf261212015",
+    "sig": "f04e19d25a79a7400cd4c61e71aaed5227cac7b92c171008d15bf38d97fae6c2f6381b28f5b67eaefa21d420ca47e98508d319e9b69579f6369b089428f8048a"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-11883426222"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Nomade"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "108 Rua Imperatriz Dona Amélia Funchal 9000-018"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-018"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:11883426222"
+      ],
+      [
+        "lat",
+        "32.6431676"
+      ],
+      [
+        "lon",
+        "-16.9200209"
+      ],
+      [
+        "phone",
+        "+351 915 498 449"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 09:30-24:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "19206"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcwyx0n"
+      ],
+      [
+        "g",
+        "etgcwy"
+      ],
+      [
+        "g",
+        "etgcw"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Nomade, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "0cfee925d589ca8be1efa0f123fc55cfcb7dffdd78ce054dd2a4928958be0417",
+    "sig": "025cd4206c89dfdd71544fa3dea7b984fc359651f864b093c267b7e4ac95ac839f4bed652deff95a861f1531b556042ed01f41369b3af5e8ddb5147429ebaf9e"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-11735349063"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "The Vanscape Gastrobar"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "110 Rua Imperatriz Dona Amélia Funchal 9000-018"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-018"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "snackbar"
+      ],
+      [
+        "osm-id",
+        "node:11735349063"
+      ],
+      [
+        "lat",
+        "32.6431443"
+      ],
+      [
+        "lon",
+        "-16.9201137"
+      ],
+      [
+        "website",
+        "https://www.instagram.com/vanscapegastrobar/"
+      ],
+      [
+        "phone",
+        "+351 925 185 245"
+      ],
+      [
+        "opening-hours",
+        "Mo-Sa 11:00-24:00, Fr-Sa 11:00-02:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "18347"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcwyx0h"
+      ],
+      [
+        "g",
+        "etgcwy"
+      ],
+      [
+        "g",
+        "etgcw"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "snackbar"
+      ],
+      [
+        "t",
+        "snack"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: The Vanscape Gastrobar, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "7c26f8a0c02c95850578d87e0de4a99b679a630095ff4e937ea370efbe1a82b2",
+    "sig": "578c2e5f2394da60ec7d0c084e19a74643397c4f93f48658e52134a75e9cc3fb193e7d8045fd1e888a911c57ce106f61712395f45894a2db78238a2728e4c031"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-2773799208"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "The Garden Grill"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "119 Rua Imperatriz Dona Amélia São Martinho 9000-018"
+      ],
+      [
+        "locality",
+        "São Martinho"
+      ],
+      [
+        "postal-code",
+        "9000-018"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:2773799208"
+      ],
+      [
+        "lat",
+        "32.6428145"
+      ],
+      [
+        "lon",
+        "-16.9211054"
+      ],
+      [
+        "website",
+        "https://gardengrillfunchal.com/"
+      ],
+      [
+        "phone",
+        "+351 934 253 092"
+      ],
+      [
+        "opening-hours",
+        "Mo-Sa 12:30-20:30"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "28434"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcwyqqj"
+      ],
+      [
+        "g",
+        "etgcwy"
+      ],
+      [
+        "g",
+        "etgcw"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "são martinho"
+      ],
+      [
+        "alt",
+        "Food and drink place: The Garden Grill, São Martinho"
+      ]
+    ],
+    "content": "",
+    "id": "81df8f37314e34c37361a96fbadb800c4b2b90039e83d3e64b9bf7f3bb538790",
+    "sig": "753734a65350a2fe4780f76e5f6908956c627e1ea604874a61d845a75c9986f91bd96eaa0e996fa97d2f408d6a230779e9e2978e633037f75e1fb29c59634e91"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-13050869563"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "A Cafetaria [nos.viveiros]"
+      ],
+      [
+        "category",
+        "cafe"
+      ],
+      [
+        "address",
+        "Estrada Doutor João Abel de Freitas São Roque 9000-310"
+      ],
+      [
+        "locality",
+        "São Roque"
+      ],
+      [
+        "postal-code",
+        "9000-310"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "coffee_shop"
+      ],
+      [
+        "osm-id",
+        "node:13050869563"
+      ],
+      [
+        "lat",
+        "32.6603445"
+      ],
+      [
+        "lon",
+        "-16.9196689"
+      ],
+      [
+        "website",
+        "https://www.instagram.com/a_cafetaria_/"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 08:00-20:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "28234"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcycxkr"
+      ],
+      [
+        "g",
+        "etgcyc"
+      ],
+      [
+        "g",
+        "etgcy"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "cafe"
+      ],
+      [
+        "t",
+        "coffee_shop"
+      ],
+      [
+        "t",
+        "são roque"
+      ],
+      [
+        "alt",
+        "Food and drink place: A Cafetaria [nos.viveiros], São Roque"
+      ]
+    ],
+    "content": "",
+    "id": "f610a58d28745d01f751cd946f5b1e5482f488a2f896a89dc54d2db76b6b322a",
+    "sig": "eeb168a3778b18856b6538482c6aab6291481842e68b921ed6fabd574309100ef0edfc1adcd6f78ced48eb0f34db56d141cea8196dda8ce2e09d13aabb0959b3"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-10295182582"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "O Maltez"
+      ],
+      [
+        "category",
+        "bar"
+      ],
+      [
+        "address",
+        "8 Estrada Monumental Funchal 9000-098"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-098"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:10295182582"
+      ],
+      [
+        "lat",
+        "32.6433149"
+      ],
+      [
+        "lon",
+        "-16.9236637"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 07:00-21:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "both"
+      ],
+      [
+        "btcmap-id",
+        "18279"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcwys94"
+      ],
+      [
+        "g",
+        "etgcwy"
+      ],
+      [
+        "g",
+        "etgcw"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "bar"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: O Maltez, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "a2d3066815db0ce41f2c65c587c113ad595f0f54dfaf076654dd9a50accc8925",
+    "sig": "2a4fd230e38790f668bb190d12ea345fa5df3d8f68d5e6b480bb5a9015855f6f75ebd98b184093abc3410c870e66b2c835bdb67460d06edcb1dfc0a4b3e17531"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-way-724127083"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Central Grill"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "86 Rua da Levada dos Barreiros Funchal 9000-161"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-161"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "cuisine",
+        "steak_house"
+      ],
+      [
+        "osm-id",
+        "way:724127083"
+      ],
+      [
+        "lat",
+        "32.64646215"
+      ],
+      [
+        "lon",
+        "-16.929799199999998"
+      ],
+      [
+        "website",
+        "https://restaurantecentralgrill.com"
+      ],
+      [
+        "phone",
+        "+351 291 934 344"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 12:30-24:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "28722"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcwz057"
+      ],
+      [
+        "g",
+        "etgcwz"
+      ],
+      [
+        "g",
+        "etgcw"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "steak_house"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Central Grill, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "114324d6e04ee17a2348c403c75cb3d23a0517dd33a7074234b94898055d2649",
+    "sig": "889f945d47b74ba55b37866b1b288571e997e493476e711e7ac45ad84c308fff18c8915caedebde33549571a435f73d6432d47d17bd7e066967abe726fa00fb8"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-4269544449"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Madalenas Café"
+      ],
+      [
+        "category",
+        "cafe"
+      ],
+      [
+        "address",
+        "Avenida da Madalena Funchal 9020-329"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9020-329"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:4269544449"
+      ],
+      [
+        "lat",
+        "32.6591867"
+      ],
+      [
+        "lon",
+        "-16.9284015"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "21398"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcyc3je"
+      ],
+      [
+        "g",
+        "etgcyc"
+      ],
+      [
+        "g",
+        "etgcy"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "cafe"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: Madalenas Café, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "0cff6a870d06c036777bb64691883e712b11711465ae5cebdb2409dc453b9d32",
+    "sig": "e95ce51382c8e683541108c5baa2a311309e7c0e8b6bcd3088363286b7dfd74bf8ea8db83fba105223fa9f0e26aecd8ec122ce603cf5a5ea4fe9deedf87ba465"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-10912591292"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "A Confeitaria Coffee & Bakery"
+      ],
+      [
+        "category",
+        "bakery"
+      ],
+      [
+        "address",
+        "Rua Dr Pita Funchal 9000-645"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-645"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:10912591292"
+      ],
+      [
+        "lat",
+        "32.6472152"
+      ],
+      [
+        "lon",
+        "-16.9304329"
+      ],
+      [
+        "phone",
+        "+351 291 655 791"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 07:30-20:00; Sa, Su 07:30-19:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "18152"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcwxpxu"
+      ],
+      [
+        "g",
+        "etgcwx"
+      ],
+      [
+        "g",
+        "etgcw"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "bakery"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: A Confeitaria Coffee & Bakery, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "01d8098b432b9f051fe27dd30adb839c739b7fd65c0f499597afba0710eddfb3",
+    "sig": "5e090cf6fc869a0d76aba4fd8dc669b2f51a74934a098042db147f0a57315da8114b3fce5179010fda5dc476e4799bda38bb509a83342b8be4d3c9cc4ad31f64"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-6128776289"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "A Confeitaria [na.casabranca]"
+      ],
+      [
+        "category",
+        "cafe"
+      ],
+      [
+        "address",
+        "34b Rua da Casa Branca Funchal 9000-113"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9000-113"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:6128776289"
+      ],
+      [
+        "lat",
+        "32.6407088"
+      ],
+      [
+        "lon",
+        "-16.9275821"
+      ],
+      [
+        "website",
+        "https://www.facebook.com/confeitariamc"
+      ],
+      [
+        "phone",
+        "+351 291 601 940"
+      ],
+      [
+        "opening-hours",
+        "Mo-Fr 07:00-19:00; Sa-Su 08:00-19:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "21735"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcwy19y"
+      ],
+      [
+        "g",
+        "etgcwy"
+      ],
+      [
+        "g",
+        "etgcw"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "cafe"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: A Confeitaria [na.casabranca], Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "ec063bf631e62f8f8c7f0de5b80ddc7b84e14fb88b8497280b5939379706c94f",
+    "sig": "fde285dc21dd5b0ea9f0478ddcb9b891f86e4711f678ee01e3a75857c99b2f3554ececcde85290a28599a0249f20b7e7ff81ee319987c1403169e9eef0bc8c8f"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-10958561090"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "A Confeitaria Coffee & Bakery"
+      ],
+      [
+        "category",
+        "bakery"
+      ],
+      [
+        "address",
+        "120 Avenida da Madalena Funchal 9020-402"
+      ],
+      [
+        "locality",
+        "Funchal"
+      ],
+      [
+        "postal-code",
+        "9020-402"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:10958561090"
+      ],
+      [
+        "lat",
+        "32.6607547"
+      ],
+      [
+        "lon",
+        "-16.9304694"
+      ],
+      [
+        "phone",
+        "+351 291 611 846"
+      ],
+      [
+        "opening-hours",
+        "Mo-Su 07:30-20:00"
+      ],
+      [
+        "accepts-bitcoin",
+        "lightning"
+      ],
+      [
+        "btcmap-id",
+        "18173"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgcy9xwe"
+      ],
+      [
+        "g",
+        "etgcy9"
+      ],
+      [
+        "g",
+        "etgcy"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "bakery"
+      ],
+      [
+        "t",
+        "funchal"
+      ],
+      [
+        "alt",
+        "Food and drink place: A Confeitaria Coffee & Bakery, Funchal"
+      ]
+    ],
+    "content": "",
+    "id": "4cc70b0f803a1a69341d192d80c2ad452e4d9179919f67b1f696c8a14cb41e68",
+    "sig": "54c0e5fe840fd112560ce555cc4d1246940d09e0076a2e99851c0e5c0db31a9ae37f453197d46fc22a36b8067214d00e5b78af8aeb0fbc28b9a8edc3ebdc8e93"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "osm-node-11697915754"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Re-Canto Food Experiences"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "address",
+        "33 Ladeira do Farrobo de Baixo São Gonçalo 9060-105"
+      ],
+      [
+        "locality",
+        "São Gonçalo"
+      ],
+      [
+        "postal-code",
+        "9060-105"
+      ],
+      [
+        "country",
+        "PT"
+      ],
+      [
+        "osm-id",
+        "node:11697915754"
+      ],
+      [
+        "lat",
+        "32.6543884"
+      ],
+      [
+        "lon",
+        "-16.8835496"
+      ],
+      [
+        "phone",
+        "+351 968 681 656"
+      ],
+      [
+        "accepts-bitcoin",
+        "both"
+      ],
+      [
+        "btcmap-id",
+        "18200"
+      ],
+      [
+        "source",
+        "btcmap"
+      ],
+      [
+        "license",
+        "ODbL-1.0"
+      ],
+      [
+        "g",
+        "etgczb9c8"
+      ],
+      [
+        "g",
+        "etgczb"
+      ],
+      [
+        "g",
+        "etgcz"
+      ],
+      [
+        "g",
+        "etgc"
+      ],
+      [
+        "t",
+        "restaurant"
+      ],
+      [
+        "t",
+        "são gonçalo"
+      ],
+      [
+        "alt",
+        "Food and drink place: Re-Canto Food Experiences, São Gonçalo"
+      ]
+    ],
+    "content": "",
+    "id": "48ec00ad1b727110eac1d4a02f2f5a88eed137ee4a3d817a3958990acb556799",
+    "sig": "6fa2f1de5edf348f0850771b26938a858ad4f26be72aed44592f8e315b1b5b2293411a99315e3c30eea391f1fe747b420b23f7134a8aec912dc25e19bf45c93f"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "crafted-minimal"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Minimal Table"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "lat",
+        "32.6502"
+      ],
+      [
+        "lon",
+        "-16.9092"
+      ],
+      [
+        "g",
+        "etgcxpz15"
+      ]
+    ],
+    "content": "",
+    "id": "4cd9c2c7a511d5cc71be7794b05bf4d9e3f890353663532b8ebd1be97747d32c",
+    "sig": "9e4f8fa1ae3b75d8b56e2752d39414d0c9f4839e39b49a0e92c5525cbb8de0f56f5c5d37e55fc83d086d45cf88201421d11ed85941371ebc5c5bfc4b6157d111"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "crafted-long-name"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "Restaurante Tradicional Madeirense da Família Fernandes e Filhos SA"
+      ],
+      [
+        "category",
+        "restaurant"
+      ],
+      [
+        "lat",
+        "32.6511"
+      ],
+      [
+        "lon",
+        "-16.9071"
+      ],
+      [
+        "g",
+        "etgcxrbwk"
+      ]
+    ],
+    "content": "",
+    "id": "4a387d38962eb1e456282493a368d01cc4a5fb6c02020007295e936e045c8567",
+    "sig": "b42e72c06e15e9ac283f05044d94a70b531e415285b0b522af66c52b7b4058411cb45fa29f48d798bf9dda45fc7c84fc06e6b924aaa03f9fec7687c5583d71f2"
+  },
+  {
+    "kind": 39999,
+    "pubkey": "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64",
+    "created_at": 1791242721,
+    "tags": [
+      [
+        "d",
+        "crafted-japanese-name"
+      ],
+      [
+        "z",
+        "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places"
+      ],
+      [
+        "name",
+        "ペーパー・クレーン"
+      ],
+      [
+        "category",
+        "cafe"
+      ],
+      [
+        "lat",
+        "32.6498"
+      ],
+      [
+        "lon",
+        "-16.9065"
+      ],
+      [
+        "g",
+        "etgcxr9nc"
+      ]
+    ],
+    "content": "",
+    "id": "390b6c90d43460364be00a5d5c18b039a71729e78c9fe6f84c38fbbb88c9b589",
+    "sig": "f5f69699ec46884d0bbbb6dadd0b66983d5b2bb97075d9c1d3733778464f725a3ddc330fca4cdb6f2394e1e35f5737d93f337eded478428e224177dc3b5fcc1b"
+  }
+]
