@@ -7,7 +7,7 @@ import type { Place } from "../places/place.ts";
 import { REVIEW_KIND, type Review } from "../reviews/review.ts";
 import { useRelays } from "../score/ScoresProvider.tsx";
 import { useScoreActions } from "../score/useScore.ts";
-import { NotPosted, type Posted, removalRelays, removeReview, sendReview, whereToPost } from "./post.ts";
+import { NotPosted, type Posted, removalRelays, removeReview, sendReview, signTimeFor, whereToPost } from "./post.ts";
 
 /*
  * Removing the person's review of a place (M2b Task 7): asked first, then one removal of every version
@@ -106,7 +106,10 @@ export function useRemoveReview(place: Place, mine: Review | undefined): RemoveR
       } else {
         unremoved.current = null;
         relays = removalRelays(await whereToPost(account.pubkey, account.signer, readers, signal), reviews);
-        removed = await removeReview(reviews, account, relays, Math.floor(Date.now() / 1000), signal, { writers });
+        removed = await removeReview(reviews, account, relays, Math.floor(Date.now() / 1000), signal, {
+          writers,
+          signWithin: signTimeFor(account.how),
+        });
       }
       unremoved.current = null;
       for (const review of reviews) noteRemoval(`${REVIEW_KIND}:${account.pubkey}:${review.d}`, removed.event.created_at);

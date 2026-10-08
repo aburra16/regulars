@@ -14,7 +14,7 @@ import { primaryButton } from "../ui/Banner.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Star } from "../ui/Stars.tsx";
 import { dropDraft, readDraft, saveDraft } from "./draft.ts";
-import { NotPosted, type Posted, postReview, reviewStamp, sendReview, whereToPost } from "./post.ts";
+import { NotPosted, type Posted, postReview, reviewStamp, sendReview, signTimeFor, whereToPost } from "./post.ts";
 
 /*
  * The review form (screen 8, Review.dc.html; D3, DeskReview.dc.html): the stars, each with its word,
@@ -256,7 +256,10 @@ export function ReviewForm({ place, wide, onPosted }: { place: Place; wide: bool
         relays = await whereToPost(account.pubkey, account.signer, readers, signal);
         const now = Math.floor(Date.now() / 1000);
         const stamp = reviewStamp(now, ownCoordinates(account.pubkey, place.address), ownRemovedAt(account.pubkey, place.address));
-        posted = await postReview(reviewTemplate(place, stars, words, stamp), account.signer, [...relays], signal, { writers });
+        posted = await postReview(reviewTemplate(place, stars, words, stamp), account.signer, [...relays], signal, {
+          writers,
+          signWithin: signTimeFor(account.how),
+        });
       }
       unposted.current = null;
       // Held with every relay it was sent to, so that removing it goes there too: one that has not

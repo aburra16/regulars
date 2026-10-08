@@ -4,6 +4,7 @@ import { generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { readSession } from "../src/account/session";
+import { SIGN_TIMEOUT_MS } from "../src/review/post";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { reviewTemplate } from "../src/reviews/write";
@@ -258,6 +259,37 @@ describe("posting a review", () => {
     expect(sentTo(world, OWN)).toHaveLength(1);
     expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
     expect(heldRelays()).toEqual(new Set([OWN, SEARCH]));
+  });
+
+  it("says it didn't post when the add-on has not signed it in 60 seconds, keeping what was typed; Try again asks again", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.writers[SEARCH] = createMemoryWriter();
+    // The add-on shows its question and nobody answers it.
+    me.addOn.signEvent.mockImplementationOnce(() => new Promise<never>(() => {}));
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+
+    const stars = await starButtons();
+    await user.click(stars[3]!);
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Get the bolo");
+    await user.click(postButton());
+    await waitFor(() => expect(me.addOn.signEvent).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: copy.review.posting })).toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(SIGN_TIMEOUT_MS));
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.failed);
+    expect(router.state.location.pathname).toBe(REVIEW_PATH);
+    expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Get the bolo");
+    expect(sentTo(world, SEARCH)).toEqual([]);
+
+    // Try again asks the add-on again, which signs this time.
+    await user.click(tryAgainButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(2);
+    expect(sentTo(world, SEARCH)).toHaveLength(1);
   });
 
   it("says it didn't post, keeping what was typed, when every relay refuses it; and nothing of it is shown or held", async () => {

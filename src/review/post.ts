@@ -1,6 +1,7 @@
 import type { NostrEvent, NostrSigner } from "@nostrify/nostrify";
 import type { EventTemplate } from "nostr-tools/core";
 
+import type { How } from "../account/session.ts";
 import { abortable, isReviewRelay, sendableRelayAddress, writeRelaysOf } from "../account/writeRelays.ts";
 import { config } from "../config.ts";
 import { asEvent, type RelayReader, type RelayWriter } from "../nostr/events.ts";
@@ -42,9 +43,48 @@ export interface Posted {
   settled: Promise<void>;
 }
 
+/**
+ * How long an add-on in the browser (NIP-07) has to sign a review or a removal: it asks the person,
+ * who may not answer, and some add-ons never say no. A phone app has its own time limit
+ * (`REQUEST_TIMEOUT_MS`, src/account/connect.ts), longer: the person may have to find their phone.
+ */
+export const SIGN_TIMEOUT_MS = 60_000;
+
+/** How long the signer of a person signed in by `how` has to sign (`SendOptions.signWithin`): an add-on 60 seconds; a phone app its own. */
+export const signTimeFor = (how: How): number | undefined => (how === "browser" ? SIGN_TIMEOUT_MS : undefined);
+
 /** How a review is sent: the writer of each relay (the app's own by default). */
 export interface SendOptions {
   writers?: (url: string) => RelayWriter;
+  /**
+   * For signing (`postReview`): how long the signer has, in milliseconds, after which the review is
+   * not posted (`NotPosted`). None by default: the signer's own limit holds.
+   */
+  signWithin?: number;
+}
+
+/**
+ * What `signer` signs of `template`, or `NotPosted` once `within` milliseconds have passed without it;
+ * the signal's reason when `signal` aborts first.
+ */
+async function signInTime(
+  signer: NostrSigner,
+  template: EventTemplate,
+  signal: AbortSignal,
+  within: number | undefined,
+): Promise<NostrEvent> {
+  if (within === undefined) return abortable(signer.signEvent(template), signal);
+  const clock = new AbortController();
+  const timer = setTimeout(() => clock.abort(new DOMException("The signer did not answer in time", "TimeoutError")), within);
+  try {
+    return await abortable(signer.signEvent(template), AbortSignal.any([signal, clock.signal]));
+  } catch (error) {
+    signal.throwIfAborted();
+    if (clock.signal.aborted) throw new NotPosted({});
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -237,14 +277,14 @@ export function sendReview(event: NostrEvent, relays: readonly string[], signal:
 
 /**
  * Posts a review: `signer` signs `template` (the person's add-on or phone app, which may ask them
- * first), and the signed event, once checked to be what was asked for, is sent to every one of
- * `relays` at once (`sendReview`): posted as soon as a review relay takes it, the others going on.
- * With no relays, nothing is signed.
+ * first), within `opts.signWithin` when given (an add-on: `SIGN_TIMEOUT_MS`), and the signed event,
+ * once checked to be what was asked for, is sent to every one of `relays` at once (`sendReview`):
+ * posted as soon as a review relay takes it, the others going on. With no relays, nothing is signed.
  *
  * Throws `NotPosted` when no review relay took it (with what the others did, and the event), when
- * there was nowhere to send it, or when the signer signed something else; whatever the signer throws,
- * as it is (the person said no, or `AccountChanged`); and the signal's reason when `signal` aborts
- * before it is posted.
+ * there was nowhere to send it, when the signer signed something else, or did not sign in time;
+ * whatever the signer throws, as it is (the person said no, or `AccountChanged`); and the signal's
+ * reason when `signal` aborts before it is posted.
  */
 export async function postReview(
   template: EventTemplate,
@@ -255,7 +295,7 @@ export async function postReview(
 ): Promise<Posted> {
   signal.throwIfAborted();
   if (relays.length === 0) throw new NotPosted({});
-  const event = await abortable(signer.signEvent(template), signal);
+  const event = await signInTime(signer, template, signal, opts.signWithin);
   if (!isSigned(event, template)) throw new NotPosted({});
   return sendReview(event, relays, signal, opts);
 }

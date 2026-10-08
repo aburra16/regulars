@@ -14,6 +14,7 @@ import {
   removalRelays,
   removeReview,
   reviewStamp,
+  SIGN_TIMEOUT_MS,
   sendReview,
   WRITE_RELAYS_WAIT_MS,
   whereToPost,
@@ -92,6 +93,46 @@ describe("postReview", () => {
     await posted.settled;
     expect(posted.accepted).toEqual([SEARCH, OWN]);
     expect(posted.refused).toEqual({});
+  });
+
+  it("gives the signer 60 seconds when asked to (an add-on), then is not posted, and nothing is sent", async () => {
+    vi.useFakeTimers();
+    const by = signer();
+    by.signEvent.mockImplementationOnce(() => new Promise<never>(() => {}));
+    const search = createMemoryWriter();
+    const posting = postReview(template(), by, [SEARCH], new AbortController().signal, {
+      writers: writersOver({ [SEARCH]: search }),
+      signWithin: SIGN_TIMEOUT_MS,
+    });
+    let outcome: unknown;
+    posting.catch((error: unknown) => {
+      outcome = error;
+    });
+    expect(SIGN_TIMEOUT_MS).toBe(60_000);
+
+    await vi.advanceTimersByTimeAsync(SIGN_TIMEOUT_MS - 1);
+    expect(outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toBeInstanceOf(NotPosted);
+    expect(search.published).toEqual([]);
+  });
+
+  it("gives the signer no time limit of its own when not asked to (a phone app has its own)", async () => {
+    vi.useFakeTimers();
+    const by = signer();
+    let sign!: () => void;
+    by.signEvent.mockImplementationOnce(
+      (asked: Parameters<typeof finalizeEvent>[0]) =>
+        new Promise((resolve) => {
+          sign = () => resolve(finalizeEvent({ ...asked }, KEY));
+        }),
+    );
+    const search = createMemoryWriter();
+    const posting = run([SEARCH], writersOver({ [SEARCH]: search }), undefined, by);
+    await vi.advanceTimersByTimeAsync(SIGN_TIMEOUT_MS * 2);
+    sign();
+    const posted = await posting;
+    expect(search.published).toEqual([posted.event]);
   });
 
   it("is posted when one relay takes it and another refuses, and says which did which", async () => {

@@ -15,6 +15,7 @@ import { distanceKm } from "../src/places/distance";
 import { buildIndexes, chainSlug } from "../src/places/indexes";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
+import { SIGN_TIMEOUT_MS } from "../src/review/post";
 import { REVIEW_KIND } from "../src/reviews/review";
 import { removalTemplate, reviewTemplate } from "../src/reviews/write";
 import { HELD_REVIEWS_KEY } from "../src/score/store";
@@ -355,6 +356,27 @@ describe("removing a review", () => {
     expect(sentTo(world, SEARCH)).toEqual([first]);
     expect(sentTo(world, OWN)).toEqual([first]);
     expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the review didn't come off when the add-on has not signed the removal in 60 seconds, and keeps it", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+    world.writers[SEARCH] = createMemoryWriter();
+    me.addOn.signEvent.mockImplementationOnce(() => new Promise<never>(() => {}));
+    await open(world, fromExplore(PLACE_PATH));
+    const mine = await yourReview();
+    await removeButton(mine);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+
+    await removeIt(user);
+    await waitFor(() => expect(me.addOn.signEvent).toHaveBeenCalledTimes(1));
+    await act(() => vi.advanceTimersByTimeAsync(SIGN_TIMEOUT_MS));
+    expect(await within(mine).findByRole("alert")).toHaveTextContent(copy.reviews.removeFailed);
+    expect(within(mine).getByText("Get the bolo")).toBeInTheDocument();
+    expect(sentTo(world, SEARCH)).toEqual([]);
   });
 
   it("says the review didn't come off when no relay takes the removal, keeps it, with Try again and Keep it", async () => {
