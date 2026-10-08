@@ -88,6 +88,12 @@ interface Config {
   /** Where the house's kind 10040 is read, which names the scorer whose ranks are House picks. */
   houseTrustRelays: string[];
   /**
+   * Brainstorm's API, which works out a person's circle (My circle). The app asks it only after the
+   * person taps Personalize, and from then on (src/circle/brainstorm.ts): signing in to Regulars never
+   * reaches it. Its sign-in sets up the person's public scoring profile.
+   */
+  brainstormApi: string;
+  /**
    * `line`: the lowest rank that counts, out of 100 (docs/decisions.md #18). A list is ordered as
    * if each place also had `priorWeight` of a vote of `priorMean` stars, so one five-star review
    * does not top it (brief § 5). Tunable.
@@ -118,6 +124,7 @@ export const config: Config = {
   relayReadExtras: { [searchRelay]: { search: "include:spam" } },
   relayListRelays: ["wss://purplepag.es"],
   houseTrustRelays: ["wss://scores.brainstorm.world"],
+  brainstormApi: "https://api.brainstorm.world",
   scoring: { line: 5, priorWeight: 1.5, priorMean: 3.5 },
   devScorer: import.meta.env.DEV ? scorerOverride(import.meta.env.VITE_DEV_SCORER) : undefined,
 };
