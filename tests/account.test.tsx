@@ -38,8 +38,12 @@ const MEETING = "wss://relay.nsec.app";
 /** A review relay, where names are read from. */
 const REVIEWS = "wss://reviews.example.test";
 
-/** What the app asks a signer app to let it do, as the link says it. */
-const PERMS = "get_public_key%2Csign_event%3A34259%2Csign_event%3A5%2Csign_event%3A10002";
+/**
+ * What the app asks a signer app to let it do without asking each time, as the link says it: who the
+ * person is, and signing their reviews. Not a removal (kind 5), which the phone app asks about each
+ * time, nor a relay list (kind 10002), which the app never signs.
+ */
+const PERMS = "get_public_key%2Csign_event%3A34259";
 const LINK = new RegExp(
   `^nostrconnect://([0-9a-f]{64})\\?relay=wss%3A%2F%2Frelay\\.nsec\\.app&secret=([0-9a-f]{32})&name=Regulars&url=https%3A%2F%2Faskregulars\\.world&perms=${PERMS}$`,
 );
@@ -149,6 +153,18 @@ describe("the link the app shows a phone", () => {
     controller.abort();
     await expect(first.account).rejects.toThrow();
     await expect(second.account).rejects.toThrow();
+  });
+
+  it("asks to sign reviews without asking each time, and nothing else: no standing yes to remove, nor to sign a relay list", async () => {
+    const relay = new MemoryConnectRelay();
+    const controller = new AbortController();
+    const { link, account } = connecting(relay, controller.signal);
+    const perms = new URL((await link).replace(/^nostrconnect:/, "https:")).searchParams.get("perms")?.split(",");
+    expect(perms).toEqual(["get_public_key", "sign_event:34259"]);
+    expect(perms).not.toContain("sign_event:5");
+    expect(perms).not.toContain("sign_event:10002");
+    controller.abort();
+    await expect(account).rejects.toThrow();
   });
 
   it("is the meeting point in the config, which is relay.nsec.app", () => {
@@ -848,7 +864,7 @@ describe("signed in", () => {
 
 describe("the code to scan", () => {
   it("has a quiet zone of 4 modules on each side, in modules, whatever size it is drawn at", () => {
-    const uri = `nostrconnect://${"a".repeat(64)}?relay=wss%3A%2F%2Frelay.nsec.app&secret=${"b".repeat(32)}&name=Regulars&url=https%3A%2F%2Faskregulars.world&perms=get_public_key%2Csign_event%3A34259%2Csign_event%3A5%2Csign_event%3A10002`;
+    const uri = `nostrconnect://${"a".repeat(64)}?relay=wss%3A%2F%2Frelay.nsec.app&secret=${"b".repeat(32)}&name=Regulars&url=https%3A%2F%2Faskregulars.world&perms=get_public_key%2Csign_event%3A34259`;
     render(<QrCode text={uri} label="code" />);
     const svg = screen.getByRole("img", { name: "code" });
     const [, , width, height] = (svg.getAttribute("viewBox") ?? "").split(" ").map(Number);

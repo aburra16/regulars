@@ -44,9 +44,11 @@ export const REQUEST_TIMEOUT_MS = 120_000;
 
 /**
  * What the nostrconnect link asks the phone app to let the app do without asking each time: say who
- * the person is, and sign their reviews (34259), the removal of one (5) and their relay list (10002).
+ * the person is, and sign their reviews (34259). Nothing more. A removal (5) is rare, and the phone
+ * app asks the person each time: a standing yes would let anyone holding this connection's key delete
+ * their notes. The app never signs a relay list (10002), so it does not ask to.
  */
-const PERMISSIONS = ["get_public_key", "sign_event:34259", "sign_event:5", "sign_event:10002"];
+const PERMISSIONS = ["get_public_key", "sign_event:34259"];
 
 /** The relay at an address. The app's own opens a socket; tests pass one held in memory. */
 export type RelayFor = (url: string) => NRelay;
