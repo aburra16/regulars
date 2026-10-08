@@ -1,7 +1,8 @@
 // First: what the browser may lack, in place before any module that uses it is loaded.
 import "./polyfills.ts";
-import "@fontsource/bricolage-grotesque/700.css";
-import "@fontsource/bricolage-grotesque/800.css";
+// The display face as the screens load it: variable, with its optical-size axis (opsz 12 to 96) and
+// the weights 700 and 800 inside its range.
+import "@fontsource-variable/bricolage-grotesque/opsz.css";
 import "@fontsource/figtree/400.css";
 import "@fontsource/figtree/600.css";
 import "@fontsource/figtree/700.css";

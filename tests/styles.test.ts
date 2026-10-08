@@ -83,8 +83,23 @@ describe("styles", () => {
   });
 
   it("puts Noto Sans JP before the generic fallbacks so Japanese place names use it", () => {
-    expect(indexCss).toMatch(/--font-display:\s*'Bricolage Grotesque', 'Noto Sans', 'Noto Sans JP', sans-serif;/);
+    expect(indexCss).toMatch(
+      /--font-display:\s*'Bricolage Grotesque Variable', 'Bricolage Grotesque', 'Noto Sans', 'Noto Sans JP', sans-serif;/,
+    );
     expect(indexCss).toMatch(/--font-text:\s*'Figtree', 'Noto Sans', 'Noto Sans JP', system-ui, sans-serif;/);
+  });
+
+  it("draws the display face from its variable font, with the optical-size axis the screens use", () => {
+    // The screens load Bricolage Grotesque with `opsz 12..96`: at 26 px and up its letters are
+    // narrower than the static files', and headlines wrap as the design does.
+    const main = read("src/main.tsx");
+    expect(main).toContain('import "@fontsource-variable/bricolage-grotesque/opsz.css";');
+    expect(main).not.toMatch(/@fontsource\/bricolage-grotesque/);
+    const faces = read("node_modules/@fontsource-variable/bricolage-grotesque/opsz.css");
+    expect(faces).toMatch(/font-family: 'Bricolage Grotesque Variable';/);
+    // The weights the app uses, 700 and 800, are inside the face's range.
+    expect(faces).toMatch(/font-weight: 200 800;/);
+    expect(indexCss).toMatch(/body\s*\{[^}]*font-optical-sizing:\s*auto/);
   });
 
   it("sets the body font, colour and background from the tokens", () => {
