@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import type { NostrEvent } from "@nostrify/nostrify";
 import { act, render, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -11,6 +14,7 @@ import { HereProvider } from "../src/location/HereProvider";
 import { parsePlaces, type RelayReader } from "../src/places/load";
 import { PlacesProvider, type PlacesValue } from "../src/places/store";
 import { routes } from "../src/routes";
+import { useDocumentTitle } from "../src/shell/useDocumentTitle";
 import { useWide, WIDE_QUERY } from "../src/shell/useWide";
 import { Attribution } from "../src/ui/Attribution";
 import { KindTile } from "../src/ui/KindTile";
@@ -117,6 +121,19 @@ function renderApp(path = "/", opts: { width?: number } = {}) {
 const tabBar = () => screen.queryByRole("navigation", { name: copy.nav.label });
 const topBarSearch = () => screen.queryByRole("search");
 const toggle = () => screen.getByRole("group", { name: copy.view.label });
+
+/**
+ * The shell's two quiet regions, in the order of the page: where the places are near (under the
+ * top of the page), then how the places loaded. Both are always there, empty until they have
+ * something to say. The pages draw their own status lines inside `main`, which these leave out.
+ */
+const shellRegions = () => screen.getAllByRole("status").filter((region) => region.closest("main") === null);
+const locationRegion = () => {
+  const [region, ...rest] = shellRegions();
+  expect(rest).toHaveLength(1);
+  return region!;
+};
+const loadRegion = () => shellRegions().at(-1)!;
 
 describe("useWide", () => {
   const wideAt = (px: number) => {
@@ -255,14 +272,14 @@ describe("the layout, by width", () => {
   it("says why the places are not near the person, in a region that is always there", async () => {
     const user = userEvent.setup();
     renderApp("/", { width: DESKTOP });
-    const region = screen.getByTestId("location-status");
+    const region = locationRegion();
     expect(region).toHaveAttribute("role", "status");
     expect(region).toBeEmptyDOMElement();
 
     // No geolocation in this browser: the picker's "Use my location" cannot find the person.
     await user.click(screen.getByRole("button", { name: "Near Funchal" }));
     await user.click(screen.getByRole("button", { name: copy.location.useMine }));
-    expect(screen.getByTestId("location-status")).toBe(region);
+    expect(locationRegion()).toBe(region);
     expect(region).toHaveTextContent(copy.location.unavailable);
   });
 });
@@ -468,8 +485,8 @@ describe("the load banners", () => {
     renderApp("/");
     expect(screen.getByText(copy.load.cached)).toBeInTheDocument();
     expect(copy.load.cached).toBe("Showing places saved on this device");
-    expect(screen.getByTestId("load-status")).toHaveAttribute("role", "status");
-    expect(screen.getByTestId("load-status")).toHaveTextContent(copy.load.cached);
+    expect(loadRegion()).toHaveAttribute("role", "status");
+    expect(loadRegion()).toHaveTextContent(copy.load.cached);
     // The page itself still shows.
     expect(exploreHeading()).toBeInTheDocument();
   });
@@ -477,18 +494,18 @@ describe("the load banners", () => {
   it("says nothing when the places are fresh, or saved and not yet refreshed", () => {
     placesOverride.value = placesState({ source: "network" });
     const first = renderApp("/");
-    expect(screen.getByTestId("load-status")).toBeEmptyDOMElement();
+    expect(loadRegion()).toBeEmptyDOMElement();
     first.unmount();
 
     placesOverride.value = placesState({ source: "cache", savedAt: 1 });
     renderApp("/");
-    expect(screen.getByTestId("load-status")).toBeEmptyDOMElement();
+    expect(loadRegion()).toBeEmptyDOMElement();
   });
 
   it("says nothing when the list may be short, to keep the page calm", () => {
     placesOverride.value = placesState({ complete: false });
     renderApp("/", { width: DESKTOP });
-    expect(screen.getByTestId("load-status")).toBeEmptyDOMElement();
+    expect(loadRegion()).toBeEmptyDOMElement();
   });
 
   it("fills the page with the error and a Try again button when no places could be loaded", async () => {
@@ -538,7 +555,7 @@ describe("the load banners", () => {
     placesOverride.value = placesState({ source: "cache", error: "network", savedAt: 1 });
     renderApp("/", { width: DESKTOP });
     setOnline(false);
-    const status = screen.getByTestId("load-status");
+    const status = loadRegion();
     // One line, not two.
     expect(status.textContent).toBe(copy.offline);
 
@@ -546,10 +563,24 @@ describe("the load banners", () => {
     expect(status.textContent).toBe(copy.load.cached);
   });
 
-  it("starts offline when the browser already is", () => {
+  it("says the places are the saved ones only when they are", () => {
     online = false;
+    placesOverride.value = placesState({ source: "cache", savedAt: 1 });
     renderApp("/");
-    expect(screen.getByTestId("load-status")).toHaveTextContent(copy.offline);
+    expect(loadRegion().textContent).toBe(copy.offline);
+  });
+
+  it("says only that the person is offline when the places did not come from the device", () => {
+    online = false;
+    placesOverride.value = placesState({ source: "network" });
+    renderApp("/");
+    expect(loadRegion().textContent).toBe(copy.offlineNoCache);
+    expect(copy.offlineNoCache).toBe("You're offline.");
+    expect(loadRegion()).not.toHaveTextContent(/saved on this device/);
+
+    // Back on line, there is nothing to say.
+    setOnline(true);
+    expect(loadRegion()).toBeEmptyDOMElement();
   });
 
   it("shows the error page, not the offline line, when there are no places at all", () => {
@@ -557,7 +588,7 @@ describe("the load banners", () => {
     placesOverride.value = placesState({ status: "error", places: [], error: "network" });
     renderApp("/");
     expect(screen.getByRole("alert")).toHaveTextContent(copy.load.failed);
-    expect(screen.getByTestId("load-status")).toBeEmptyDOMElement();
+    expect(loadRegion()).toBeEmptyDOMElement();
   });
 
   it("recovers with the real store: an error, then Try again, then the places (Review Focus 1)", async () => {
@@ -736,6 +767,106 @@ describe("KindTile", () => {
     expect(ground.container.firstElementChild).toHaveClass("bg-ground", "text-ink");
     const ink = render(<KindTile category="cafe" size="row" tone="ink" />);
     expect(ink.container.firstElementChild).toHaveClass("bg-ink", "text-ground");
+  });
+});
+
+describe("the scroll position", () => {
+  it("goes to the top on a new page and comes back to where it was on Back", async () => {
+    const scrollTo = vi.spyOn(window, "scrollTo");
+    const scrollY = vi.spyOn(window, "scrollY", "get").mockReturnValue(240);
+    const { router } = renderApp("/");
+
+    await act(() => router.navigate("/map"));
+    expect(scrollTo).toHaveBeenLastCalledWith(0, 0);
+
+    scrollY.mockReturnValue(0);
+    await act(() => router.navigate(-1));
+    expect(scrollTo).toHaveBeenLastCalledWith(0, 240);
+  });
+});
+
+describe("the document title", () => {
+  it.each([
+    ["/", "Regulars"],
+    ["/map", "Map · Regulars"],
+    ["/search?q=pizza", "Search · Regulars"],
+    ["/filters", "Filters · Regulars"],
+    ["/place/osm-node-123", "Place · Regulars"],
+    ["/chain/copper-kettle-pt", "All locations · Regulars"],
+    ["/about", "About · Regulars"],
+    ["/signin", "Sign in · Regulars"],
+    ["/saved", "Saved · Regulars"],
+    ["/you", "You · Regulars"],
+    ["/no/such/page", "Not found · Regulars"],
+  ])("at %s is %j", (path, title) => {
+    renderApp(path);
+    expect(document.title).toBe(title);
+  });
+
+  it("follows the person from page to page", async () => {
+    const { router } = renderApp("/");
+    await act(() => router.navigate("/saved"));
+    expect(document.title).toBe(copy.titles.saved);
+    await act(() => router.navigate("/"));
+    expect(document.title).toBe(copy.titles.explore);
+  });
+
+  it("is the app's name for Explore, and each other page's name before it", () => {
+    expect(copy.titles.explore).toBe(copy.app.name);
+    for (const [page, title] of Object.entries(copy.titles)) {
+      if (page !== "explore") expect(title).toMatch(new RegExp(` · ${copy.app.name}$`));
+    }
+  });
+
+  describe("useDocumentTitle", () => {
+    it("sets the title, changes it with its argument, and puts the old one back when it goes", () => {
+      document.title = "Before";
+      const { rerender, unmount } = renderHook(({ title }) => useDocumentTitle(title), { initialProps: { title: "One" } });
+      expect(document.title).toBe("One");
+      rerender({ title: "Two" });
+      expect(document.title).toBe("Two");
+      unmount();
+      expect(document.title).toBe("Before");
+    });
+  });
+});
+
+describe("the account button", () => {
+  it("is marked as the current page on You", () => {
+    renderApp("/you", { width: DESKTOP });
+    expect(screen.getByRole("link", { name: copy.nav.account })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("is not marked anywhere else", () => {
+    for (const [path, width] of [
+      ["/saved", DESKTOP],
+      ["/", PHONE],
+    ] as const) {
+      const { unmount } = renderApp(path, { width });
+      expect(screen.getByRole("link", { name: copy.nav.account })).not.toHaveAttribute("aria-current");
+      unmount();
+    }
+  });
+});
+
+describe("the location in the search field", () => {
+  it("cuts a long place name short inside the pill, so the field keeps its shape", () => {
+    renderApp("/", { width: DESKTOP });
+    const pill = within(screen.getByRole("search")).getByRole("button", { name: "Near Funchal" });
+    const label = within(pill).getByText("Near Funchal");
+    expect(label).toHaveClass("truncate");
+    expect(label.className).toMatch(/\bmax-w-/);
+  });
+});
+
+describe("the production markup", () => {
+  it("carries no test hooks: tests find things by role and name", () => {
+    const files = readdirSync(resolve(process.cwd(), "src"), { recursive: true, encoding: "utf8" }).filter((file) =>
+      /\.tsx?$/.test(file),
+    );
+    expect(files.length).toBeGreaterThan(20);
+    const offences = files.filter((file) => /data-testid/.test(readFileSync(resolve(process.cwd(), "src", file), "utf8")));
+    expect(offences).toEqual([]);
   });
 });
 

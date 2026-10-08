@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { Outlet, useMatches } from "react-router-dom";
+import { Outlet, ScrollRestoration, useMatches } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { type PlacesValue, usePlaces } from "../places/store.tsx";
@@ -43,7 +43,9 @@ function loadState(
   online: boolean,
 ): { page: "loading" | "failed" } | { page?: undefined; banner?: string } {
   if (places.length === 0) return { page: status === "error" ? "failed" : "loading" };
-  if (!online) return { banner: copy.offline };
+  // Offline with places that came from this device's saved copy: say so. Otherwise the places
+  // on screen are fresh, and all there is to say is that the connection is gone.
+  if (!online) return { banner: source === "cache" ? copy.offline : copy.offlineNoCache };
   if (source === "cache" && error !== undefined) return { banner: copy.load.cached };
   return {};
 }
@@ -79,7 +81,7 @@ function Frame(): JSX.Element {
     <div className="flex min-h-dvh flex-col bg-ground font-text text-ink">
       {wide ? chrome.topBar && <TopBar /> : chrome.near && <PhoneTop />}
       {/* Always there, so a screen reader announces the line when it comes. Empty, it takes no room. */}
-      <div role="status" data-testid="load-status" className="px-gutter-phone wide:px-gutter-desktop *:mt-3">
+      <div role="status" className="px-gutter-phone wide:px-gutter-desktop *:mt-3">
         {state.page === undefined && state.banner !== undefined && <Banner>{state.banner}</Banner>}
       </div>
       <main className="flex min-w-0 flex-1 flex-col">{content}</main>
@@ -96,6 +98,8 @@ export function Shell(): JSX.Element {
   return (
     <ViewProvider>
       <Frame />
+      {/* A new page opens at its top; Back returns to where the person was. */}
+      <ScrollRestoration />
     </ViewProvider>
   );
 }

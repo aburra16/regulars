@@ -20,7 +20,7 @@ export function LocationNotice({ className }: { className?: string }): JSX.Eleme
     text = copy.location.unavailable;
   }
   return (
-    <div role="status" data-testid="location-status" className={className}>
+    <div role="status" className={className}>
       {text !== undefined && <p className="m-0 text-secondary leading-[1.4] text-muted">{text}</p>}
     </div>
   );

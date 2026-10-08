@@ -14,13 +14,18 @@ import { ViewSwitch } from "../ui/ViewToggle.tsx";
  */
 export function AccountLink({ size }: { size: "phone" | "desktop" }): JSX.Element {
   return (
-    <Link to="/you" aria-label={copy.nav.account} className="flex size-11 shrink-0 items-center justify-center rounded-full">
+    <NavLink
+      to="/you"
+      end
+      aria-label={copy.nav.account}
+      className="flex size-11 shrink-0 items-center justify-center rounded-full"
+    >
       <span
         className={`flex items-center justify-center rounded-full bg-ink text-ground ${size === "phone" ? "size-11" : "size-10"}`}
       >
         <PersonIcon size={20} />
       </span>
-    </Link>
+    </NavLink>
   );
 }
 

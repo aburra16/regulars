@@ -15,6 +15,12 @@ class NoSocket {
 }
 globalThis.WebSocket = NoSocket as unknown as typeof WebSocket;
 
+// jsdom lays nothing out and scrolls nothing: it logs "not implemented" for window.scrollTo, which
+// the router calls on every page change. Tests that care about scrolling spy on this.
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "scrollTo", { configurable: true, writable: true, value: () => {} });
+}
+
 afterEach(async () => {
   cleanup();
   // Each test starts with nothing saved on the device, as on a first visit.

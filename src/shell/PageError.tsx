@@ -3,9 +3,11 @@ import { Link } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { PageMessage, primaryButton } from "../ui/Banner.tsx";
+import { useDocumentTitle } from "./useDocumentTitle.ts";
 
 /** An address in the app that has no page. It never shows a status code. */
 export function NotFound(): JSX.Element {
+  useDocumentTitle(copy.titles.missing);
   return (
     <PageMessage
       action={

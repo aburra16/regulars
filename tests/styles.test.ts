@@ -94,6 +94,43 @@ describe("styles", () => {
   });
 });
 
+describe("focus and scrolling", () => {
+  /** What the stylesheet puts in `@layer base`. */
+  const baseLayer = /@layer base\s*\{([\s\S]*)\}\s*$/.exec(indexCss)?.[1] ?? "";
+
+  it("draws one keyboard focus ring for the whole app: 2 px, in the ink colour, 2 px out", () => {
+    expect(baseLayer).toMatch(
+      /:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--ink\);[^}]*outline-offset:\s*2px;/,
+    );
+  });
+
+  it("leaves no component to draw a focus ring of its own, but the field that holds an input", () => {
+    const files = filesUnder("src").filter((file) => /\.tsx$/.test(file));
+    const own = files.flatMap((file) =>
+      [...read(file).matchAll(/(?<![\w-])(?:focus|focus-visible|focus-within):outline[\w-]*/g)].map(
+        (match) => `${file}: ${match[0]}`,
+      ),
+    );
+    expect(own).toEqual([]);
+  });
+
+  it("keeps a target the sticky tab bar covers in view: the page scrolls past the bar's height", () => {
+    expect(indexCss).toMatch(/--tab-bar-height:\s*73\.5px;/);
+    expect(baseLayer).toMatch(/html\s*\{\s*scroll-padding-bottom:\s*var\(--tab-bar-height\);/);
+    // No tab bar on a desktop, so no room to keep clear.
+    expect(baseLayer).toMatch(/@variant wide\s*\{\s*scroll-padding-bottom:\s*0;/);
+  });
+
+  it("clears that room on a desktop with the one breakpoint, not a second one", async () => {
+    const css = await compileUtilities([]);
+    expect(css).toMatch(/html\s*\{\s*scroll-padding-bottom:\s*var\(--tab-bar-height\);\s*@media \(width >= 900px\)\s*\{\s*scroll-padding-bottom:\s*0;/);
+  });
+
+  it("gives the tab bar the height the page scrolls past", () => {
+    expect(read("src/shell/TabBar.tsx")).toMatch(/h-\(--tab-bar-height\)|h-\[var\(--tab-bar-height\)\]/);
+  });
+});
+
 describe("Tailwind utilities for the tokens", () => {
   const expected = tokens.flatMap(({ name, value }) =>
     utilitiesFor(name, value).map(([className, property]) => ({ token: name, className, property })),

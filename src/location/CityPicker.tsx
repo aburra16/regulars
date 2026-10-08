@@ -212,7 +212,7 @@ export function CityPicker({
               autoCapitalize="off"
               spellCheck={false}
               enterKeyHint="search"
-              className="box-border h-13 w-full rounded-button border-token border-field-border bg-ground px-4 text-body text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+              className="box-border h-13 w-full rounded-button border-token border-field-border bg-ground px-4 text-body text-ink placeholder:text-muted"
             />
           </div>
         </div>
@@ -293,7 +293,8 @@ export function NearButton({ variant = "plain" }: { variant?: "plain" | "pill" }
           // Drawn 36 px tall inside the 48 px field, as the design has it; the button around it is 44 px to tap.
           <span className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-ground px-3">
             <PinIcon size={15} strokeWidth={2.4} />
-            {text}
+            {/* A long name is cut short here, so the search field keeps its shape; the picker shows it whole. */}
+            <span className="max-w-48 truncate">{text}</span>
           </span>
         ) : (
           <>

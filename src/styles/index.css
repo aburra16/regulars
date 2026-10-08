@@ -81,6 +81,9 @@
 :root {
   --font-display: 'Bricolage Grotesque', 'Noto Sans', 'Noto Sans JP', sans-serif;
   --font-text: 'Figtree', 'Noto Sans', 'Noto Sans JP', system-ui, sans-serif;
+  /* The phone's tab bar (Main.dc.html): a 1.5 px line, 6 px, a 52 px item, 14 px. The bar is this
+     tall and the page scrolls past this much, so a focused field is never hidden behind it. */
+  --tab-bar-height: 73.5px;
 }
 
 /* ---- Tailwind names for the tokens. `inline` makes each utility read the token variable
@@ -211,5 +214,21 @@
     font-family: var(--font-text);
     color: var(--ink);
     background: var(--ground);
+  }
+
+  /* The one keyboard focus ring in the app. A field that holds an input, and so hides the input's
+     own ring, draws this one around itself (the search field in the top bar). */
+  :focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+
+  /* The page is the scroller. On a phone the sticky tab bar covers its foot, so scrolling to a
+     focused target stops short of it. */
+  html {
+    scroll-padding-bottom: var(--tab-bar-height);
+    @variant wide {
+      scroll-padding-bottom: 0;
+    }
   }
 }

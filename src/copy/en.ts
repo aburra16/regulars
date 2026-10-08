@@ -20,6 +20,23 @@ type CopyNode =
   | readonly string[]
   | { readonly [key: string]: CopyNode };
 
+/** The name of each page, as its heading reads until the page itself is built. */
+const pages = {
+  explore: "Explore",
+  map: "Map",
+  search: "Search",
+  filters: "Filters",
+  place: "Place",
+  chain: "All locations",
+  about: "About",
+  signin: "Sign in",
+  saved: "Saved",
+  you: "You",
+};
+
+/** A page's title in the browser's tab: "Search · Regulars". */
+const pageTitle = (page: string) => `${page} · ${config.appName}`;
+
 export const copy = {
   app: {
     name: config.appName,
@@ -82,21 +99,12 @@ export const copy = {
     loading: "Finding places…",
   },
   // DRAFT for Avi
-  /** The browser says it has no connection. */
+  /** The browser says it has no connection, and the places on screen are the ones saved on this device. */
   offline: "You're offline. Showing places saved on this device.",
-  /** The title of each page until the page itself is built. */
-  pages: {
-    explore: "Explore",
-    map: "Map",
-    search: "Search",
-    filters: "Filters",
-    place: "Place",
-    chain: "All locations",
-    about: "About",
-    signin: "Sign in",
-    saved: "Saved",
-    you: "You",
-  },
+  // DRAFT for Avi
+  /** The browser says it has no connection, and the places did not come from the device's saved copy. */
+  offlineNoCache: "You're offline.",
+  pages,
   // DRAFT for Avi
   /** An address in the app that has no page. */
   missing: {
@@ -108,6 +116,21 @@ export const copy = {
   broken: {
     text: "Something went wrong on this page.",
     home: "Back to Explore",
+  },
+  /** The title of each page in the browser's tab. Explore is the app's name; the rest put theirs before it. */
+  titles: {
+    explore: config.appName,
+    map: pageTitle(pages.map),
+    search: pageTitle(pages.search),
+    filters: pageTitle(pages.filters),
+    place: pageTitle(pages.place),
+    chain: pageTitle(pages.chain),
+    about: pageTitle(pages.about),
+    signin: pageTitle(pages.signin),
+    saved: pageTitle(pages.saved),
+    you: pageTitle(pages.you),
+    // DRAFT for Avi
+    missing: pageTitle("Not found"),
   },
   signin: {
     continueButton: ALLOWED_PROTOCOL_STRINGS.signInButton,
