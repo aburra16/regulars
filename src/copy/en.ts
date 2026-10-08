@@ -43,6 +43,9 @@ const places = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "place" : "
 /** How many people: "3 people", "1 person". */
 const people = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "person" : "people"}`;
 
+/** "1 other person", "3 other people". */
+const otherPeople = (n: number) => `${n.toLocaleString("en")} other ${n === 1 ? "person" : "people"}`;
+
 /** "1 other person has", "3 other people have". */
 const othersHave = (n: number) => `${n.toLocaleString("en")} other ${n === 1 ? "person has" : "people have"}`;
 
@@ -314,6 +317,15 @@ export const copy = {
     // DRAFT for Avi
     /** In place of `fromCircle(1)`, in the place page's score panel, likewise. */
     fromYou: "From you",
+    // DRAFT for Avi (ruling R13)
+    /**
+     * In place of `ratedByCircle(n + 1)` when the person signed in is one of those counted, beside `n`
+     * others: "You and 2 other people in your circle".
+     */
+    ratedByYouAnd: (n: number) => `You and ${otherPeople(n)} ${inYourCircle}`,
+    // DRAFT for Avi (ruling R13)
+    /** In place of `fromCircle(n + 1)`, in the place page's score panel, likewise: "From you and 2 other people in your circle". */
+    fromYouAnd: (n: number) => `From you and ${otherPeople(n)} ${inYourCircle}`,
     // DRAFT for Avi
     /**
      * A place with reviews, none by people in the person's circle, on a card or a row while My circle
@@ -981,6 +993,9 @@ export const copy = {
     // DRAFT for Avi
     /** The same, when the one person in the circle who rated it is the person signed in: "4.0 out of 5, rated by you". */
     pinScoredYou: (score: string) => `${score} out of 5, rated by you`,
+    // DRAFT for Avi (ruling R13)
+    /** The same, when the person signed in is one of those counted, beside `n` others: "4.3 out of 5, rated by you and 2 other people in your circle". */
+    pinScoredYouAnd: (score: string, n: number) => `${score} out of 5, rated by you and ${otherPeople(n)} ${inYourCircle}`,
     // DRAFT for Avi
     /** The same, for a place whose reviews are being counted. */
     pinCounting: "reviews being counted",

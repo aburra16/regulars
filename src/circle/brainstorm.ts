@@ -11,8 +11,10 @@ import { isToken, saveToken } from "./token.ts";
  * Talking to Brainstorm (`config.brainstormApi`), which works out a person's circle: signing its
  * login and trading it for a token, reading and starting the person's GrapeRank run, and finding
  * the scorer that publishes their circle's ranks. Its sign-in sets up the person's public scoring
- * profile, so it is asked only when the person taps Personalize (Global Constraints): this module
- * asks nothing, takes no lock and opens no channel until one of its functions is called. It is
+ * profile, so it is asked only when the person taps (Personalize, Try again, Work out my circle
+ * again, Update now); the one thing asked without a tap is `scorerOf`, once a signed-in session,
+ * which reads a public setup and creates nothing (ruling R5). This module asks nothing, takes no lock
+ * and opens no channel until one of its functions is called. It is
  * loaded only when it is first needed. Plain `fetch`, sending no cookies. Nothing here is logged:
  * the token and the signed login are the person's.
  *
@@ -121,10 +123,7 @@ export class NotSigned extends Error {
   }
 }
 
-/**
- * What Brainstorm answered: its status, and its body as JSON when the status is a success, or the
- * one error the ask said to read (`readError`); undefined otherwise.
- */
+/** What Brainstorm answered: its status, and its body as JSON when the status is a success; undefined otherwise. */
 interface Answer {
   status: number;
   body: unknown;
@@ -132,14 +131,14 @@ interface Answer {
 
 /**
  * Asks Brainstorm `path`, with the token when given (`Authorization: Bearer`) and `json` as the body
- * when given. Sends no cookies and keeps nothing in the HTTP cache. The body of an error is read when
- * its status is `readError`, and otherwise cancelled unread, so that the browser can let the connection go.
+ * when given. Sends no cookies and keeps nothing in the HTTP cache. The body of an error is cancelled
+ * unread, so that the browser can let the connection go: what an error means is read from its status.
  * Throws `Unavailable` when Brainstorm cannot be reached, does not answer within `ANSWER_WAIT_MS`,
  * or sends a body to read that is not JSON; the signal's reason when `signal` aborts.
  */
 async function ask(
   path: string,
-  how: { method: "GET" | "POST"; token?: string; json?: unknown; readError?: number },
+  how: { method: "GET" | "POST"; token?: string; json?: unknown },
   signal: AbortSignal,
 ): Promise<Answer> {
   signal.throwIfAborted();
@@ -160,7 +159,7 @@ async function ask(
       cache: "no-store",
       signal: AbortSignal.any([signal, clock.signal]),
     });
-    if (!response.ok && response.status !== how.readError) {
+    if (!response.ok) {
       void response.body?.cancel().catch(() => {});
       return { status: response.status, body: undefined };
     }
@@ -319,6 +318,9 @@ export async function signInToBrainstorm(
     const challenge = await challengeFor(pubkey, signal);
     const login = await signLogin(pubkey, challenge, signer, signal, within);
     const token = await tokenFor(pubkey, login, signal);
+    // Stopped, or signed out of the tab, as Brainstorm answered: the token is not kept (saveToken
+    // keeps it only while the tab's session is the person's), nor given back once stopped.
+    signal.throwIfAborted();
     saveToken(pubkey, token);
     return token;
   }, signal);
@@ -419,28 +421,20 @@ export function runState(run: Pick<Run, "status" | "internalPublicationStatus" |
 const RANK_ROW = "30382:rank";
 
 /**
- * Whether `body`, the body of a 404, is Brainstorm saying it has nothing for the key asked:
- * `handle_no_data` raises a 404 with no detail (`{"detail": null}`). An unknown route's 404 has one
- * (`{"detail": "Not Found"}`).
- */
-function isNoData(body: unknown): boolean {
-  return typeof body === "object" && body !== null && !Array.isArray(body) && Object.keys(body).length === 1 && field(body, "detail") === null;
-}
-
-/**
  * The scorer that publishes `pubkey`'s ranks (kind 30382), and the relay it publishes them to, from
  * Brainstorm's setup (`GET /setup/{pubkey}`, no token: rows `["30382:<tag>", <scorer>, <relay>]`).
- * Null only when Brainstorm says it has none for them (its no-data 404: they have never signed in
- * to it). Throws `Unavailable` as `ask` does, and on any other answer: another 404 (such as an
- * unknown route's), or a list whose rank row is missing, or names a key that is not one or a relay
- * that is not a public `wss://` one. Throws a TypeError, asking nothing, for a public key that is
- * not one, and the signal's reason when `signal` aborts.
+ * Null when Brainstorm answers 404, whatever the body: they have never signed in to it. The live
+ * server answers `{"detail": "Not Found"}` for a public key it has never seen, where brainstorm_server
+ * dc8c4f3's `handle_no_data` gives `{"detail": null}` (ruling R13); the body is not read. Throws
+ * `Unavailable` as `ask` does, and on any other answer: a list whose rank row is missing, or names a
+ * key that is not one or a relay that is not a public `wss://` one. Throws a TypeError, asking
+ * nothing, for a public key that is not one, and the signal's reason when `signal` aborts.
  */
 export async function scorerOf(pubkey: string, signal: AbortSignal): Promise<{ pubkey: string; relay: string } | null> {
   signal.throwIfAborted();
   if (!isHex64(pubkey)) throw new TypeError("Not a public key");
-  const { status, body } = await ask(`/setup/${pubkey}`, { method: "GET", readError: 404 }, signal);
-  if (status === 404 && isNoData(body)) return null;
+  const { status, body } = await ask(`/setup/${pubkey}`, { method: "GET" }, signal);
+  if (status === 404) return null;
   const row: unknown = status === 200 && Array.isArray(body) ? body.find((entry: unknown) => Array.isArray(entry) && entry[0] === RANK_ROW) : undefined;
   const [, scorer, relay] = Array.isArray(row) ? (row as unknown[]) : [];
   const address = publicRelayAddress(relay);

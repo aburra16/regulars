@@ -43,8 +43,11 @@ import { forgetToken, readToken } from "./token.ts";
  * enough to say their circle was worked out (it exists from their sign-in to Brainstorm on, whether the
  * run is done, under way or failed): it is "unconfirmed", empty for now, which My circle says plainly,
  * with Work out my circle again (rulings R7, R10). That runs the tap's flow: a done run confirms it,
- * empty, for the session; one under way is followed; with a failed run, or none, one is started. A rank
- * by the scorer found later (the scores store reads them) confirms it too.
+ * empty, for the session; one under way is followed; with a failed run, or none, one is started. If
+ * that ends with no circle (cancelled, declined, failed, busy, unavailable), the unconfirmed circle is
+ * put back as it was, and My circle with it when it was the view (ruling R13). A rank by the scorer
+ * found later (the scores store reads them) confirms it too. A run kept as followed for longer than
+ * polling lasts (a session restored days later) is looked at again, as on a first load.
  *
  * Once the circle is ready, Update now (on the Why page) asks for it to be worked out again: the same
  * sign-in when the tab has no token, then a new run, followed while the tab is open, wherever the
@@ -122,6 +125,11 @@ export interface CircleValue {
   scorer?: Scorer;
   /** Whether the quiet notice that it is ready ("ready" or "recently") is to be shown. */
   notice: boolean;
+  /**
+   * Whether a circle that was shown (unconfirmed) is being worked out again (Work out my circle again):
+   * it can't be shown meanwhile, and comes back, as My circle, when that ends, however it ends (ruling R13).
+   */
+  held: boolean;
   /** Where Update now is. */
   updateStep: UpdateStep;
   /** Which working-out of the circle My circle's scores are from: a new one each time Update now's run is done. */
@@ -139,6 +147,8 @@ export interface CircleValue {
   cancel(): void;
   /** Puts the notice away. */
   dismissReady(): void;
+  /** Lets go of what Update now came to (recently, updated, failed, started): the person has left the Why page. */
+  clearUpdate(): void;
 }
 
 const ignore = () => {};
@@ -148,6 +158,7 @@ const NONE: CircleValue = {
   state: "off",
   ready: false,
   notice: false,
+  held: false,
   updateStep: "idle",
   edition: 0,
   personalize: ignore,
@@ -155,6 +166,7 @@ const NONE: CircleValue = {
   update: ignore,
   cancel: ignore,
   dismissReady: ignore,
+  clearUpdate: ignore,
 };
 
 /** The circle, for the parts of the app below `CircleProvider`; a test may give one of its own. */
@@ -181,13 +193,18 @@ const KEPT: ReadonlySet<string> = new Set<KeptState>([
   "unavailable",
 ]);
 
-/** What is kept for the tab: whose circle, where it is, since when its run has been followed, and its scorer once ready. */
+/**
+ * What is kept for the tab: whose circle, where it is, since when its run has been followed, its
+ * scorer once ready, and, while it is worked out again, the scorer of the unconfirmed circle to put
+ * back if that ends with none (`before`).
+ */
 interface Kept {
   pubkey: string;
   state: KeptState;
   since?: number;
   scorer?: Scorer;
   notice?: boolean;
+  before?: Scorer;
 }
 
 /** The scorer in `value`, as kept: a public key and a public `wss://` relay; undefined if it is not one. */
@@ -221,7 +238,9 @@ function readKept(pubkey: string): Kept | null {
   if (kept.pubkey !== pubkey || typeof kept.state !== "string" || !KEPT.has(kept.state)) return null;
   const state = kept.state as KeptState;
   if (state === "working") {
-    return typeof kept.since === "number" && Number.isFinite(kept.since) ? { pubkey, state, since: kept.since } : null;
+    if (typeof kept.since !== "number" || !Number.isFinite(kept.since)) return null;
+    const before = asScorer(kept.before);
+    return before === undefined ? { pubkey, state, since: kept.since } : { pubkey, state, since: kept.since, before };
   }
   if (state === "ready" || state === "recently" || state === "unconfirmed") {
     const scorer = asScorer(kept.scorer);
@@ -295,7 +314,29 @@ interface Shown {
   update: UpdateStep;
   /** Which working-out of the circle the scores are from: 0 until Update now's run is done. */
   edition: number;
+  /**
+   * While an unconfirmed circle is worked out again (Work out my circle again): its scorer, to put it
+   * back if that ends anywhere but in a circle (cancelled, declined, failed, busy, unavailable).
+   */
+  before?: Scorer;
   flow: Flow | null;
+}
+
+/** Where a flow can end that is not a circle: an unconfirmed circle worked out again is put back then. */
+const NO_CIRCLE: ReadonlySet<CircleState> = new Set<CircleState>(["off", "busy", "failed", "unavailable"]);
+
+/**
+ * `next`, once an unconfirmed circle that was worked out again has come to an end (ruling R13): put
+ * back as it was, when the flow ended anywhere but in a circle, so the person keeps the circle they
+ * had for the session, and My circle with it; let go of, once it is a circle.
+ */
+function settled(next: Shown): Shown {
+  if (next.before === undefined) return next;
+  if (next.state === "ready" || next.state === "recently") return { ...next, before: undefined };
+  if (next.flow === null && NO_CIRCLE.has(next.state)) {
+    return { ...next, state: "unconfirmed", scorer: next.before, notice: false, since: undefined, before: undefined };
+  }
+  return next;
 }
 
 /** Where `who`'s circle starts on this page: what the tab keeps, else the returning visitor's look. */
@@ -303,13 +344,17 @@ function shownFor(who: string | undefined): Shown {
   const fresh = { who, notice: false, update: "idle", edition: 0 } as const;
   if (who === undefined || !config.features.circle) return { ...fresh, state: "off", flow: null };
   const kept = readKept(who);
-  if (kept === null) return { ...fresh, state: "checking", flow: newFlow("check") };
+  // A run followed longer ago than polling lasts (a session restored days later, say) is not polled:
+  // the tab looks again, as on the session's first load (ruling R13).
+  const stale = kept?.state === "working" && Date.now() - (kept.since ?? 0) >= POLL_CAP_MS;
+  if (kept === null || stale) return { ...fresh, state: "checking", flow: newFlow("check") };
   return {
     ...fresh,
     state: kept.state,
     scorer: kept.scorer,
     notice: kept.notice ?? false,
     since: kept.since,
+    before: kept.before,
     flow: kept.state === "working" ? newFlow("resume") : null,
   };
 }
@@ -593,6 +638,9 @@ async function rework(step: Step, account: Account): Promise<void> {
 /** The states in which the circle can be shown (with its scorer known): ready, recently or unconfirmed. */
 const SHOWN: ReadonlySet<CircleState> = new Set<CircleState>(["ready", "recently", "unconfirmed"]);
 
+/** Where Update now has come to an end: what it says, until the person leaves the Why page. */
+const UPDATE_ENDED: ReadonlySet<UpdateStep> = new Set<UpdateStep>(["recently", "updated", "failed", "started"]);
+
 /** The states in which Personalize, Try again or Work out my circle again can be tapped. */
 const CAN_START: ReadonlySet<CircleState> = new Set<CircleState>(["off", "unconfirmed", "busy", "failed", "unavailable"]);
 
@@ -631,7 +679,7 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
         if (signal.aborted) return;
         const fresh = change.state === "ready" || change.state === "recently" || change.edition !== undefined;
         if (fresh || change.update === "started") forgetCircleCount();
-        setShown((now) => (now.who === pubkey && now.flow?.id === id ? { ...now, ...change } : now));
+        setShown((now) => (now.who === pubkey && now.flow?.id === id ? settled({ ...now, ...change }) : now));
       },
     }),
     [readers],
@@ -674,7 +722,7 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
     if (pubkey === undefined || !config.features.circle || state === "checking" || state === "signing") return;
     if (state === "working") {
       // Kept once a run is known; until then, what was kept before stays.
-      if (since !== undefined) keep({ pubkey, state, since });
+      if (since !== undefined) keep({ pubkey, state, since, ...(shown.before === undefined ? {} : { before: shown.before }) });
     } else if ((state === "ready" || state === "recently" || state === "unconfirmed") && scorer !== undefined) {
       keep({ pubkey, state, scorer, notice });
     } else {
@@ -697,7 +745,16 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
     const flow = newFlow("start");
     setShown((current) =>
       current.who === account.pubkey && CAN_START.has(current.state)
-        ? { ...current, state, since: undefined, notice: false, update: "idle", flow }
+        ? {
+            ...current,
+            state,
+            since: undefined,
+            notice: false,
+            update: "idle",
+            // An unconfirmed circle, worked out again: put back if that ends with none (ruling R13).
+            before: current.state === "unconfirmed" ? current.scorer : undefined,
+            flow,
+          }
         : current,
     );
   }, [account]);
@@ -715,8 +772,12 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
   const cancel = useCallback(() => {
     setShown((now) => {
       if (now.update === "signing") return { ...now, update: "idle", flow: null };
-      return now.state === "signing" ? { ...now, state: "off", flow: null } : now;
+      return now.state === "signing" ? settled({ ...now, state: "off", flow: null }) : now;
     });
+  }, []);
+
+  const clearUpdate = useCallback(() => {
+    setShown((now) => (UPDATE_ENDED.has(now.update) ? { ...now, update: "idle" } : now));
   }, []);
 
   const dismissReady = useCallback(() => {
@@ -743,21 +804,26 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
   }, [store, owner, scorerKey, scorerRelay, confirmed, edition]);
 
   // A rank by the scorer of an unconfirmed circle, found by the store since the look: its run has
-  // published, so the circle is confirmed, quietly (ruling R10).
+  // published, so the circle is confirmed, quietly (ruling R10), and the Why page's count of it, kept
+  // while it was unconfirmed, goes. A rank found for a circle confirmed already changes nothing: its
+  // count stays kept (ruling R13).
   const rankedNow = useCallback(() => store.circleRanked(owner, scorerKey), [store, owner, scorerKey]);
   const ranked = useSyncExternalStore(store.subscribe, rankedNow);
+  const unconfirmed = shown.state === "unconfirmed";
   useEffect(() => {
-    if (!ranked) return;
+    if (!ranked || !unconfirmed) return;
     forgetCircleCount();
     setShown((now) => (now.state === "unconfirmed" && now.scorer?.pubkey === scorerKey ? { ...now, state: "ready" } : now));
-  }, [ranked, scorerKey]);
+  }, [ranked, unconfirmed, scorerKey]);
 
+  const held = !ready && shown.before !== undefined;
   const value = useMemo<CircleValue>(
     () => ({
       state: shown.state,
       ready,
       scorer: ready ? shown.scorer : undefined,
       notice: ready && shown.notice,
+      held,
       updateStep: shown.update,
       edition,
       personalize,
@@ -765,8 +831,9 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
       update,
       cancel,
       dismissReady,
+      clearUpdate,
     }),
-    [shown.state, shown.scorer, shown.notice, shown.update, edition, ready, personalize, update, cancel, dismissReady],
+    [shown.state, shown.scorer, shown.notice, shown.update, held, edition, ready, personalize, update, cancel, dismissReady, clearUpdate],
   );
   return <CircleContext value={value}>{children}</CircleContext>;
 }

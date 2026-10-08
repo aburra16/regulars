@@ -42,7 +42,8 @@ export function ScoreFigure({ id, score, size }: { id: string; score: number; si
 /**
  * The line under a place's hours about its score, when it has reviews, worded for the view it comes
  * from: who a score comes from, in the trust colour ("Rated by 3 people the house trusts", "Rated by 3
- * people in your circle", or "Rated by you" when the one counted is the person); or, in the muted one,
+ * people in your circle", "Rated by you" when the one counted is the person, or "You and 2 other people
+ * in your circle" when they are one of those counted); or, in the muted one,
  * why a place with reviews has none (people inside the
  * view reviewed it without stars, or only others rated it: in My circle, "outside your circle"), how
  * many have rated it while the view can't be worked out, that its reviews are being counted, or that
@@ -54,7 +55,8 @@ export function whoLine(shown: ShownScore): { text: string; house: boolean } | u
   switch (shown.kind) {
     case "scored":
       if (!shown.circle) return { text: copy.score.ratedByHouse(shown.counted), house: true };
-      return { text: shown.yours ? copy.score.ratedByYou : copy.score.ratedByCircle(shown.counted), house: true };
+      if (!shown.yours) return { text: copy.score.ratedByCircle(shown.counted), house: true };
+      return { text: shown.counted === 1 ? copy.score.ratedByYou : copy.score.ratedByYouAnd(shown.counted - 1), house: true };
     case "unscored":
       if (shown.starless > 0) {
         return { text: shown.circle ? copy.score.starlessCircle(shown.starless) : copy.score.starless(shown.starless), house: false };

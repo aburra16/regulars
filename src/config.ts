@@ -93,9 +93,11 @@ interface Config {
   /** Where the house's kind 10040 is read, which names the scorer whose ranks are House picks. */
   houseTrustRelays: string[];
   /**
-   * Brainstorm's API, which works out a person's circle (My circle). The app asks it only after the
-   * person taps Personalize, and from then on (src/circle/brainstorm.ts): signing in to Regulars never
-   * reaches it. Its sign-in sets up the person's public scoring profile.
+   * Brainstorm's API, which works out a person's circle (My circle; src/circle/brainstorm.ts). Once a
+   * signed-in session, after the places load, the app asks it one unauthenticated `GET /setup/{pubkey}`,
+   * which reads a public setup and creates nothing, to find a circle worked out before (ruling R5).
+   * Every other request (its sign-in, which sets up the person's public scoring profile, and the
+   * person's runs) comes only after a tap: Personalize, Try again, Work out my circle again, Update now.
    */
   brainstormApi: string;
   /**

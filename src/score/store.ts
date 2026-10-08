@@ -1,6 +1,7 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
 import { readSession } from "../account/session.ts";
+import { publicRelayAddress } from "../account/writeRelays.ts";
 import { config } from "../config.ts";
 import { asEvent, isNewer, type RelayReader, readAll, withReadExtras } from "../nostr/events.ts";
 import { fetchProfiles, type Profile } from "../nostr/profiles.ts";
@@ -1055,12 +1056,18 @@ export class ScoresStore {
     if (started) this.#changed("scores");
   }
 
-  /** The turn of the scorers' relay at `relay`: two rank reads at a time (`BATCHES_IN_FLIGHT`), whichever view they are for. */
+  /**
+   * The turn of the scorers' relay at `relay`: two rank reads at a time (`BATCHES_IN_FLIGHT`), whichever
+   * view they are for. One relay is one turn however its address is written (the house's list may name
+   * it "WSS://Scores.Brainstorm.World/", Brainstorm's setup "wss://scores.brainstorm.world"): it is
+   * keyed by the address written one way (`publicRelayAddress`), else as it is (ruling R13).
+   */
   #rankLaneFor(relay: string): Lane {
-    let lane = this.#rankLanes.get(relay);
+    const key = publicRelayAddress(relay) ?? relay;
+    let lane = this.#rankLanes.get(key);
     if (lane === undefined) {
       lane = new Lane(BATCHES_IN_FLIGHT);
-      this.#rankLanes.set(relay, lane);
+      this.#rankLanes.set(key, lane);
     }
     return lane;
   }

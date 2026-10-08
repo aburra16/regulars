@@ -33,10 +33,11 @@ function readView(): View {
  * agree. It is state only: which scores to show is up to each screen. It starts at House picks.
  * My circle can be the view only while it is open and the person's circle is ready (`useCircle`):
  * otherwise the view is House picks, and when the circle goes (the person signs out) House picks is
- * kept, so that My circle never comes back by itself.
+ * kept, so that My circle never comes back by itself. A circle only held while it is worked out again
+ * has not gone: the person's choice of My circle stays, and is the view again once it is back.
  */
 export function ViewProvider({ children }: { children: ReactNode }): JSX.Element {
-  const { ready } = useCircle();
+  const { ready, held } = useCircle();
   const usable = config.features.circle && ready;
   const [chosen, setChosen] = useState<View>(readView);
   const setView = useCallback((next: View) => {
@@ -48,8 +49,9 @@ export function ViewProvider({ children }: { children: ReactNode }): JSX.Element
     }
   }, []);
   useEffect(() => {
-    if (!usable && chosen === "circle") setView("house");
-  }, [usable, chosen, setView]);
+    // A circle held while it is worked out again comes back, and My circle with it (ruling R13).
+    if (!usable && !held && chosen === "circle") setView("house");
+  }, [usable, held, chosen, setView]);
   const view: View = usable ? chosen : "house";
   const value = useMemo(() => ({ view, setView }), [view, setView]);
   return <ViewContext value={value}>{children}</ViewContext>;

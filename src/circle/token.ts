@@ -55,8 +55,13 @@ export function readToken(pubkey: string): string | null {
   return kept.pubkey === pubkey ? kept.token : null;
 }
 
-/** Keeps `token` for `pubkey` in this tab, in place of any kept before. Where storage is blocked or full, nothing is kept. */
+/**
+ * Keeps `token` for `pubkey` in this tab, in place of any kept before, while the tab's session is
+ * theirs: nothing for someone who has signed out (or never signed in), or someone else. Where storage
+ * is blocked or full, nothing is kept.
+ */
 export function saveToken(pubkey: string, token: string): void {
+  if (readSession()?.pubkey !== pubkey) return;
   try {
     window.sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ pubkey, token }));
   } catch {

@@ -22,7 +22,8 @@ import type { ReadState, ViewState } from "./store.ts";
  * The last three are from My circle when `circle` is set, and from House picks otherwise: the words
  * that go with them name the view. For the person signed in who has reviewed it (`seenBy`), `yours`
  * says so: on `unscored` and `unavailable`, they are not counted among `others`, `starless` or
- * `reviewers` (ruling R15); on a `scored` from My circle, the one counted is them.
+ * `reviewers` (ruling R15); on a `scored` from My circle, they are one of the `counted` (all of them
+ * when it is 1), and the words say so: "Rated by you", "You and 2 other people in your circle".
  */
 export type ShownScore =
   | { kind: "none" }
@@ -96,29 +97,26 @@ export function reviewOf(score: PlaceScore | undefined, pubkey: string | undefin
 }
 
 /**
- * Whether `shown` is a score from My circle whose one counted review is `mine`: the person's own,
- * which always counts there (brief § 5), and nobody else's with stars.
+ * Whether `shown` is a score from My circle that counts `mine`: the person's own, which always counts
+ * there with its stars (brief § 5), alone or beside others'.
  */
-const onlyMine = (shown: ShownScore, score: PlaceScore, mine: Review): shown is Extract<ShownScore, { kind: "scored" }> =>
-  shown.kind === "scored" &&
-  shown.circle === true &&
-  shown.counted === 1 &&
-  mine.stars !== null &&
-  score.inside.some((review) => review.id === mine.id);
+const countsMine = (shown: ShownScore, score: PlaceScore, mine: Review): shown is Extract<ShownScore, { kind: "scored" }> =>
+  shown.kind === "scored" && shown.circle === true && mine.stars !== null && score.inside.some((review) => review.id === mine.id);
 
 /**
  * What the slot shows the person who wrote `mine`, one of the place's reviews (`score`'s), on its own
  * page and on every list's card: "You've rated it" (`yours`), and the others counted without them
  * (rulings R15, R16). Not whether the view counts their review: they come off the count they are in,
  * inside the view with no stars, or outside, and the line says the same either way. In My circle,
- * where their review always counts, a score that is theirs alone says so ("Rated by you"), rather
- * than "1 person in your circle". As it was, with no review of theirs, and for any other place with a
- * score, whose line counts no one as "other". The same object each time for the same slot and review,
- * so a card given it need not be drawn again.
+ * where their review always counts, a score that counts it says so: theirs alone ("Rated by you"),
+ * rather than "1 person in your circle", or theirs and others' ("You and 2 other people in your
+ * circle"), rather than "3 people" (ruling R13). As it was, with no review of theirs, and for any
+ * other place with a score, whose line counts no one as "other". The same object each time for the
+ * same slot and review, so a card given it need not be drawn again.
  */
 export function seenBy(shown: ShownScore, score: PlaceScore | undefined, mine: Review | undefined): ShownScore {
   if (mine === undefined || score === undefined) return shown;
-  const theirs = onlyMine(shown, score, mine);
+  const theirs = countsMine(shown, score, mine);
   if (shown.kind !== "unscored" && shown.kind !== "unavailable" && !theirs) return shown;
   let byReview = seenFor.get(shown);
   if (byReview === undefined) {

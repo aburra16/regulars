@@ -382,10 +382,38 @@ describe("the scores store: ranks per point of view", () => {
     // Another scorer for the circle, which ranks only Carol in it: Bob, whom the first ranks 90, is outside.
     store.setCircle({ owner: OWNER, scorer: LATER });
     await vi.waitFor(() => expect(store.scoreOf(JACAFE.address, "circle")).toMatchObject({ score: 2, counted: 1 }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The first circle's read answers now: the store says nothing has changed, as nothing has.
+    const changed = vi.fn();
+    const unsubscribe = store.subscribe(changed);
     answer();
     await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(changed).not.toHaveBeenCalled();
     expect(store.scoreOf(JACAFE.address, "circle")).toMatchObject({ score: 2, counted: 1, outside: 2 });
     expect(store.stateOf("circle")).toBe("ready");
+    unsubscribe();
+    store.stop();
+  });
+
+  it("reads the circle's ranks afresh for another working-out of it (an edition), and not again for the same one", async () => {
+    const net = network({ reviews: jacafeReviews(), house: HOUSE_RANKS, circle: CIRCLE_RANKS });
+    const store = storeOf(net, { circle: false });
+    store.setCircle({ owner: OWNER, scorer: CIRCLE_AT, edition: 1 });
+    store.want([JACAFE.address]);
+    await vi.waitFor(() => expect(store.scoreOf(JACAFE.address, "circle")).toMatchObject({ counted: 2 }));
+    expect(circleRankReads(net)).toHaveLength(1);
+
+    // The same circle, the same edition: nothing is read again, and its ranks stay.
+    store.setCircle({ owner: OWNER, scorer: CIRCLE_AT, edition: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(circleRankReads(net)).toHaveLength(1);
+    expect(store.scoreOf(JACAFE.address, "circle")).toMatchObject({ counted: 2 });
+
+    // Worked out again (Update now): Brainstorm published new ranks, with Carol under the line now.
+    net.circle.splice(0, net.circle.length, circleRank(BOB, 90), circleRank(CAROL, 3), circleRank(ALICE, 3));
+    store.setCircle({ owner: OWNER, scorer: CIRCLE_AT, edition: 2 });
+    await vi.waitFor(() => expect(circleRankReads(net)).toHaveLength(2));
+    await vi.waitFor(() => expect(store.scoreOf(JACAFE.address, "circle")).toMatchObject({ score: 4, counted: 1 }));
     store.stop();
   });
 
@@ -416,9 +444,12 @@ describe("the scores store: ranks per point of view", () => {
     store.stop();
   });
 
-  it("reads ranks at most two at a time from one relay, whichever view they are for", async () => {
+  it.each([
+    ["written the same way", SCORES],
+    ["written another way (ruling R13)", "WSS://Scores.Brainstorm.World/"],
+  ])("reads ranks at most two at a time from one relay, whichever view they are for, its address %s", async (_, houseRelay) => {
     // The house's scorer publishes to the circle's relay too: one relay, both views' reads.
-    const SHARED_HOUSE = { pubkey: HOUSE_SCORER, relay: SCORES };
+    const SHARED_HOUSE = { pubkey: HOUSE_SCORER, relay: houseRelay };
     config.devScorer = SHARED_HOUSE;
     const reviewers = Array.from({ length: 1_200 }, (_, n) => (n + 1).toString(16).padStart(64, "0"));
     const spots = [0, 1, 2].map((n) => `39999:${places[0]!.pubkey}:osm-node-${2_000_000 + n}`);
@@ -438,7 +469,7 @@ describe("the scores store: ranks per point of view", () => {
     let most = 0;
     const readers = (url: string): RelayReader => {
       if (url === SEARCH) return search;
-      if (url !== SCORES) return createMemoryReader([]);
+      if (url !== SCORES && url !== houseRelay) return createMemoryReader([]);
       return {
         async *req(filter, signal) {
           if (filter["#d"] === undefined) {
@@ -604,8 +635,28 @@ describe("the person's own review", () => {
     await waitFor(() => expect(card("Maia")).toHaveAccessibleDescription(/ 3 out of 5 Rated by 1 person the house trusts$/));
     await circleRanksIn(net);
     await user.click(myCircle());
-    // (1 × 5 + 0.5 × 3) / 1.5.
-    expect(card("Maia")).toHaveAccessibleDescription(/4\.3 out of 5 Rated by 2 people in your circle$/);
+    // (1 × 5 + 0.5 × 3) / 1.5, from them and Dave.
+    expect(card("Maia")).toHaveAccessibleDescription(/4\.3 out of 5 You and 1 other person in your circle$/);
+  });
+
+  it("is said to be theirs beside the others', when My circle counts it with others' (ruling R13)", async () => {
+    const me = signedIn();
+    choseMyCircle(me);
+    const net = network({
+      reviews: [reviewOf(me, MAIA, 5), reviewOf(DAVE, MAIA, 3), reviewOf(BOB, MAIA, 4)],
+      house: HOUSE_RANKS,
+      circle: [circleRank(DAVE, 50), circleRank(BOB, 90)],
+    });
+    const { router } = await openReady(net);
+    await waitFor(() => expect(card("Maia")).toHaveAccessibleDescription(/ out of 5 You and 2 other people in your circle$/));
+    expect(screen.queryByText(copy.score.ratedByCircle(3))).toBeNull();
+
+    await act(() => router.navigate(placePath(MAIA)));
+    expect(await screen.findByText(copy.score.fromYouAnd(2))).toBeInTheDocument();
+    expect(screen.queryByText(copy.score.fromCircle(3))).toBeNull();
+
+    await act(() => router.navigate("/map"));
+    expect(await screen.findByRole("button", { name: /^Maia, .* out of 5, rated by you and 2 other people in your circle$/ })).toBeInTheDocument();
   });
 
   it("is said to be theirs, not one person's in the circle, when it is the only one My circle counts", async () => {
@@ -645,6 +696,12 @@ describe("the wording follows the view", () => {
     expect(copy.score.ratedByYou).toBe("Rated by you");
     expect(copy.score.fromYou).toBe("From you");
     expect(copy.map.pinScoredYou("4.0")).toBe("4.0 out of 5, rated by you");
+    expect(copy.score.ratedByYouAnd(1)).toBe("You and 1 other person in your circle");
+    expect(copy.score.ratedByYouAnd(4)).toBe("You and 4 other people in your circle");
+    expect(copy.score.fromYouAnd(1)).toBe("From you and 1 other person in your circle");
+    expect(copy.score.fromYouAnd(4)).toBe("From you and 4 other people in your circle");
+    expect(copy.map.pinScoredYouAnd("4.0", 1)).toBe("4.0 out of 5, rated by you and 1 other person in your circle");
+    expect(copy.map.pinScoredYouAnd("4.0", 4)).toBe("4.0 out of 5, rated by you and 4 other people in your circle");
     expect(copy.score.outsideCircle(1)).toBe("1 person outside your circle has rated it");
     expect(copy.score.outsideCircle(2)).toBe("2 people outside your circle have rated it");
     expect(copy.score.noneInCircle).toBe("Nobody in your circle has rated it yet");
@@ -863,11 +920,11 @@ describe("no numbers about people, in either view (decision 19)", () => {
 
   it.each(
     (["house", "circle"] as const).flatMap((view) => [
-      ["Explore's cards", "/", DESKTOP, view] as const,
-      ["the map's pins", "/map", undefined, view] as const,
-      ["a chain's rows", `/chain/${chainSlug(CONFEITARIA)}`, undefined, view] as const,
+      ["Explore's cards", view, "/", DESKTOP] as const,
+      ["the map's pins", view, "/map", undefined] as const,
+      ["a chain's rows", view, `/chain/${chainSlug(CONFEITARIA)}`, undefined] as const,
     ]),
-  )("never shows one in %s (%s), in the %s view, with both views' ranks read", async (_, path, px, view) => {
+  )("never shows one in %s, in the %s view, with both views' ranks read", async (_, view, path, px) => {
     const me = signedIn();
     if (view === "circle") choseMyCircle(me);
     else keptCircle(me);

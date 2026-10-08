@@ -69,7 +69,8 @@ function scoreWords(score: ShownScore): string | undefined {
   switch (score.kind) {
     case "scored":
       if (!score.circle) return copy.map.pinScored(formatScore(score.score), score.counted);
-      return score.yours ? copy.map.pinScoredYou(formatScore(score.score)) : copy.map.pinScoredCircle(formatScore(score.score), score.counted);
+      if (!score.yours) return copy.map.pinScoredCircle(formatScore(score.score), score.counted);
+      return score.counted === 1 ? copy.map.pinScoredYou(formatScore(score.score)) : copy.map.pinScoredYouAnd(formatScore(score.score), score.counted - 1);
     case "pending":
       return copy.map.pinCounting;
     case "unscored":

@@ -26,8 +26,10 @@ import { forgetToken, readToken } from "./token.ts";
  *   in tiers that start at or above the line. Both are asked at once; when the run's floor is more than
  *   the relay's pages could count, the relay's read is stopped.
  *
- * What was counted is kept for the tab (`COUNT_KEY`), so that coming back to the page reads nothing
- * again. The circle's provider lets go of it whenever the circle is worked out again, and at Sign out.
+ * What the relay counted is kept for the tab (`COUNT_KEY`), so that coming back to the page reads
+ * nothing again; never a floor of nobody, which says nothing, nor the run's floor alone, which the
+ * relay did not count (`worthKeeping`, ruling R13): those are counted again next time. The circle's
+ * provider lets go of what is kept whenever the circle is worked out again, and at Sign out.
  */
 
 /** The most ranks one request asks for: as many as a relay sends (Brainstorm reads 500 at a time). */
@@ -156,6 +158,19 @@ export interface Counted {
   workedOut?: number;
 }
 
+/** A count as `sizeOfCircle` gives it: and whether the relay counted it (`relayCounted`), or only the run's floor says it. */
+export interface Sized extends Counted {
+  relayCounted: boolean;
+}
+
+/**
+ * Whether `sized` is a count to keep for the tab (ruling R13): one the relay counted, and not a floor
+ * of nobody. The run's floor alone, or a floor of 0, is counted again next time, and on Try again.
+ */
+export function worthKeeping(sized: Sized): boolean {
+  return sized.relayCounted && !(sized.size.kind === "atLeast" && sized.size.n === 0);
+}
+
 /**
  * What the person's latest run says, with the token this tab has: when it was worked out, and its
  * floor (`floorFromRun`). Nothing without a token, before the run is done, or when Brainstorm cannot
@@ -199,7 +214,7 @@ export async function sizeOfCircle({
   scorer: Scorer;
   readers: (url: string) => RelayReader;
   signal: AbortSignal;
-}): Promise<Counted> {
+}): Promise<Sized> {
   const { line } = config.scoring;
   const relay = new AbortController();
   const reading = countRanks(readers(scorer.relay), scorer.pubkey, owner, line, AbortSignal.any([signal, relay.signal]));
@@ -208,19 +223,19 @@ export async function sizeOfCircle({
   const run = await fromRun(owner, line, signal);
   if (run.floor >= RANK_PAGE * RANK_PAGES) {
     relay.abort();
-    return { size: { kind: "atLeast", n: run.floor }, workedOut: run.workedOut };
+    return { size: { kind: "atLeast", n: run.floor }, workedOut: run.workedOut, relayCounted: false };
   }
   let counted: Awaited<typeof reading>;
   try {
     counted = await reading;
   } catch (error) {
     signal.throwIfAborted();
-    if (run.floor > 0) return { size: { kind: "atLeast", n: run.floor }, workedOut: run.workedOut };
+    if (run.floor > 0) return { size: { kind: "atLeast", n: run.floor }, workedOut: run.workedOut, relayCounted: false };
     throw error;
   }
   const size: CircleSize =
     counted.size.kind === "atLeast" ? { kind: "atLeast", n: Math.max(counted.size.n, run.floor) } : counted.size;
-  return { size, workedOut: run.workedOut ?? (counted.newest === undefined ? undefined : counted.newest * 1000) };
+  return { size, workedOut: run.workedOut ?? (counted.newest === undefined ? undefined : counted.newest * 1000), relayCounted: true };
 }
 
 // ---- What the tab keeps ----
@@ -234,7 +249,8 @@ const isCount = (value: unknown): value is number => typeof value === "number" &
 /** The size in `value`, as kept; undefined if it is not one this module writes. */
 function asSize(value: unknown): CircleSize | undefined {
   if (!isObject(value)) return undefined;
-  if (value.kind === "atLeast") return isCount(value.n) ? { kind: "atLeast", n: value.n } : undefined;
+  // A floor of nobody is never kept (`worthKeeping`): one found is not what this module writes.
+  if (value.kind === "atLeast") return isCount(value.n) && value.n > 0 ? { kind: "atLeast", n: value.n } : undefined;
   const { total, direct, further } = value;
   if (value.kind !== "exact" || !isCount(total) || !isCount(direct) || !isCount(further) || total !== direct + further) return undefined;
   return { kind: "exact", total, direct, further };

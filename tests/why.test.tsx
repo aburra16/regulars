@@ -418,6 +418,89 @@ describe("your circle, once it is ready", () => {
     expect(rankReads.length).toBeGreaterThan(reads);
   });
 
+  it("keeps the count while the scores store reads the circle's ranks: Why, Explore, then Why reads nothing again (ruling R13)", async () => {
+    config.reviewRelays = [SEARCH];
+    const me = signedIn();
+    ready(me);
+    ranks = circleOf(me);
+    reviews = [reviewOf(ANA, 5), reviewOf(BEN, 3)];
+    const { router } = await openWhy();
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+
+    await act(() => router.navigate("/"));
+    await waitFor(() => expect(storeRankReads.some((filter) => filter.authors?.includes(SCORER))).toBe(true));
+    await waitFor(() => expect(screen.getByRole("link", { name: "Jacafé" })).toBeInTheDocument());
+    await after(200);
+    const reads = rankReads.length;
+
+    await act(() => router.navigate(WHY_PATH));
+    expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`);
+    await after(200);
+    expect(rankReads.length).toBe(reads);
+    expect(window.sessionStorage.getItem(COUNT_KEY)).not.toBeNull();
+  });
+
+  it("counts again once an unconfirmed circle is confirmed by ranks the scores store finds", async () => {
+    config.reviewRelays = [SEARCH];
+    const me = signedIn();
+    window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey: me, state: "unconfirmed", scorer: SCORER_AT, notice: false }));
+    const { router } = await openWhy();
+    expect(await within(circlePanel()).findByRole("heading", { name: copy.why.emptyTitle })).toBeInTheDocument();
+    await waitFor(() => expect(window.sessionStorage.getItem(COUNT_KEY)).not.toBeNull());
+
+    // Brainstorm has published since: the store finds ranks for the reviewers on Explore.
+    ranks = circleOf(me);
+    reviews = [reviewOf(ANA, 5), reviewOf(BEN, 3)];
+    await act(() => router.navigate("/"));
+    await waitFor(() => expect(JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "{}")).toMatchObject({ state: "ready" }));
+    expect(window.sessionStorage.getItem(COUNT_KEY)).toBeNull();
+    await act(() => router.navigate(WHY_PATH));
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+  });
+
+  it("keeps no floor of nobody: Try again counts again (ruling R13)", async () => {
+    const me = signedIn();
+    ready(me);
+    // A full page of ranks from one second, all under the line: the relay's pages get no further back
+    // in time, and nobody at or above the line was counted. A floor of nobody says nothing.
+    const at = nowS() - DAY_S;
+    ranks = Array.from({ length: RANK_PAGE }, (_, n) => rankOf((n + 1).toString(16).padStart(64, "0"), 3, { hops: 2, at }));
+    await openWhy();
+    expect(await within(circlePanel()).findByText(copy.why.countFailed)).toBeInTheDocument();
+    expect(window.sessionStorage.getItem(COUNT_KEY)).toBeNull();
+
+    const reads = rankReads.length;
+    ranks = circleOf(me);
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(within(circlePanel()).getByRole("button", { name: copy.load.retry }));
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+    expect(rankReads.length).toBeGreaterThan(reads);
+  });
+
+  it("keeps no floor the relay did not count: coming back counts again, from the relay once it answers (ruling R13)", async () => {
+    const me = signedIn();
+    ready(me);
+    saveToken(me, TOKEN);
+    brainstorm.latestRun.mockResolvedValue(run("done", { countValues: JSON.stringify({ medium: { "2": 437 } }) }));
+    let down = true;
+    const failing = (url: string): RelayReader => ({
+      async *req(filter, signal) {
+        if (down && url === SCORES) throw new Error("The relay answered 503");
+        yield* readers(url).req(filter, signal);
+      },
+    });
+    const { router } = await openApp(WHY_PATH, { events: fixtures, readers: failing });
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`430+ ${copy.why.inYourCircle(430)}`));
+    expect(window.sessionStorage.getItem(COUNT_KEY)).toBeNull();
+
+    down = false;
+    ranks = circleOf(me);
+    await act(() => router.navigate("/about"));
+    await act(() => router.navigate(WHY_PATH));
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+    await waitFor(() => expect(window.sessionStorage.getItem(COUNT_KEY)).not.toBeNull());
+  });
+
   it("forgets the count kept for the tab when the person signs out", async () => {
     const me = signedIn();
     ready(me);
@@ -737,6 +820,66 @@ describe("Update now", () => {
     await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updated));
     await waitFor(() => expect(kept().state).toBe("ready"));
     await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+  });
+
+  it.each([
+    ["the circle was updated recently", "recently"],
+    ["the circle couldn't be updated", "failed"],
+  ] as const)("says no more that %s once the person has left the page (ruling R13)", async (_, outcome) => {
+    const me = signedIn();
+    saveToken(me, TOKEN);
+    if (outcome === "recently") brainstorm.startRun.mockResolvedValue({ recently: true });
+    else brainstorm.startRun.mockRejectedValue(new client.Unavailable());
+    const { router } = await openCounted(me);
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(updateNow());
+    await waitFor(() => expect(updateStatus()).toHaveTextContent(outcome === "recently" ? copy.circle.recently : copy.why.updateFailed));
+
+    await act(() => router.navigate("/about"));
+    await act(() => router.navigate(WHY_PATH));
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(copy.why.inYourCircle(4)));
+    expect(updateStatus()).toHaveTextContent("");
+    expect(updateNow()).toBeEnabled();
+  });
+
+  it("starts one run for one tap of Update now in React's strict mode (ruling R13)", async () => {
+    const me = signedIn();
+    ready(me);
+    saveToken(me, TOKEN);
+    ranks = circleOf(me);
+    brainstorm.latestRun.mockResolvedValue(run("done", { daysAgo: 1 }));
+    await openApp(WHY_PATH, { events: fixtures, readers, strict: true });
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+    brainstorm.latestRun.mockResolvedValue(run("running"));
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(updateNow());
+    await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updating));
+    await after(POLL_MS * 3);
+    expect(brainstorm.startRun).toHaveBeenCalledTimes(1);
+    expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+  });
+
+  it("asks Brainstorm nothing after a reload in the middle of an update: the reload ends its following, not its run (ruling R13)", async () => {
+    const me = signedIn();
+    saveToken(me, TOKEN);
+    const first = await openCounted(me);
+    brainstorm.latestRun.mockResolvedValue(run("running"));
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(updateNow());
+    await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updating));
+    expect(brainstorm.startRun).toHaveBeenCalledTimes(1);
+
+    // The tab is reloaded.
+    first.unmount();
+    for (const call of [brainstorm.scorerOf, brainstorm.signInToBrainstorm, brainstorm.latestRun, brainstorm.startRun]) call.mockClear();
+    await openWhy();
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+    await after(POLL_MS * 3);
+    for (const call of [brainstorm.scorerOf, brainstorm.signInToBrainstorm, brainstorm.latestRun, brainstorm.startRun]) {
+      expect(call).not.toHaveBeenCalled();
+    }
+    expect(updateStatus()).toHaveTextContent("");
+    expect(JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "{}")).toMatchObject({ state: "ready" });
   });
 
   it("keeps following across the switch between the phone's layout and the desktop's", async () => {

@@ -527,6 +527,35 @@ describe("the token", () => {
     ]);
   });
 
+  it("is not kept when the person signs out of the tab as Brainstorm's answer comes (ruling R13)", async () => {
+    signedIn();
+    const verify = server.routes["POST /authChallenge/:pk/verify"]!;
+    server.routes["POST /authChallenge/:pk/verify"] = async (req) => {
+      const answer = await verify(req);
+      // Sign out, at the moment Brainstorm gives the token.
+      window.sessionStorage.removeItem(SESSION_KEY);
+      return answer;
+    };
+    await signInToBrainstorm(PK, signerOf(), never()).catch(() => {});
+    expect(window.sessionStorage.getItem(TOKEN_KEY)).toBeNull();
+    signedIn();
+    expect(readToken(PK)).toBeNull();
+  });
+
+  it("is not kept, nor given, when the sign-in is stopped as Brainstorm's answer comes (ruling R13)", async () => {
+    signedIn();
+    const stop = new AbortController();
+    const verify = server.routes["POST /authChallenge/:pk/verify"]!;
+    server.routes["POST /authChallenge/:pk/verify"] = async (req) => {
+      const answer = await verify(req);
+      stop.abort(new DOMException("Stopped", "AbortError"));
+      return answer;
+    };
+    await expect(signInToBrainstorm(PK, signerOf(), stop.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(window.sessionStorage.getItem(TOKEN_KEY)).toBeNull();
+    expect(readToken(PK)).toBeNull();
+  });
+
   it("is kept per person: another's is not read back, and one written any other way is forgotten", () => {
     signedIn();
     saveToken(PK, TOKEN);
@@ -710,6 +739,7 @@ describe("an answer it does not read", () => {
       ["POST /user/graperank", 429, () => startRun(TOKEN, never())],
       ["POST /user/graperank", 403, () => startRun(TOKEN, never())],
       ["GET /setup/:pk", 500, () => scorerOf(PK, never())],
+      ["GET /setup/:pk", 404, () => scorerOf(PK, never())],
     ];
     for (const [route, status, call] of cases) {
       server = brainstorm();
@@ -787,22 +817,21 @@ describe("scorerOf", () => {
     expect(server.asked[0]!.headers).toEqual({});
   });
 
-  it("is null for a person Brainstorm has no scorer for: its 404 with no detail (handle_no_data)", async () => {
-    server.routes["GET /setup/:pk"] = () => json(404, { detail: null });
-    await expect(scorerOf(PK, never())).resolves.toBeNull();
-  });
-
-  it("is unavailable on any other 404, such as an unknown route's: that is not Brainstorm saying none", async () => {
+  it("is null on any 404, whatever its body: the live server's for a person it has no scorer for, as dc8c4f3's (ruling R13)", async () => {
     const answers: Route[] = [
+      // What api.brainstorm.world answers today for a public key it has never seen (2026-10-08).
       () => json(404, { detail: "Not Found" }),
+      // handle_no_data, as brainstorm_server dc8c4f3 has it.
+      () => json(404, { detail: null }),
       () => json(404, {}),
       () => json(404, null),
       () => json(404, "Not Found"),
       () => new Response("<html>Not Found</html>", { status: 404 }),
+      () => new Response(null, { status: 404 }),
     ];
     for (const answer of answers) {
       server.routes["GET /setup/:pk"] = answer;
-      await expect(scorerOf(PK, never())).rejects.toBeInstanceOf(Unavailable);
+      await expect(scorerOf(PK, never())).resolves.toBeNull();
     }
   });
 

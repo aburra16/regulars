@@ -132,7 +132,8 @@ function BeFirst({ name, wide }: { name: string; wide: boolean }): JSX.Element {
 /**
  * The view's score (Place.dc.html, DeskPlace.dc.html): the big number, its stars, and how many
  * people it comes from, in the trust colour: people the house trusts, or people in the person's
- * circle (`circle`), or the person alone ("From you", `yours`). A screen reader hears the stars'
+ * circle (`circle`), the person alone ("From you"), or the person beside others ("From you and 2 other
+ * people in your circle"), when the person is one of those counted (`yours`). A screen reader hears the stars'
  * "4.6 out of 5" in place of the bare number, under the view's name. Never anything about one of the
  * people (decision 19).
  */
@@ -149,7 +150,8 @@ function ViewScore({
   yours: boolean;
   wide: boolean;
 }): JSX.Element {
-  const from = !circle ? copy.score.fromHouse(counted) : yours ? copy.score.fromYou : copy.score.fromCircle(counted);
+  let from = copy.score.fromHouse(counted);
+  if (circle) from = !yours ? copy.score.fromCircle(counted) : counted === 1 ? copy.score.fromYou : copy.score.fromYouAnd(counted - 1);
   return (
     <section className={filledPanel(wide)}>
       <h2 className="sr-only">{circle ? copy.view.circle : copy.view.house}</h2>

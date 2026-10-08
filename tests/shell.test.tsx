@@ -119,6 +119,7 @@ const READY: CircleValue = {
   state: "ready",
   ready: true,
   notice: false,
+  held: false,
   updateStep: "idle",
   edition: 0,
   personalize: () => {},
@@ -126,6 +127,7 @@ const READY: CircleValue = {
   update: () => {},
   cancel: () => {},
   dismissReady: () => {},
+  clearUpdate: () => {},
 };
 
 /**

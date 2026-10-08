@@ -14,7 +14,7 @@ import { HouseName } from "../ui/HouseName.tsx";
 import { WorkingIcon } from "../ui/icons.tsx";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
 import { useCircle } from "./CircleProvider.tsx";
-import { type Counted, keepCount, readCount, sizeOfCircle } from "./circleSize.ts";
+import { type Counted, keepCount, readCount, sizeOfCircle, worthKeeping } from "./circleSize.ts";
 import { Personalize } from "./Personalize.tsx";
 
 /** The day `date` falls on, on the person's own calendar, as a count of days. */
@@ -45,7 +45,8 @@ type SizeState = { state: "counting" } | { state: "failed" } | ({ state: "counte
 
 /**
  * The size of `owner`'s circle, whose ranks `scorer` publishes (./circleSize.ts): what the tab keeps,
- * else counted when the panel opens, and kept; counted again on `recount`, and for each new working-out
+ * else counted when the panel opens, and kept when it is worth keeping (`worthKeeping`: the relay
+ * counted it, and it is not a floor of nobody); counted again on `recount`, and for each new working-out
  * of the circle (`edition`, Update now; or an unconfirmed circle `confirmed`), whose count the circle's
  * provider lets go of. While it is counted again, the count before stays on screen.
  */
@@ -68,9 +69,10 @@ function useCircleSize(
     const stop = new AbortController();
     const at = { pubkey, relay };
     sizeOfCircle({ owner, scorer: at, readers, signal: stop.signal }).then(
-      (counted) => {
+      (sized) => {
         if (stop.signal.aborted) return;
-        keepCount(owner, at, counted);
+        const counted: Counted = sized.workedOut === undefined ? { size: sized.size } : { size: sized.size, workedOut: sized.workedOut };
+        if (worthKeeping(sized)) keepCount(owner, at, counted);
         setResult({ key, size: { state: "counted", ...counted } });
       },
       () => {
