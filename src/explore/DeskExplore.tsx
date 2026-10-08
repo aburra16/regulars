@@ -1,4 +1,4 @@
-import { type JSX, useEffect, useMemo } from "react";
+import { type JSX, useLayoutEffect, useMemo } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
@@ -39,8 +39,9 @@ export function DeskExplore(): JSX.Element {
   // Opened at a place, from a phone's link to the map ("See on map").
   const focused = useMapFocus();
 
-  // Where Explore is in the history, for the search's back arrow, as the phone's Explore records it.
-  useEffect(() => {
+  // Where Explore is in the history, for the search's back arrow, as the phone's Explore records it:
+  // as the page is drawn, before a link pressed meanwhile can move the history on.
+  useLayoutEffect(() => {
     setExploreIdx(window.history.state?.idx);
   }, [historyKey]);
 

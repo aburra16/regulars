@@ -1,4 +1,4 @@
-import { type JSX, useEffect, useMemo, useState } from "react";
+import { type JSX, useLayoutEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { aboutAt, HOW_SCORES_WORK } from "../about/anchors.ts";
@@ -105,8 +105,9 @@ export function ExploreList(): JSX.Element {
   const chip = chipFromParam(params.get(CHIP_PARAM));
 
   // Where Explore is in the history, for the search's back arrow: whenever it is on screen, so the last
-  // entry it was at is the one the person left it from (see returnPoint.ts).
-  useEffect(() => {
+  // entry it was at is the one the person left it from (see returnPoint.ts). It is read as the page is
+  // drawn, in the same step: an effect that ran later could read the entry of a link pressed meanwhile.
+  useLayoutEffect(() => {
     setExploreIdx(window.history.state?.idx);
   }, [historyKey]);
 

@@ -497,7 +497,8 @@ describe("Explore on a phone: the list", () => {
 
     it("loads thirty more when the end of the list comes near, and not before", async () => {
       await openExplore("/", line(75));
-      expect(Watcher.live()).toHaveLength(1);
+      // The end of the list is watched from an effect, which runs after the list is drawn: on a slow machine, later.
+      await waitFor(() => expect(Watcher.live()).toHaveLength(1));
       // Looking for the end of the list a little before it is in view.
       expect(Watcher.live()[0]!.options?.rootMargin).toMatch(/\d+px/);
 
@@ -580,7 +581,8 @@ describe("Explore: how a place reads", () => {
 
     await openExplore();
     expect(card("Jacafé")).toHaveAccessibleDescription(/Closed · opens 9:30 am/);
-    expect(tick.run).toBeDefined();
+    // The clock is started by an effect, which runs after the list is drawn: on a slow machine, later.
+    await waitFor(() => expect(tick.run).toBeDefined());
 
     // 09:31 in Funchal.
     vi.setSystemTime(new Date("2026-10-07T08:31:00Z"));
