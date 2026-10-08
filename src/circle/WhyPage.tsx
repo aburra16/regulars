@@ -1,4 +1,4 @@
-import { type JSX, type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
+import { type JSX, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
@@ -14,7 +14,7 @@ import { HouseName } from "../ui/HouseName.tsx";
 import { WorkingIcon } from "../ui/icons.tsx";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
 import { useCircle } from "./CircleProvider.tsx";
-import { type Counted, sizeOfCircle } from "./circleSize.ts";
+import { type Counted, keepCount, readCount, sizeOfCircle } from "./circleSize.ts";
 import { Personalize } from "./Personalize.tsx";
 
 /** The day `date` falls on, on the person's own calendar, as a count of days. */
@@ -44,33 +44,47 @@ function shownFloor(n: number): number {
 type SizeState = { state: "counting" } | { state: "failed" } | ({ state: "counted" } & Counted);
 
 /**
- * The size of `owner`'s circle, whose ranks `scorer` publishes (./circleSize.ts), counted when the
- * panel opens, again on `recount`, and again for each new working-out of it (`edition`, Update now).
- * While it is counted again, the count before stays on screen.
+ * The size of `owner`'s circle, whose ranks `scorer` publishes (./circleSize.ts): what the tab keeps,
+ * else counted when the panel opens, and kept; counted again on `recount`, and for each new working-out
+ * of the circle (`edition`, Update now; or an unconfirmed circle `confirmed`), whose count the circle's
+ * provider lets go of. While it is counted again, the count before stays on screen.
  */
-function useCircleSize(owner: string, scorer: Scorer, edition: number): { size: SizeState; recount(): void } {
+function useCircleSize(
+  owner: string,
+  scorer: Scorer,
+  edition: number,
+  confirmed: boolean,
+): { size: SizeState; recount(): void } {
   const { readers } = useRelays();
   const [attempt, setAttempt] = useState(0);
   const { pubkey, relay } = scorer;
-  const key = `${owner} ${pubkey} ${relay} ${edition} ${attempt}`;
+  const circleKey = `${owner} ${pubkey} ${relay}`;
+  const key = `${circleKey} ${edition} ${confirmed} ${attempt}`;
+  // Read again for each key (another working-out, Try again): the provider may have let go of it since.
+  const kept = useMemo(() => readCount(owner, { pubkey, relay }), [key, owner, pubkey, relay]);
   const [result, setResult] = useState<{ key: string; size: SizeState } | null>(null);
   useEffect(() => {
+    if (kept !== null) return;
     const stop = new AbortController();
-    sizeOfCircle({ owner, scorer: { pubkey, relay }, readers, signal: stop.signal }).then(
+    const at = { pubkey, relay };
+    sizeOfCircle({ owner, scorer: at, readers, signal: stop.signal }).then(
       (counted) => {
-        if (!stop.signal.aborted) setResult({ key, size: { state: "counted", ...counted } });
+        if (stop.signal.aborted) return;
+        keepCount(owner, at, counted);
+        setResult({ key, size: { state: "counted", ...counted } });
       },
       () => {
         if (!stop.signal.aborted) setResult({ key, size: { state: "failed" } });
       },
     );
     return () => stop.abort();
-  }, [key, owner, pubkey, relay, readers]);
+  }, [kept, key, owner, pubkey, relay, readers]);
   const recount = useCallback(() => setAttempt((n) => n + 1), []);
   let size: SizeState = { state: "counting" };
-  if (result?.key === key) size = result.size;
+  if (kept !== null) size = { state: "counted", ...kept };
+  else if (result?.key === key) size = result.size;
   // The count before, for the same circle, while it is counted again.
-  else if (result?.size.state === "counted" && result.key.startsWith(`${owner} ${pubkey} ${relay} `)) size = result.size;
+  else if (result?.size.state === "counted" && result.key.startsWith(`${circleKey} `)) size = result.size;
   return { size, recount };
 }
 
@@ -151,8 +165,8 @@ function CirclePanel({ owner, scorer, wide }: { owner: string; scorer: Scorer; w
   const { account } = useAccount();
   // Update now's run is followed by the circle's provider, above the pages: leaving this page, or the
   // window crossing between the layouts, stops nothing.
-  const { updateStep: step, update, cancel, edition } = useCircle();
-  const { size, recount } = useCircleSize(owner, scorer, edition);
+  const { updateStep: step, update, cancel, edition, state } = useCircle();
+  const { size, recount } = useCircleSize(owner, scorer, edition, state !== "unconfirmed");
   const now = useNow();
   const panel = useRef<HTMLElement>(null);
   const headingId = useId();
@@ -421,7 +435,8 @@ function DeskWhy(): JSX.Element {
           <HousePicks wide />
         </div>
       </div>
-      <aside aria-label={copy.why.circleHeading} className="flex min-w-0 flex-[1_1_340px] flex-col gap-[22px]">
+      {/* Unnamed: the panel in it is named, and one landmark is enough to say so. */}
+      <aside className="flex min-w-0 flex-[1_1_340px] flex-col gap-[22px]">
         <YoursPanel wide />
         <AboutLink />
       </aside>

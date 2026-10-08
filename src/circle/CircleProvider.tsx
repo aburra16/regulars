@@ -23,6 +23,7 @@ import { usePlaces } from "../places/store.tsx";
 import { useRelays, useScoresStore } from "../score/ScoresProvider.tsx";
 import { RANK_KIND, ranksFrom, type Scorer } from "../trust/houseWeights.ts";
 import type { Run } from "./brainstorm.ts";
+import { forgetCircleCount } from "./circleSize.ts";
 import { type Client, loadBrainstorm } from "./loadBrainstorm.ts";
 import { forgetToken, readToken } from "./token.ts";
 
@@ -239,9 +240,10 @@ function keep(kept: Kept): void {
   }
 }
 
-/** Forgets the circle this tab keeps, and Brainstorm's token: for signing out. */
+/** Forgets the circle this tab keeps, its count (the Why page's), and Brainstorm's token: for signing out. */
 export function forgetCircle(): void {
   forgetToken();
+  forgetCircleCount();
   try {
     window.sessionStorage.removeItem(CIRCLE_KEY);
   } catch {
@@ -615,7 +617,11 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
   // The account the tap was made with, whose signer asks the person.
   const tappedWith = useRef<Account | undefined>(undefined);
 
-  /** A flow's step: what it sets is taken only while it is the flow under way, for the same person. */
+  /**
+   * A flow's step: what it sets is taken only while it is the flow under way, for the same person. A
+   * flow that finds the circle worked out (again), or under way again, lets go of the count the Why
+   * page kept of it.
+   */
   const stepFor = useCallback(
     (pubkey: string, id: number, signal: AbortSignal): Step => ({
       pubkey,
@@ -623,6 +629,8 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
       readers,
       set(change) {
         if (signal.aborted) return;
+        const fresh = change.state === "ready" || change.state === "recently" || change.edition !== undefined;
+        if (fresh || change.update === "started") forgetCircleCount();
         setShown((now) => (now.who === pubkey && now.flow?.id === id ? { ...now, ...change } : now));
       },
     }),
@@ -740,6 +748,7 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
   const ranked = useSyncExternalStore(store.subscribe, rankedNow);
   useEffect(() => {
     if (!ranked) return;
+    forgetCircleCount();
     setShown((now) => (now.state === "unconfirmed" && now.scorer?.pubkey === scorerKey ? { ...now, state: "ready" } : now));
   }, [ranked, scorerKey]);
 

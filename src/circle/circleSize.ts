@@ -1,5 +1,6 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
+import { readSession } from "../account/session.ts";
 import { config } from "../config.ts";
 import { asEvent, isNewer, type RelayReader, readAll } from "../nostr/events.ts";
 import { isHex64 } from "../nostr/shapes.ts";
@@ -22,8 +23,11 @@ import { forgetToken, readToken } from "./token.ts";
  * - The run's `count_values` (`GET /user/graperankResult`), with the token this tab has once the
  *   person personalized. It buckets everyone by Brainstorm's tiers (high from influence 0.5, medium-high
  *   from 0.2, medium from 0.07, then under), not at the line, so it gives only a floor too: the people
- *   in tiers that start at or above the line. It costs one request, so it stands in for reading the
- *   relay when its floor is more than the relay's pages could count.
+ *   in tiers that start at or above the line. Both are asked at once; when the run's floor is more than
+ *   the relay's pages could count, the relay's read is stopped.
+ *
+ * What was counted is kept for the tab (`COUNT_KEY`), so that coming back to the page reads nothing
+ * again. The circle's provider lets go of it whenever the circle is worked out again, and at Sign out.
  */
 
 /** The most ranks one request asks for: as many as a relay sends (Brainstorm reads 500 at a time). */
@@ -86,6 +90,9 @@ export async function countRanks(
   line: number,
   signal: AbortSignal,
 ): Promise<{ size: CircleSize; newest?: number }> {
+  // A page shorter than `RANK_PAGE` is taken for the end: this assumes the scorer's relay sends 500
+  // events for one request (its `max_limit`), as the house's ranks do (src/trust/houseWeights.ts). A
+  // relay that sends fewer would end the count early, and call a part of the circle the whole of it.
   const filter: NostrFilter = { kinds: [RANK_KIND], authors: [scorer], limit: RANK_PAGE };
   const values: unknown[] = [];
   let until: number | undefined;
@@ -150,11 +157,37 @@ export interface Counted {
 }
 
 /**
- * How many are in `owner`'s circle, whose ranks `scorer` publishes, read through `readers`. With a
- * token this tab has (the person personalized this session), the latest run says when it was worked
- * out, and gives its floor; a token Brainstorm refuses is let go of, and nobody is asked to sign
- * anything (they did not act). Brainstorm not answering is no matter: the relay is read. Throws when the
- * relay cannot be read, or `signal` aborts.
+ * What the person's latest run says, with the token this tab has: when it was worked out, and its
+ * floor (`floorFromRun`). Nothing without a token, before the run is done, or when Brainstorm cannot
+ * be reached. A token Brainstorm refuses is let go of, and nobody is asked to sign anything: they did
+ * not act. Throws only when `signal` aborts.
+ */
+async function fromRun(owner: string, line: number, signal: AbortSignal): Promise<{ floor: number; workedOut?: number }> {
+  const token = readToken(owner);
+  if (token === null) return { floor: 0 };
+  try {
+    const client = await loadBrainstorm();
+    try {
+      const run = await client.latestRun(token, signal);
+      if (run === null || client.runState(run) !== "done") return { floor: 0 };
+      return { floor: floorFromRun(run.countValues, line), workedOut: run.updatedAt };
+    } catch (error) {
+      if (error instanceof client.TokenExpired) forgetToken();
+      throw error;
+    }
+  } catch {
+    signal.throwIfAborted();
+    // Brainstorm could not be reached, or its client did not load: the relay alone says.
+    return { floor: 0 };
+  }
+}
+
+/**
+ * How many are in `owner`'s circle, whose ranks `scorer` publishes, read through `readers`: the
+ * relay's count and the run's (with a token this tab has, `fromRun`), asked at once. The run's floor,
+ * when it is more than the relay's pages could count, stops the relay's read; the relay not answering
+ * leaves the run's floor, when there is one. The run says when the circle was worked out, else the
+ * newest rank does. Throws when neither can say, or `signal` aborts.
  */
 export async function sizeOfCircle({
   owner,
@@ -168,30 +201,83 @@ export async function sizeOfCircle({
   signal: AbortSignal;
 }): Promise<Counted> {
   const { line } = config.scoring;
-  let floor = 0;
-  let workedOut: number | undefined;
-  const token = readToken(owner);
-  if (token !== null) {
-    try {
-      const client = await loadBrainstorm();
-      try {
-        const run = await client.latestRun(token, signal);
-        if (run !== null && client.runState(run) === "done") {
-          workedOut = run.updatedAt;
-          floor = floorFromRun(run.countValues, line);
-        }
-      } catch (error) {
-        if (error instanceof client.TokenExpired) forgetToken();
-        throw error;
-      }
-    } catch {
-      signal.throwIfAborted();
-      // Brainstorm could not be reached, or its client did not load: the relay alone says.
-    }
+  const relay = new AbortController();
+  const reading = countRanks(readers(scorer.relay), scorer.pubkey, owner, line, AbortSignal.any([signal, relay.signal]));
+  // Its failure is read below, unless it no longer matters.
+  reading.catch(() => {});
+  const run = await fromRun(owner, line, signal);
+  if (run.floor >= RANK_PAGE * RANK_PAGES) {
+    relay.abort();
+    return { size: { kind: "atLeast", n: run.floor }, workedOut: run.workedOut };
   }
-  if (floor >= RANK_PAGE * RANK_PAGES) return { size: { kind: "atLeast", n: floor }, workedOut };
+  let counted: Awaited<typeof reading>;
+  try {
+    counted = await reading;
+  } catch (error) {
+    signal.throwIfAborted();
+    if (run.floor > 0) return { size: { kind: "atLeast", n: run.floor }, workedOut: run.workedOut };
+    throw error;
+  }
+  const size: CircleSize =
+    counted.size.kind === "atLeast" ? { kind: "atLeast", n: Math.max(counted.size.n, run.floor) } : counted.size;
+  return { size, workedOut: run.workedOut ?? (counted.newest === undefined ? undefined : counted.newest * 1000) };
+}
 
-  const counted = await countRanks(readers(scorer.relay), scorer.pubkey, owner, line, signal);
-  const size: CircleSize = counted.size.kind === "atLeast" ? { kind: "atLeast", n: Math.max(counted.size.n, floor) } : counted.size;
-  return { size, workedOut: workedOut ?? (counted.newest === undefined ? undefined : counted.newest * 1000) };
+// ---- What the tab keeps ----
+
+/** Where the count of the person's circle is kept for the tab (sessionStorage), with whose circle it is, and its scorer. */
+export const COUNT_KEY = "regulars.circleCount";
+
+/** Whether `value` is a count of people: a whole number from 0. */
+const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+/** The size in `value`, as kept; undefined if it is not one this module writes. */
+function asSize(value: unknown): CircleSize | undefined {
+  if (!isObject(value)) return undefined;
+  if (value.kind === "atLeast") return isCount(value.n) ? { kind: "atLeast", n: value.n } : undefined;
+  const { total, direct, further } = value;
+  if (value.kind !== "exact" || !isCount(total) || !isCount(direct) || !isCount(further) || total !== direct + further) return undefined;
+  return { kind: "exact", total, direct, further };
+}
+
+/**
+ * The count of `owner`'s circle from `scorer` this tab keeps, or null: none kept, another person's or
+ * another scorer's, the tab's session not theirs, or not what this module writes.
+ */
+export function readCount(owner: string, scorer: Scorer): Counted | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(window.sessionStorage.getItem(COUNT_KEY) ?? "null");
+  } catch {
+    // Blocked storage, or not JSON: nothing kept.
+    return null;
+  }
+  if (!isObject(value) || value.owner !== owner || readSession()?.pubkey !== owner) return null;
+  if (value.scorer !== scorer.pubkey || value.relay !== scorer.relay) return null;
+  const size = asSize(value.size);
+  const { workedOut } = value;
+  if (size === undefined || (workedOut !== undefined && (typeof workedOut !== "number" || !Number.isFinite(workedOut)))) return null;
+  return workedOut === undefined ? { size } : { size, workedOut };
+}
+
+/** Keeps `counted`, the count of `owner`'s circle from `scorer`, for the tab, while its session is theirs. */
+export function keepCount(owner: string, scorer: Scorer, counted: Counted): void {
+  if (readSession()?.pubkey !== owner) return;
+  try {
+    window.sessionStorage.setItem(
+      COUNT_KEY,
+      JSON.stringify({ owner, scorer: scorer.pubkey, relay: scorer.relay, size: counted.size, workedOut: counted.workedOut }),
+    );
+  } catch {
+    // Blocked or full: the page counts again next time.
+  }
+}
+
+/** Lets go of the count kept for the tab: the circle was worked out again, or the person signed out. */
+export function forgetCircleCount(): void {
+  try {
+    window.sessionStorage.removeItem(COUNT_KEY);
+  } catch {
+    // Blocked: there is nothing kept to forget.
+  }
 }

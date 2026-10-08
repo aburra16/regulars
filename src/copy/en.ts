@@ -668,12 +668,15 @@ export const copy = {
       oneSay: { title: "One say each", body: "A person has one review per place. Writing another replaces it." },
     },
     foldedHeading: "What gets folded away",
+    // DRAFT for Avi: the design's words, but for its last sentence ("Trust a reviewer and theirs count
+    // from the next update."), which points at the Trust button, not built yet (ruling R11). People
+    // trust others in the apps they use today.
     /** On a phone (Trust.dc.html). */
     foldedBody:
-      "Reviews from people outside your circle sit folded under each place. Nothing is deleted, and one tap opens them. Trust a reviewer and theirs count from the next update.",
+      "Reviews from people outside your circle sit folded under each place. Nothing is deleted, and one tap opens them. If you trust someone new in another app, their reviews count here from your circle's next update.",
     /** On a desktop (DeskTrust.dc.html): a click, not a tap. */
     foldedBodyDesk:
-      "Reviews from people outside your circle sit folded under each place. Nothing is deleted, and one click opens them. Trust a reviewer and theirs count from the next update.",
+      "Reviews from people outside your circle sit folded under each place. Nothing is deleted, and one click opens them. If you trust someone new in another app, their reviews count here from your circle's next update.",
     houseHeading: "And House picks?",
     /** On a phone (Trust.dc.html). */
     houseBody: `The same sums from a different starting point: the reviewers that ${houseName}, our house curator, trusts. It's what everyone sees before signing in, and it's always one tap away.`,

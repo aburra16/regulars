@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SESSION_KEY } from "../src/account/session";
 import * as client from "../src/circle/brainstorm";
-import { CIRCLE_KEY, POLL_CAP_MS, POLL_MS } from "../src/circle/CircleProvider";
-import { countRanks, floorFromRun, RANK_PAGE, RANK_PAGES } from "../src/circle/circleSize";
+import { CIRCLE_KEY, forgetCircle, POLL_CAP_MS, POLL_MS } from "../src/circle/CircleProvider";
+import { COUNT_KEY, countRanks, floorFromRun, RANK_PAGE, RANK_PAGES } from "../src/circle/circleSize";
 import { readToken, saveToken } from "../src/circle/token";
 import { WHY_PATH } from "../src/circle/paths";
 import { config } from "../src/config";
@@ -192,6 +192,15 @@ describe("the words", () => {
     expect(copy.why.inYourCircle(212)).toBe("people in your circle");
     expect(copy.why.workedOut(2, 0)).toBe("Worked out 2 days ago");
   });
+
+  it("point at nothing the app does not have yet (ruling R11): trusting people is done in their own apps today", () => {
+    for (const text of [copy.why.foldedBody, copy.why.foldedBodyDesk, copy.why.emptyBody]) {
+      expect(text).not.toMatch(/\bTrust a reviewer\b|\bTrust button\b|\btap Trust\b/i);
+    }
+    expect(copy.why.foldedBody).toMatch(/one tap opens them\./);
+    expect(copy.why.foldedBodyDesk).toMatch(/one click opens them\./);
+    expect(copy.why.foldedBody).toMatch(/in another app/);
+  });
 });
 
 describe("the way in: How this works", () => {
@@ -256,7 +265,9 @@ describe("signed out", () => {
     expect(rules[1]).toHaveTextContent(`${copy.why.rules.closer.title}${copy.why.rules.closer.body}`);
     // The design's desktop words: a click, not a tap.
     expect(screen.getByText(copy.why.foldedBodyDesk)).toBeInTheDocument();
-    const rail = screen.getByRole("complementary", { name: copy.why.circleHeading });
+    // The rail is not named as the panel in it is: one landmark of each name.
+    const rail = screen.getByRole("complementary");
+    expect(rail).not.toHaveAccessibleName(copy.why.circleHeading);
     expect(within(rail).getByRole("heading", { name: copy.view.circle })).toBeInTheDocument();
     expect(within(rail).getByRole("link", { name: copy.why.about })).toBeInTheDocument();
   });
@@ -294,12 +305,27 @@ describe("your circle, once it is ready", () => {
     expect(rankReads.length).toBeGreaterThan(0);
   });
 
-  it("never shows a number about a person (decision 19)", async () => {
-    const me = signedIn();
-    ready(me);
-    ranks = circleOf(me);
-    await openWhy(DESKTOP);
-    await waitFor(() => expect(circlePanel()).toHaveTextContent(copy.why.inYourCircle(4)));
+  it.each([
+    ["on a desktop", DESKTOP, "counted"],
+    ["on a phone", undefined, "counted"],
+    ["with nobody in the circle", undefined, "empty"],
+    ["with only a floor", undefined, "floor"],
+    ["signed out", undefined, "signedOut"],
+  ] as const)("never shows a number about a person (decision 19), %s", async (_, px, version) => {
+    if (version !== "signedOut") {
+      const me = signedIn();
+      ready(me);
+      ranks = version === "empty" ? [rankOf(me, 100, { hops: 0 }), rankOf(DAN, 4.38, { hops: 1 })] : circleOf(me);
+      if (version === "floor") {
+        saveToken(me, TOKEN);
+        brainstorm.latestRun.mockResolvedValue(run("done", { countValues: JSON.stringify({ high: { "1": 87, "2": 6341 } }) }));
+      }
+    }
+    await openWhy(px);
+    if (version === "counted") await waitFor(() => expect(circlePanel()).toHaveTextContent(copy.why.inYourCircle(4)));
+    if (version === "empty") await within(circlePanel()).findByRole("heading", { name: copy.why.emptyTitle });
+    if (version === "floor") await waitFor(() => expect(circlePanel()).toHaveTextContent(`6,400+ ${copy.why.inYourCircle(6400)}`));
+    if (version === "signedOut") expect(screen.getByRole("link", { name: copy.signin.button })).toBeInTheDocument();
     // "Closer people count for more" is a rule about the sums, the design's own words, not a number on anyone.
     expectNoNumbersAboutPeople(RANKS, { allow: [copy.why.rules.closer.title] });
   });
@@ -326,7 +352,81 @@ describe("your circle, once it is ready", () => {
     expect(brainstorm.latestRun).toHaveBeenCalledWith(TOKEN, expect.any(AbortSignal));
     // The split by who trusts whom is for a count that is exact.
     expect(within(circlePanel()).queryByText(copy.why.youTrust)).not.toBeInTheDocument();
-    expect(rankReads).toEqual([]);
+    // The relay was asked at the same time, and stopped once the run's floor was past what it can count.
+    expect(rankReads.length).toBeLessThanOrEqual(1);
+  });
+
+  it("asks Brainstorm and reads the relay at the same time", async () => {
+    const me = signedIn();
+    ready(me);
+    saveToken(me, TOKEN);
+    ranks = circleOf(me);
+    let answer!: (value: client.Run | null) => void;
+    brainstorm.latestRun.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    await openWhy();
+    // The relay is read while Brainstorm has not answered.
+    await waitFor(() => expect(rankReads.length).toBeGreaterThan(0));
+    expect(brainstorm.latestRun).toHaveBeenCalledTimes(1);
+    expect(within(circlePanel()).getByText(copy.why.counting)).toBeInTheDocument();
+    await act(async () => answer(run("done", { daysAgo: 1 })));
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+    expect(within(circlePanel()).getByText(copy.why.workedOut(1, 0))).toBeInTheDocument();
+  });
+
+  it("gives the run's floor when the relay can't be read", async () => {
+    const me = signedIn();
+    ready(me);
+    saveToken(me, TOKEN);
+    brainstorm.latestRun.mockResolvedValue(run("done", { countValues: JSON.stringify({ medium: { "2": 437 } }) }));
+    const down = (url: string): RelayReader => ({
+      async *req(filter, signal) {
+        if (url === SCORES) throw new Error("The relay answered 503");
+        yield* readers(url).req(filter, signal);
+      },
+    });
+    await openApp(WHY_PATH, { events: fixtures, readers: down });
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`430+ ${copy.why.inYourCircle(430)}`));
+  });
+
+  it("keeps the count for the tab: coming back reads nothing again, until Update now has the circle worked out again", async () => {
+    const me = signedIn();
+    ready(me);
+    saveToken(me, TOKEN);
+    ranks = circleOf(me);
+    const { router } = await openWhy();
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+    const reads = rankReads.length;
+    const asks = brainstorm.latestRun.mock.calls.length;
+
+    await act(() => router.navigate("/about"));
+    await act(() => router.navigate(WHY_PATH));
+    // At once, from what the tab keeps: no "Counting your circle…", and nothing read.
+    expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`);
+    expect(within(circlePanel()).getByText(copy.why.workedOut(2, 0))).toBeInTheDocument();
+    await after(100);
+    expect(rankReads.length).toBe(reads);
+    expect(brainstorm.latestRun.mock.calls.length).toBe(asks);
+
+    // Worked out again: counted again, and kept.
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(updateNow());
+    const at = nowS();
+    ranks = [...circleOf(me).map((ev) => ({ ...ev, created_at: at })), rankOf(hex64("f"), 30.5, { hops: 1, at })];
+    brainstorm.latestRun.mockResolvedValue(run("done"));
+    await after(POLL_MS);
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`5 ${copy.why.inYourCircle(5)}`));
+    expect(rankReads.length).toBeGreaterThan(reads);
+  });
+
+  it("forgets the count kept for the tab when the person signs out", async () => {
+    const me = signedIn();
+    ready(me);
+    ranks = circleOf(me);
+    await openWhy();
+    await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
+    expect(window.sessionStorage.getItem(COUNT_KEY)).not.toBeNull();
+    forgetCircle();
+    expect(window.sessionStorage.getItem(COUNT_KEY)).toBeNull();
   });
 
   it("counts from the relay when the run's counts are smaller, and says when the run was worked out", async () => {
