@@ -1,4 +1,4 @@
-import { type JSX, type MouseEvent, type RefObject, useEffect, useRef, useState } from "react";
+import { type JSX, type MouseEvent, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { Link, type Path } from "react-router-dom";
 
 import { config } from "../config.ts";
@@ -13,9 +13,9 @@ import { useAddOnSignIn } from "./useAddOnSignIn.ts";
  * account button, signed out, are links to the sign-in page that, where the browser has an add-on,
  * ask it at once instead, and the person stays where they are. While it asks, the control is busy
  * and a line says so, with Cancel; the add-on has a minute (src/account/connect.ts). When it says
- * no, fails or does not answer, the line says so, with Try again and the phone's way, which is the
- * sign-in page opened at the code (./returnTo.ts, `wantsPhone`). With no add-on, a new tab, or
- * signing in not open, the link goes to the sign-in page as any link does.
+ * no, fails or does not answer, the line says so, with Try again, the phone's way, which is the
+ * sign-in page opened at the code (./returnTo.ts, `wantsPhone`), and Dismiss. With no add-on, a new
+ * tab, or signing in not open, the link goes to the sign-in page as any link does.
  */
 
 /** Where it is: not begun, the add-on asking, or the add-on having said no (or failed, or not answered). */
@@ -34,6 +34,10 @@ export interface InlineSignIn {
   retry(): void;
   /** Stops waiting on the add-on. */
   cancel(): void;
+  /** Puts away the line that says the add-on did not work. */
+  dismiss(): void;
+  /** Back to not begun, stopping any wait, with the focus left where it is: for a page left behind. */
+  reset(): void;
 }
 
 /** The look of the control while the add-on asks: still there, dimmed, and busy. */
@@ -48,6 +52,11 @@ export function useInlineSignIn(state: { from: Path; next?: Path }, onSignedIn: 
   const [phase, setPhase] = useState<InlinePhase>("idle");
   const control = useRef<HTMLAnchorElement>(null);
   const backToControl = () => control.current?.focus({ preventScroll: true });
+  const { stop } = addOn;
+  const reset = useCallback(() => {
+    stop();
+    setPhase("idle");
+  }, [stop]);
 
   const ask = () => {
     setPhase("asking");
@@ -78,14 +87,18 @@ export function useInlineSignIn(state: { from: Path; next?: Path }, onSignedIn: 
       ask();
     },
     cancel() {
-      addOn.stop();
+      reset();
+      backToControl();
+    },
+    dismiss() {
       setPhase("idle");
       backToControl();
     },
+    reset,
   };
 }
 
-/** The add-on said no: said as an alert, with Try again, which has the focus, and the phone's way. */
+/** The add-on said no: said as an alert, with Try again, which has the focus, the phone's way, and Dismiss. */
 function Refused({ inline, align }: { inline: InlineSignIn; align: "start" | "end" }): JSX.Element {
   const retry = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -107,6 +120,13 @@ function Refused({ inline, align }: { inline: InlineSignIn; align: "start" | "en
         >
           {copy.signin.phoneInstead}
         </Link>
+        <button
+          type="button"
+          onClick={inline.dismiss}
+          className="inline-flex min-h-touch cursor-pointer items-center border-0 bg-transparent p-0 font-text text-secondary font-semibold text-muted underline"
+        >
+          {copy.signin.dismiss}
+        </button>
       </div>
     </>
   );

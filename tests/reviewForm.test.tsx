@@ -610,6 +610,42 @@ describe("signing in to rate", () => {
     expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
   });
 
+  it("stops saying the add-on didn't work at Dismiss, and gives the focus back to Rate this place", async () => {
+    const world = newWorld();
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH));
+    const rate = await rateLink(world);
+    await user.click(rate);
+    await screen.findByRole("alert");
+
+    await user.click(screen.getByRole("button", { name: copy.signin.dismiss }));
+    expect(screen.queryByText(copy.signin.addOnFailed)).not.toBeInTheDocument();
+    expect(rate).toHaveFocus();
+  });
+
+  it("asks the add-on once when Rate this place and the account button are both pressed: one prompt, and the form", async () => {
+    const world = newWorld();
+    const key = generateSecretKey();
+    const addOn = installAddOn(key);
+    let answer!: () => void;
+    addOn.getPublicKey.mockImplementationOnce(() => new Promise<string>((resolve) => (answer = () => resolve(getPublicKey(key)))));
+    world.search.push(profileOf(getPublicKey(key), "Maya"));
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH), DESKTOP);
+    await user.click(await rateLink(world));
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
+    await waitFor(() => expect(addOn.getPublicKey).toHaveBeenCalledTimes(1));
+
+    act(() => answer());
+    const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    await reviewingAs("Maya", within(dialog));
+    expect(router.state.location.pathname).toBe(REVIEW_PATH);
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("says it is waiting while the add-on asks, with Rate this place busy, and Cancel stops waiting", async () => {
     const world = newWorld();
     const addOn = installAddOn(generateSecretKey());

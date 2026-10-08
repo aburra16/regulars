@@ -125,8 +125,9 @@ export const copy = {
     map: "Map",
     saved: "Saved",
     you: "You",
-    /** The round account button, for a screen reader, before sign in. */
-    account: "Your account and your circle",
+    // DRAFT for Avi
+    /** The round account button, for a screen reader, before sign in: pressing it signs the person in (decision 23). */
+    signIn: pages.signin,
     // DRAFT for Avi
     /** The account button after sign in, for a screen reader: "Sofia, your account". */
     accountOf: (name: string) => `${name}, your account`,
@@ -440,6 +441,8 @@ export const copy = {
     waitingForAddOn: "Waiting for your add-on…",
     /** The add-on said no, or failed: said with Try again, which asks it again, and the phone's way. */
     addOnFailed: "That didn't work. Try again, or use an app on your phone.",
+    /** Beside them, where the person signed in from Rate this place or the account button: puts the line away. */
+    dismiss: "Dismiss",
     /** Over the code to scan. */
     scan: "Scan this with the app, or copy the link",
     /** The code to scan, for a screen reader. */

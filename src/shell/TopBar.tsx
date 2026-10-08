@@ -7,6 +7,7 @@ import { copy } from "../copy/en.ts";
 import { NearButton } from "../location/CityPicker.tsx";
 import { LocationNotice } from "../location/LocationNotice.tsx";
 import { BUSY_CONTROL, type InlineSignIn, InlineSignInLines, useInlineSignIn } from "../signin/InlineSignIn.tsx";
+import { landingFrom } from "../signin/returnTo.ts";
 import { ThemeToggle } from "../theme/ThemeToggle.tsx";
 import { PersonIcon, SearchIcon } from "../ui/icons.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
@@ -33,7 +34,9 @@ function Disc({ size, children }: { size: AccountSize; children: ReactNode }): J
 /**
  * The account button's signing in where the person is (decision 23), for the top that draws it: the
  * button, and the lines under the top (`AccountSignInLines`). Signed in here, the button that is now
- * the person's takes the focus (`focusNext`), as the one they pressed is gone.
+ * the person's takes the focus (`focusNext`), as the one they pressed is gone; on a page that only
+ * asked them to sign in (You, Saved), they go on to Explore, as its own Sign in takes them. The top
+ * stays from page to page: on another page, what it said of signing in on the last one is over.
  */
 export interface AccountSignIn {
   inline: InlineSignIn;
@@ -42,10 +45,19 @@ export interface AccountSignIn {
 
 export function useAccountSignIn(): AccountSignIn {
   const location = useLocation();
+  const navigate = useNavigate();
   const focusNext = useRef(false);
   const inline = useInlineSignIn({ from: location }, () => {
     focusNext.current = true;
+    if (landingFrom({ from: location }) === undefined) void navigate("/");
   });
+  const { reset } = inline;
+  const at = useRef(location.key);
+  useEffect(() => {
+    if (at.current === location.key) return;
+    at.current = location.key;
+    reset();
+  }, [location.key, reset]);
   return { inline, focusNext };
 }
 
@@ -93,7 +105,7 @@ export function AccountLink({ size, signIn }: { size: AccountSize; signIn: Accou
       to="/signin"
       state={inline.state}
       onClick={inline.onClick}
-      aria-label={copy.nav.account}
+      aria-label={copy.nav.signIn}
       aria-busy={asking ? true : undefined}
       aria-disabled={asking ? true : undefined}
       className={`${ROUND} ${BUSY_CONTROL}`}

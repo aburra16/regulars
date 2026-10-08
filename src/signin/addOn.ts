@@ -21,15 +21,17 @@ export function hasAddOn(): boolean {
 
 /**
  * How long ago the page loaded, in milliseconds: from the end of its document's loading (when an
- * add-on puts itself on the page), both against the start of its navigation; from that start where
- * the browser does not say when the document loaded. A page reached by a link in the app loaded long
- * before.
+ * add-on puts itself on the page), both against the start of its navigation. A document still loading
+ * (a slow network: the browser has not said it is done) has just loaded: 0, and the look runs. Where
+ * the browser says nothing of the navigation, from its start. A page reached by a link in the app
+ * loaded long before.
  */
 export function msSinceLoad(): number {
   if (typeof performance === "undefined") return Number.POSITIVE_INFINITY;
   const navigation = performance.getEntriesByType?.("navigation")[0] as PerformanceNavigationTiming | undefined;
-  const loaded = navigation !== undefined && navigation.domContentLoadedEventEnd > 0 ? navigation.domContentLoadedEventEnd : 0;
-  return performance.now() - loaded;
+  if (navigation === undefined) return performance.now();
+  if (navigation.domContentLoadedEventEnd <= 0) return 0;
+  return performance.now() - navigation.domContentLoadedEventEnd;
 }
 
 /**

@@ -8,7 +8,7 @@ import { hexToBytes } from "nostr-tools/utils";
 import type { JSX } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AccountChanged, AccountProvider, useAccount } from "../src/account/AccountProvider";
+import { AccountChanged, AccountProvider, type Connect, useAccount, useConnect } from "../src/account/AccountProvider";
 import { ADD_ON_TIMEOUT_MS, CONNECT_TIMEOUT_MS, connectBunker, connectPhone, restoreAccount } from "../src/account/connect";
 import { readSession, SESSION_KEY } from "../src/account/session";
 import { config } from "../src/config";
@@ -121,8 +121,11 @@ const signinFrom = (pathname: string) => ({
 
 /** The account the provider gives, as the last render saw it. */
 let seen: ReturnType<typeof useAccount> | undefined;
+/** The ways to sign in the provider gives, as the last render saw them. */
+let ways: Connect | undefined;
 function AccountProbe(): JSX.Element | null {
   seen = useAccount();
+  ways = useConnect();
   return null;
 }
 
@@ -140,6 +143,7 @@ const sessionText = () => window.sessionStorage.getItem(SESSION_KEY);
 
 beforeEach(() => {
   seen = undefined;
+  ways = undefined;
   config.reviewRelays = [REVIEWS];
 });
 
@@ -949,7 +953,9 @@ describe("the account button, signed out", () => {
     const visited: string[] = [];
     router.subscribe((state) => visited.push(state.location.pathname));
     const top = screen.getByRole("banner");
-    const button = within(top).getByRole("link", { name: copy.nav.account });
+    const button = within(top).getByRole("link", { name: copy.nav.signIn });
+    // Named for what it does, signed out: pressing it signs the person in.
+    expect(copy.nav.signIn).toBe("Sign in");
     // Its address is sign in's, for a new tab, or a browser with no add-on.
     expect(button).toHaveAttribute("href", "/signin");
     await user.click(button);
@@ -968,7 +974,7 @@ describe("the account button, signed out", () => {
     installAddOn(generateSecretKey());
     const user = userEvent.setup();
     const { router } = await openApp("/", { events: fixtures, readers: readersWith([]) });
-    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.account }));
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
     expect(await within(screen.getByRole("banner")).findByRole("link", { name: copy.nav.yourAccount })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/");
     expect(readSession()).toMatchObject({ how: "browser" });
@@ -980,7 +986,7 @@ describe("the account button, signed out", () => {
     const user = userEvent.setup();
     const { router } = await openApp("/about", { events: fixtures, px: DESKTOP, relays: () => relay, entries: ["/", "/about"] });
     const writeText = vi.spyOn(navigator.clipboard, "writeText");
-    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.account }));
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
     expect(router.state.location.pathname).toBe("/signin");
     expect(router.state.location.state).toMatchObject({ from: { pathname: "/about" } });
 
@@ -996,7 +1002,7 @@ describe("the account button, signed out", () => {
     addOn.getPublicKey.mockImplementationOnce(() => new Promise<string>(() => {}));
     const user = userEvent.setup();
     await openApp("/about", { events: fixtures, px: DESKTOP });
-    const button = within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.account });
+    const button = within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn });
     await user.click(button);
 
     expect(await screen.findByText(copy.signin.waitingForAddOn)).toHaveAttribute("role", "status");
@@ -1020,7 +1026,7 @@ describe("the account button, signed out", () => {
     const app = createSignerApp(relay);
     const user = userEvent.setup();
     const { router } = await openApp("/about", { events: fixtures, relays: () => relay, entries: ["/", "/about"], px: DESKTOP });
-    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.account }));
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(copy.signin.addOnFailed);
     expect(router.state.location.pathname).toBe("/about");
@@ -1035,6 +1041,106 @@ describe("the account button, signed out", () => {
     await app.scan(writeText.mock.calls[0]![0]);
     await waitFor(() => expect(router.state.location.pathname).toBe("/about"));
     expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+  });
+  it.each(["/you", "/saved"])("lands on Explore from %s on a desktop, as the page's own Sign in does", async (path) => {
+    installAddOn(generateSecretKey());
+    const user = userEvent.setup();
+    const { router } = await openApp(path, { events: fixtures, px: DESKTOP, readers: readersWith([]) });
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    expect(readSession()).toMatchObject({ how: "browser" });
+  });
+
+  it("stops saying the add-on didn't work once the person goes to another page", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
+    const user = userEvent.setup();
+    const { router } = await openApp("/about", { events: fixtures, px: DESKTOP });
+    const top = screen.getByRole("banner");
+    await user.click(within(top).getByRole("link", { name: copy.nav.signIn }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.signin.addOnFailed);
+
+    await user.click(within(top).getByRole("link", { name: copy.app.name }));
+    expect(router.state.location.pathname).toBe("/");
+    await waitFor(() => expect(screen.queryByText(copy.signin.addOnFailed)).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: copy.signin.dismiss })).not.toBeInTheDocument();
+  });
+
+  it("stops saying it at Dismiss, and gives the focus back to the button", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
+    const user = userEvent.setup();
+    await openApp("/about", { events: fixtures, px: DESKTOP });
+    const button = within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn });
+    await user.click(button);
+    await screen.findByRole("alert");
+
+    expect(copy.signin.dismiss).toBe("Dismiss");
+    await user.click(screen.getByRole("button", { name: copy.signin.dismiss }));
+    expect(screen.queryByText(copy.signin.addOnFailed)).not.toBeInTheDocument();
+    expect(button).toHaveFocus();
+    expect(sessionText()).toBeNull();
+  });
+});
+
+describe("the add-on, asked from two places at once", () => {
+  /** The add-on, with its next answer held until the test gives it. */
+  function heldAddOn() {
+    const key = generateSecretKey();
+    const addOn = installAddOn(key);
+    let answer!: () => void;
+    addOn.getPublicKey.mockImplementationOnce(() => new Promise<string>((resolve) => (answer = () => resolve(getPublicKey(key)))));
+    return { addOn, pubkey: getPublicKey(key), answer: () => answer() };
+  }
+
+  it("is asked once: both wait on the one question, and both hear the person is signed in", async () => {
+    const { addOn, pubkey, answer } = heldAddOn();
+    renderAccount();
+    const first = ways!.browser(new AbortController().signal);
+    const second = ways!.browser(new AbortController().signal);
+    await waitFor(() => expect(addOn.getPublicKey).toHaveBeenCalledTimes(1));
+
+    answer();
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(seen?.account?.pubkey).toBe(pubkey));
+    expect(readSession()).toEqual({ how: "browser", pubkey });
+  });
+
+  it("goes on for the one still waiting when the other stops, and is given up once both have", async () => {
+    const { addOn, answer } = heldAddOn();
+    renderAccount();
+    const one = new AbortController();
+    const other = new AbortController();
+    const first = ways!.browser(one.signal);
+    const second = ways!.browser(other.signal);
+    first.catch(() => {});
+    second.catch(() => {});
+    await waitFor(() => expect(addOn.getPublicKey).toHaveBeenCalledTimes(1));
+
+    one.abort();
+    await expect(first).rejects.toThrow();
+    const stillWaiting = settled(second);
+    await settle();
+    expect(stillWaiting()).toBe(false);
+
+    other.abort();
+    await expect(second).rejects.toThrow();
+    // The add-on answers once nobody is waiting: nobody is signed in.
+    answer();
+    await settle();
+    expect(seen?.account).toBeUndefined();
+    expect(sessionText()).toBeNull();
+  });
+
+  it("asks afresh once the question before has ended", async () => {
+    const addOn = installAddOn(generateSecretKey());
+    addOn.getPublicKey.mockRejectedValueOnce(new Error("No"));
+    renderAccount();
+    await expect(ways!.browser(new AbortController().signal)).rejects.toThrow();
+    await ways!.browser(new AbortController().signal);
+    expect(addOn.getPublicKey).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -1174,7 +1280,7 @@ describe("signed in", () => {
     const top = screen.getByRole("banner");
     expect(copy.nav.yourAccount).toBe("Your account");
     expect(await within(top).findByRole("link", { name: copy.nav.yourAccount })).toHaveAttribute("href", "/you");
-    expect(within(top).queryByRole("link", { name: copy.nav.account })).not.toBeInTheDocument();
+    expect(within(top).queryByRole("link", { name: copy.nav.signIn })).not.toBeInTheDocument();
   });
 
   it("never calls the person Someone, which is what the store says for a profile with no name to show", async () => {
@@ -1220,8 +1326,8 @@ describe("signed in", () => {
 
     expect(sessionText()).toBeNull();
     expect(screen.getByText(copy.you.signedOut)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: copy.signin.button })).toHaveAttribute("href", "/signin");
-    expect(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.account })).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).getByRole("link", { name: copy.signin.button })).toHaveAttribute("href", "/signin");
+    expect(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveFocus();
   });
 

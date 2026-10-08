@@ -194,7 +194,7 @@ describe("the layout, by width", () => {
     const top = screen.getByRole("banner");
     expect(within(top).getByText(copy.app.name)).toBeInTheDocument();
     // Signed out, it signs the person in (decision 23): its address is sign in's.
-    expect(within(top).getByRole("link", { name: copy.nav.account })).toHaveAttribute("href", "/signin");
+    expect(within(top).getByRole("link", { name: copy.nav.signIn })).toHaveAttribute("href", "/signin");
     expect(within(top).getByRole("button", { name: "Near Funchal" })).toBeInTheDocument();
   });
 
@@ -234,7 +234,7 @@ describe("the layout, by width", () => {
     expect(within(bar).getByRole("group", { name: copy.view.label })).toBeInTheDocument();
     expect(within(bar).getByRole("button", { name: copy.view.house })).toHaveAttribute("aria-pressed", "true");
     expect(within(bar).getByRole("link", { name: copy.nav.saved })).toHaveAttribute("href", "/saved");
-    expect(within(bar).getByRole("link", { name: copy.nav.account })).toHaveAttribute("href", "/signin");
+    expect(within(bar).getByRole("link", { name: copy.nav.signIn })).toHaveAttribute("href", "/signin");
 
     expect(tabBar()).not.toBeInTheDocument();
   });
@@ -980,7 +980,7 @@ describe("the account button", () => {
       ["/", PHONE],
     ] as const) {
       const { unmount } = renderApp(path, { width });
-      expect(screen.getByRole("link", { name: copy.nav.account })).not.toHaveAttribute("aria-current");
+      expect(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn })).not.toHaveAttribute("aria-current");
       unmount();
     }
   });
@@ -1010,7 +1010,8 @@ describe("the production markup", () => {
 describe("the copy", () => {
   it("is the wording of the design and the plan", () => {
     expect([copy.nav.explore, copy.nav.map, copy.nav.saved, copy.nav.you]).toEqual(["Explore", "Map", "Saved", "You"]);
-    expect(copy.nav.account).toBe("Your account and your circle");
+    // Signed out, the account button signs the person in, and is named so (decision 23).
+    expect(copy.nav.signIn).toBe("Sign in");
     expect(copy.search.placeholder).toBe("Tacos, coffee, a place name");
     expect(copy.search.label).toBe("Search places");
     expect([copy.view.house, copy.view.circle]).toEqual(["House picks", "My circle"]);

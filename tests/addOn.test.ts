@@ -126,6 +126,20 @@ describe("a page that loaded a while ago", () => {
     loaded.mockReturnValue([]);
     expect(msSinceLoad()).toBe(1_200);
   });
+
+  it("is a page that has just loaded while its document is still loading, on a slow network: the look runs", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(performance, "now").mockReturnValue(4_000);
+    vi.spyOn(performance, "getEntriesByType").mockReturnValue([{ domContentLoadedEventEnd: 0 } as unknown as PerformanceEntry]);
+    expect(msSinceLoad()).toBe(0);
+
+    const look = watch(lookForAddOn(new AbortController().signal));
+    await vi.advanceTimersByTimeAsync(ADD_ON_WAIT_MS - 1);
+    expect(look.done()).toBe(false);
+    installAddOn();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(look.value()).toBe(true);
+  });
 });
 
 describe("the time the add-on has to answer", () => {
