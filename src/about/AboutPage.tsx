@@ -6,6 +6,7 @@ import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useWide } from "../shell/useWide.ts";
 import { BackLink } from "../ui/BackLink.tsx";
+import { HouseName } from "../ui/HouseName.tsx";
 import { NewTabHint } from "../ui/NewTab.tsx";
 import { HOW_SCORES_WORK, SIGNING_IN } from "./anchors.ts";
 import { aboutFigures, formatCount, formatRefreshed } from "./figures.ts";
@@ -120,7 +121,9 @@ function Words({ wide }: { wide: boolean }): JSX.Element {
         <p className={BODY}>{copy.about.viewsBody}</p>
       </Section>
       <Section id="who-the-house-is" heading={copy.about.houseHeading} wide={wide}>
-        <p className={BODY}>{copy.about.houseBody}</p>
+        <p className={BODY}>
+          <HouseName text={copy.about.houseBody} size="body" />
+        </p>
       </Section>
       <Section id={SIGNING_IN} heading={copy.about.signingInHeading} wide={wide}>
         <p className={BODY}>{copy.about.signingInBody}</p>

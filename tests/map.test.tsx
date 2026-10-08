@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import houseBadge64 from "../src/assets/house/house-64.png";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { HereProvider } from "../src/location/HereProvider";
@@ -780,10 +781,22 @@ describe("Explore on a desktop", () => {
     const names = entries.map((entry) => ("chain" in entry ? entry.chain.name : entry.place.name));
     expect(cards().map(nameOf)).toEqual(names.slice(0, 30));
     expect(pinAddresses(map)).toHaveLength(entries.length);
-    expect(screen.getByText(copy.explore.houseLine, { exact: false })).toHaveTextContent(
+    const houseLine = screen.getByRole("link", { name: copy.explore.howThisWorks }).parentElement!;
+    expect(houseLine).toHaveTextContent(
       `${copy.deskExplore.count(fixturePlaces.length)} ${copy.explore.houseLine} How this works`,
     );
     expect(screen.getByRole("link", { name: copy.common.aboutData })).toHaveAttribute("href", "/about");
+  });
+
+  it("puts the house's badge beside its name in the line over the list, as the phone does", async () => {
+    await openApp("/", { px: DESKTOP });
+    const houseLine = (await screen.findByRole("link", { name: copy.explore.howThisWorks })).parentElement!;
+    const badges = houseLine.querySelectorAll("img");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveAttribute("alt", "");
+    expect(badges[0]).toHaveAttribute("src", houseBadge64);
+    expect(badges[0]).toHaveClass("size-5", "rounded-full");
+    expect(badges[0]!.parentElement!.textContent).toBe(copy.house.name);
   });
 
   it("keeps Open now in the address, as the search does, and lists only the places that are open", async () => {

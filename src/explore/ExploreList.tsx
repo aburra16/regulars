@@ -15,6 +15,7 @@ import { useNow } from "../shell/useNow.ts";
 import { PageMessage, primaryButton } from "../ui/Banner.tsx";
 import { ChipLink, Chips } from "../ui/Chips.tsx";
 import { DetailsCredit } from "../ui/DetailsCredit.tsx";
+import { HouseName } from "../ui/HouseName.tsx";
 import { SearchIcon } from "../ui/icons.tsx";
 import { shownPageOf } from "../ui/shown.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
@@ -73,14 +74,14 @@ export function NoneNearby(): JSX.Element {
 }
 
 /**
- * Whose scores the list shows, with a link to how that works (Main.dc.html). The desktop's Explore
- * says how many places there are first (DeskExplore.dc.html).
+ * Whose scores the list shows, with the house's badge beside its name and a link to how that works
+ * (Main.dc.html). The desktop's Explore says how many places there are first (DeskExplore.dc.html).
  */
 export function HouseLine({ count }: { count?: number }): JSX.Element {
   return (
     <p className="m-0 text-secondary leading-[1.4] text-muted">
       {count !== undefined && `${copy.deskExplore.count(count)} `}
-      {copy.explore.houseLine}{" "}
+      <HouseName text={copy.explore.houseLine} size="line" />{" "}
       <Link to={aboutAt(HOW_SCORES_WORK)} className="font-semibold text-ink underline hover:text-accent">
         {copy.explore.howThisWorks}
       </Link>
