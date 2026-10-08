@@ -9,6 +9,7 @@ import { copy } from "../src/copy/en";
 import { forgetExploreIdx, setExploreIdx, stepsBackToExplore } from "../src/explore/returnPoint";
 import { HereProvider } from "../src/location/HereProvider";
 import { HereContext, type HereValue } from "../src/location/useLocation";
+import { PIN_SOURCE } from "../src/map/pins";
 import { osmNoteUrl } from "../src/place/osmLinks";
 import { distanceKm, formatDistance } from "../src/places/distance";
 import { openState } from "../src/places/hours";
@@ -35,6 +36,7 @@ import {
 import { ChainCard } from "../src/ui/ChainCard";
 import { PlaceRow } from "../src/ui/PlaceRow";
 import raw from "./fixtures/funchal-items.json";
+import { FakeMap } from "./support/fakeMaplibre";
 import { createMemoryReader } from "./support/memoryReader";
 
 const fixtures: NostrEvent[] = raw;
@@ -1639,18 +1641,125 @@ describe("Search: a long list", () => {
   });
 });
 
-describe("Search on a desktop", () => {
-  it("leaves the field to the top bar: the page has the chips, the line and the rows in a column", async () => {
+describe("Search on a desktop (D1: the phone's screens 1 to 4 in Explore's layout)", () => {
+  const menus = () => screen.getByRole("group", { name: copy.explore.filtersLabel });
+    /** The map made last, once its pins are on it. */
+  const theMap = () =>
+    waitFor(() => {
+      const map = FakeMap.instances.at(-1);
+      if (map === undefined || !map.sources.has(PIN_SOURCE)) throw new Error("No map with pins yet");
+      return map;
+    });
+  const pinAddresses = (map: FakeMap) =>
+    map.sources.get(PIN_SOURCE)!.data.features.map((feature) => (feature.properties as { address: string }).address);
+  const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pin = (name: string) => screen.getByRole("button", { name: new RegExp(`^${literal(name)},`) });
+  /** A pin, once the map has drawn it: its markers come after its pins are in its source. */
+  const findPin = (name: string) => screen.findByRole("button", { name: new RegExp(`^${literal(name)},`) });
+  /** The box around some places, as the map takes one: west, south, east, north. */
+  const boxOf = (places: Place[]) => [
+    Math.min(...places.map((each) => each.lon)),
+    Math.min(...places.map((each) => each.lat)),
+    Math.max(...places.map((each) => each.lon)),
+    Math.max(...places.map((each) => each.lat)),
+  ];
+  /** The places a search lists, a chain at its nearest: where their pins are. */
+  const pinned = (q: string, radiusKm = 25) =>
+    groupForList(idx.search(q, { lat: HERE.lat, lon: HERE.lon, radiusKm }), idx).map((entry) =>
+      "chain" in entry ? entry.nearby[0]!.place : entry.place,
+    );
+
+  it("shows the results beside the map, as the desktop's Explore does, with the filter menus above them", async () => {
     wideWindow();
     await openSearch("/search?q=pizza");
-    expect(screen.getAllByRole("search")).toHaveLength(1);
+    const map = await theMap();
+
+    // One field, the top bar's, with the words in it; no way back and no Filters chip, which the menus replace.
     expect(screen.getAllByRole("searchbox")).toHaveLength(1);
-    // The one field is the top bar's, with what was searched for in it.
     expect(screen.getByRole("searchbox")).toHaveValue("pizza");
     expect(screen.queryByRole("link", { name: copy.search.back })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: copy.search.filters(0) })).not.toBeInTheDocument();
+
+    // The list's column, then the map, as on Explore: the page is the window's height, and the column scrolls inside it.
+    expect(screen.getByRole("main").parentElement).toHaveClass("h-dvh");
+    const column = screen.getByRole("list").closest("section")!;
+    expect(column).toHaveClass("w-list", "shrink-0", "overflow-y-auto");
+    const mapArea = map.container.closest(".bg-map-land")!;
+    expect(mapArea).toHaveClass("flex-1");
+    expect(column.parentElement).toBe(mapArea.parentElement);
+    expect(column).toContainElement(menus());
+    expect(within(menus()).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Open now",
+      "Kind of place",
+      "Distance",
+      expect.stringMatching(/^Sort: /),
+    ]);
+
+    // The results as cards, the line of how many in the live region, and a pin for each.
     expect(names()).toEqual(listed("pizza"));
-    expect(screen.getByText(copy.search.summary(2, "Funchal", "Best match first"))).toBeInTheDocument();
-    expect(within(chipsGroup()).getByRole("link", { name: copy.search.filters(0) })).toBeInTheDocument();
+    const line = copy.search.summary(2, "Funchal", copy.search.sortedBy.relevance);
+    expect(screen.getByText(line).closest('[role="status"]')).not.toBeNull();
+    expect(pinAddresses(map)).toEqual(pinned("pizza").map((each) => each.address));
+    expect(screen.getByRole("link", { name: copy.common.aboutData })).toHaveAttribute("href", "/about");
+    expect(screen.getByRole("link", { name: addMissingName })).toBeInTheDocument();
+  });
+
+  it("fits the map to the results, and again to each new search", async () => {
+    wideWindow();
+    const user = userEvent.setup();
+    await openSearch("/search?q=pizza");
+    const map = await theMap();
+    expect(map.options.bounds).toEqual(boxOf(pinned("pizza")));
+
+    await user.clear(screen.getByRole("searchbox"));
+    await user.type(screen.getByRole("searchbox"), "cafe{Enter}");
+    await waitFor(() => expect(map.fitBounds).toHaveBeenLastCalledWith(boxOf(pinned("cafe")), expect.anything()));
+    expect(FakeMap.instances.at(-1)).toBe(map);
+  });
+
+  it("picks out a result's card when its pin is clicked, and its pin while the card is pointed at", async () => {
+    wideWindow();
+    const user = userEvent.setup();
+    Element.prototype.scrollIntoView = vi.fn();
+    try {
+      await openSearch("/search?q=pizza");
+      const card = rowFor("Ciao Pizzeria");
+      await user.click(await findPin("Ciao Pizzeria"));
+      expect(card).toHaveClass("border-2", "border-ink");
+      await user.hover(rowFor("Xarambinha Pizzeria Expresso"));
+      expect(pin("Xarambinha Pizzeria Expresso").firstElementChild).toHaveClass("border-accent");
+    } finally {
+      Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+    }
+  });
+
+  it("keeps the filters in the address from the menus, as the phone's filters page does", async () => {
+    wideWindow();
+    const user = userEvent.setup();
+    const { router } = await openSearch("/search?q=cafe");
+    await user.click(within(menus()).getByRole("button", { name: "Open now" }));
+    expect(router.state.location.search).toBe("?q=cafe&open=1");
+    expect(names()).toEqual(listed("cafe", (each) => !isClosed(each)));
+  });
+
+  it("has the note on the closed places Open now left out, under the cards, with a way to bring them back", async () => {
+    wideWindow();
+    const user = userEvent.setup();
+    const { router } = await openSearch("/search?q=cafe&open=1");
+    const left = idx.search("cafe", { lat: HERE.lat, lon: HERE.lon, radiusKm: 25 }).filter((each) => isClosed(each.place)).length;
+    const note = screen.getByText(copy.search.hiddenClosed(left)).parentElement!;
+    expect(screen.getByRole("list").compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(within(note).getByRole("button", { name: copy.search.showClosed }));
+    expect(router.state.location.search).toBe("?q=cafe");
+  });
+
+  it("says when nothing matches, in the same live region, with no cards", async () => {
+    wideWindow();
+    await openSearch("/search?q=zzzzqq");
+    const sentence = copy.search.noResults("zzzzqq", "Funchal");
+    expect(screen.getByText(sentence).closest('[role="status"]')).not.toBeNull();
+    expect(screen.getByText(copy.search.noResultsHint)).toBeInTheDocument();
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
   it("does not put the cursor in the field", async () => {
@@ -1683,13 +1792,12 @@ describe("Search on a desktop", () => {
     expect(names()).toEqual(listed("pizza"));
   });
 
-  it("puts the rows in a column no wider than the page's content", async () => {
-    wideWindow();
+  it("keeps the phone's page on a phone", async () => {
     await openSearch("/search?q=pizza");
-    const column = screen.getByRole("list").closest(".max-w-content");
-    expect(column).not.toBeNull();
-    expect(column).toHaveClass("mx-auto", "w-full");
-    expect(column).toContainElement(chipsGroup());
+    expect(screen.getByRole("main").parentElement).toHaveClass("min-h-dvh");
+    expect(screen.getByRole("link", { name: copy.search.back })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: copy.search.filters(0) })).toBeInTheDocument();
+    expect(FakeMap.instances).toHaveLength(0);
   });
 });
 
@@ -2105,10 +2213,16 @@ describe("Filters", () => {
     });
   });
 
-  it("shows the same controls on a desktop, in a column", async () => {
+  it("on a desktop, gives its place in the history to the search with the same filters: the menus there are the filters", async () => {
     wideWindow();
-    await openFilters();
-    expect(screen.getByRole("switch", { name: "Open now" })).toBeInTheDocument();
-    expect(within(groupNamed(copy.filters.kinds)).getAllByRole("button")).toHaveLength(10);
+    const { router } = open(["/search?q=pizza", "/filters?q=pizza&open=1&kinds=cafes"], fixtures, 1);
+    await screen.findByRole("heading", { level: 1, name: copy.pages.search });
+    expect(router.state.location.pathname).toBe("/search");
+    expect(router.state.location.search).toBe("?q=pizza&open=1&kinds=cafes");
+    expect(router.state.historyAction).toBe("REPLACE");
+    expect(screen.getByRole("group", { name: copy.explore.filtersLabel })).toBeInTheDocument();
+    // Back goes to where the person was before the filters, not to them again.
+    await act(() => router.navigate(-1));
+    expect(router.state.location.search).toBe("?q=pizza");
   });
 });

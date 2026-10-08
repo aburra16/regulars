@@ -39,8 +39,8 @@ export const routes: RouteObject[] = [
           { index: true, element: <Explore />, handle: chrome({ tabs: true, near: true, fill: "wide" }) },
           // On a desktop, Explore has the map: this goes there.
           { path: "map", element: <MapPage />, handle: chrome({ tabs: true, fill: "always" }) },
-          // ?q=&open=&kinds=&within=&sort=
-          { path: "search", element: <SearchPage /> },
+          // ?q=&open=&kinds=&within=&sort=. On a desktop, the results are in Explore's layout, beside the map.
+          { path: "search", element: <SearchPage />, handle: chrome({ fill: "wide" }) },
           { path: "filters", element: <FiltersPage /> },
           { path: "place/:d", element: <PlacePage /> },
           { path: "chain/:key", element: <ChainPage /> },

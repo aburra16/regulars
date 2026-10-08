@@ -1,9 +1,10 @@
 import { type JSX, type ReactNode, useId, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
+import { useWide } from "../shell/useWide.ts";
 import { CloseIcon } from "../ui/icons.tsx";
 import { KindOptions, OpenNowSwitch, SortOptions, WithinOptions } from "./FilterControls.tsx";
 import { type Filters, filtersFromParams, FROM_FILTERS, noFilters, sortInUse, withFilters } from "./filters.ts";
@@ -40,10 +41,13 @@ function Section({
  * the cross goes back as the search was. The words searched for stay in the address. Both ways back
  * say they come from here (`FROM_FILTERS`), so the search does not raise the keyboard over its results.
  *
- * (The desktop's Explore shows these same controls, from FilterControls, as menus.)
+ * A desktop has these same controls (FilterControls) as menus above its results, so there this page
+ * gives its place in the history to the search with the same address, as the map's page gives its to
+ * Explore.
  */
 export function FiltersPage(): JSX.Element {
   useDocumentTitle(copy.titles.filters);
+  const wide = useWide();
   const navigate = useNavigate();
   const locale = useLocale();
   const [params] = useSearchParams();
@@ -60,8 +64,10 @@ export function FiltersPage(): JSX.Element {
   const apply = () =>
     void navigate(searchPath(withFilters(params, draft, locale).toString()), { replace: true, state: FROM_FILTERS });
 
+  if (wide) return <Navigate to={searchPath(params.toString())} replace />;
+
   return (
-    <div className="flex flex-1 flex-col wide:mx-auto wide:w-list">
+    <div className="flex flex-1 flex-col">
       <div className="flex items-center justify-between pt-3.5 pr-3 pl-5">
         <h1 className="m-0 font-display text-[26px] font-extrabold tracking-display">{copy.pages.filters}</h1>
         <Link

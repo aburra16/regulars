@@ -32,6 +32,12 @@ export interface BaseMapProps {
   /** Where the map looks, longitude first. A new centre moves the map there. */
   center: LngLat;
   zoom: number;
+  /**
+   * A box the map shows all of (the results of a search): it takes the place of `center` and `zoom`
+   * while it is given. The map starts on it, unless `initialView` says where it was left, and moves
+   * to each new box.
+   */
+  fit?: Bbox;
   /** Whether the person can move the map and tap its pins. A map that is not is a picture of where a place is. */
   interactive: boolean;
   /**
@@ -95,6 +101,9 @@ type Item =
   | { key: string; kind: "you"; lngLat: LngLat };
 
 const NO_PINS: readonly Pin[] = [];
+
+/** How a map fits a box: the pins at its edge still clear of the map's edge, and no closer than a street. */
+const FIT_OPTIONS = { padding: 60, maxZoom: 15 } as const;
 
 /** "61", "1.2K": a count that fits its bubble. */
 const compactCount = new Intl.NumberFormat("en", { notation: "compact" });
@@ -275,6 +284,7 @@ function ZoomButtons({ onZoom }: { onZoom(direction: "in" | "out"): void }): JSX
 export function BaseMap({
   center,
   zoom,
+  fit,
   interactive,
   label,
   pins = NO_PINS,
@@ -301,7 +311,7 @@ export function BaseMap({
   const [shown, setShown] = useState<Shown>(NOTHING_SHOWN);
 
   // What the map's handlers read when they run: the latest of each, not those it was made with.
-  const latestProps = { center, zoom, interactive, pins, selected, highlighted, onSelect, onMoveEnd, initialView, onViewChange };
+  const latestProps = { center, zoom, fit, interactive, pins, selected, highlighted, onSelect, onMoveEnd, initialView, onViewChange };
   const latest = useRef(latestProps);
   useLayoutEffect(() => {
     latest.current = latestProps;
@@ -364,8 +374,10 @@ export function BaseMap({
     import("./maplibre.ts").then(
       (library) => {
         if (cancelled || container.current === null) return;
-        const { center: here, zoom: level, interactive: canMove, initialView: left } = latest.current;
+        const { center: here, zoom: level, fit: box, interactive: canMove, initialView: left } = latest.current;
         const start = left ?? { center: here, zoom: level };
+        // Where the person left it, on Back; otherwise the box it is to show, or its centre.
+        const fitted = left === undefined && box !== undefined ? { bounds: box, fitBoundsOptions: FIT_OPTIONS } : {};
         const style = mapStyle(config.mapTilerKey);
         let map: MapLibreMap;
         try {
@@ -374,6 +386,7 @@ export function BaseMap({
             style,
             center: start.center,
             zoom: start.zoom,
+            ...fitted,
             interactive: canMove,
             attributionControl: false,
             locale: { "Map.Title": copy.map.label },
@@ -508,18 +521,31 @@ export function BaseMap({
     // `pins` goes with `signature`, which says when they are new.
   }, [ready, signature]);
 
-  // A new centre, or the same one asked for again: move there. The map is made at the first.
+  // A new centre, or the same one asked for again: move there. The map is made at the first. While
+  // the map shows a box, the box says where it looks.
   const [lon, lat] = center;
   const placed = useRef<{ lon: number; lat: number; recentre: number | undefined } | null>(null);
   useEffect(() => {
     const last = placed.current;
     placed.current = { lon, lat, recentre };
     const map = mapRef.current;
-    if (last === null || map === null) return;
+    if (last === null || map === null || latest.current.fit !== undefined) return;
     if (last.lon === lon && last.lat === lat && last.recentre === recentre) return;
     map.easeTo({ center: [lon, lat], zoom });
     // The zoom is where to land, read when the move starts; a new zoom alone is not a move.
   }, [lon, lat, recentre]);
+
+  // A new box to show: fit the map to it. The map is made on the first; the same box again is no move.
+  const fitKey = fit?.join(",");
+  const fittedTo = useRef<string | undefined | null>(null);
+  useEffect(() => {
+    const last = fittedTo.current;
+    fittedTo.current = fitKey;
+    const map = mapRef.current;
+    if (last === null || map === null || fitKey === last || fit === undefined) return;
+    map.fitBounds(fit, FIT_OPTIONS);
+    // `fit` goes with `fitKey`, which says when it is a new box.
+  }, [fitKey]);
 
   // What to draw: what the map shows of the pins, the chosen and picked-out pins wherever they are
   // (a pin inside a bubble too), and where the person is.

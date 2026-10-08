@@ -26,3 +26,21 @@ export function areaOf([west, south, east, north]: Bbox): Area {
   const radiusKm = Math.min(distanceKm(south, west, north, east) / 2, config.defaultCity.radiusKm);
   return { lat, lon, radiusKm };
 }
+
+/**
+ * The box that holds every point, as a map takes one, or undefined for no points. Longitudes are
+ * read as they come, as `fitView` reads them (src/chain/fit.ts): a city's places do not cross the
+ * 180th meridian.
+ */
+export function boundsOf(points: readonly { lat: number; lon: number }[]): Bbox | undefined {
+  const [first] = points;
+  if (first === undefined) return undefined;
+  const box: Bbox = [first.lon, first.lat, first.lon, first.lat];
+  for (const { lat, lon } of points) {
+    box[0] = Math.min(box[0], lon);
+    box[1] = Math.min(box[1], lat);
+    box[2] = Math.max(box[2], lon);
+    box[3] = Math.max(box[3], lat);
+  }
+  return box;
+}

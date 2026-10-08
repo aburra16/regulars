@@ -97,7 +97,12 @@ export class FakeMap {
   constructor(options: Record<string, unknown>) {
     this.options = options;
     this.container = options.container as HTMLElement;
-    this.center = (options.center as [number, number] | undefined) ?? [0, 0];
+    // A map made to show a box (`bounds`) looks at its middle; the fake has no size to work out a zoom from.
+    const bounds = options.bounds as [number, number, number, number] | undefined;
+    this.center =
+      bounds === undefined
+        ? ((options.center as [number, number] | undefined) ?? [0, 0])
+        : [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2];
     this.zoom = (options.zoom as number | undefined) ?? 0;
     this.canvas = document.createElement("canvas");
     this.canvas.tabIndex = options.interactive === false ? -1 : 0;
@@ -176,6 +181,12 @@ export class FakeMap {
   easeTo = vi.fn((options: { center?: [number, number]; zoom?: number }, eventData: Record<string, unknown> = {}) => {
     if (options.center !== undefined) this.center = options.center;
     if (options.zoom !== undefined) this.zoom = options.zoom;
+    this.fire("movestart", eventData).fire("moveend", eventData);
+    return this;
+  });
+  /** A move the app asks for, to show a box: the map looks at its middle, and ends the move as `easeTo` does. */
+  fitBounds = vi.fn((bounds: [number, number, number, number], _options?: unknown, eventData: Record<string, unknown> = {}) => {
+    this.center = [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2];
     this.fire("movestart", eventData).fire("moveend", eventData);
     return this;
   });
