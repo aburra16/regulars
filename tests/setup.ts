@@ -4,10 +4,22 @@ import "fake-indexeddb/auto";
 
 import { cleanup } from "@testing-library/react";
 import { clear } from "idb-keyval";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 
+import { config } from "../src/config";
 import { forgetExploreIdx } from "../src/explore/returnPoint";
 import { forgetShownInMemory } from "../src/ui/shown";
+import { resetFakeMaplibre } from "./support/fakeMaplibre";
+
+// jsdom has no WebGL, so no map can be drawn. Every test gets the stand-in in place of the map
+// library: a page with a map works as it does in a browser, without tiles, and a test can play the
+// map's part (tests/support/fakeMaplibre.ts).
+vi.mock("maplibre-gl", () => import("./support/fakeMaplibre"));
+
+// Every test starts with no map key, whatever the machine's .env.local says; a test that wants one sets it.
+beforeEach(() => {
+  config.mapTilerKey = undefined;
+});
 
 // Tests never open a network socket. Anything that tries fails here, loudly, instead of
 // reaching a real server. Tests read places through a RelayReader (tests/support/memoryReader.ts).
@@ -30,6 +42,7 @@ afterEach(async () => {
   await clear();
   forgetShownInMemory();
   forgetExploreIdx();
+  resetFakeMaplibre();
   // A test that runs in Node, not jsdom, has no window.
   if (typeof window !== "undefined") {
     window.localStorage.clear();

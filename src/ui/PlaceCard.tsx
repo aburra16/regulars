@@ -26,10 +26,13 @@ export interface PlaceCardProps {
   now: Date;
   /** The card of the pin chosen on the map: a heavier edge in the ink colour (DeskExplore.dc.html). */
   selected?: boolean;
+  /** The card docked over the phone's map (Map.dc.html): white, with no edge but a shadow. */
+  onMap?: boolean;
 }
 
-/** The edge of a card: 1.5 px line colour, dashed for an unrated place, 2 px ink when chosen. */
-function edge(variant: PlaceCardProps["variant"], selected: boolean): string {
+/** The edge of a card: 1.5 px line colour, dashed for an unrated place, 2 px ink when chosen; none over the map, which has a shadow. */
+function edge(variant: PlaceCardProps["variant"], selected: boolean, onMap: boolean): string {
+  if (onMap) return "bg-ground shadow-card-over-map";
   if (selected) return "border-2 border-ink";
   return variant === "unrated-dashed" ? "border-token border-dashed border-line-dashed" : "border-token border-line";
 }
@@ -76,7 +79,7 @@ function HoursLine({ id, state, line }: { id: string; state: OpenState; line: st
  * yet. The whole card is one link to the place; the link is named by the place's name, and the
  * rest is its description.
  */
-export function PlaceCard({ place, km, variant, locale, now, selected = false }: PlaceCardProps): JSX.Element {
+export function PlaceCard({ place, km, variant, locale, now, selected = false, onMap = false }: PlaceCardProps): JSX.Element {
   const id = useId();
   const state = useMemo(() => openState(place, now), [place, now]);
   const kindLine = copy.explore.kindLine(placeKindLabel(place.category, place.cuisine), formatDistance(km, locale));
@@ -87,7 +90,7 @@ export function PlaceCard({ place, km, variant, locale, now, selected = false }:
       to={`/place/${encodeURIComponent(place.d)}`}
       aria-labelledby={`${id}-name`}
       aria-describedby={`${id}-kind ${id}-hours ${id}-score`}
-      className={`flex gap-3.5 rounded-card p-3.5 text-ink no-underline ${edge(variant, selected)}`}
+      className={`flex gap-3.5 rounded-card p-3.5 text-ink no-underline ${edge(variant, selected, onMap)}`}
     >
       <KindTile category={place.category} size="card" />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">

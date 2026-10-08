@@ -377,15 +377,16 @@ describe("the toggle in M1, before sign in opens", () => {
   it("goes to the sign-in page when My circle is tapped, and the view stays House picks", async () => {
     const user = userEvent.setup();
     expect(config.features.signIn).toBe(false);
-    const { router } = renderApp("/map", { width: DESKTOP });
+    // A page of its own on a desktop (the desktop's /map is Explore).
+    const { router } = renderApp("/about", { width: DESKTOP });
 
     await user.click(within(toggle()).getByRole("button", { name: "My circle" }));
     expect(router.state.location.pathname).toBe("/signin");
-    expect((router.state.location.state as { from: { pathname: string } }).from.pathname).toBe("/map");
+    expect((router.state.location.state as { from: { pathname: string } }).from.pathname).toBe("/about");
     expect(window.sessionStorage.getItem(VIEW_STORAGE_KEY)).not.toBe("circle");
 
     await act(() => router.navigate(-1));
-    expect(router.state.location.pathname).toBe("/map");
+    expect(router.state.location.pathname).toBe("/about");
     expect(within(toggle()).getByRole("button", { name: "House picks" })).toHaveAttribute("aria-pressed", "true");
     expect(within(toggle()).getByRole("button", { name: "My circle" })).toHaveAttribute("aria-pressed", "false");
   });

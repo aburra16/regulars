@@ -41,7 +41,7 @@ function commonKind(chain: Chain, nearby: readonly PlaceDistance[]): { label: st
 /** How the two variants look: the card of Explore (Main.dc.html) and the row of the search results (Search.dc.html). */
 const LOOK = {
   card: {
-    link: "gap-3.5 rounded-card border-token border-line bg-surface p-3.5",
+    link: "gap-3.5 rounded-card p-3.5",
     body: "gap-1.5",
     tile: { size: "card", tone: "ground" },
     name: "text-card-title",
@@ -59,6 +59,10 @@ type ChainCardProps = {
   /** The chain's places that are in the list, nearest first. */
   nearby: PlaceDistance[];
   locale: string;
+  /** The card of the pin chosen on the map: a heavier edge in the ink colour, as a place's card has (DeskExplore.dc.html). */
+  selected?: boolean;
+  /** The card docked over the phone's map: white, with no edge but a shadow, as a place's card there. */
+  onMap?: boolean;
 } & (
   | { variant?: "card"; now?: undefined }
   /** The row says how many of the places near are open, so it needs the time. */
@@ -72,7 +76,21 @@ type ChainCardProps = {
  * - `card` (Main.dc.html): tinted, with the closest of the places near ("3 near you, the closest 0.6 mi").
  * - `row` (Search.dc.html): a row of the results, its tile dark, with how many are open ("3 near you, 2 open now").
  */
-export function ChainCard({ chain, nearby, locale, variant = "card", now }: ChainCardProps): JSX.Element {
+/** The edge and ground of the card variant: tinted with a line, the ink edge when chosen, white with a shadow over the map. */
+function cardEdge(selected: boolean, onMap: boolean): string {
+  if (onMap) return "bg-ground shadow-card-over-map";
+  return selected ? "border-2 border-ink bg-surface" : "border-token border-line bg-surface";
+}
+
+export function ChainCard({
+  chain,
+  nearby,
+  locale,
+  variant = "card",
+  now,
+  selected = false,
+  onMap = false,
+}: ChainCardProps): JSX.Element {
   const id = useId();
   const kind = useMemo(() => commonKind(chain, nearby), [chain, nearby]);
   const closest = Math.min(...nearby.map((row) => row.km));
@@ -87,9 +105,9 @@ export function ChainCard({ chain, nearby, locale, variant = "card", now }: Chai
       to={`/chain/${chainSlug(chain)}`}
       aria-labelledby={`${id}-name`}
       aria-describedby={`${id}-kind ${id}-near`}
-      className={`flex text-ink no-underline ${look.link}`}
+      className={`flex text-ink no-underline ${look.link} ${variant === "card" ? cardEdge(selected, onMap) : ""}`}
     >
-      <KindTile category={kind.category} size={look.tile.size} tone={look.tile.tone} />
+      <KindTile category={kind.category} size={look.tile.size} tone={onMap ? "surface" : look.tile.tone} />
       <div className={`flex min-w-0 flex-1 flex-col ${look.body}`}>
         <div className="flex items-start justify-between gap-2.5">
           <span

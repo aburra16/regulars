@@ -106,3 +106,41 @@ export function CloseIcon(props: IconProps): JSX.Element {
     </Icon>
   );
 }
+
+/** The chevron pointing down: a menu that opens below its button (the desktop's filter menus). */
+export function ChevronDownIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props} strokeWidth={2.4}>
+      <path d="M6 9l6 6 6-6" />
+    </Icon>
+  );
+}
+
+/** A crosshair: the map's button that goes to where the person is. */
+export function LocateIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="7" />
+      <circle cx="12" cy="12" r="2.5" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+    </Icon>
+  );
+}
+
+/** The plus: zooms the map in. */
+export function PlusIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props} strokeWidth={2.4}>
+      <path d="M12 5v14M5 12h14" />
+    </Icon>
+  );
+}
+
+/** The minus: zooms the map out. */
+export function MinusIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props} strokeWidth={2.4}>
+      <path d="M5 12h14" />
+    </Icon>
+  );
+}

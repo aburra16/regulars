@@ -16,7 +16,6 @@ function Placeholder({ page }: { page: keyof typeof copy.titles & keyof typeof c
   );
 }
 
-export const MapPage = (): JSX.Element => <Placeholder page="map" />;
 export const PlacePage = (): JSX.Element => <Placeholder page="place" />;
 export const ChainPage = (): JSX.Element => <Placeholder page="chain" />;
 export const AboutPage = (): JSX.Element => <Placeholder page="about" />;

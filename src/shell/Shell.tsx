@@ -21,15 +21,22 @@ export interface Chrome {
   topBar?: boolean;
   /** The page shows places, so it waits for them, and says how they loaded. Default true. */
   needsPlaces?: boolean;
+  /**
+   * The page fills the window, and what is in it scrolls inside it, not the window: a map, which
+   * takes what the top and the tabs leave. `always`, or `wide` for the desktop's layout only.
+   * Default: the page is as tall as it is, and the window scrolls.
+   */
+  fill?: "always" | "wide";
 }
 
-function useChrome(): Required<Chrome> {
+function useChrome(): Omit<Required<Chrome>, "fill"> & Pick<Chrome, "fill"> {
   const handle = useMatches().at(-1)?.handle as Chrome | undefined;
   return {
     tabs: handle?.tabs ?? false,
     near: handle?.near ?? false,
     topBar: handle?.topBar ?? true,
     needsPlaces: handle?.needsPlaces ?? true,
+    fill: handle?.fill,
   };
 }
 
@@ -56,6 +63,7 @@ function Frame(): JSX.Element {
   const places = usePlaces();
   const online = useOnline();
   const state = chrome.needsPlaces ? loadState(places, online) : {};
+  const fill = chrome.fill === "always" || (chrome.fill === "wide" && wide);
 
   let content: JSX.Element;
   if (state.page === "failed") {
@@ -78,13 +86,13 @@ function Frame(): JSX.Element {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col bg-ground font-text text-ink">
+    <div className={`flex flex-col bg-ground font-text text-ink ${fill ? "h-dvh" : "min-h-dvh"}`}>
       {wide ? chrome.topBar && <TopBar /> : chrome.near && <PhoneTop />}
       {/* Always there, so a screen reader announces the line when it comes. Empty, it takes no room. */}
       <div role="status" className="px-gutter-phone wide:px-gutter-desktop *:mt-3">
         {state.page === undefined && state.banner !== undefined && <Banner>{state.banner}</Banner>}
       </div>
-      <main className="flex min-w-0 flex-1 flex-col">{content}</main>
+      <main className={`flex min-w-0 flex-1 flex-col ${fill ? "min-h-0" : ""}`}>{content}</main>
       {!wide && chrome.tabs && <TabBar />}
     </div>
   );

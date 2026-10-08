@@ -1,13 +1,22 @@
+import type { JSX } from "react";
 import type { RouteObject } from "react-router-dom";
 
+import { DeskExplore } from "./explore/DeskExplore.tsx";
 import { ExploreList } from "./explore/ExploreList.tsx";
-import { AboutPage, ChainPage, MapPage, PlacePage, SavedPage, SignInPage, YouPage } from "./pages/placeholders.tsx";
+import { MapPage } from "./explore/MapPage.tsx";
+import { AboutPage, ChainPage, PlacePage, SavedPage, SignInPage, YouPage } from "./pages/placeholders.tsx";
 import { FiltersPage } from "./search/FiltersPage.tsx";
 import { SearchPage } from "./search/SearchPage.tsx";
 import { NotFound, PageError } from "./shell/PageError.tsx";
 import { type Chrome, Shell } from "./shell/Shell.tsx";
+import { useWide } from "./shell/useWide.ts";
 
 const chrome = (value: Chrome): Chrome => value;
+
+/** Explore: the list on a phone, and on a desktop the list beside the map. */
+function Explore(): JSX.Element {
+  return useWide() ? <DeskExplore /> : <ExploreList />;
+}
 
 /**
  * Every page of the app. main.tsx gives them to a browser router; GitHub Pages answers an unknown
@@ -23,8 +32,9 @@ export const routes: RouteObject[] = [
       {
         errorElement: <PageError />,
         children: [
-          { index: true, element: <ExploreList />, handle: chrome({ tabs: true, near: true }) },
-          { path: "map", element: <MapPage />, handle: chrome({ tabs: true }) },
+          { index: true, element: <Explore />, handle: chrome({ tabs: true, near: true, fill: "wide" }) },
+          // On a desktop, Explore has the map: this goes there.
+          { path: "map", element: <MapPage />, handle: chrome({ tabs: true, fill: "always" }) },
           // ?q=&open=&kinds=&within=&sort=
           { path: "search", element: <SearchPage /> },
           { path: "filters", element: <FiltersPage /> },

@@ -1,47 +1,37 @@
-import { type JSX, useEffect, useMemo, useRef, useState } from "react";
+import { type JSX, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { HereCityPicker } from "../location/CityPicker.tsx";
 import { useHere } from "../location/useLocation.ts";
-import { type ChainGroup, groupForList, type PlaceDistance } from "../places/indexes.ts";
+import { groupForList } from "../places/indexes.ts";
 import { useIndexes } from "../places/useIndexes.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
 import { useNow } from "../shell/useNow.ts";
-import { useWide } from "../shell/useWide.ts";
 import { PageMessage, primaryButton } from "../ui/Banner.tsx";
-import { ChainCard } from "../ui/ChainCard.tsx";
 import { ChipLink, Chips } from "../ui/Chips.tsx";
 import { SearchIcon } from "../ui/icons.tsx";
-import { PlaceCard } from "../ui/PlaceCard.tsx";
-import { type ShownPage, shownMemory, shownPageOf, useShownCount } from "../ui/shown.ts";
+import { shownPageOf } from "../ui/shown.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
 import { CHIP_LABELS, CHIP_PARAM, chipFromParam, chipKeeps, EXPLORE_CHIPS, type ExploreChip } from "./chips.ts";
+import { Entries } from "./Entries.tsx";
 import { setExploreIdx } from "./returnPoint.ts";
-
-/** How many cards the list shows at first, and how many more each time it reaches its end. */
-const PAGE_SIZE = 30;
-
-/** The end of the list is looked for this far below the screen, so the next cards are there before they are scrolled to. */
-const LOOK_AHEAD = "0px 0px 600px 0px";
-
-/** Where each page of the list keeps how many cards it has shown. */
-const shown = shownMemory("regulars.explore.shown", PAGE_SIZE);
-
-type Entry = PlaceDistance | ChainGroup<PlaceDistance>;
-
-const isChain = (entry: Entry): entry is ChainGroup<PlaceDistance> => "chain" in entry;
 
 const CHIP_OPTIONS = EXPLORE_CHIPS.map((id) => ({ id, label: CHIP_LABELS[id] }));
 
-/** The search field of the phone's Explore: it looks like a field and opens the search page (Main.dc.html). */
-function SearchLink(): JSX.Element {
+/**
+ * The search field of the phone's Explore: it looks like a field and opens the search page
+ * (Main.dc.html). Over the map it is white, with a shadow (Map.dc.html).
+ */
+export function SearchLink({ onMap = false }: { onMap?: boolean }): JSX.Element {
   return (
     <Link
       to="/search"
-      className="flex h-13 items-center gap-2.5 rounded-button bg-surface px-4 text-body text-muted no-underline"
+      className={`flex h-13 items-center gap-2.5 rounded-button px-4 text-body text-muted no-underline ${
+        onMap ? "bg-ground shadow-float" : "bg-surface"
+      }`}
     >
       <SearchIcon size={20} className="shrink-0" />
       <span>
@@ -51,87 +41,8 @@ function SearchLink(): JSX.Element {
   );
 }
 
-/**
- * The cards, thirty at first and thirty more each time the end comes into view. Where the browser
- * cannot watch for that, or the person would rather not scroll, the button after the last card
- * does it. When it is pressed the focus moves to the first new card, so a keyboard goes on from
- * where the list left off. `page` is this page of the history and its list: Back to it shows as
- * many cards as it had, so the scroll position the router restores is still on the page.
- */
-function Entries({
-  page,
-  entries,
-  locale,
-  now,
-}: {
-  page: ShownPage;
-  entries: Entry[];
-  locale: string;
-  now: Date;
-}): JSX.Element {
-  const [count, setCount] = useShownCount(shown, page, entries.length);
-  const more = count < entries.length;
-  const list = useRef<HTMLUListElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
-  const focusAt = useRef<number | null>(null);
-
-  // Watch the button, which sits at the end of the list. A new observer reports where the button
-  // is as soon as it starts, so a list still short of the screen's end goes on loading.
-  useEffect(() => {
-    const target = button.current;
-    if (!more || target === null || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      (seen) => {
-        if (seen.some((entry) => entry.isIntersecting)) setCount((n) => n + PAGE_SIZE);
-      },
-      { rootMargin: LOOK_AHEAD },
-    );
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [more, count]);
-
-  useEffect(() => {
-    if (focusAt.current === null) return;
-    list.current?.children[focusAt.current]?.querySelector("a")?.focus();
-    focusAt.current = null;
-  }, [count]);
-
-  return (
-    <>
-      <ul ref={list} role="list" className="m-0 flex list-none flex-col gap-3 p-0">
-        {entries.slice(0, count).map((entry) =>
-          isChain(entry) ? (
-            <li key={`chain:${entry.chain.key}:${entry.chain.country}`}>
-              <ChainCard chain={entry.chain} nearby={entry.nearby} locale={locale} />
-            </li>
-          ) : (
-            <li key={entry.place.address}>
-              <PlaceCard place={entry.place} km={entry.km} variant="normal" locale={locale} now={now} />
-            </li>
-          ),
-        )}
-      </ul>
-      {more && (
-        <div className="flex justify-center pt-3">
-          <button
-            ref={button}
-            type="button"
-            onClick={() => {
-              focusAt.current = count;
-              setCount(count + PAGE_SIZE);
-            }}
-            className="inline-flex h-11 cursor-pointer items-center rounded-button border-token border-line-strong bg-ground px-6 font-text text-body font-semibold text-ink"
-          >
-            {copy.explore.showMore}
-          </button>
-        </div>
-      )}
-    </>
-  );
-}
-
 /** No place is listed around the point: say so, and offer another town. */
-function NoneNearby(): JSX.Element {
+export function NoneNearby(): JSX.Element {
   const here = useHere();
   const [picking, setPicking] = useState(false);
   return (
@@ -151,16 +62,29 @@ function NoneNearby(): JSX.Element {
 }
 
 /**
+ * Whose scores the list shows, with a link to how that works (Main.dc.html). The desktop's Explore
+ * says how many places there are first (DeskExplore.dc.html).
+ */
+export function HouseLine({ count }: { count?: number }): JSX.Element {
+  return (
+    <p className="m-0 text-secondary leading-[1.4] text-muted">
+      {count !== undefined && `${copy.deskExplore.count(count)} `}
+      {copy.explore.houseLine}{" "}
+      <Link to="/about#how-scores-work" className="font-semibold text-ink underline hover:text-accent">
+        {copy.explore.howThisWorks}
+      </Link>
+    </p>
+  );
+}
+
+/**
  * Explore, as a list (Main.dc.html; the phone's first screen). Below the top of the page, which the
  * shell draws, it has the search field, the toggle, the filter chips and the places near the
  * person, nearest first, chains as one card. A chip is kept in the address, so Back undoes it.
- *
- * On a desktop the top bar has the search and the toggle already, so only the line, the chips
- * and the list are here, in a column. The desktop's own Explore, with the map, replaces this.
+ * The desktop has its own Explore, with the map beside the list (DeskExplore).
  */
 export function ExploreList(): JSX.Element {
   useDocumentTitle(copy.titles.explore);
-  const wide = useWide();
   const here = useHere();
   const indexes = useIndexes();
   const now = useNow();
@@ -226,18 +150,13 @@ export function ExploreList(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col pb-5 wide:mx-auto wide:w-list">
+    <div className="flex flex-col pb-5">
       <div className="flex flex-col gap-4 px-gutter-phone pt-4">
         <h1 className="sr-only">{copy.pages.explore}</h1>
-        {!wide && <SearchLink />}
+        <SearchLink />
         <div className="flex flex-col gap-2">
-          {!wide && <ViewSwitch variant="bar" />}
-          <p className="m-0 text-secondary leading-[1.4] text-muted">
-            {copy.explore.houseLine}{" "}
-            <Link to="/about#how-scores-work" className="font-semibold text-ink underline hover:text-accent">
-              {copy.explore.howThisWorks}
-            </Link>
-          </p>
+          <ViewSwitch variant="bar" />
+          <HouseLine />
         </div>
         <Chips
           label={copy.explore.filtersLabel}

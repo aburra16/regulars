@@ -40,6 +40,9 @@ const locations = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "locatio
 /** How many places: "7 places", "1 place". */
 const places = (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "place" : "places"}`;
 
+/** The heading of the kinds filter, and the name of the desktop's kinds menu while none is chosen. */
+const kindOfPlace = "Kind of place";
+
 /** A page's title in the browser's tab: "Search · Regulars". */
 const pageTitle = (page: string) => `${page} · ${config.appName}`;
 
@@ -121,7 +124,7 @@ export const copy = {
     openNow: "Open now",
     openNowNote: "Keeps places with no hours listed.",
     distance: "Distance",
-    kinds: "Kind of place",
+    kinds: kindOfPlace,
     clearAll: "Clear all",
     /** The button that applies them (Filters.dc.html): "Show 5 places". */
     show: (n: number) => (n === 0 ? "No places match" : `Show ${places(n)}`),
@@ -256,6 +259,44 @@ export const copy = {
     // DRAFT for Avi
     /** The button under that, which clears the chip. */
     showAll: "Show all places",
+  },
+  /** The map (Map.dc.html, DeskExplore.dc.html). */
+  map: {
+    /** The map itself, for a screen reader. */
+    label: "Map",
+    /**
+     * A place's pin, for a screen reader: its name, what it is and its hours, then that nobody has
+     * reviewed it, which the ring says to the eye. "Dose, Cafe, Open until 6 pm, no reviews yet".
+     */
+    placePin: (name: string, kind: string, hours: string) => `${name}, ${kind}, ${hours}, no reviews yet`,
+    /** A chain's one pin, for a screen reader (Map.dc.html): "Copper Kettle Coffee, a chain, 3 locations in view". */
+    chainPin: (name: string, n: number) => `${name}, a chain, ${n.toLocaleString("en")} locations in view`,
+    /** What a chain's pin says beside its icon: "×3". */
+    chainCount: (n: number) => `×${n.toLocaleString("en")}`,
+    /** A bubble of pins too close to tell apart, for a screen reader (Map.dc.html): "12 places here, zoom in". */
+    cluster: (n: number) => `${n.toLocaleString("en")} places here, zoom in`,
+    /** The button that lists the places where the person has moved the map to. */
+    searchArea: "Search this area",
+    youAreHere: "You are here",
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
+    // DRAFT for Avi
+    /** The map could not be drawn: the browser cannot, or the map could not be loaded. */
+    failed: "We couldn't show the map.",
+    // DRAFT for Avi
+    /** The person searched an area of the map that has no places. */
+    noneInArea: "No places listed in this area yet.",
+  },
+  /** The desktop's Explore (DeskExplore.dc.html): the list beside the map. */
+  deskExplore: {
+    /** Before the line that says whose scores they are: "9 places." */
+    count: (n: number) => `${places(n)}.`,
+    /** The kinds menu, by what is chosen: none, one ("Cafes"), or several ("Kind of place · 2"). */
+    kinds: (n: number, only: string) => (n === 0 ? kindOfPlace : n === 1 ? only : `${kindOfPlace} · ${n.toLocaleString("en")}`),
+    /** The sort menu, by the order the list is in. With nothing chosen the list is nearest first. */
+    sort: { distance: "Sort: distance", name: "Sort: name" },
+    /** After the line on where the details come from, at the foot of the list. */
+    aboutData: "About this data",
   },
   location: {
     // DRAFT for Avi: every string in this group is a first draft and needs your edit.
