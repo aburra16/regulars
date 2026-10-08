@@ -102,6 +102,18 @@ describe("styles", () => {
     expect(indexCss).toMatch(/body\s*\{[^}]*font-optical-sizing:\s*auto/);
   });
 
+  it("leaves text with no line height of its own at the browser's normal, as the screens do, not Tailwind's 1.5", async () => {
+    // The screens set a line height only where they mean one; everywhere else the browser's
+    // `normal` (about 1.2 in Figtree) applies. Tailwind's preflight puts 1.5 on the root.
+    const css = await compileUtilities(["text-body", "text-secondary"]);
+    const rootRules = [...css.matchAll(/(?:^|[\s}])html(?:,\s*:host)?\s*\{([^}]*)\}/g)].map(([, body]) => body ?? "");
+    const lineHeights = rootRules.flatMap((body) => /line-height:\s*([^;]+);/.exec(body)?.[1] ?? []);
+    expect(lineHeights.at(-1)).toBe("normal");
+    // A size utility sets the size alone, so it keeps the line height it is given.
+    expect(declarationsOf(css, "text-body")).toEqual(["font-size: var(--size-body)"]);
+    expect(declarationsOf(css, "text-secondary")).toEqual(["font-size: var(--size-secondary)"]);
+  });
+
   it("sets the body font, colour and background from the tokens", () => {
     expect(indexCss).toMatch(/body\s*\{[^}]*font-family:\s*var\(--font-text\)/);
     expect(indexCss).toMatch(/body\s*\{[^}]*color:\s*var\(--ink\)/);

@@ -245,6 +245,14 @@
 }
 
 @layer base {
+  /* The screens set a line height only where they mean one, and leave the rest of their text at the
+     browser's `normal` (about 1.2 in Figtree: 17 px for 14 px text). Tailwind's preflight puts 1.5 on
+     the root, which made every line that sets none 3 or 4 px taller than the design. A component that
+     sets its own (leading-[1.4] ...) keeps it. */
+  html {
+    line-height: normal;
+  }
+
   body {
     margin: 0;
     font-family: var(--font-text);
