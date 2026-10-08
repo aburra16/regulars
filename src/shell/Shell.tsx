@@ -3,7 +3,7 @@ import { Outlet, ScrollRestoration, useMatches } from "react-router-dom";
 
 import { copy } from "../copy/en.ts";
 import { type PlacesValue, usePlaces } from "../places/store.tsx";
-import { Banner, PageMessage, primaryButton } from "../ui/Banner.tsx";
+import { Banner, LoadFailed, PageMessage } from "../ui/Banner.tsx";
 import { ViewProvider } from "../view/ViewProvider.tsx";
 import { PhoneTop } from "./PhoneTop.tsx";
 import { scrollKey } from "./scrollKey.ts";
@@ -68,18 +68,7 @@ function Frame(): JSX.Element {
 
   let content: JSX.Element;
   if (state.page === "failed") {
-    content = (
-      <PageMessage
-        alert
-        action={
-          <button type="button" onClick={places.retry} className={primaryButton}>
-            {copy.load.retry}
-          </button>
-        }
-      >
-        {copy.load.failed}
-      </PageMessage>
-    );
+    content = <LoadFailed retry={places.retry} />;
   } else if (state.page === "loading") {
     content = <PageMessage>{copy.load.loading}</PageMessage>;
   } else {

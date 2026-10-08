@@ -706,12 +706,12 @@ describe("the place page: a place that is not listed", () => {
   });
 
   /** The app at `path`, with `saved` on the device and `latest` from the relay a moment later. */
-  async function openWithSaved(path: string, saved: NostrEvent[], latest: NostrEvent[]) {
+  async function openWithSaved(path: string, saved: NostrEvent[], latest: NostrEvent[], failWith?: Error) {
     await writeSaved({ events: saved, savedAt: Date.now(), complete: true });
     setWidth(PHONE);
     const router = createMemoryRouter(routes, { initialEntries: [path] });
     render(
-      <PlacesProvider reader={createMemoryReader(latest, { delayMs: 200 })}>
+      <PlacesProvider reader={createMemoryReader(latest, { delayMs: 200, ...(failWith === undefined ? {} : { failWith }) })}>
         <Probe />
         <HereProvider>
           <RouterProvider router={router} />
@@ -734,6 +734,15 @@ describe("the place page: a place that is not listed", () => {
     expect(screen.queryByText(copy.place.noLongerListedDetail)).not.toBeInTheDocument();
     expect(screen.getByText(copy.load.loading)).toBeInTheDocument();
     expect(await screen.findByRole("heading", { level: 1, name: "Brand New Cafe" })).toBeInTheDocument();
+  });
+
+  it("says the places could not be loaded, not that it came off the map, when the latest list did not come", async () => {
+    await openWithSaved("/place/osm-node-0", fixtures, fixtures, new Error("unreachable"));
+    const sentence = await screen.findByText(copy.load.failed);
+    expect(sentence).toHaveAttribute("role", "alert");
+    expect(screen.queryByText(copy.place.noLongerListedDetail)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: copy.place.noLongerListed })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.load.retry })).toBeInTheDocument();
   });
 
   it("says so once the latest list does not have it either", async () => {

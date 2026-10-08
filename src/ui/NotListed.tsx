@@ -6,7 +6,7 @@ import { stepsBackToExplore } from "../explore/returnPoint.ts";
 import { usePlaces } from "../places/store.tsx";
 import { useIndexes } from "../places/useIndexes.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
-import { PageMessage, primaryButton } from "./Banner.tsx";
+import { LoadFailed, PageMessage, primaryButton } from "./Banner.tsx";
 import { isPlainClick } from "./plainClick.ts";
 
 /**
@@ -39,15 +39,17 @@ export function NotListed(): JSX.Element {
 
 /**
  * What a page of a place or a chain shows when the list has not got it: the loading line while the
- * latest list may still, otherwise "No longer listed". The places on screen may be the ones saved on
- * this device, and the latest, still on its way, may have what is asked for; a place new to it is not
- * off the map.
+ * latest list may still come, and "No longer listed" once it has come without it. The places on
+ * screen may be the ones saved on this device, and the latest may have what is asked for: a place new
+ * to it is not off the map. When the latest could not be loaded, nobody can tell, so the page says
+ * the places could not be loaded, with Try again.
  */
 export function NotListedOrLoading(): JSX.Element {
   const indexes = useIndexes();
-  const { source, error } = usePlaces();
+  const { source, error, retry } = usePlaces();
   if (indexes === undefined || (source === "cache" && error === undefined)) {
     return <PageMessage>{copy.load.loading}</PageMessage>;
   }
+  if (source === "cache") return <LoadFailed retry={retry} />;
   return <NotListed />;
 }
