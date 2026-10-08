@@ -288,3 +288,46 @@ Tasks 1–4 are decision-free and change nothing a visitor sees: pure modules, p
   - place 2 shows "No score yet" with 1 folded;
   - the map pin for place 1 is a score pill.
 - [ ] With no env set: no request to any new host (network panel), and everything is as in M1.
+
+---
+
+## Overnight record (2026-10-08)
+
+Tasks 1–4 were built and reviewed task by task, then the branch had a final review. Verdict: ready to merge, with no Critical or Important findings. `npm test` gives 1,717 tests. With `nak serve --events tests/fixtures/forged-reviews.jsonl`, `npm run proof:house-scores` passes 4 of 4:
+- Jacafé scores 4.5 from 2 people, with 2 folded;
+- Loft has no score, with 1 folded;
+- both forged reviews are dropped.
+
+The production bundle is unchanged: none of the new modules are imported, and `reviewRelays` is `[]`.
+
+A read-only check showed the real chain is in place. Mise en Place's kind 10040 is on wss://scores.brainstorm.world (and on damus, nos.lol, primal and purplepag.es). It names scorer `151466c4…` on that relay, which holds at least 5,000 ranks.
+
+### Rulings made overnight
+- **R1.** Scope tonight was Tasks 1–4: decision-free, nothing visible, nothing reaching production. They merge to main. Cost if wrong: unused modules on main.
+- **R2.** Tasks 1–3 were built and reviewed as one unit.
+- **R3a.** A 0–1 `rating` below 0.2 gives fractional stars under 1 (0.1 → 0.5). Only exactly 0 is null. Cost if wrong: one comparison.
+- **R3b.** Signatures are checked for reviews, the house's 10040 and the scorer's 30382s: `readerFor(url, { verify = true })`. Only the places reader opts out, under M1 ruling R12. Cost if wrong: none; this is the safe side.
+- **R3c.** Two UI tests (place-page, explore) are flaky under full-suite load. They predate M2a. A flake fails the deploy job safely, but it is a nuisance. This is a follow-up.
+- **R4.** Review fix round:
+  - one 64-hex check (`src/nostr/shapes.ts`);
+  - `latestReviews` follows NIP-01 replacement per (pubkey, d) before grouping by place;
+  - config is reset in one place in the tests;
+  - abort and limit tests;
+  - doc lines.
+
+### Carry into Task 5 (from the final review)
+- **Bundle split.** `readerFor` lives in the lazily loaded relay chunk (Nostrify, 65 KB gzip). `ScoresProvider` must not import it statically. Instead, give it a default `readers` that does a dynamic `import()` inside `req`.
+- **Raw events.** Keep raw review events per address batch and re-run `latestReviews` over them. `Review` carries no `d`. `refresh()` replaces the batch; it does not merge into it (Review Focus 2).
+- **One voice per person.** `scorePlace` counts each review it is given. Before merging reviews across filings of one place (brief §4.3), keep the newest per reviewer, inside `scorePlace` or before it, and pin that with a test.
+- **"Unavailable".** `resolveScorer` returns null for both "no 10040" and "relays down", and `fetchRanks` throws on any failed batch; both mean "unavailable". The store must remember which pubkeys it has asked about, because unranked people are simply absent from the map.
+- **Verification is the reader's job.** `scorerFrom`, `ranksFrom` and `latestReviews` assume their input came from a verifying reader. Never feed them from a cache without that.
+- **Location.** Move the nostr primitives (`asEvent`, `isNewer`, `RelayReader`, `readerFor`) out of `src/places/` into `src/nostr/` at the start of Task 5, before new importers appear.
+
+### Deferred minors
+- the order-dependent config reset test pair;
+- the proof's "B counted once" is really nak's replacement;
+- no marker tag (`["t","regulars-proof"]`) on the proof's reviews and the forged fixture;
+- README nits (run from the repo root; a `PROOF_RELAY` must hold the forged events), and the stale line in `tests/fixtures/README.md`;
+- more guard-test cases;
+- the proof's `hookTimeout` against the worst case;
+- a contract test that a forged event is dropped by the real `NRelay1.receive`.
