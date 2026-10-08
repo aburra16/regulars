@@ -586,7 +586,9 @@ describe("Explore: how a place reads", () => {
   it("shows distances in kilometres and times on a 24-hour clock where the browser's language does", async () => {
     vi.spyOn(navigator, "language", "get").mockReturnValue("pt-PT");
     await openExplore();
-    const km = distanceKm(HERE.lat, HERE.lon, place("Novo Tahiti").lat, place("Novo Tahiti").lon);
+    // In Portuguese for Portugal, and in no town's time zone, the list starts at Portugal's town with the most places.
+    const start = idx.cities.find((town) => town.country === "PT")!;
+    const km = distanceKm(start.lat, start.lon, place("Novo Tahiti").lat, place("Novo Tahiti").lon);
     expect(card("Novo Tahiti")).toHaveAccessibleDescription(
       new RegExp(`Restaurant · ${formatDistance(km, "pt-PT").replace(".", "\\.")} Open until 22:00`),
     );

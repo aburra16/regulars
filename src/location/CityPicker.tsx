@@ -274,7 +274,8 @@ export function HereCityPicker({ onClose }: { onClose(): void }): JSX.Element {
  * "Near Funchal ˅": where the places are near, as a button that opens the picker. The pick
  * moves every screen below the `HereProvider`. "Use my location" asks the browser, and while it
  * has not answered the button reads "Finding your location…"; if it says no or cannot,
- * `LocationNotice` says why. `plain` is the control at the top of the phone's Explore; `pill`
+ * `LocationNotice` says why. On a first visit, while the places the town is guessed from load,
+ * it names no town. `plain` is the control at the top of the phone's Explore; `pill`
  * sits at the end of the desktop search field, with the pin and no chevron.
  */
 export function NearButton({ variant = "plain" }: { variant?: "plain" | "pill" }): JSX.Element {
@@ -294,6 +295,13 @@ export function NearButton({ variant = "plain" }: { variant?: "plain" | "pill" }
       buttonRef.current?.focus();
     }
   }, [open]);
+
+  // No town picked, and the towns where to start is guessed from still loading: there is no town
+  // to name yet, and the page says it is finding places. The control keeps its height, empty,
+  // rather than name a town the page is about to leave.
+  if (here.settling === true && !here.pending) {
+    return <span aria-hidden="true" className={variant === "pill" ? "shrink-0" : "min-h-touch"} />;
+  }
 
   const text = here.pending ? copy.location.finding : copy.explore.near(here.label);
   return (
