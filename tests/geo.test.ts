@@ -36,6 +36,29 @@ function indexOf(points: Point[]): KDBush {
   return index.finish();
 }
 
+/**
+ * `index` with its coordinates read through a counter, so a test can tell how many points a search
+ * looked at without timing it: each point looked at is a read of its longitude and its latitude.
+ */
+function readsOf(index: KDBush): { index: KDBush; reads(): number; reset(): void } {
+  let reads = 0;
+  const coords = new Proxy(index.coords, {
+    get(target, key) {
+      if (typeof key === "string" && key !== "length") reads += 1;
+      return Reflect.get(target, key);
+    },
+  });
+  const probed: KDBush = Object.create(index);
+  Object.defineProperty(probed, "coords", { value: coords });
+  return {
+    index: probed,
+    reads: () => reads,
+    reset: () => {
+      reads = 0;
+    },
+  };
+}
+
 /** Points in a box of the given size around a centre, and some anywhere on the Earth. */
 function scatter(count: number, seed: number, centre: Point, spanDegrees: number): Point[] {
   const random = stream(seed);
@@ -180,16 +203,19 @@ describe("withinCounter", () => {
   });
 
   it("does not look at every point when most of them are well inside the distance", () => {
-    // 30,000 points within a few kilometres, counted from 3,000 of them. If each count looked at
-    // every point that would be 90 million distances; a count that takes whole nodes is a few
-    // hundred visits each.
+    // 30,000 points, most of them within a few kilometres, counted from 300 of them. A count that
+    // looked at every point would read both coordinates of each: 60,000 reads a count. One that
+    // takes whole parts of the tree looks only along the edge of the range, a few thousand points.
     const many = scatter(30_000, 3, FUNCHAL, 0.04);
-    const count = withinCounter(indexOf(many));
-    const started = performance.now();
+    const probe = readsOf(indexOf(many));
+    const count = withinCounter(probe.index);
+    // Making the counter reads every point once, for the box that holds them all.
+    probe.reset();
+    const from = many.slice(0, 300);
     let total = 0;
-    for (const [lng, lat] of many.slice(0, 3000)) total += count(lng, lat, 25);
-    const elapsed = performance.now() - started;
-    expect(total).toBeGreaterThan(3000 * 20_000);
-    expect(elapsed).toBeLessThan(300);
+    for (const [lng, lat] of from) total += count(lng, lat, 25);
+    expect(total).toBeGreaterThan(from.length * 20_000);
+    const everyPoint = from.length * 2 * many.length;
+    expect(probe.reads()).toBeLessThan(everyPoint / 5);
   });
 });

@@ -1,5 +1,5 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import { parsePlaces } from "../src/places/load";
@@ -143,11 +143,20 @@ describe("chainKey", () => {
   });
 
   describe("on a very long name", () => {
-    /** How long `chainKey` takes on `text`, in milliseconds. */
-    function timeOf(text: string): number {
-      const started = performance.now();
-      chainKey(text);
-      return performance.now() - started;
+    /**
+     * How many characters `chainKey` looks at from the end of `text` to find where the name stops:
+     * each one that is not a space is a question to the set of trailing punctuation. A pattern for a
+     * trailing run, tried from every start, would take billions of steps on these names, and the
+     * test would not finish; the loop looks at each character of the run once.
+     */
+    function looksOf(text: string): number {
+      const has = vi.spyOn(Set.prototype, "has");
+      try {
+        chainKey(text);
+        return has.mock.calls.length;
+      } finally {
+        has.mockRestore();
+      }
     }
 
     it("trims a run of 100,000 trailing characters in linear time", () => {
@@ -155,17 +164,18 @@ describe("chainKey", () => {
       expect(chainKey(run)).toBe("");
       expect(chainKey(`Pizza${run}`)).toBe("pizza");
       expect(chainKey(`Pizza${" .".repeat(50_000)}`)).toBe("pizza");
-      expect(timeOf(run)).toBeLessThan(50);
-      expect(timeOf(`Pizza${run}`)).toBeLessThan(50);
-      expect(timeOf(`Pizza${" .".repeat(50_000)}`)).toBeLessThan(50);
+      expect(looksOf(run)).toBeLessThanOrEqual(run.length);
+      expect(looksOf(`Pizza${run}`)).toBeLessThanOrEqual(run.length + 1);
+      expect(looksOf(`Pizza${" .".repeat(50_000)}`)).toBeLessThanOrEqual(50_001);
     });
 
     it("does not slow down when a long run of punctuation is not at the end", () => {
       // A pattern that looks for a trailing run from every start would try each one in turn.
       const name = `Pizza${"!".repeat(100_000)}Hut`;
       expect(chainKey(name)).toBe(name.toLowerCase());
-      expect(timeOf(name)).toBeLessThan(50);
-      expect(timeOf(`Pizza${" ".repeat(100_000)}Hut`)).toBeLessThan(50);
+      expect(chainKey(`Pizza${" ".repeat(100_000)}Hut`)).toBe("pizza hut");
+      expect(looksOf(name)).toBeLessThanOrEqual(1);
+      expect(looksOf(`Pizza${" ".repeat(100_000)}Hut`)).toBeLessThanOrEqual(1);
     });
   });
 });
@@ -1810,13 +1820,39 @@ describe("buildIndexes at the size of the whole list", () => {
     });
   }
 
-  it("takes under a second for 8,000 places, and the indexes work", () => {
-    const many = synthetic(8000);
-    const started = performance.now();
-    const idx = buildIndexes(many);
-    const elapsed = performance.now() - started;
+  /**
+   * How many distances `build` works out, to a point or to a part of a tree: each takes one cosine,
+   * so the count says whether the indexes took whole parts of a tree, without timing them.
+   */
+  function distancesWhile<T>(build: () => T): { result: T; distances: number } {
+    const cos = Math.cos;
+    let distances = 0;
+    Math.cos = (x: number) => {
+      distances += 1;
+      return cos(x);
+    };
+    try {
+      return { result: build(), distances };
+    } finally {
+      Math.cos = cos;
+    }
+  }
 
-    expect(elapsed).toBeLessThan(1000);
+  it("builds for 8,000 places without comparing every place with every other, and the indexes work", () => {
+    const many = synthetic(8000);
+    const { result: idx, distances } = distancesWhile(() => buildIndexes(many));
+
+    // The towns are found by counting, for each place of a town, the places within its reach. Looking
+    // at every other place of the town for each would be a distance for each pair (47 million here,
+    // or half that, once each way). Taking whole parts of the tree looks only along the edge of each
+    // reach, which at this size is about a quarter.
+    const towns = new Map<string, number>();
+    for (const place of many) {
+      if (place.locality !== undefined) towns.set(place.locality, (towns.get(place.locality) ?? 0) + 1);
+    }
+    const everyPair = [...towns.values()].reduce((sum, n) => sum + n * n, 0);
+    expect(distances).toBeLessThan(everyPair / 3);
+
     expect(idx.byD.size).toBe(8000);
     expect(idx.near(CENTER.lat, CENTER.lon, 25).length).toBeGreaterThan(1000);
     expect(search(idx, "pizza", 25).length).toBeGreaterThan(10);
