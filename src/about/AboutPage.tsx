@@ -9,6 +9,7 @@ import { BackLink } from "../ui/BackLink.tsx";
 import { NewTabHint } from "../ui/NewTab.tsx";
 import { HOW_SCORES_WORK, SIGNING_IN } from "./anchors.ts";
 import { aboutFigures, formatCount, formatRefreshed } from "./figures.ts";
+import { NOTICES_FILE } from "./notices.ts";
 
 /** Where OpenStreetMap says how its data may be used. */
 const OSM_COPYRIGHT = "https://www.openstreetmap.org/copyright";
@@ -68,21 +69,34 @@ function Figures({ locale }: { locale: string }): JSX.Element {
   );
 }
 
-/** The fine print under the figures: where the details come from, the licence, and a link to its terms. */
+/** A link of the fine print, to a page outside the app, in a new tab. */
+function FineLink({ href, children }: { href: string; children: string }): JSX.Element {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex min-h-touch items-center self-start text-[15px] font-bold text-ink underline hover:text-accent"
+    >
+      {children}
+      <NewTabHint />
+    </a>
+  );
+}
+
+/**
+ * The fine print under the figures: where the details come from, the licence, and a link to its
+ * terms; then the licences of the software the site is built from, a file at the root of the site.
+ */
 function FinePrint(): JSX.Element {
   return (
     <>
       <p className="m-0 max-w-measure text-caption leading-[1.5] text-muted">{copy.about.source}</p>
       <p className="m-0 max-w-measure text-secondary leading-[1.5] text-muted">{copy.about.licence}</p>
-      <a
-        href={OSM_COPYRIGHT}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex min-h-touch items-center self-start text-[15px] font-bold text-ink underline hover:text-accent"
-      >
-        {copy.about.licenceLink}
-        <NewTabHint />
-      </a>
+      <div className="flex flex-col">
+        <FineLink href={OSM_COPYRIGHT}>{copy.about.licenceLink}</FineLink>
+        <FineLink href={`/${NOTICES_FILE}`}>{copy.about.softwareLicences}</FineLink>
+      </div>
     </>
   );
 }

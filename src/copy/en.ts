@@ -294,6 +294,9 @@ export const copy = {
     source: "Place details from OpenStreetMap, gathered for us by BTC Map",
     licence: "© OpenStreetMap contributors. Place data is available under the Open Database Licence.",
     licenceLink: "Licence and copyright",
+    // DRAFT for Avi
+    /** The link to the licences of the software the site is built from (a text file the build writes). */
+    softwareLicences: "Software licences",
     reviewsHeading: "Where the reviews come from",
     reviewsBody:
       "People write them under their own names. Nobody at Regulars edits or reorders them. The score you see for a place is worked out from the reviewers you trust, so two people can see different scores for the same place.",

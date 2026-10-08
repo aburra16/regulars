@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { aboutFigures } from "../src/about/figures";
+import { NOTICES_FILE } from "../src/about/notices";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { parsePlaces } from "../src/places/load";
@@ -141,6 +142,18 @@ describe("the about page: where the places come from", () => {
     expect(licence).toHaveAttribute("rel", "noopener noreferrer");
     expect(licence).toHaveAccessibleName(`${copy.about.licenceLink} ${copy.common.newTab}`);
     expect(licence).toHaveClass("min-h-touch");
+  });
+
+  it.each([390, 1360])("links to the licences of the software the site is built from, at %s px", async (px) => {
+    await openApp("/about", { events: fixtures, px });
+    const software = link(new RegExp(`^${copy.about.softwareLicences}`));
+    expect(copy.about.softwareLicences).toBe("Software licences");
+    // A file the build writes next to the app (tools/notices.ts), so a plain link the router does not take.
+    expect(software).toHaveAttribute("href", `/${NOTICES_FILE}`);
+    expect(NOTICES_FILE).toBe("THIRD_PARTY_NOTICES.txt");
+    expect(software).toHaveAttribute("target", "_blank");
+    expect(software).toHaveAccessibleName(`${copy.about.softwareLicences} ${copy.common.newTab}`);
+    expect(software).toHaveClass("min-h-touch");
   });
 
   it("names BTC Map only in that fine print", async () => {
