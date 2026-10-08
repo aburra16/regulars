@@ -132,20 +132,23 @@ export function AccountProvider({ children, relays }: { children: ReactNode; rel
       return;
     }
     let live = true;
-    loadConnect().then(
-      (code) => {
+    loadConnect()
+      .then((code) => {
         // The person may have signed in some other way while the code loaded.
         if (live && current.current === undefined) adopt(code.restoreAccount(session, relaysAt));
-      },
-      () => {
-        // The code could not be loaded: the person is not signed in on this page, and can sign in again.
-        if (live) setShown((now) => (now.restoring ? { account: undefined, restoring: false } : now));
-      },
-    );
+      })
+      .catch(() => {
+        // The code could not be loaded, or could not restore the session: the person is not signed in
+        // on this page, and can sign in again. What the tab held for them goes too (ruling R15): their
+        // reviews held are not shown to someone who appears signed out. A reload tries the session again.
+        if (!live) return;
+        forgetHeld();
+        setShown((now) => (now.restoring ? { account: undefined, restoring: false } : now));
+      });
     return () => {
       live = false;
     };
-  }, [adopt, relaysAt]);
+  }, [adopt, relaysAt, forgetHeld]);
 
   const connect = useMemo<Connect>(
     () => ({

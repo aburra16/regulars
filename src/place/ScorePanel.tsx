@@ -55,6 +55,18 @@ export function RateLink(): JSX.Element {
   );
 }
 
+/**
+ * "Edit" under the person's own review (ruling R15): to the review form, as "Rate this place" goes,
+ * where their review fills it in. `className` styles it.
+ */
+export function EditLink({ className }: { className: string }): JSX.Element {
+  return (
+    <Link {...useRateLink()} className={className}>
+      {copy.reviews.edit}
+    </Link>
+  );
+}
+
 /** The dashed edge of a panel with no score in it (PlaceNew.dc.html), on a phone or a desktop. */
 const dashedPanel = (wide: boolean) =>
   `flex flex-col gap-3 border-token border-dashed border-field-border ${
@@ -158,12 +170,17 @@ function Counting({ wide }: { wide: boolean }): JSX.Element {
  * A place with reviews and no score: "No score yet", in the dashed panel of a place with none, and
  * why: people the house trusts reviewed it without stars, or how many others have rated it (their
  * reviews are folded below). When House picks can't be worked out, how many have rated it, and one
- * quiet line under the panel says why there is no score.
+ * quiet line under the panel says why there is no score. For the person signed in who has reviewed
+ * it, "You've rated it" first, and the others counted without them (ruling R15).
  */
 function NoScore({ shown, wide }: { shown: Extract<ShownScore, { kind: "unscored" | "unavailable" }>; wide: boolean }): JSX.Element {
   const lines: string[] = [];
-  if (shown.kind === "unavailable") lines.push(copy.score.peopleRated(shown.reviewers));
-  else {
+  if (shown.yours) lines.push(copy.score.youRated);
+  if (shown.kind === "unavailable") {
+    if (shown.reviewers > 0) {
+      lines.push(shown.yours ? copy.score.othersRated(shown.reviewers) : copy.score.peopleRated(shown.reviewers));
+    }
+  } else {
     if (shown.starless > 0) lines.push(copy.score.starless(shown.starless));
     if (shown.others > 0) lines.push(copy.score.othersRated(shown.others));
   }

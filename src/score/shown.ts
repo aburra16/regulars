@@ -1,3 +1,4 @@
+import type { Review } from "../reviews/review.ts";
 import type { PlaceScore } from "./score.ts";
 import type { HouseState, ReadState } from "./store.ts";
 
@@ -15,6 +16,9 @@ import type { HouseState, ReadState } from "./store.ts";
  *   no stars, and `others` people outside House picks rated it (the page folds theirs).
  * - `unavailable`: it has reviews by `reviewers` people, and House picks can't be worked out: every
  *   review is folded, and nothing is scored from unweighted stars.
+ *
+ * On the place's own page, for the person signed in who has reviewed it (`seenBy`), `yours` says so,
+ * and they are not counted among `others`, `starless` or `reviewers` (ruling R15).
  */
 export type ShownScore =
   | { kind: "none" }
@@ -22,8 +26,8 @@ export type ShownScore =
   | { kind: "failed" }
   | { kind: "pending" }
   | { kind: "scored"; score: number; counted: number }
-  | { kind: "unscored"; others: number; starless: number }
-  | { kind: "unavailable"; reviewers: number };
+  | { kind: "unscored"; others: number; starless: number; yours?: true }
+  | { kind: "unavailable"; reviewers: number; yours?: true };
 
 const NONE: ShownScore = { kind: "none" };
 const READING: ShownScore = { kind: "reading" };
@@ -74,4 +78,29 @@ export function shownScore(
     byHouse.set(house, shown);
   }
   return shown;
+}
+
+/**
+ * What the slot shows the person who wrote `mine`, one of the place's reviews (`score`'s), on the
+ * place's own page: "You've rated it" (`yours`), and the others counted without them (ruling R15). Not
+ * whether the house counts their review: they come off the count they are in, inside House picks
+ * with no stars, or outside, and the line says the same either way. As it was, with no review of
+ * theirs, and for a place with a score, whose line counts no one as "other".
+ */
+export function seenBy(shown: ShownScore, score: PlaceScore | undefined, mine: Review | undefined): ShownScore {
+  if (mine === undefined || score === undefined) return shown;
+  const isMine = (review: Review) => review.id === mine.id;
+  switch (shown.kind) {
+    case "unscored":
+      return {
+        kind: "unscored",
+        others: shown.others - (score.folded.some(isMine) ? 1 : 0),
+        starless: shown.starless - (score.inside.some(isMine) ? 1 : 0),
+        yours: true,
+      };
+    case "unavailable":
+      return { kind: "unavailable", reviewers: shown.reviewers - 1, yours: true };
+    default:
+      return shown;
+  }
 }

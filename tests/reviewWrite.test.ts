@@ -85,6 +85,25 @@ describe("removalTemplate (NIP-09)", () => {
     });
   });
 
+  it("asks to delete several reviews in one: an e and an a for each, in order, and the kind once", () => {
+    const first = { id: hex64("1"), pubkey: ALICE, d: `place:${JACAFE}` };
+    const second = { id: hex64("2"), pubkey: ALICE, d: JACAFE };
+    expect(removalTemplate([first, second], NOW)).toEqual({
+      kind: 5,
+      created_at: NOW,
+      content: "",
+      tags: [
+        ["e", first.id],
+        ["a", `34259:${ALICE}:place:${JACAFE}`],
+        ["e", second.id],
+        ["a", `34259:${ALICE}:${JACAFE}`],
+        ["k", "34259"],
+      ],
+    });
+    // One review in a list is the same as one on its own.
+    expect(removalTemplate([first], NOW)).toEqual(removalTemplate(first, NOW));
+  });
+
   it("removes the review a reviewTemplate made, and signs into a valid event", () => {
     const secret = generateSecretKey();
     const review = finalizeEvent(reviewTemplate(jacafe, 2, "", NOW), secret);

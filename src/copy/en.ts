@@ -236,6 +236,12 @@ export const copy = {
     /** A place with reviews while House picks can't be worked out: "2 people have rated it". */
     peopleRated: (n: number) => `${peopleHave(n)} rated it`,
     // DRAFT for Avi
+    /**
+     * A place with no score that the person signed in has reviewed, in place of counting them among
+     * the others ("1 other person has rated it"): never whether the house counts their review (ruling R15).
+     */
+    youRated: "You've rated it",
+    // DRAFT for Avi
     /** A place with reviews by people inside House picks, none of them with stars: no score, and why. */
     starless: (n: number) => `${people(n)} ${houseTrusts} reviewed it without stars`,
     // DRAFT for Avi
@@ -270,6 +276,39 @@ export const copy = {
     foldedNote: "Shown on request, never removed.",
     /** The button that opens the folded reviews, and closes them again. */
     show: "Show them",
+    // DRAFT for Avi
+    /**
+     * The heading over the review of the person signed in, on its own at the top of the place's
+     * reviews, whether the house counts it or not, which nothing here says (ruling R15).
+     */
+    yours: "Your review",
+    // DRAFT for Avi
+    /** Under it: opens the review form, filled in with it. */
+    edit: "Edit",
+    // DRAFT for Avi
+    /** Under it: asks whether to remove it (`removeQuestion`). */
+    remove: "Remove",
+    // DRAFT for Avi
+    /** What Remove asks, with the two buttons below. */
+    removeQuestion: "Remove your review? It comes off Regulars and the places it was sent to.",
+    // DRAFT for Avi
+    /** The button that removes it, once asked. */
+    removeConfirm: "Remove",
+    // DRAFT for Avi
+    /** The button that leaves it as it is. */
+    keep: "Keep it",
+    // DRAFT for Avi
+    /** The button while it is being removed, and said politely to a screen reader. */
+    removing: "Removing…",
+    // DRAFT for Avi
+    /** Said politely to a screen reader once it is removed (the section goes, a state the design does not draw). */
+    removed: "Your review is removed.",
+    // DRAFT for Avi
+    /** No review relay took the removal: the review stays, and says so (a state the design does not draw). */
+    removeFailed: "Your review didn't come off. Try again.",
+    // DRAFT for Avi
+    /** The button that removes it again, after that. */
+    removeAgain: "Try again",
     // DRAFT for Avi
     /**
      * When a review was written, from how many calendar days and whole calendar months ago:
@@ -504,11 +543,8 @@ export const copy = {
     /** Under the text box (the design's). */
     textHint: "Optional. A rating on its own still counts.",
     // DRAFT for Avi
-    /**
-     * Over Post (the design's). The phone's design adds "You can remove it later.", which waits until
-     * removing a review opens.
-     */
-    notice: "Reviews are public and carry your name. One review per place: posting again replaces this one.",
+    /** Over Post (the design's, Review.dc.html; DeskReview.dc.html leaves out its last sentence). */
+    notice: "Reviews are public and carry your name. One review per place: posting again replaces this one. You can remove it later.",
     // DRAFT for Avi
     /** The button that posts it (the design's). */
     post: "Post review",

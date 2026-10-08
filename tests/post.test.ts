@@ -11,12 +11,14 @@ import {
   type Posted,
   PUBLISH_TIMEOUT_MS,
   postReview,
+  removalRelays,
+  removeReview,
   reviewStamp,
   sendReview,
   WRITE_RELAYS_WAIT_MS,
   whereToPost,
 } from "../src/review/post";
-import { reviewTemplate } from "../src/reviews/write";
+import { removalTemplate, reviewTemplate } from "../src/reviews/write";
 import raw from "./fixtures/funchal-items.json";
 import { shapedEvent } from "./support/events";
 import { createMemoryReader } from "./support/memoryReader";
@@ -132,6 +134,31 @@ describe("postReview", () => {
   ])("is not posted, and nothing is sent, when the signer changes %s", async (_, change) => {
     const by = signer();
     by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) => finalizeEvent({ ...asked, ...change }, KEY));
+    const search = createMemoryWriter();
+    await expect(run([SEARCH], writersOver({ [SEARCH]: search }), undefined, by)).rejects.toBeInstanceOf(NotPosted);
+    expect(search.published).toEqual([]);
+  });
+
+  it("is posted with the tags a signer adds after the review's own, which stay as the review's prefix (R15)", async () => {
+    const by = signer();
+    by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
+      finalizeEvent({ ...asked, tags: [...asked.tags, ["client", "x"]] }, KEY),
+    );
+    const search = createMemoryWriter();
+    const posted = await run([SEARCH], writersOver({ [SEARCH]: search }), undefined, by);
+    expect(posted.event.tags).toEqual([...template().tags, ["client", "x"]]);
+    expect(search.published).toEqual([posted.event]);
+  });
+
+  it.each([
+    ["puts a tag before the review's own", (tags: string[][]) => [["client", "x"], ...tags]],
+    ["leaves one of the review's tags out", (tags: string[][]) => tags.slice(0, -1)],
+    ["changes the value of one", (tags: string[][]) => tags.map((tag) => (tag[0] === "s" ? ["s", "5"] : tag))],
+  ])("is not posted, and nothing is sent, when the signer %s", async (_, change) => {
+    const by = signer();
+    by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
+      finalizeEvent({ ...asked, tags: change(asked.tags) }, KEY),
+    );
     const search = createMemoryWriter();
     await expect(run([SEARCH], writersOver({ [SEARCH]: search }), undefined, by)).rejects.toBeInstanceOf(NotPosted);
     expect(search.published).toEqual([]);
@@ -353,5 +380,87 @@ describe("reviewStamp", () => {
     expect(reviewStamp(NOW, [], NOW)).toBe(NOW + 1);
     expect(reviewStamp(NOW, [{ createdAt: NOW + 1 }], NOW + 3)).toBe(NOW + 4);
     expect(reviewStamp(NOW, [], NOW - 10)).toBe(NOW);
+  });
+});
+
+describe("removeReview (NIP-09)", () => {
+  const D = `place:${JACAFE.address}`;
+  const reviews = [
+    { id: "1".repeat(64), d: D, createdAt: 1_800_000_000 },
+    { id: "2".repeat(64), d: JACAFE.address, createdAt: 1_799_000_000 },
+  ];
+
+  beforeEach(() => {
+    config.reviewRelays = [SEARCH];
+  });
+
+  it("signs one removal of every review given, and sends it to the relays: removed once a review relay takes it", async () => {
+    const by = signer();
+    const search = createMemoryWriter();
+    const own = createMemoryWriter();
+    const removed = await removeReview(reviews, { pubkey: PUBKEY, signer: by }, [SEARCH, OWN], 1_800_000_500, new AbortController().signal, {
+      writers: writersOver({ [SEARCH]: search, [OWN]: own }),
+    });
+
+    expect(by.signEvent).toHaveBeenCalledTimes(1);
+    expect(removed.event).toMatchObject({
+      ...removalTemplate(
+        reviews.map(({ id, d }) => ({ id, pubkey: PUBKEY, d })),
+        1_800_000_500,
+      ),
+      pubkey: PUBKEY,
+    });
+    expect(verifyEvent(removed.event)).toBe(true);
+    expect(search.published).toEqual([removed.event]);
+    expect(own.published).toEqual([removed.event]);
+  });
+
+  it("is stamped no earlier than the newest review it removes", async () => {
+    const removed = await removeReview(reviews, { pubkey: PUBKEY, signer: signer() }, [SEARCH], 1_799_999_000, new AbortController().signal, {
+      writers: writersOver({ [SEARCH]: createMemoryWriter() }),
+    });
+    expect(removed.event.created_at).toBe(1_800_000_000);
+  });
+
+  it("is not removed when only the person's own relays take it, and says so with the signed removal (R13)", async () => {
+    const removing = removeReview(reviews, { pubkey: PUBKEY, signer: signer() }, [SEARCH, OWN], 1_800_000_500, new AbortController().signal, {
+      writers: writersOver({ [SEARCH]: createMemoryWriter({ refuse: "blocked" }), [OWN]: createMemoryWriter() }),
+    });
+    const error = (await removing.catch((caught: unknown) => caught)) as NotPosted;
+    expect(error).toBeInstanceOf(NotPosted);
+    expect(error.accepted).toEqual([OWN]);
+    expect(error.event).toMatchObject({ kind: 5, pubkey: PUBKEY });
+  });
+
+  it("asks nobody to sign when there is nothing to remove, or nowhere to send it", async () => {
+    const by = signer();
+    const writers = writersOver({ [SEARCH]: createMemoryWriter() });
+    await expect(removeReview([], { pubkey: PUBKEY, signer: by }, [SEARCH], 1, new AbortController().signal, { writers })).rejects.toBeInstanceOf(NotPosted);
+    await expect(removeReview(reviews, { pubkey: PUBKEY, signer: by }, [], 1, new AbortController().signal, { writers })).rejects.toBeInstanceOf(NotPosted);
+    expect(by.signEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("removalRelays", () => {
+  beforeEach(() => {
+    config.reviewRelays = [SEARCH];
+  });
+
+  it("is where the person writes now, and every relay their reviews went to, each once, however written", () => {
+    expect(
+      removalRelays(
+        [SEARCH, OWN],
+        [{ relays: ["wss://NOS.example.test/", OTHER] }, {}, { relays: [SEARCH, OTHER] }],
+      ),
+    ).toEqual([SEARCH, OWN, OTHER]);
+  });
+
+  it("always has the review relays, and keeps only relays a review may be sent to", () => {
+    expect(removalRelays([], [{ relays: ["ws://localhost:7777", "https://example.test", "wss://192.168.1.2", OWN] }])).toEqual([SEARCH, OWN]);
+  });
+
+  it("keeps a review relay of the app's own in development, as configured", () => {
+    config.reviewRelays = ["ws://localhost:10547"];
+    expect(removalRelays(["ws://localhost:10547"], [{ relays: ["ws://localhost:10547/"] }])).toEqual(["ws://localhost:10547"]);
   });
 });

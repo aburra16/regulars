@@ -49,6 +49,10 @@ const router = createBrowserRouter(routes);
 // about are read once a session (nothing until a page asks); who is signed in is restored from what
 // this tab kept; where the places are near is named from their towns; the pages, and the shell around
 // them, come from the router.
+//
+// ScoresProvider must stay outside AccountProvider: it gives the account provider what to forget when
+// the person signs out (src/account/forgetOnSignOut.ts), their reviews held for the tab, and a provider
+// can only use what a provider around it gives.
 createRoot(root).render(
   <StrictMode>
     <PlacesProvider>

@@ -1,6 +1,8 @@
-import { type JSX, useMemo } from "react";
+import { type JSX, useMemo, useState } from "react";
 import { Link, useLocation, useOutlet, useParams } from "react-router-dom";
 
+import { useAccount } from "../account/AccountProvider.tsx";
+import { readSession } from "../account/session.ts";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
@@ -11,8 +13,10 @@ import type { Indexes, PlaceDistance } from "../places/indexes.ts";
 import { placeKindLabel } from "../places/kinds.ts";
 import type { Place } from "../places/place.ts";
 import { useIndexes } from "../places/useIndexes.ts";
+import { type RemoveReview, type RemoveStatus, useRemoveReview } from "../review/useRemoveReview.ts";
+import type { Review } from "../reviews/review.ts";
 import type { PlaceScore } from "../score/score.ts";
-import { type ShownScore, shownScore } from "../score/shown.ts";
+import { seenBy, type ShownScore, shownScore } from "../score/shown.ts";
 import type { HouseState } from "../score/store.ts";
 import { type ListScores, useListScores } from "../score/useListScores.ts";
 import { useScore, useScoreActions } from "../score/useScore.ts";
@@ -263,10 +267,14 @@ interface View {
   state: OpenState;
   line: string;
   actions: PlaceActions;
-  /** What the score panel shows. */
+  /** What the score panel shows, to the person signed in (`seenBy`). */
   shown: ShownScore;
   /** The place's score from the house's view, with its reviews inside it and folded; undefined until worked out. */
   score: PlaceScore | undefined;
+  /** The review of the person signed in, of all the place's reviews; undefined when they have none. */
+  mine: Review | undefined;
+  /** Removing it, and where that stands. */
+  removal: RemoveReview;
   house: HouseState;
   nearby: PlaceDistance[];
   nearbyScores: ListScores;
@@ -276,15 +284,40 @@ interface View {
   now: Date;
 }
 
-/** The reviews, once the place's score is worked out and it has some. Nothing while they are counted, or when there are none. */
+/**
+ * The reviews, once the place's score is worked out and it has some; and the person's own, as soon as
+ * it is there, while the others are counted too (ruling R15). Nothing when there are none.
+ */
 function PlaceReviews({ view, wide, className = "" }: { view: View; wide: boolean; className?: string }): JSX.Element | null {
-  const { shown, score, house, now } = view;
-  if (score === undefined || (shown.kind !== "scored" && shown.kind !== "unscored" && shown.kind !== "unavailable")) return null;
+  const { shown, score, mine, removal, house, now } = view;
+  const listed = score !== undefined && (shown.kind === "scored" || shown.kind === "unscored" || shown.kind === "unavailable");
+  if (!listed && mine === undefined) return null;
   return (
     <div className={className}>
       {/* On a phone, "Rate this place" goes beside the reviews' heading when the panel, with its score, has no button. */}
-      <Reviews score={score} house={house} wide={wide} rate={!wide && shown.kind === "scored"} now={now} />
+      <Reviews
+        score={listed ? score : undefined}
+        mine={mine}
+        removal={removal}
+        house={house}
+        wide={wide}
+        rate={!wide && shown.kind === "scored"}
+        now={now}
+      />
     </div>
+  );
+}
+
+/**
+ * Says politely, to a screen reader, that the person's review is being removed, and once it is: its
+ * section goes from the page then, with the button that had the focus. Always on the page, so that
+ * what it says is heard when it changes.
+ */
+function RemovalStatus({ status }: { status: RemoveStatus }): JSX.Element {
+  return (
+    <p role="status" aria-live="polite" className="sr-only">
+      {status === "removing" ? copy.reviews.removing : status === "removed" ? copy.reviews.removed : ""}
+    </p>
   );
 }
 
@@ -315,6 +348,7 @@ function PhonePlace({ view }: { view: View }): JSX.Element {
         <Facts place={place} now={now} locale={locale} />
       </div>
       <PlaceReviews view={view} wide={false} className="px-gutter-phone pt-[26px]" />
+      <RemovalStatus status={view.removal.status} />
       <Nearby rows={nearby} scores={nearbyScores} locale={locale} now={now} wide={false} className="px-gutter-phone pt-7" />
       <footer className="mt-auto flex flex-col gap-1 px-gutter-phone pt-[18px] pb-6 text-caption text-muted">
         <FootLinks place={place} />
@@ -338,6 +372,7 @@ function DeskPlace({ view }: { view: View }): JSX.Element {
           <DeskHeader {...view} />
           <ScorePanel name={place.name} wide shown={view.shown} onRetry={view.retry} />
           <PlaceReviews view={view} wide />
+          <RemovalStatus status={view.removal.status} />
           <Nearby rows={nearby} scores={nearbyScores} locale={locale} now={now} wide />
         </div>
         <aside aria-label={copy.place.railLabel} className="flex w-rail min-w-0 shrink-0 flex-col gap-4">
@@ -376,6 +411,13 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
   // The place's score and reviews from the house's view; the places nearby ask for theirs in one go.
   const { score, reviews, read, house } = useScore(place.address);
   const { refresh } = useScoreActions();
+  // The review of the person signed in, which the page shows on its own (ruling R15). While a session
+  // this tab kept is restored, theirs is known from it, so that it does not move once they are signed in.
+  const { account, restoring } = useAccount();
+  const [kept] = useState(() => readSession()?.pubkey);
+  const me = account?.pubkey ?? (restoring ? kept : undefined);
+  const mine = me === undefined ? undefined : reviews.find((review) => review.reviewer === me);
+  const removal = useRemoveReview(place, mine);
   const { scores: nearbyScores } = useListScores(nearby);
   // How far away is said only from where the device says the person is. From the default city, or a
   // town they picked, it would be how far the place is from somewhere they may not be.
@@ -387,8 +429,10 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
     // The phone's line is its own; the desktop's sits inside one that dots join (DeskPlace.dc.html).
     line: openLine(state, locale, wide ? "placeInline" : "place"),
     actions,
-    shown: shownScore(score, reviews.length > 0, house, read),
+    shown: seenBy(shownScore(score, reviews.length > 0, house, read), score, mine),
     score,
+    mine,
+    removal,
     house,
     nearby,
     nearbyScores,

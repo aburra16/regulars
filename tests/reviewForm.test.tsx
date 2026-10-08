@@ -1,22 +1,41 @@
-import type { NostrEvent } from "@nostrify/nostrify";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
+import { generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { readSession, SESSION_KEY } from "../src/account/session";
+import { readSession } from "../src/account/session";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
-import type { RelayReader, RelayWriter } from "../src/nostr/events";
-import { parsePlaces } from "../src/places/load";
-import { REVIEW_KIND } from "../src/reviews/review";
 import { reviewTemplate } from "../src/reviews/write";
-import { HELD_REVIEWS_KEY } from "../src/score/store";
-import raw from "./fixtures/funchal-items.json";
-import { DESKTOP, openApp, PHONE, resetWidth } from "./support/app";
-import { hex64, shapedEvent } from "./support/events";
-import { createMemoryReader } from "./support/memoryReader";
-import { createMemoryWriter, type MemoryWriter } from "./support/memoryWriter";
+import { DESKTOP, resetWidth } from "./support/app";
+import { createMemoryWriter } from "./support/memoryWriter";
+import {
+  fromExplore,
+  heldRelays,
+  heldText,
+  installAddOn,
+  JACAFE,
+  listOf,
+  newWorld,
+  noReviewWords,
+  NOW_S,
+  open,
+  OWN,
+  PLACE_PATH,
+  postButton,
+  profileOf,
+  rankOf,
+  rateLink,
+  REVIEW_PATH,
+  reviewBy,
+  reviewingAs,
+  reviewWords,
+  SEARCH,
+  sentTo,
+  signedIn,
+  starButtons,
+  tryAgainButton,
+} from "./support/reviewWorld";
 
 /*
  * Rating a place (M2b Task 6; screen 8 and D3; ruling R12): the form, posting it, the person's own
@@ -24,176 +43,17 @@ import { createMemoryWriter, type MemoryWriter } from "./support/memoryWriter";
  * not, on a phone and on a desktop. Relays are held in memory; nothing opens a socket.
  */
 
-const places: NostrEvent[] = raw;
-const JACAFE = parsePlaces(places).find((place) => place.d === "osm-node-11330857543")!;
-const PLACE_PATH = `/place/${JACAFE.d}`;
-const REVIEW_PATH = `${PLACE_PATH}/review`;
-
-/** Brainstorm's search relay (reviews, names), the house's trust relay, the relay-list directory, and a relay the person writes to. */
-const SEARCH = "wss://search.brainstorm.world";
-const TRUST = "wss://scores.brainstorm.world";
-const DIRECTORY = "wss://purplepag.es";
-const OWN = "wss://nos.example.test";
-/** A made-up scorer and its relay: the house's real one is never written into the app or its tests. */
-const SCORER = hex64("5");
-const SCORER_RELAY = "wss://ranks.example.test";
-
-/** Thursday 8 October 2026, 12:00 UTC, in seconds: the time the tests' reviews are posted at. */
-const NOW_S = 1_791_460_800;
-
-/** The house's kind 10040, naming `SCORER` at `SCORER_RELAY`. */
-const trustList = () => shapedEvent({ kind: 10040, pubkey: config.houseHex, tags: [["30382:rank", SCORER, SCORER_RELAY]] });
-
-/** `SCORER`'s kind 30382 giving `subject` the rank `rank`. */
-const rankOf = (subject: string, rank: number) =>
-  shapedEvent({ kind: 30382, pubkey: SCORER, tags: [["d", subject], ["rank", String(rank)]] });
-
-/** `pubkey`'s profile (kind 0) naming them `name`. */
-const profileOf = (pubkey: string, name: string) => shapedEvent({ kind: 0, pubkey, content: JSON.stringify({ name }) });
-
-/** `pubkey`'s relay list (kind 10002), writing to `urls`. */
-const listOf = (pubkey: string, urls: string[]) => shapedEvent({ kind: 10002, pubkey, tags: urls.map((url) => ["r", url]) });
-
-/** `reviewer`'s review of Jacafé, as the app writes them. */
-const reviewBy = (reviewer: string, stars: number, text: string, createdAt = NOW_S - 86_400) =>
-  shapedEvent({
-    kind: REVIEW_KIND,
-    pubkey: reviewer,
-    created_at: createdAt,
-    content: text,
-    tags: [
-      ["d", `place:${JACAFE.address}`],
-      ["a", JACAFE.address],
-      ["m", "place"],
-      ["s", String(stars)],
-    ],
-  });
-
 /**
- * What the relays hold, each a list the test may change between reads: the search relay's reviews
- * and profiles, the directory's relay lists, and the scorer's ranks. Each reader reads its list as
- * it is at the time of the request.
+ * Makes a step back in the history land a moment later, as a browser's does (its page changes on the
+ * popstate that follows): the memory router's lands at once, before anything else can happen.
  */
-interface World {
-  search: NostrEvent[];
-  directory: NostrEvent[];
-  ranks: NostrEvent[];
-  /** The relays that are sent reviews, by URL. One not here refuses. */
-  writers: Record<string, MemoryWriter>;
-  /** How many times the search relay has been asked for reviews. */
-  reviewReads: number;
+function backLikeABrowser(router: Awaited<ReturnType<typeof open>>["router"]) {
+  const navigate = router.navigate.bind(router);
+  router.navigate = ((to: Parameters<typeof navigate>[0], opts?: Parameters<typeof navigate>[1]) =>
+    typeof to === "number"
+      ? new Promise<void>((resolve) => setTimeout(() => resolve(navigate(to)), 0))
+      : navigate(to, opts)) as typeof router.navigate;
 }
-
-function newWorld(): World {
-  return { search: [], directory: [], ranks: [], writers: {}, reviewReads: 0 };
-}
-
-const readersOf =
-  (world: World) =>
-  (url: string): RelayReader => {
-    if (url === SEARCH) {
-      const reader = createMemoryReader(world.search);
-      return {
-        req(filter, signal) {
-          if (filter.kinds?.includes(REVIEW_KIND)) world.reviewReads += 1;
-          return reader.req(filter, signal);
-        },
-      };
-    }
-    if (url === TRUST) return createMemoryReader([trustList()]);
-    if (url === SCORER_RELAY) return createMemoryReader(world.ranks);
-    if (url === DIRECTORY) return createMemoryReader(world.directory);
-    return createMemoryReader([]);
-  };
-
-const writersOf =
-  (world: World) =>
-  (url: string): RelayWriter =>
-    world.writers[url] ?? createMemoryWriter({ refuse: "not in this test" });
-
-/** What the relay at `url` was sent. */
-const sentTo = (world: World, url: string): NostrEvent[] => world.writers[url]?.published ?? [];
-
-/** The browser add-on (NIP-07) as a page sees it, signing with `key`. */
-function installAddOn(key: Uint8Array) {
-  const addOn = {
-    getPublicKey: vi.fn(async () => getPublicKey(key)),
-    signEvent: vi.fn(async (template: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(template, key)),
-  };
-  Object.defineProperty(window, "nostr", { configurable: true, writable: true, value: addOn });
-  return addOn;
-}
-
-/**
- * The person, signed in with this browser in this tab before the page was opened, named `name` on
- * the search relay. `signsWith` is the key their add-on signs with now: another person's when it
- * has changed accounts since.
- */
-function signedIn(world: World, { name = "Maya", signsWith }: { name?: string; signsWith?: Uint8Array } = {}) {
-  const key = generateSecretKey();
-  const pubkey = getPublicKey(key);
-  const addOn = installAddOn(signsWith ?? key);
-  window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({ how: "browser", pubkey }));
-  world.search.push(profileOf(pubkey, name));
-  return { key, pubkey, addOn, name };
-}
-
-/** The history of a person who opened the place from Explore and is now at `path`. */
-const fromExplore = (...paths: string[]) => ["/", ...paths];
-
-/** The app at the end of `entries`, reading and writing `world`. */
-const open = (world: World, entries: Parameters<typeof openApp>[1]["entries"], px = PHONE) =>
-  openApp(String(entries?.at(-1)), { events: places, entries, px, readers: readersOf(world), writers: writersOf(world) });
-
-/**
- * The first "Rate this place" on the page (on a desktop, the one in the rail), once the place's panel
- * has settled. A phone's panel goes from what a page just opened says, to its reviews being read, to
- * their being counted, to its score, each with its own button, or none: the one to press is the one
- * it settles on. A page just opened says "Be the first" until it asks for its reviews, so the search
- * relay must have been asked for them in `world`.
- */
-const rateLink = async (world: World) => {
-  await waitFor(() => {
-    expect(world.reviewReads).toBeGreaterThan(0);
-    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
-    expect(screen.queryByText(copy.score.counting)).toBeNull();
-  });
-  const rail = screen.queryByRole("complementary", { name: copy.place.railLabel });
-  return (await within(rail ?? document.body).findAllByRole("link", { name: copy.place.rate }))[0]!;
-};
-
-/** The stars, one to five: the radios of "How was it?". */
-const starButtons = async () => within(await screen.findByRole("radiogroup", { name: copy.review.howWasIt })).getAllByRole("radio");
-
-/** The Post button, by its name before posting. */
-const postButton = () => screen.getByRole("button", { name: copy.review.post });
-
-/** The same button once a post has failed: Try again. */
-const tryAgainButton = () => screen.getByRole("button", { name: copy.review.tryAgain });
-
-/**
- * The element whose whole text is `text`, and none of whose children's is: a line with a name in it,
- * which the name's own element (a `<bdi>`) splits into several text nodes.
- */
-const wholeText = (text: string) => (_: string, element: Element | null) =>
-  element?.textContent === text && ![...element.children].some((child) => child.textContent === text);
-
-/** "Reviewing as <name>", once the form knows who is signed in. */
-const reviewingAs = (name: string, inside: Pick<typeof screen, "findByText"> = screen) =>
-  inside.findByText(wholeText(copy.review.reviewingAs(name)));
-
-/**
- * A review's words as the place's page lists them. Not the form's text box, which holds the same words
- * (React keeps a text box's value as its text too) until the form has gone.
- */
-const reviewWords = (text: string) => screen.findByText(text, { selector: "article p" });
-const noReviewWords = (text: string) => screen.queryByText(text, { selector: "article p" });
-
-/** What the tab holds of the person's own reviews, before the relays send them back. */
-const heldText = () => window.sessionStorage.getItem(HELD_REVIEWS_KEY);
-
-/** The relays the tab says its one held review went to, in any order. */
-const heldRelays = () => new Set((JSON.parse(heldText() ?? "[]") as { relays: string[] }[])[0]?.relays ?? []);
 
 beforeEach(() => {
   config.reviewRelays = [SEARCH];
@@ -237,7 +97,9 @@ describe("the review form (Review.dc.html, DeskReview.dc.html)", () => {
     expect(copy.review.textLabel).toBe("What should a friend know?");
     expect(text).toHaveValue("");
     expect(screen.getByText(copy.review.notice)).toBeInTheDocument();
-    expect(copy.review.notice).toBe("Reviews are public and carry your name. One review per place: posting again replaces this one.");
+    expect(copy.review.notice).toBe(
+      "Reviews are public and carry your name. One review per place: posting again replaces this one. You can remove it later.",
+    );
 
     // Off until a star is chosen: pressing it does nothing.
     const post = postButton();
@@ -536,8 +398,9 @@ describe("posting a review", () => {
     await user.click(postButton());
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
 
-    // Again, in the same second: the form has the review just posted, and the edit is stamped after it.
-    await user.click(await rateLink(world));
+    // Again, in the same second, by Edit under it: the form has the review just posted, and the edit
+    // is stamped after it.
+    await user.click(within(await screen.findByRole("region", { name: copy.reviews.yours })).getByRole("link", { name: copy.reviews.edit }));
     const stars = await starButtons();
     await waitFor(() => expect(stars[3]).toHaveAttribute("aria-checked", "true"));
     await user.click(stars[4]!);
@@ -840,6 +703,22 @@ describe("on a desktop: a dialog over the place page (DeskReview.dc.html)", () =
     expect(stars[2]).toHaveFocus();
   });
 
+  it("closes once when Escape is pressed twice before the page has redrawn (R15)", async () => {
+    const world = newWorld();
+    signedIn(world);
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH), DESKTOP);
+
+    await user.click(await rateLink(world));
+    await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.keyDown(document, { key: "Escape" });
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(router.state.location.pathname).toBe(PLACE_PATH);
+  });
+
   it("stops posting when it is closed while the review is being sent, and holds nothing", async () => {
     const world = newWorld();
     const me = signedIn(world);
@@ -894,6 +773,51 @@ describe("on a phone: a page of its own (Review.dc.html)", () => {
     await user.click(await screen.findByRole("link", { name: copy.review.back }));
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
     expect(router.state.historyAction).toBe("REPLACE");
+  });
+
+  it("goes back once when its back arrow is pressed twice before the page has left (R15)", async () => {
+    const world = newWorld();
+    signedIn(world);
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH));
+    await user.click(await rateLink(world));
+    const back = await screen.findByRole("link", { name: copy.review.back });
+    backLikeABrowser(router);
+
+    await act(async () => {
+      fireEvent.click(back);
+      fireEvent.click(back);
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(router.state.location.pathname).toBe(PLACE_PATH);
+    expect(router.state.historyAction).toBe("POP");
+  });
+
+  it("goes back once when the review is posted while the person is already going back (R15)", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    let answer!: () => void;
+    world.writers[SEARCH] = createMemoryWriter({ until: new Promise<void>((resolve) => (answer = resolve)) });
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH));
+    await user.click(await rateLink(world));
+    await reviewingAs(me.name);
+    await user.click((await starButtons())[3]!);
+    await user.click(postButton());
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+    backLikeABrowser(router);
+
+    // Back, and the review relay takes the review before the page has left the form.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("link", { name: copy.review.back }));
+      answer();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(router.state.location.pathname).toBe(PLACE_PATH);
+    expect(router.state.historyAction).toBe("POP");
   });
 
   it("stops posting when its back arrow is used while the review is being sent", async () => {

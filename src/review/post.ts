@@ -1,17 +1,18 @@
 import type { NostrEvent, NostrSigner } from "@nostrify/nostrify";
 import type { EventTemplate } from "nostr-tools/core";
 
-import { abortable, isReviewRelay, writeRelaysOf } from "../account/writeRelays.ts";
+import { abortable, isReviewRelay, sendableRelayAddress, writeRelaysOf } from "../account/writeRelays.ts";
 import { config } from "../config.ts";
 import { asEvent, type RelayReader, type RelayWriter } from "../nostr/events.ts";
 import { appWriters } from "../nostr/relayCode.ts";
+import { removalTemplate } from "../reviews/write.ts";
 
 /*
- * Posting a review (M2b Task 6, rulings R12 to R14): where it goes, signing it with the person's
- * signer, and sending it to all of those relays at once: posted as soon as a review relay takes it,
- * the others going on under one limit. Nothing here loads Nostrify: the app's writers load the relay
- * code when a review is first sent (src/nostr/relayCode.ts), so the form can be on the first screen.
- * Nothing is logged: what passes through is the person's.
+ * Posting a review (M2b Task 6, rulings R12 to R14), and removing one (Task 7): where it goes, signing
+ * it with the person's signer, and sending it to all of those relays at once: posted (or removed) as
+ * soon as a review relay takes it, the others going on under one limit. Nothing here loads Nostrify:
+ * the app's writers load the relay code when a review is first sent (src/nostr/relayCode.ts), so the
+ * form can be on the first screen. Nothing is logged: what passes through is the person's.
  */
 
 /**
@@ -109,14 +110,20 @@ export function reviewStamp(now: number, previous: readonly { createdAt: number 
 /** What a relay's refusal, or the end of its time, says, as text. */
 const reasonOf = (error: unknown) => (error instanceof Error || error instanceof DOMException ? error.message : String(error));
 
-/** Whether two lists of tags are the same, tag by tag and value by value. */
-const sameTags = (a: readonly (readonly string[])[], b: readonly (readonly string[])[]) =>
-  a.length === b.length && a.every((tag, i) => tag.length === b[i]?.length && tag.every((value, j) => value === b[i]?.[j]));
+/** Whether two tags are the same, value by value. */
+const sameTag = (a: readonly string[], b: readonly string[] | undefined) =>
+  a.length === b?.length && a.every((value, i) => value === b[i]);
+
+/** Whether `tags` begin with `prefix`, tag by tag and value by value: the same tags, or those and more after them. */
+const startsWithTags = (tags: readonly (readonly string[])[], prefix: readonly (readonly string[])[]) =>
+  tags.length >= prefix.length && prefix.every((tag, i) => sameTag(tag, tags[i]));
 
 /**
- * Whether `signed` is the review `template` asked for, signed: the same kind, time, words and tags.
- * Only its id, key and signature are the signer's to add. A signer that changes the time would undo the
- * order of a person's edits (`reviewStamp`); one that changes anything else, what they wrote.
+ * Whether `signed` is what `template` asked for, signed: the same kind, time and words, and the same
+ * tags, in order, before any the signer adds after them (some add one naming themselves, such as
+ * `["client", …]`: ruling R15). Its id, key and signature are the signer's to add too. A signer that
+ * changes the time would undo the order of a person's edits (`reviewStamp`); one that changes or
+ * leaves out a tag, or puts one before them, what they wrote.
  */
 function isSigned(signed: unknown, template: EventTemplate): signed is NostrEvent {
   const event = asEvent(signed);
@@ -125,7 +132,7 @@ function isSigned(signed: unknown, template: EventTemplate): signed is NostrEven
     event.kind === template.kind &&
     event.created_at === template.created_at &&
     event.content === template.content &&
-    sameTags(event.tags, template.tags)
+    startsWithTags(event.tags, template.tags)
   );
 }
 
@@ -227,7 +234,7 @@ export function sendReview(event: NostrEvent, relays: readonly string[], signal:
 export async function postReview(
   template: EventTemplate,
   signer: NostrSigner,
-  relays: string[],
+  relays: readonly string[],
   signal: AbortSignal,
   opts: SendOptions = {},
 ): Promise<Posted> {
@@ -236,4 +243,57 @@ export async function postReview(
   const event = await abortable(signer.signEvent(template), signal);
   if (!isSigned(event, template)) throw new NotPosted({});
   return sendReview(event, relays, signal, opts);
+}
+
+/** One of the person's reviews of a place, as removing it names it (`ScoresStore.ownCoordinates`). */
+export interface ReviewToRemove {
+  id: string;
+  d: string;
+  createdAt: number;
+  /** The relays it went to, when the tab knows (a review it holds): its removal goes there too. */
+  relays?: readonly string[];
+}
+
+/**
+ * Where a removal of `reviews` goes (Global Constraints, Removal): the review relays, where the
+ * person writes now (`where`, from `whereToPost`), and every relay each review went to, as far as the
+ * tab knows; each once, however written. Only relays a review may be sent to are kept
+ * (`sendableRelayAddress`): what the tab kept of where a review went is held to the same rule.
+ */
+export function removalRelays(where: readonly string[], reviews: readonly Pick<ReviewToRemove, "relays">[]): string[] {
+  const relays = new Set<string>();
+  for (const url of [...config.reviewRelays, ...where, ...reviews.flatMap((review) => review.relays ?? [])]) {
+    const address = sendableRelayAddress(url);
+    if (address !== null) relays.add(address);
+  }
+  return [...relays];
+}
+
+/**
+ * Removes the person's `reviews` of a place: every version of their review of it, under any `d` and
+ * in any filing. `account.signer` signs one removal naming them all (`removalTemplate`, NIP-09), at
+ * `now` or at the newest of them, whichever is later: a removal takes the versions at an address up to
+ * its own time, so it must not be older than the newest. It is sent as a review is (`postReview`):
+ * removed once a review relay takes it, the others going on. With nothing to remove, or nowhere to
+ * send it, nothing is signed.
+ *
+ * Throws as `postReview` does: `NotPosted` when no review relay took it (with what the others did, and
+ * the signed removal, to send again as it is), whatever the signer throws, and the signal's reason.
+ */
+export async function removeReview(
+  reviews: readonly ReviewToRemove[],
+  account: { pubkey: string; signer: NostrSigner },
+  relays: readonly string[],
+  now: number,
+  signal: AbortSignal,
+  opts: SendOptions = {},
+): Promise<Posted> {
+  signal.throwIfAborted();
+  if (reviews.length === 0) throw new NotPosted({});
+  const stamp = Math.max(now, ...reviews.map((review) => review.createdAt));
+  const template = removalTemplate(
+    reviews.map(({ id, d }) => ({ id, pubkey: account.pubkey, d })),
+    stamp,
+  );
+  return postReview(template, account.signer, relays, signal, opts);
 }

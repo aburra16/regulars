@@ -153,6 +153,15 @@ function configuredRelayAddress(text: string): string | null {
 }
 
 /**
+ * The address of a relay a review, or its removal, may be sent to, written one way, or null: a review
+ * relay, as the app is set up with it (`configuredRelayAddress`), or a public one (`publicRelayAddress`).
+ * Where a review went, kept by the tab, is held to it again before its removal is sent there.
+ */
+export function sendableRelayAddress(url: string): string | null {
+  return isReviewRelay(url) ? configuredRelayAddress(url) : publicRelayAddress(url);
+}
+
+/**
  * Whether the relay at `url` is one of the review relays (`config.reviewRelays`), where the app reads
  * reviews from, however either is written: both are compared as `configuredRelayAddress` writes them.
  */

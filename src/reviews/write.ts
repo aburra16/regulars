@@ -38,19 +38,29 @@ export function reviewTemplate(place: Place, stars: WholeStars, text: string, no
   };
 }
 
+/** A review as its removal names it: its id, its reviewer, and its `d`. */
+export interface RemovedReview {
+  id: string;
+  pubkey: string;
+  d: string;
+}
+
 /**
- * A request to delete `review` (NIP-09), made at `now`, in seconds since the epoch: by its id (`e`),
- * and by its address (`a`, `34259:<pubkey>:<d>`), which also covers any version of it a relay holds
- * from before. `k` names the kind deleted.
+ * A request to delete `reviews` (NIP-09), one or several in one, made at `now`, in seconds since the
+ * epoch: each by its id (`e`), and by its address (`a`, `34259:<pubkey>:<d>`), which also covers any
+ * version of it a relay holds from up to that time. `k` names the kind deleted, once.
  */
-export function removalTemplate(review: { id: string; pubkey: string; d: string }, now: number): EventTemplate {
+export function removalTemplate(reviews: RemovedReview | readonly RemovedReview[], now: number): EventTemplate {
+  const each = Array.isArray(reviews) ? (reviews as readonly RemovedReview[]) : [reviews as RemovedReview];
   return {
     kind: EventDeletion,
     created_at: now,
     content: "",
     tags: [
-      ["e", review.id],
-      ["a", `${REVIEW_KIND}:${review.pubkey}:${review.d}`],
+      ...each.flatMap((review) => [
+        ["e", review.id],
+        ["a", `${REVIEW_KIND}:${review.pubkey}:${review.d}`],
+      ]),
       ["k", String(REVIEW_KIND)],
     ],
   };

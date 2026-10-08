@@ -1,6 +1,7 @@
 import type { NostrEvent } from "@nostrify/nostrify";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
+import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import type { Review } from "../reviews/review.ts";
 import type { PlaceScore } from "./score.ts";
@@ -20,6 +21,16 @@ function useScoresVersion(store: ScoresStore): number {
 /** Re-renders the component when names have changed; their version, for memos. */
 function useNamesVersion(store: ScoresStore): number {
   return useSyncExternalStore(store.subscribe, store.namesVersion);
+}
+
+/**
+ * Where the reading of the place at `address` stands, for a page that asks for it: as the store says,
+ * and "reading" before the page's ask has reached it. A page asks once it is drawn (an effect), so
+ * the first drawing of it comes before: without this, it would say "Be the first", or "No reviews
+ * yet", for that moment (ruling R15). Undefined when there are no review relays, as the store has it.
+ */
+function readStateFor(store: ScoresStore, address: string): ReadState | undefined {
+  return store.readStateOf(address) ?? (config.reviewRelays.length > 0 ? "reading" : undefined);
 }
 
 /** Whether `a` and `b` hold the same items in the same order. */
@@ -46,8 +57,8 @@ function useSameList(items: readonly string[]): readonly string[] {
  * page asks for its whole list at once, not a card at a time. A place is missing from `scores` until
  * its reviews have been read, and always when there are no review relays. `pending` holds the
  * places that have reviews and no score yet, while the house is asked about their reviewers. `reads`
- * says where the reading of each place stands (`ScoresStore.readStateOf`); a place is missing from it
- * when there are no review relays.
+ * says where the reading of each place stands (`ScoresStore.readStateOf`), "reading" from the first
+ * drawing; a place is missing from it when there are no review relays.
  */
 export function useScores(addresses: readonly string[]): {
   scores: Map<string, PlaceScore>;
@@ -70,7 +81,7 @@ export function useScores(addresses: readonly string[]): {
       const score = store.scoreOf(address);
       if (score !== undefined) scores.set(address, score);
       else if (store.reviewsOf(address).length > 0) pending.add(address);
-      const read = store.readStateOf(address);
+      const read = readStateFor(store, address);
       if (read !== undefined) reads.set(address, read);
     }
     return { scores, pending, reads, house: store.house };
@@ -80,7 +91,8 @@ export function useScores(addresses: readonly string[]): {
 /**
  * One place's score, as `useScores` gives it, and its reviews: one per person, across all its
  * filings, newest first, whether they count in the score or are folded. Empty until read. `read`
- * says where the reading of them stands; undefined when there are no review relays.
+ * says where the reading of them stands, "reading" from the first drawing; undefined when there are
+ * no review relays.
  */
 export function useScore(address: string): {
   score: PlaceScore | undefined;
@@ -98,7 +110,7 @@ export function useScore(address: string): {
     return {
       score: store.scoreOf(address),
       reviews: store.reviewsOf(address),
-      read: store.readStateOf(address),
+      read: readStateFor(store, address),
       house: store.house,
     };
   }, [store, address, version]);

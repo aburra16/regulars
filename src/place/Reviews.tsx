@@ -1,6 +1,7 @@
-import { type JSX, useId, useMemo, useState } from "react";
+import { type JSX, type MouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { copy } from "../copy/en.ts";
+import type { RemoveReview, RemoveStatus } from "../review/useRemoveReview.ts";
 import type { Review } from "../reviews/review.ts";
 import { whenWritten } from "../reviews/when.ts";
 import type { PlaceScore } from "../score/score.ts";
@@ -8,14 +9,16 @@ import type { HouseState } from "../score/store.ts";
 import { useNames } from "../score/useScore.ts";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Stars } from "../ui/Stars.tsx";
-import { RateLink } from "./ScorePanel.tsx";
+import { EditLink, RateLink } from "./ScorePanel.tsx";
 
 /*
- * A place's reviews (Place.dc.html, DeskPlace.dc.html, worded for House picks): those by people the
+ * A place's reviews (Place.dc.html, DeskPlace.dc.html, worded for House picks): the review of the
+ * person signed in, on its own at the top, with Edit and Remove (ruling R15); those by people the
  * house trusts, listed; and those by people outside House picks, folded into a dashed box that shows
  * them, dimmed, on request. Each review has its reviewer's name, its stars, when it was written and
  * its words. A reviewer appears by name only: never a rank, a weight or a meter (decision 19), and
- * the folded box is no verdict on the people in it.
+ * the folded box is no verdict on the people in it. Nor does anything say whether the house counts
+ * the person's own review: it is never among the others, nor dimmed, nor counted with them.
  */
 
 /** The first character a person would see of a name: one emoji, or one letter with its marks. */
@@ -106,6 +109,118 @@ function ReviewList({
   );
 }
 
+/** The heading of a part of the reviews, on a phone or a desktop. */
+const sectionHeading = (wide: boolean) => `m-0 font-display font-bold ${wide ? "text-[26px]" : "text-h2"}`;
+
+/** A small button of the person's own review, 44 px tall, in the chip's shape. */
+const chipButton =
+  "h-11 cursor-pointer rounded-chip px-4 font-text text-secondary font-bold aria-disabled:cursor-not-allowed aria-disabled:opacity-60";
+
+/** Edit and Remove under the person's own review: words, 44 px tall, as Rate this place is beside the reviews. */
+const wordButton = "inline-flex min-h-touch shrink-0 cursor-pointer items-center text-[15px] underline";
+
+/**
+ * The person's own review (ruling R15), under "Your review": as anyone's is drawn, never dimmed, with
+ * Edit, which opens the form with it, and Remove, which asks first (`removal`). Asked, it says what
+ * removing does, with Remove and Keep it; the focus goes to Keep it, the way out, and back to Remove
+ * when they keep it. Removing, the same Remove says so, and when no review relay took it, an alert
+ * says so and it becomes Try again: one button throughout, which keeps the focus. A double click on
+ * Remove asks, and its second click does not confirm.
+ */
+function YourReview({
+  review,
+  name,
+  now,
+  wide,
+  removal,
+}: {
+  review: Review;
+  name: string;
+  now: Date;
+  wide: boolean;
+  removal: RemoveReview;
+}): JSX.Element {
+  const headingId = useId();
+  const questionId = useId();
+  const removeRef = useRef<HTMLButtonElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const { status } = removal;
+  const was = useRef<RemoveStatus>(status);
+
+  useEffect(() => {
+    const before = was.current;
+    was.current = status;
+    if (status === "asking" && before === "idle") keepRef.current?.focus();
+    else if (status === "idle" && before !== "idle") removeRef.current?.focus();
+  }, [status]);
+
+  const asked = status === "asking" || status === "removing" || status === "failed";
+  const removing = status === "removing";
+  const confirm = (event: MouseEvent<HTMLButtonElement>) => {
+    // The second click of a double click on Remove, which asked: not a yes.
+    if (event.detail > 1 || removing) return;
+    removal.remove();
+  };
+
+  return (
+    <section aria-labelledby={headingId} className={`flex flex-col ${wide ? "gap-5" : "gap-[18px]"}`}>
+      <h2 id={headingId} className={sectionHeading(wide)}>
+        {copy.reviews.yours}
+      </h2>
+      <ReviewItem review={review} name={name} now={now} wide={wide} folded={false} />
+      {asked ? (
+        <div role="group" aria-labelledby={questionId} className="flex flex-col gap-3 rounded-card bg-surface p-4">
+          <p id={questionId} className="m-0 max-w-measure text-body leading-[1.45] text-ink">
+            {copy.reviews.removeQuestion}
+          </p>
+          {status === "failed" && (
+            <p role="alert" className="m-0 text-body font-semibold text-accent">
+              {copy.reviews.removeFailed}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2.5">
+            <button
+              type="button"
+              aria-disabled={removing ? true : undefined}
+              onClick={confirm}
+              className={`${chipButton} border-0 bg-accent-solid text-on-accent`}
+            >
+              {removing ? copy.reviews.removing : status === "failed" ? copy.reviews.removeAgain : copy.reviews.removeConfirm}
+            </button>
+            <button
+              ref={keepRef}
+              type="button"
+              aria-disabled={removing ? true : undefined}
+              onClick={() => {
+                if (!removing) removal.keep();
+              }}
+              className={`${chipButton} border-token border-line-strong bg-ground text-ink`}
+            >
+              {copy.reviews.keep}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-6">
+          <EditLink className={`${wordButton} font-bold text-accent`} />
+          {/* Off while a session this tab kept is restored: there is no one to sign the removal yet. */}
+          <button
+            ref={removeRef}
+            type="button"
+            aria-disabled={removal.ready ? undefined : true}
+            onClick={() => {
+              if (removal.ready) removal.ask();
+            }}
+            className={`${wordButton} border-0 bg-transparent p-0 font-text font-semibold text-muted aria-disabled:cursor-not-allowed aria-disabled:opacity-60`}
+          >
+            {copy.reviews.remove}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** What the folded box says it holds. */
 function foldedTitle(count: number, house: HouseState, anyInside: boolean): string {
   if (house === "unavailable") return copy.reviews.uncounted(count);
@@ -113,20 +228,26 @@ function foldedTitle(count: number, house: HouseState, anyInside: boolean): stri
 }
 
 /**
- * The reviews of a place with its score from the house's view (`score`; `house`, where the house's
- * view stands): those inside House picks under their heading, with "Rate this place" beside it when
- * `rate` (a phone's page whose panel has no button), and the folded ones in their box. "Show them"
- * opens and closes them: its one label stays, and `aria-expanded` says which. `now` says how long ago
- * each was written.
+ * The reviews of a place with its score from the house's view (`score`, undefined while it is worked
+ * out; `house`, where the house's view stands): first `mine`, the review of the person signed in,
+ * under "Your review", with Edit and Remove (`removal`), whatever the view and whether it is worked
+ * out yet; then those inside House picks under their heading, with "Rate this place" beside it when
+ * `rate` (a phone's page whose panel has no button), and the folded ones in their box, neither of
+ * them with the person's own, nor counting it. "Show them" opens and closes them: its one label
+ * stays, and `aria-expanded` says which. `now` says how long ago each was written.
  */
 export function Reviews({
   score,
+  mine,
+  removal,
   house,
   wide,
   rate,
   now,
 }: {
-  score: PlaceScore;
+  score: PlaceScore | undefined;
+  mine: Review | undefined;
+  removal: RemoveReview;
   house: HouseState;
   wide: boolean;
   rate: boolean;
@@ -135,16 +256,31 @@ export function Reviews({
   const [open, setOpen] = useState(false);
   const foldedId = useId();
   const titleId = useId();
-  const reviewers = useMemo(() => [...score.inside, ...score.folded].map((review) => review.reviewer), [score]);
+  const { inside, folded } = useMemo(() => {
+    const others = (reviews: readonly Review[] | undefined) => (reviews ?? []).filter((review) => review.id !== mine?.id);
+    return { inside: others(score?.inside), folded: others(score?.folded) };
+  }, [score, mine]);
+  const reviewers = useMemo(
+    () => [...(mine === undefined ? [] : [mine]), ...inside, ...folded].map((review) => review.reviewer),
+    [mine, inside, folded],
+  );
   const names = useNames(reviewers);
-  const { inside, folded } = score;
 
   return (
     <div className={`flex flex-col ${wide ? "gap-[26px]" : "gap-[22px]"}`}>
+      {mine !== undefined && (
+        <YourReview
+          review={mine}
+          name={names.get(mine.reviewer) ?? copy.reviews.someone}
+          now={now}
+          wide={wide}
+          removal={removal}
+        />
+      )}
       {inside.length > 0 && (
         <section className={`flex flex-col ${wide ? "gap-5" : "gap-[18px]"}`}>
           <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-            <h2 className={`m-0 font-display font-bold ${wide ? "text-[26px]" : "text-h2"}`}>{copy.reviews.heading}</h2>
+            <h2 className={sectionHeading(wide)}>{copy.reviews.heading}</h2>
             {rate && <RateLink />}
           </div>
           <ReviewList reviews={inside} names={names} now={now} wide={wide} folded={false} />

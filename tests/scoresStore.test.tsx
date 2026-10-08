@@ -12,7 +12,7 @@ import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
 import { REVIEW_KIND } from "../src/reviews/review";
 import { ScoresProvider } from "../src/score/ScoresProvider";
-import { FLUSH_WINDOW_MS, HELD_REVIEWS_KEY } from "../src/score/store";
+import { FLUSH_WINDOW_MS, HELD_REVIEWS_KEY, REMOVED_REVIEWS_KEY } from "../src/score/store";
 import { useListScores } from "../src/score/useListScores";
 import { useNames, useScore, useScoreActions, useScores } from "../src/score/useScore";
 import raw from "./fixtures/funchal-items.json";
@@ -1112,6 +1112,65 @@ describe("ScoresProvider: the person's own reviews, held through a reload (Revie
     expect(result.current.ownRemovedAt(ALICE, JACAFE_AGAIN)).toBe(1_700_000_300);
     expect(result.current.ownRemovedAt(BOB, JACAFE)).toBe(1_700_000_800);
     expect(result.current.ownRemovedAt(CAROL, JACAFE)).toBeUndefined();
+  });
+});
+
+describe("ScoresProvider: the person's removals, kept for the tab (Review Focus 2)", () => {
+  const ALICE_HERE = `${REVIEW_KIND}:${ALICE}:place:${JACAFE}`;
+
+  it("keeps what was removed for this tab: a new store (a reload) hides an older copy a lagging relay sends, and shows a later review", async () => {
+    config.reviewRelays = [SEARCH];
+    const removed = reviewOf(ALICE, JACAFE, 4, { created_at: 1_700_000_100 });
+    const bob = reviewOf(BOB, JACAFE, 3);
+    const reviews = [removed, bob];
+    const { readers } = houseNetwork(reviews, [rankOf(ALICE, 80), rankOf(BOB, 30)]);
+    const first = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
+    await waitFor(() => expect(first.result.current.score?.counted).toBe(2));
+
+    act(() => first.result.current.actions.noteRemoval(ALICE_HERE, 1_700_000_200));
+    expect(JSON.parse(window.sessionStorage.getItem(REMOVED_REVIEWS_KEY) ?? "null")).toEqual([[ALICE_HERE, 1_700_000_200]]);
+    expect(window.localStorage.length).toBe(0);
+    first.unmount();
+
+    const second = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
+    await waitFor(() => expect(second.result.current.read).toBe("read"));
+    expect(idsOf(second.result.current.reviews)).toEqual([bob.id]);
+    expect(second.result.current.actions.ownRemovedAt(ALICE, JACAFE)).toBe(1_700_000_200);
+    second.unmount();
+
+    // Rated again after: the new review shows.
+    const again = reviewOf(ALICE, JACAFE, 5, { created_at: 1_700_000_201 });
+    reviews.push(again);
+    const third = renderStore(() => useScore(JACAFE), { readers });
+    await waitFor(() => expect(idsOf(third.result.current.reviews)).toEqual([again.id, bob.id]));
+  });
+
+  it.each([
+    ["not JSON", "{"],
+    ["not a list", "{}"],
+    ["not the app's own", JSON.stringify([["1:nope:x", 5], [ALICE_HERE, -1], [ALICE_HERE, "5"], 7, [ALICE_HERE]])],
+  ])("ignores what the tab keeps of removals when it is %s", async (_, kept) => {
+    config.reviewRelays = [SEARCH];
+    window.sessionStorage.setItem(REMOVED_REVIEWS_KEY, kept);
+    const alice = reviewOf(ALICE, JACAFE, 4);
+    const { readers } = houseNetwork([alice], [rankOf(ALICE, 80)]);
+    const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
+    await waitFor(() => expect(idsOf(result.current.reviews)).toEqual([alice.id]));
+    expect(result.current.actions.ownRemovedAt(ALICE, JACAFE)).toBeUndefined();
+  });
+
+  it("keeps the latest removal of each review, beside what it kept before", async () => {
+    config.reviewRelays = [SEARCH];
+    const BOB_HERE = `${REVIEW_KIND}:${BOB}:place:${JACAFE}`;
+    window.sessionStorage.setItem(REMOVED_REVIEWS_KEY, JSON.stringify([[BOB_HERE, 1_700_000_050]]));
+    const { readers } = houseNetwork([], []);
+    const { result } = renderStore(() => useScoreActions(), { readers });
+    act(() => result.current.noteRemoval(ALICE_HERE, 1_700_000_100));
+    act(() => result.current.noteRemoval(ALICE_HERE, 1_700_000_090));
+    expect(JSON.parse(window.sessionStorage.getItem(REMOVED_REVIEWS_KEY) ?? "null")).toEqual([
+      [BOB_HERE, 1_700_000_050],
+      [ALICE_HERE, 1_700_000_100],
+    ]);
   });
 });
 

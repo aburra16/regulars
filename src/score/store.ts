@@ -115,6 +115,50 @@ function keepHeld(held: Iterable<Held>): void {
   }
 }
 
+/**
+ * Where this tab keeps the reviews the person removed (`noteRemoval`), each by its address with the
+ * removal's time, so that a reload still hides them while a relay that lags sends them (Review Focus
+ * 2): in `sessionStorage`, gone when the tab closes. A removal is public, not a secret; and the review
+ * it names is deleted for anyone (NIP-09), so it stays hidden whoever is signed in in the tab.
+ */
+export const REMOVED_REVIEWS_KEY = "regulars.removedReviews";
+
+/**
+ * The removals this tab keeps (`REMOVED_REVIEWS_KEY`), by `keyOf`, as `[address, time]` pairs: each a
+ * review's address and a time it could have been removed at, and nothing else. None when what is kept
+ * is not the app's own, or when storage is blocked.
+ */
+function readRemoved(): Map<string, number> {
+  const removed = new Map<string, number>();
+  try {
+    const kept: unknown = JSON.parse(window.sessionStorage.getItem(REMOVED_REVIEWS_KEY) ?? "[]");
+    if (!Array.isArray(kept)) return removed;
+    for (const pair of kept) {
+      if (!Array.isArray(pair) || pair.length !== 2) continue;
+      const [address, createdAt] = pair as unknown[];
+      const key = typeof address === "string" ? reviewKey(address) : undefined;
+      if (key === undefined || !isTime(createdAt)) continue;
+      if ((removed.get(key) ?? -1) < createdAt) removed.set(key, createdAt);
+    }
+  } catch {
+    // Not the app's own, or blocked: nothing kept.
+  }
+  return removed;
+}
+
+/** Keeps `removed`, the removals by key, for this tab. Where storage is blocked or full, they last until a reload. */
+function keepRemoved(removed: ReadonlyMap<string, number>): void {
+  const kept = [...removed].map(([key, createdAt]) => [addressOfKey(key), createdAt]);
+  try {
+    window.sessionStorage.setItem(REMOVED_REVIEWS_KEY, JSON.stringify(kept));
+  } catch {
+    // Blocked or full: what was removed stays hidden until the page is reloaded.
+  }
+}
+
+/** Whether `value` is a time an event can have: whole seconds since the epoch, from 0. */
+const isTime = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
 /** Prints a note for developers. Never shown to a person, and not in the production build. */
 function debug(message: string, ...details: unknown[]): void {
   if (import.meta.env.DEV) console.debug(`[scores] ${message}`, ...details);
@@ -184,6 +228,9 @@ function reviewKey(address: string): string | undefined {
   const pubkey = address.slice(first + 1, second);
   return isHex64(pubkey) ? keyOf(pubkey, address.slice(second + 1)) : undefined;
 }
+
+/** The address of the review with the key `key`, as `reviewKey` reads it: the public key is its first 64 characters. */
+const addressOfKey = (key: string) => `${REVIEW_KIND}:${key.slice(0, 64)}:${key.slice(64)}`;
 
 /** A review as its removal names it (`34259:<reviewer>:<d>`, NIP-09), with its id and its time. */
 export interface ReviewCoordinate {
@@ -269,8 +316,11 @@ export class ScoresStore {
    * reload shows them too.
    */
   readonly #own = new Map<string, Held>();
-  /** The reviews the person removed, by `keyOf`: hidden up to the removal's time (`noteRemoval`). */
-  readonly #removed = new Map<string, number>();
+  /**
+   * The reviews the person removed, by `keyOf`: hidden up to the removal's time (`noteRemoval`), and
+   * kept for this tab (`REMOVED_REVIEWS_KEY`), so that a reload hides them too.
+   */
+  readonly #removed = readRemoved();
   /** Each place address's reviews, worked out from the above; null when they have changed since. */
   #reviews: Map<string, Review[]> | null = null;
   /**
@@ -300,7 +350,7 @@ export class ScoresStore {
   /**
    * `readers` gives each relay's reader; by default the app's. Each relay's read extras are added to
    * it. The own reviews this tab keeps for the person signed in in it are held from the start, as
-   * before the reload.
+   * before the reload, and the reviews removed in it are hidden from the start (`REMOVED_REVIEWS_KEY`).
    */
   constructor(readers: Readers = appReaders) {
     this.#readers = (url) => withReadExtras(readers(url), config.relayReadExtras[url]);
@@ -549,14 +599,15 @@ export class ScoresStore {
   /**
    * Hides the review at `address` (`34259:<pubkey>:<d>`), which the person removed at `createdAt`,
    * and every version of it up to that time, as NIP-09 deletes them: a relay that lags may still
-   * send one. A review written after the removal shows.
+   * send one, now or after a reload (kept for the tab). A review written after the removal shows.
    */
   readonly noteRemoval = (address: string, createdAt: number): void => {
     const key = reviewKey(address);
-    if (key === undefined || !Number.isSafeInteger(createdAt) || createdAt < 0) return;
+    if (key === undefined || !isTime(createdAt)) return;
     const before = this.#removed.get(key);
     if (before !== undefined && before >= createdAt) return;
     this.#removed.set(key, createdAt);
+    keepRemoved(this.#removed);
     const held = this.#own.get(key);
     if (held !== undefined && held.event.created_at <= createdAt) {
       this.#own.delete(key);
