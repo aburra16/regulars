@@ -167,8 +167,12 @@ function holidayContext(country: string | undefined): nominatim_object | undefin
   return { address: { country_code: country, state: "" } } as nominatim_object;
 }
 
-/** How many parsed hours to remember. A list of places shows far fewer than this at once. */
-export const PARSE_CACHE_LIMIT = 2000;
+/**
+ * How many parsed hours to remember. A list shows far fewer places than this at once, but Open
+ * now asks about every place near the point, and a dense city has thousands within the radius:
+ * a memory smaller than that is parsed over again on every pass (every minute).
+ */
+export const PARSE_CACHE_LIMIT = 10_000;
 
 /** Parsed hours by country and text, oldest use first. `null` is hours that cannot be used. */
 const parsed = new Map<string, OpeningHours | null>();

@@ -14,8 +14,11 @@ export interface PlaceCardProps {
   /** How far the place is from where the list is near, in kilometres. */
   km: number;
   /**
-   * `unrated-dashed` is for a place nobody has scored, in a list that has scored places in it
-   * (My circle's "No score yet", Main.dc.html). Before sign in no list has any, so M1 passes `normal`.
+   * `normal` has no score yet and says nobody has reviewed the place ("No reviews yet", under the
+   * hours, where the line about who rated it goes). `unrated-dashed` is a place without a score in
+   * a list that has places with scores: a dashed edge and "No score yet" at the top right, where
+   * the score would be (My circle's list, Main.dc.html). Before sign in no list has scores, so M1
+   * passes `normal`.
    */
   variant: "normal" | "unrated-dashed";
   /** The browser's language: it decides miles or kilometres, and the 12- or 24-hour clock. */
@@ -64,8 +67,9 @@ function HoursLine({ id, state, line }: { id: string; state: OpenState; line: st
 
 /**
  * A place in a list (Main.dc.html): its kind on a tile, its name, what it is and how far, and
- * whether it is open. Where the score goes, it says nobody has reviewed it yet. The whole card is
- * one link to the place; the link is named by the place's name, and the rest is its description.
+ * whether it is open; then, where the line about who rated it goes, that nobody has reviewed it
+ * yet. The whole card is one link to the place; the link is named by the place's name, and the
+ * rest is its description.
  */
 export function PlaceCard({ place, km, variant, locale, now, selected = false }: PlaceCardProps): JSX.Element {
   const id = useId();
@@ -91,14 +95,21 @@ export function PlaceCard({ place, km, variant, locale, now, selected = false }:
           >
             {place.name}
           </span>
-          <span id={`${id}-score`} className="shrink-0 pt-1 text-caption font-semibold whitespace-nowrap text-muted">
-            {copy.score.noReviewsYet}
-          </span>
+          {variant === "unrated-dashed" && (
+            <span id={`${id}-score`} className="shrink-0 pt-1 text-caption font-semibold whitespace-nowrap text-muted">
+              {copy.score.noScoreYet}
+            </span>
+          )}
         </div>
         <div id={`${id}-kind`} className="text-secondary text-muted">
           {kindLine}
         </div>
         <HoursLine id={`${id}-hours`} state={state} line={hoursLine} />
+        {variant === "normal" && (
+          <div id={`${id}-score`} className="text-secondary font-semibold text-muted">
+            {copy.score.noReviewsYet}
+          </div>
+        )}
       </div>
     </Link>
   );

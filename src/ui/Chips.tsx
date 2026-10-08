@@ -3,10 +3,14 @@ import { Link } from "react-router-dom";
 
 import { FilterIcon } from "./icons.tsx";
 
-/** A chip is 44 px tall with a 1.5 px edge (Main.dc.html); a chosen one is filled, and keeps its edge so nothing moves. */
-const CHIP = "inline-flex h-11 items-center rounded-chip border-token px-4 font-text text-[15px] font-semibold";
-const CHIP_ON = "border-ink bg-ink text-ground";
-const CHIP_OFF = "border-line-strong bg-ground text-ink";
+/**
+ * A chip is 44 px tall with a 1.5 px edge (Main.dc.html). The chosen one is filled and has no edge,
+ * as in the design; it takes the edge's width as padding, so the row does not move when a chip is
+ * chosen or let go.
+ */
+const CHIP = "inline-flex h-11 items-center rounded-chip font-text text-[15px] font-semibold";
+const CHIP_ON = "border-0 bg-ink px-[calc(1rem+var(--border))] text-ground";
+const CHIP_OFF = "border-token border-line-strong bg-ground px-4 text-ink";
 
 export interface ChipOption<T extends string> {
   id: T;

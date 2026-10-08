@@ -49,11 +49,14 @@ function SearchLink(): JSX.Element {
   );
 }
 
-/** How many cards this page of the list showed last time, or the first thirty. */
-function readShown(page: string): number {
+/**
+ * How many cards this page of the list showed last time, never more than it has, and at least
+ * the first thirty.
+ */
+function readShown(page: string, length: number): number {
   try {
     const count = Number(window.sessionStorage.getItem(`${SHOWN_KEY}:${page}`));
-    return Number.isInteger(count) && count > PAGE_SIZE ? count : PAGE_SIZE;
+    return Number.isInteger(count) ? Math.max(PAGE_SIZE, Math.min(count, length)) : PAGE_SIZE;
   } catch {
     // Storage that is blocked: the list starts from thirty.
     return PAGE_SIZE;
@@ -72,8 +75,9 @@ function writeShown(page: string, count: number): void {
  * The cards, thirty at first and thirty more each time the end comes into view. Where the browser
  * cannot watch for that, or the person would rather not scroll, the button after the last card
  * does it. When it is pressed the focus moves to the first new card, so a keyboard goes on from
- * where the list left off. `page` is this page of the history: Back to it shows as many cards as
- * it had, so the scroll position the router restores is still on the page.
+ * where the list left off. `page` is this page of the history and its list: Back to it shows as
+ * many cards as it had, so the scroll position the router restores is still on the page. A page
+ * with none keeps nothing.
  */
 function Entries({
   page,
@@ -81,12 +85,12 @@ function Entries({
   locale,
   now,
 }: {
-  page: string;
+  page: string | undefined;
   entries: Entry[];
   locale: string;
   now: Date;
 }): JSX.Element {
-  const [count, setCount] = useState(() => readShown(page));
+  const [count, setCount] = useState(() => (page === undefined ? PAGE_SIZE : readShown(page, entries.length)));
   const more = count < entries.length;
   const list = useRef<HTMLUListElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -107,7 +111,10 @@ function Entries({
     return () => observer.disconnect();
   }, [more, count]);
 
-  useEffect(() => writeShown(page, count), [page, count]);
+  const length = entries.length;
+  useEffect(() => {
+    if (page !== undefined) writeShown(page, Math.min(count, length));
+  }, [page, count, length]);
 
   useEffect(() => {
     if (focusAt.current === null) return;
@@ -227,10 +234,13 @@ export function ExploreList(): JSX.Element {
     );
   } else {
     // A new chip is a new page of the history, and a new town is a new list: each starts from its first thirty.
-    const page = `${historyKey}|${here.lat}|${here.lon}`;
+    // The first page of a tab, and any address typed in or followed from elsewhere, have the key "default"
+    // between them, so a depth kept under it would belong to whichever of them was there last: none is kept.
+    const list = `${chip}|${here.lat}|${here.lon}`;
+    const page = historyKey === "default" ? undefined : `${historyKey}|${list}`;
     body = (
       <div className="px-gutter-phone pt-[18px]">
-        <Entries key={page} page={page} entries={entries} locale={locale} now={now} />
+        <Entries key={`${historyKey}|${list}`} page={page} entries={entries} locale={locale} now={now} />
       </div>
     );
   }

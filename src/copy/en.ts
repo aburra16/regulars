@@ -74,9 +74,10 @@ export const copy = {
     withScore: (view: string, score: string) => `${view} · ${score}`,
   },
   score: {
-    // DRAFT for Avi
-    /** In place of a score, on a place that nobody has reviewed. */
+    /** On a card with no score, under the hours, when nobody has reviewed the place (SCREENS.md, wording patterns). */
     noReviewsYet: "No reviews yet",
+    /** At the top right of a dashed card, where the score would be: others have rated the place, the list's view has not (Main.dc.html). */
+    noScoreYet: "No score yet",
     /** A score as it is shown: "4.5", "4.0". */
     value: (n: number) => n.toLocaleString("en", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
     /** The stars, for a screen reader: "4.5 out of 5". */

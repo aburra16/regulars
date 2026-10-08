@@ -126,8 +126,15 @@ describe("focus and scrolling", () => {
     expect(css).toMatch(/html\s*\{\s*scroll-padding-bottom:\s*var\(--tab-bar-height\);\s*@media \(width >= 900px\)\s*\{\s*scroll-padding-bottom:\s*0;/);
   });
 
+  it("compiles the pressed chip's padding: a rem and the edge it has no more of", async () => {
+    const css = await compileUtilities(["px-[calc(1rem+var(--border))]"]);
+    // (`declarationsOf` cannot read a class with brackets in its name, so this reads the rule's text.)
+    expect(css).toMatch(/\.px-\\\[calc\\\(1rem\\\+var\\\(--border\\\)\\\)\\\]\s*\{\s*padding-inline:\s*calc\(1rem \+ var\(--border\)\);/);
+  });
+
   it("gives the tab bar the height the page scrolls past", () => {
-    expect(read("src/shell/TabBar.tsx")).toMatch(/h-\(--tab-bar-height\)|h-\[var\(--tab-bar-height\)\]/);
+    // At least that tall: a bar that grows with a larger text size still clears the page's padding.
+    expect(read("src/shell/TabBar.tsx")).toMatch(/(?<![\w-])min-h-\(--tab-bar-height\)/);
   });
 });
 

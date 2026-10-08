@@ -677,12 +677,15 @@ describe("a viewer whose clock skipped the place's time", () => {
 
 describe("the parsed hours are remembered", () => {
   const built = () => vi.mocked(OpeningHours).mock.calls.length;
-  /** `n` different valid hours strings, none used elsewhere in this file. */
-  const distinct = (n: number) =>
+  /**
+   * `n` different valid hours strings (up to 11,440), none used elsewhere in this file: a day or
+   * days, an opening time, and the closing time `end`. Two sets with different `end`s share none.
+   */
+  const distinct = (n: number, end = "23:57") =>
     Array.from({ length: n }, (_, i) => {
-      const hour = String(Math.floor(i / 120)).padStart(2, "0");
-      const minute = String(Math.floor(i / 2) % 60).padStart(2, "0");
-      return `${i % 2 === 0 ? "Mo-Fr" : "Sa-Su"} ${hour}:${minute}-23:59`;
+      const start = i % 1430;
+      const time = `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`;
+      return `${["Mo-Fr", "Sa-Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"][Math.floor(i / 1430)]} ${time}-${end}`;
     });
   const NOW = at(WED_15_00);
 
@@ -731,6 +734,18 @@ describe("the parsed hours are remembered", () => {
     });
     openState({ lat: FUNCHAL.lat, lon: FUNCHAL.lon, openingHours: "Mo-Su 06:10-08:12" }, NOW);
     expect(OpeningHours).toHaveBeenLastCalledWith("Mo-Su 06:10-08:12", undefined);
+  });
+
+  it("remembers the hours of every place in a dense city, so Open now parses nobody twice", () => {
+    // Open now asks about every place near the point: thousands, in a big city.
+    expect(PARSE_CACHE_LIMIT).toBeGreaterThanOrEqual(10_000);
+    const before = built();
+    const city = distinct(5_000, "23:56");
+    const pass = () => city.forEach((hours) => openState({ ...FUNCHAL, openingHours: hours }, NOW));
+    pass();
+    expect(built() - before).toBe(5_000);
+    pass();
+    expect(built() - before).toBe(5_000);
   });
 
   it("keeps a bounded number of them, dropping the one used longest ago", () => {

@@ -66,6 +66,13 @@ function line(count: number, over: (i: number) => Record<string, string> = () =>
 
 // ---- The page, as a diner has it ----
 
+/** `count` cafes in a line like `line`'s, for a list that has a second kind in it. */
+const cafes = (count: number) =>
+  line(count, (i) => ({ d: `cafe-${i}`, name: `Cafe line ${String(i + 1).padStart(2, "0")}`, category: "cafe" }));
+
+/** Where the list keeps how deep it was on each page of the history. */
+const shownKeys = () => Object.keys(window.sessionStorage).filter((key) => key.startsWith("regulars.explore.shown"));
+
 /** The browser's window as the page asks about its width: wide, for the desktop layout. */
 function wideWindow() {
   window.matchMedia = ((query: string) => ({
@@ -182,6 +189,22 @@ describe("Explore on a phone: the top of the page", () => {
     expect(more.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
+  it("draws the pressed chip with no edge, as the design does, and the edge's width as padding, so nothing moves when it changes", async () => {
+    const user = userEvent.setup();
+    await openExplore();
+    const pressed = chip("All");
+    expect(pressed).toHaveClass("border-0", "bg-ink", "text-ground", "px-[calc(1rem+var(--border))]");
+    expect(pressed).not.toHaveClass("border-token", "px-4");
+
+    const resting = chip("Open now");
+    expect(resting).toHaveClass("border-token", "border-line-strong", "bg-ground", "px-4");
+    expect(resting).not.toHaveClass("border-0", "px-[calc(1rem+var(--border))]");
+
+    await user.click(resting);
+    expect(chip("Open now")).toHaveClass("border-0", "px-[calc(1rem+var(--border))]");
+    expect(chip("All")).toHaveClass("border-token", "px-4");
+  });
+
   it("names the page for a screen reader and the browser's tab", async () => {
     await openExplore();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Explore");
@@ -279,6 +302,8 @@ describe("Explore on a phone: the list", () => {
   it("comes back to Explore with as many cards as it had, so Back lands where the person was", async () => {
     const user = userEvent.setup();
     const { router } = await openExplore("/", line(75));
+    // The first page of a tab has no key of its own (see below), so start from the next one.
+    await user.click(chip("Restaurants"));
     await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
     expect(cards()).toHaveLength(60);
 
@@ -287,18 +312,63 @@ describe("Explore on a phone: the list", () => {
     await act(() => router.navigate(-1));
     expect(cards()).toHaveLength(60);
 
-    // A new filter is a new page: it starts from thirty again, and Back to the first one has its sixty.
+    // Another filter is another page: it starts from thirty again, and Back to the first one has its sixty.
+    await user.click(chip("Cafes"));
     await user.click(chip("Restaurants"));
     expect(cards()).toHaveLength(30);
-    await act(() => router.navigate(-1));
+    await act(() => router.navigate(-2));
     expect(cards()).toHaveLength(60);
+  });
+
+  it("keeps nothing for the first page of a tab or an address that was typed, which share one key", async () => {
+    const user = userEvent.setup();
+    await openExplore("/", line(75));
+    await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+    expect(cards()).toHaveLength(60);
+    expect(shownKeys()).toEqual([]);
+  });
+
+  it("does not take the depth of one list to another", async () => {
+    const user = userEvent.setup();
+    const events = [...line(75), ...cafes(40)];
+    const first = await openExplore("/", events);
+    for (let i = 0; i < 2; i++) await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+    expect(cards()).toHaveLength(90);
+    first.unmount();
+
+    // The same tab, the address typed in: its first page has the same history key as the one above.
+    await openExplore("/?chip=cafes", events);
+    expect(cards()).toHaveLength(30);
+    expect(screen.getByRole("button", { name: copy.explore.showMore })).toBeInTheDocument();
+  });
+
+  it("keeps no more cards than the list has, when it writes the depth and when it reads it", async () => {
+    const user = userEvent.setup();
+    const { router } = await openExplore("/", line(75));
+    await user.click(chip("Restaurants"));
+    await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+    await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
+    expect(cards()).toHaveLength(75);
+    // Thirty more were asked for twice over 75: the page keeps 75, not 90.
+    expect(shownKeys().map((key) => window.sessionStorage.getItem(key))).toEqual(["75"]);
+
+    // A depth that is too deep, whatever wrote it, is cut to the list.
+    for (const key of shownKeys()) window.sessionStorage.setItem(key, "500");
+    await act(() => router.navigate(-1));
+    await act(() => router.navigate(1));
+    expect(cards()).toHaveLength(75);
+    expect(screen.queryByRole("button", { name: copy.explore.showMore })).not.toBeInTheDocument();
+    expect(shownKeys().map((key) => window.sessionStorage.getItem(key))).toEqual(["75"]);
   });
 
   it("lists on without that memory when the browser will not keep it", async () => {
     const user = userEvent.setup();
     const { getItem, setItem } = Storage.prototype;
+    const refused = vi.fn();
     const refuse = (key: string) => {
-      if (key.startsWith("regulars.explore.shown")) throw new DOMException("Blocked.", "SecurityError");
+      if (!key.startsWith("regulars.explore.shown")) return;
+      refused(key);
+      throw new DOMException("Blocked.", "SecurityError");
     };
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key) {
       refuse(key);
@@ -309,8 +379,10 @@ describe("Explore on a phone: the list", () => {
       setItem.call(this, key, value);
     });
     await openExplore("/", line(75));
+    await user.click(chip("Restaurants"));
     await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
     expect(cards()).toHaveLength(60);
+    expect(refused).toHaveBeenCalled();
   });
 
   it("has no 'Show more' when everything fits", async () => {
@@ -393,6 +465,22 @@ describe("Explore: how a place reads", () => {
     expect(copy.score.noReviewsYet).toBe("No reviews yet");
   });
 
+  it("puts that under the hours, where the line about who rated it goes, and leaves the top right empty", async () => {
+    await openExplore();
+    const link = card("Jacafé");
+    const top = within(link).getByText("Jacafé").parentElement!;
+    // Nothing beside the name, so it has the whole width of the card.
+    expect(top.children).toHaveLength(1);
+
+    const reviews = within(link).getByText(copy.score.noReviewsYet);
+    const hours = within(link).getByText("Closed").parentElement!;
+    expect(reviews.parentElement).toBe(hours.parentElement);
+    expect(hours.compareDocumentPosition(reviews) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The look of that line in the design, in the muted colour: 14 px, semibold.
+    expect(reviews).toHaveClass("text-secondary", "font-semibold", "text-muted");
+    expect(reviews).not.toHaveClass("text-trust");
+  });
+
   it("says a place is open until it closes, in the person's own clock", async () => {
     await openExplore();
     expect(card("Novo Tahiti")).toHaveAccessibleDescription(/Open until 10 pm/);
@@ -453,7 +541,21 @@ describe("Explore: the unrated card", () => {
     renderCard({ variant: "unrated-dashed" });
     expect(link()).toHaveClass("border-dashed", "border-line-dashed");
     expect(link()).not.toHaveClass("border-line");
+  });
+
+  it("says 'No score yet' at the top right in the dashed variant, as My circle's list does, and not 'No reviews yet'", () => {
+    renderCard({ variant: "unrated-dashed" });
+    expect(copy.score.noScoreYet).toBe("No score yet");
+    const score = within(link()).getByText("No score yet");
+    expect(score.parentElement).toBe(within(link()).getByText(first.name).parentElement);
+    expect(score).toHaveClass("text-caption", "font-semibold", "text-muted", "whitespace-nowrap");
+    expect(link()).not.toHaveTextContent(copy.score.noReviewsYet);
+  });
+
+  it("says 'No reviews yet' under the hours in the normal variant, and not 'No score yet'", () => {
+    renderCard();
     expect(link()).toHaveTextContent(copy.score.noReviewsYet);
+    expect(link()).not.toHaveTextContent(copy.score.noScoreYet);
   });
 
   it("has a plain solid border in the normal variant", () => {
