@@ -17,9 +17,12 @@ import { resetFakeMaplibre } from "./support/fakeMaplibre";
 // map's part (tests/support/fakeMaplibre.ts).
 vi.mock("maplibre-gl", () => import("./support/fakeMaplibre"));
 
-// Every test starts with no map key, whatever the machine's .env.local says; a test that wants one sets it.
+// Every test starts with no map key, no review relays and no scorer override, whatever the machine's
+// .env.local says; a test that wants one sets it.
 beforeEach(() => {
   config.mapTilerKey = undefined;
+  config.reviewRelays = [];
+  config.devScorer = undefined;
 });
 
 // Tests never open a network socket. Anything that tries fails here, loudly, instead of

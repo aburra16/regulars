@@ -4,8 +4,9 @@ import { config } from "../config.ts";
 import { parsePlace, type Place, PLACE_KIND } from "./place.ts";
 
 /**
- * Reads stored events from a relay. The app's one is `relayReader` (./relayReader.ts); tests
- * pass `createMemoryReader` (tests/support/memoryReader.ts), so no test opens a socket.
+ * Reads stored events from a relay. The app's are made by `readerFor` (./relayReader.ts), and the
+ * places relay's is `relayReader`; tests pass `createMemoryReader` (tests/support/memoryReader.ts),
+ * so no test opens a socket.
  */
 export interface RelayReader {
   /**
@@ -122,7 +123,7 @@ class Latest {
 }
 
 /** NIP-01's rule for two versions of one address: the later wins; at the same time, the lowest id. */
-function isNewer(a: NostrEvent, b: NostrEvent): boolean {
+export function isNewer(a: Pick<NostrEvent, "id" | "created_at">, b: Pick<NostrEvent, "id" | "created_at">): boolean {
   return a.created_at > b.created_at || (a.created_at === b.created_at && a.id < b.id);
 }
 
