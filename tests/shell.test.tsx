@@ -539,7 +539,7 @@ describe("the load banners", () => {
     for (const status of ["error", "loading"] as const) {
       placesOverride.value = placesState({ status, places: [], complete: false });
       for (const [path, title] of [
-        ["/signin", copy.pages.signin],
+        ["/signin", copy.signin.headline],
         ["/saved", copy.pages.saved],
         ["/you", copy.pages.you],
       ] as const) {
@@ -639,8 +639,8 @@ describe("the routes", () => {
     ["/place/osm-node-123", copy.place.noLongerListed],
     // No chain has this key: the page says so.
     ["/chain/copper-kettle-pt", copy.place.noLongerListed],
-    ["/about", copy.pages.about],
-    ["/signin", copy.pages.signin],
+    ["/about", copy.about.title],
+    ["/signin", copy.signin.headline],
     ["/saved", copy.pages.saved],
     ["/you", copy.pages.you],
   ])("%s shows its page", (path, title) => {

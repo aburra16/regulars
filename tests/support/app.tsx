@@ -43,18 +43,20 @@ export interface OpenOptions {
   events: NostrEvent[];
   /** The history, ending at the page that is open. Default: `[path]`. An entry may carry router state. */
   entries?: InitialEntry[];
+  /** How long the relay waits before it answers, in milliseconds. Default: no wait. */
+  delayMs?: number;
 }
 
 /**
  * The app at `path`, with the places read from `events`. It resolves once the page is past the
  * "Finding places" line, which a page that needs no places never shows.
  */
-export async function openApp(path: string, { px = PHONE, events, entries }: OpenOptions) {
+export async function openApp(path: string, { px = PHONE, events, entries, delayMs }: OpenOptions) {
   setWidth(px);
   const initialEntries = entries ?? [path];
   const router = createMemoryRouter(routes, { initialEntries, initialIndex: initialEntries.length - 1 });
   const view = render(
-    <PlacesProvider reader={createMemoryReader(events)}>
+    <PlacesProvider reader={createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
       <HereProvider>
         <RouterProvider router={router} />
       </HereProvider>

@@ -1,17 +1,19 @@
 import type { JSX } from "react";
 import type { RouteObject } from "react-router-dom";
 
+import { AboutPage } from "./about/AboutPage.tsx";
 import { ChainPage } from "./chain/ChainPage.tsx";
 import { DeskExplore } from "./explore/DeskExplore.tsx";
 import { ExploreList } from "./explore/ExploreList.tsx";
 import { MapPage } from "./explore/MapPage.tsx";
-import { AboutPage, SavedPage, SignInPage, YouPage } from "./pages/placeholders.tsx";
 import { PlacePage } from "./place/PlacePage.tsx";
 import { FiltersPage } from "./search/FiltersPage.tsx";
 import { SearchPage } from "./search/SearchPage.tsx";
 import { NotFound, PageError } from "./shell/PageError.tsx";
 import { type Chrome, Shell } from "./shell/Shell.tsx";
 import { useWide } from "./shell/useWide.ts";
+import { SignInPage } from "./signin/SignInPage.tsx";
+import { SignedOutPrompt } from "./you/SignedOutPrompt.tsx";
 
 const chrome = (value: Chrome): Chrome => value;
 
@@ -42,11 +44,12 @@ export const routes: RouteObject[] = [
           { path: "filters", element: <FiltersPage /> },
           { path: "place/:d", element: <PlacePage /> },
           { path: "chain/:key", element: <ChainPage /> },
-          { path: "about", element: <AboutPage /> },
+          // The words are there at once; the figures come when the places do.
+          { path: "about", element: <AboutPage />, handle: chrome({ needsPlaces: false }) },
           { path: "signin", element: <SignInPage />, handle: chrome({ topBar: false, needsPlaces: false }) },
           // Both ask the person to sign in, in M1.
-          { path: "saved", element: <SavedPage />, handle: chrome({ tabs: true, needsPlaces: false }) },
-          { path: "you", element: <YouPage />, handle: chrome({ tabs: true, needsPlaces: false }) },
+          { path: "saved", element: <SignedOutPrompt page="saved" />, handle: chrome({ tabs: true, needsPlaces: false }) },
+          { path: "you", element: <SignedOutPrompt page="you" />, handle: chrome({ tabs: true, needsPlaces: false }) },
           { path: "*", element: <NotFound />, handle: chrome({ needsPlaces: false }) },
         ],
       },

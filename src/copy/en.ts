@@ -237,8 +237,75 @@ export const copy = {
     // DRAFT for Avi
     missing: pageTitle("Not found"),
   },
+  /** The sign-in page (SignIn.dc.html, DeskSignIn.dc.html), and the button that leads to it. */
   signin: {
+    /** The button on the pages that need a person (Saved, You). */
+    button: pages.signin,
     continueButton: ALLOWED_PROTOCOL_STRINGS.signInButton,
+    // DRAFT for Avi: shown under the button while signing in is not open.
+    comingSoon: "Signing in opens soon. Everything else works without it.",
+    /** The cross at the top right, for a screen reader. */
+    close: "Close",
+    headline: "Ratings from people you'd actually ask.",
+    intro:
+      "Right now you're seeing House picks. Sign in and every score is worked out from the people you trust, and the people they trust.",
+    /** The three steps. SignIn.dc.html's first step says "follow", which nothing in the app may; DeskSignIn.dc.html says "trust". */
+    steps: [
+      "Sign in. We read who you already trust.",
+      "We work out your circle. It takes a few minutes, in the background.",
+      "Switch between House picks and My circle whenever you like.",
+    ],
+    /** The second button: go back to where the person was, with the house's scores. */
+    keepHousePicks: "Keep House picks",
+    /** The notice about what personalizing does (the brief, section 6). */
+    notice: "Nothing is posted without you. Your circle's scores are worked out by our scoring partner and are public.",
+    howItWorks: "First time? How signing in works",
+    /** The numbered list of steps, for a screen reader. */
+    stepsLabel: "The three steps",
+  },
+  /** The pages that need a person, before sign in opens (Saved and You). */
+  saved: {
+    // DRAFT for Avi: the design draws neither page signed out.
+    signedOut: "Sign in to save places and make lists you can share.",
+  },
+  /** About and data (About.dc.html). */
+  about: {
+    /** The arrow at the top left, for a screen reader, when the page was opened from another one. */
+    back: "Back",
+    title: "Places to eat and drink, rated by people you'd actually ask.",
+    /** The desktop's side rail, for a screen reader. */
+    railLabel: "The data in numbers",
+    placesHeading: "Where the places come from",
+    placesBody: "Names, addresses, hours and locations come from OpenStreetMap, the free map built by volunteers.",
+    /** The figures of the data, each a label and its value. The values are worked out from the places; none is written here. */
+    figures: {
+      places: "Places",
+      countries: "Countries",
+      lastRefreshed: "Last refreshed",
+      refreshed: "Refreshed",
+      monthly: "Every month",
+      /** In place of a figure while the places have not loaded. */
+      none: "—",
+    },
+    /** Where the details come from: the one place in the app that names BTC Map, in fine print (decisions.md #7). */
+    source: "Place details from OpenStreetMap, gathered for us by BTC Map",
+    licence: "© OpenStreetMap contributors. Place data is available under the Open Database Licence.",
+    licenceLink: "Licence and copyright",
+    reviewsHeading: "Where the reviews come from",
+    reviewsBody:
+      "People write them under their own names. Nobody at Regulars edits or reorders them. The score you see for a place is worked out from the reviewers you trust, so two people can see different scores for the same place.",
+    // DRAFT for Avi: the two views in plain words. The design links to a "How scores are worked out" page, which is for people who have signed in.
+    viewsBody:
+      "House picks are the scores from the reviewers that Mise en Place trusts, and everyone starts there. My circle is the same, worked out from the people you trust and the people they trust. You can switch between them whenever you like.",
+    houseHeading: "Who the house is",
+    houseBody:
+      "Before you sign in you see House picks: scores from the reviewers that Mise en Place, our house curator, trusts. Mise en Place also keeps the list of places up to date.",
+    signingInHeading: "How signing in works",
+    signingInBody:
+      "You sign in with an account you hold yourself, through a sign-in app in your browser or on your phone. Regulars never sees a password, and nothing is posted unless you press Post.",
+    yoursHeading: "Your reviews are yours",
+    yoursBody:
+      "Places, reviews and lists are public records that don't live inside this app. Other apps can read the same ones, and yours stay with you if you leave.",
   },
   /** A place's page (Place.dc.html, PlaceNew.dc.html, DeskPlace.dc.html). */
   place: {

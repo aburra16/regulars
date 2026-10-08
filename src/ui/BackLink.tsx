@@ -9,13 +9,13 @@ import { isPlainClick } from "./plainClick.ts";
  * The way back from a page that opens from a list (a place, a chain): the page the person came from,
  * when they came from one in the app; Explore when this was the first page opened (a shared link).
  * On a phone it is the arrow alone (PlaceNew.dc.html, Chain.dc.html); on a desktop the arrow and its
- * words (DeskPlace.dc.html).
+ * words (DeskPlace.dc.html). `back` is the words for the way back when there is a page to go back to.
  */
-export function BackLink({ wide }: { wide: boolean }): JSX.Element {
+export function BackLink({ wide, back = copy.place.back }: { wide: boolean; back?: string }): JSX.Element {
   const navigate = useNavigate();
   const { key } = useLocation();
   const inApp = key !== "default";
-  const words = inApp ? copy.place.back : copy.place.backHome;
+  const words = inApp ? back : copy.place.backHome;
   return (
     <Link
       to="/"
