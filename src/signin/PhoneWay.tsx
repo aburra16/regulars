@@ -1,16 +1,17 @@
 import { type FormEvent, type JSX, type RefObject, useEffect, useEffectEvent, useId, useRef, useState } from "react";
 
-import { type How, useConnect } from "../account/AccountProvider.tsx";
+import { useConnect } from "../account/AccountProvider.tsx";
 import { copy } from "../copy/en.ts";
 import { QrCode } from "./QrCode.tsx";
 
 /*
- * What "Continue with Nostr" opens on the sign-in page: the choice of how to sign in, and signing in
- * that way. "This browser" asks the browser's add-on (NIP-07); "An app on your phone" shows a code to
- * scan and a link to copy (NIP-46's nostrconnect), or takes a link the phone app gives (bunker). This
- * module, with the QR code's library, is a chunk the sign-in page loads (./loadChooseHow.ts); the
- * signing code loads when a way is chosen (src/account/AccountProvider.tsx). Once the person is
- * signed in, the sign-in page takes them back to where they were.
+ * Signing in with an app on the person's phone, on the sign-in page: a code to scan and a link to
+ * copy (NIP-46's nostrconnect), or a link the phone app gives, pasted (bunker). "Continue with Nostr"
+ * opens it at once where the browser has no add-on to sign in with, and "Use an app on your phone
+ * instead" where it has (decision 23; the add-on's way is the sign-in page's own,
+ * ./useAddOnSignIn.ts). This module, with the QR code's library, is a chunk the sign-in page loads
+ * (./loadPhoneWay.ts); the signing code loads when it opens (src/account/AccountProvider.tsx). Once
+ * the person is signed in, the sign-in page takes them on.
  */
 
 /** The ground the panel is on: the phone's dark page, or the white card on a desktop (SignIn.dc.html, DeskSignIn.dc.html). */
@@ -20,8 +21,7 @@ export type Tone = "night" | "card";
 interface Look {
   /**
    * The phone's layout. There the person is likely on the phone their app is on, which cannot scan its
-   * own screen: "Open the app" goes to the app with the link. And there a browser seldom takes an
-   * add-on, so the line about getting one is left out.
+   * own screen: "Open the app" goes to the app with the link.
    */
   onPhone: boolean;
   /** A button that goes on: white on the dark page, as Continue is; the accent on the card. */
@@ -59,16 +59,11 @@ const LOOK: Record<Tone, Look> = {
   },
 };
 
-/** The size of the buttons that choose or go on, as Continue's (SignIn.dc.html). */
+/** The size of a button that goes on, as Continue's (SignIn.dc.html). */
 const BIG = "flex h-14 w-full cursor-pointer items-center justify-center rounded-[18px] font-text text-[17px] font-bold";
 
 /** The size of a smaller button beside a field or under the code. */
 const SMALL = "inline-flex h-11 shrink-0 cursor-pointer items-center justify-center rounded-button px-4 font-text text-body font-bold";
-
-/** Whether the browser has an add-on to sign in with: one that puts `window.nostr` on the page (NIP-07). */
-function hasAddOn(): boolean {
-  return typeof window !== "undefined" && Boolean((window as { nostr?: unknown }).nostr);
-}
 
 /** Puts the focus on `ref`'s element once it is drawn, so a screen reader reads on from there. */
 function useFocusOnMount(ref: RefObject<HTMLElement | null>): void {
@@ -77,7 +72,7 @@ function useFocusOnMount(ref: RefObject<HTMLElement | null>): void {
   }, [ref]);
 }
 
-/** "Cancel": stops what is under way and goes back to the choice. */
+/** "Cancel": stops what is under way and gives Continue back. */
 function CancelButton({ look, onCancel }: { look: Look; onCancel(): void }): JSX.Element {
   return (
     <button
@@ -87,58 +82,6 @@ function CancelButton({ look, onCancel }: { look: Look; onCancel(): void }): JSX
     >
       {copy.signin.cancel}
     </button>
-  );
-}
-
-/**
- * The two ways, "This browser" first: offered only where the browser has an add-on, with a line on
- * how to get one in its place on a desktop. The focus goes to `focus`'s button, the one the person
- * came back from, or else the first.
- */
-function Choices({ look, focus, onChoose }: { look: Look; focus: How | undefined; onChoose(how: How): void }): JSX.Element {
-  const [browser] = useState(hasAddOn);
-  const browserRef = useRef<HTMLButtonElement>(null);
-  const phoneRef = useRef<HTMLButtonElement>(null);
-  useFocusOnMount(focus === "phone" || !browser ? phoneRef : browserRef);
-  return (
-    <>
-      <div role="group" aria-label={copy.signin.chooseLabel} className="flex flex-col gap-2.5">
-        {browser && (
-          <button ref={browserRef} type="button" onClick={() => onChoose("browser")} className={`${BIG} ${look.primary}`}>
-            {copy.signin.browser}
-          </button>
-        )}
-        <button ref={phoneRef} type="button" onClick={() => onChoose("phone")} className={`${BIG} ${look.primary}`}>
-          {copy.signin.phone}
-        </button>
-      </div>
-      {!browser && !look.onPhone && <p className={`m-0 text-center text-caption leading-[1.45] ${look.note}`}>{copy.signin.noAddOn}</p>}
-    </>
-  );
-}
-
-/** Signing in with the browser's add-on, which asks the person: under way from when it is drawn until it ends or is cancelled. */
-function BrowserWait({ look, onFailed, onCancel }: { look: Look; onFailed(): void; onCancel(): void }): JSX.Element {
-  const connect = useConnect();
-  const said = useRef<HTMLParagraphElement>(null);
-  useFocusOnMount(said);
-  const failed = useEffectEvent(onFailed);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    connect.browser(controller.signal).catch(() => {
-      if (!controller.signal.aborted) failed();
-    });
-    return () => controller.abort();
-  }, [connect]);
-
-  return (
-    <>
-      <p ref={said} tabIndex={-1} role="status" className={`m-0 text-center text-body leading-[1.45] outline-none ${look.text}`}>
-        {copy.signin.browserWaiting}
-      </p>
-      <CancelButton look={look} onCancel={onCancel} />
-    </>
   );
 }
 
@@ -265,7 +208,7 @@ function PhonePanel({ look, onFailed, onCancel }: { look: Look; onFailed(): void
   );
 }
 
-/** It did not connect: said as an alert, with Try again, which has the focus, and the way back to the choice. */
+/** It did not connect: said as an alert, with Try again, which has the focus, and Cancel, which gives Continue back. */
 function Failed({ look, onRetry, onCancel }: { look: Look; onRetry(): void; onCancel(): void }): JSX.Element {
   const retry = useRef<HTMLButtonElement>(null);
   useFocusOnMount(retry);
@@ -282,43 +225,30 @@ function Failed({ look, onRetry, onCancel }: { look: Look; onRetry(): void; onCa
   );
 }
 
-/** Where the panel is: choosing, signing in one way (each try its own), or that way having failed. */
-type Step = { at: "choose"; from?: How } | { at: How; attempt: number } | { at: "failed"; how: How };
+/** Where the phone's way is: waiting on the phone app (each try its own), or having failed. */
+type Step = { at: "waiting"; attempt: number } | { at: "failed" };
 
 /**
- * The choice of how to sign in, in place of Continue, and signing in that way. Once the person is
- * signed in, the sign-in page goes back to where they were (./SignInPage.tsx).
+ * The phone's way of signing in, in place of Continue: the code, the link and the field, from when it
+ * is drawn. `onCancel` gives Continue back. Once the person is signed in, the sign-in page takes them
+ * on (./SignInPage.tsx).
  */
-export function ChooseHow({ tone }: { tone: Tone }): JSX.Element {
+export function PhoneWay({ tone, onCancel }: { tone: Tone; onCancel(): void }): JSX.Element {
   const look = LOOK[tone];
-  const [step, setStep] = useState<Step>({ at: "choose" });
+  const [step, setStep] = useState<Step>({ at: "waiting", attempt: 0 });
   const attempts = useRef(0);
-  const start = (how: How) => {
+  const retry = () => {
     attempts.current += 1;
-    setStep({ at: how, attempt: attempts.current });
+    setStep({ at: "waiting", attempt: attempts.current });
   };
-  const back = (how: How) => setStep({ at: "choose", from: how });
 
   return (
     <div className="flex flex-col gap-3">
-      {step.at === "choose" && <Choices look={look} focus={step.from} onChoose={start} />}
-      {step.at === "browser" && (
-        <BrowserWait
-          key={step.attempt}
-          look={look}
-          onFailed={() => setStep({ at: "failed", how: "browser" })}
-          onCancel={() => back("browser")}
-        />
+      {step.at === "waiting" ? (
+        <PhonePanel key={step.attempt} look={look} onFailed={() => setStep({ at: "failed" })} onCancel={onCancel} />
+      ) : (
+        <Failed look={look} onRetry={retry} onCancel={onCancel} />
       )}
-      {step.at === "phone" && (
-        <PhonePanel
-          key={step.attempt}
-          look={look}
-          onFailed={() => setStep({ at: "failed", how: "phone" })}
-          onCancel={() => back("phone")}
-        />
-      )}
-      {step.at === "failed" && <Failed look={look} onRetry={() => start(step.how)} onCancel={() => back(step.how)} />}
     </div>
   );
 }

@@ -177,3 +177,12 @@ export function useConnect(): Connect {
   if (value === null) throw new Error("useConnect must be used inside <AccountProvider>.");
   return value.connect;
 }
+
+/**
+ * The ways to sign in, for a page that may sign the person in where they are (Rate this place, with
+ * the browser's add-on). Outside an `AccountProvider`, such as a test of part of the app, nobody is
+ * signed in, as `useAccount` says, and there is no way to: undefined.
+ */
+export function useConnectIfAny(): Connect | undefined {
+  return useContext(AccountContext)?.connect;
+}

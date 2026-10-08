@@ -4,8 +4,8 @@ import { encode } from "uqr";
 /*
  * A QR code, drawn as SVG in the colour of the words around it (`currentColor`), over the light
  * colour of its box: a token's, set by whatever holds it, never a colour of its own. The QR library
- * (uqr, MIT) comes with this module, in the chunk of what Continue opens on the sign-in page
- * (./ChooseHow.tsx), never the first screen's.
+ * (uqr, MIT) comes with this module, in the chunk of the phone's way of signing in on the sign-in
+ * page (./PhoneWay.tsx), never the first screen's.
  */
 
 /** The dark modules of a code, as one path in module units: each run of them along a row is one rectangle. */

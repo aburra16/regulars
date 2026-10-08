@@ -42,3 +42,13 @@ export function cameFrom(state: unknown): Path | undefined {
 export function goingTo(state: unknown): Path | undefined {
   return pageIn(fieldOf(state, "next"));
 }
+
+/**
+ * Whether the link that sent the person here says their browser's add-on has just said no, or failed
+ * (`state={{ from: location, next: page, addOnRefused: true }}`): "Rate this place" asks the add-on
+ * where the person is (decision 23), and when that does not work, sends them here, where it is said,
+ * with Try again and the phone's way.
+ */
+export function addOnRefused(state: unknown): boolean {
+  return fieldOf(state, "addOnRefused") === true;
+}

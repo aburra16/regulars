@@ -423,17 +423,20 @@ export const copy = {
     // DRAFT for Avi
     /** The numbered list of steps, for a screen reader. */
     stepsLabel: "The three steps",
-    // DRAFT for Avi: from here to `cancel`, what Continue opens.
-    /** The choice Continue opens, for a screen reader. */
-    chooseLabel: "How to sign in",
-    /** Sign in with the add-on in this browser. Offered only where the browser has one. */
-    browser: "This browser",
-    /** Sign in with an app on the person's phone. */
-    phone: "An app on your phone",
-    /** In place of "This browser", where the browser has no add-on to sign in with. */
+    // DRAFT for Avi: from here to `cancel`, what Continue opens (decision 23).
+    /**
+     * Under Continue where the browser has an add-on, which Continue asks at once: the phone's way
+     * instead. And beside Try again when the add-on said no.
+     */
+    phoneInstead: "Use an app on your phone instead",
+    /** While the page looks, for a moment, for an add-on that comes late, before Continue goes one way or the other. */
+    lookingForAddOn: "Looking for your add-on…",
+    /** Under the phone's way, on a desktop whose browser has no add-on to sign in with. */
     noAddOn: "To sign in with this browser, add a sign-in add-on to it, then reload this page.",
     /** While the browser's add-on asks the person. */
     browserWaiting: `Your browser add-on will ask you to allow ${config.appName}.`,
+    /** The add-on said no, or failed: said with Try again, which asks it again, and the phone's way. */
+    addOnFailed: "That didn't work. Try again, or use an app on your phone.",
     /** Over the code to scan. */
     scan: "Scan this with the app, or copy the link",
     /** The code to scan, for a screen reader. */
@@ -451,10 +454,10 @@ export const copy = {
     connect: "Connect",
     /** While it connects with the pasted link. */
     connecting: "Connecting…",
-    /** The phone app or the add-on did not answer in time, said no, or stopped half-way (Review Focus 3). */
+    /** The phone app did not answer in time, said no, or stopped half-way (Review Focus 3); or the phone's way could not be fetched. */
     failed: "That didn't connect. Try again.",
     tryAgain: "Try again",
-    /** Stops waiting and goes back to the choice. */
+    /** Stops waiting, on the add-on or the phone app, and gives Continue back. */
     cancel: "Cancel",
   },
   /** The pages that need a person (Saved and You). The design draws neither signed out. */

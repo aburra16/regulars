@@ -1,13 +1,17 @@
 import { type JSX, useId, useRef } from "react";
-import { Link, type LinkProps, useLocation, useParams } from "react-router-dom";
+import { Link, type LinkProps, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
+import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { reviewPath } from "../review/paths.ts";
 import { formatScore } from "../score/score.ts";
 import type { ShownScore } from "../score/shown.ts";
 import { useWide } from "../shell/useWide.ts";
+import { hasAddOn } from "../signin/addOn.ts";
+import { useAddOnSignIn } from "../signin/useAddOnSignIn.ts";
 import { primaryButton, retryButton } from "../ui/Banner.tsx";
+import { isPlainClick } from "../ui/plainClick.ts";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Stars } from "../ui/Stars.tsx";
 
@@ -16,19 +20,41 @@ const NAME_MARK = "\u0000";
 
 /**
  * Where "Rate this place" goes, from the place's page: the review form (`/place/:d/review`), for a
- * person who has signed in, or is about to be (a session this tab kept being restored); for a person
- * signed out, sign in first, and then the form, in its place (ruling R12). Either way the place is
- * where they come back to. On a desktop the form is a dialog over the page, which stays where it was
- * scrolled to.
+ * person who has signed in, or is about to be (a session this tab kept being restored). For a person
+ * signed out, sign in first, and then the form (ruling R12): one tap where the browser has an add-on
+ * (decision 23), which is asked at once, here, who the person is, and then the form opens, with no
+ * sign-in page between; if it says no, or fails, the sign-in page, which says so, with Try again and
+ * the phone's way. With no add-on, the sign-in page, which opens the form in its place once the person
+ * is signed in. Either way the place is where they come back to. On a desktop the form is a dialog over
+ * the page, which stays where it was scrolled to. While the add-on asks, the link is off and busy.
  */
-function useRateLink(): Pick<LinkProps, "to" | "state" | "preventScrollReset"> {
+function useRateLink(): Pick<LinkProps, "to" | "state" | "preventScrollReset" | "onClick" | "aria-busy" | "aria-disabled"> {
   const location = useLocation();
+  const navigate = useNavigate();
   const { d = "" } = useParams();
   const { account, restoring } = useAccount();
   const wide = useWide();
+  const addOn = useAddOnSignIn();
   const form = reviewPath(d);
-  if (account !== undefined || restoring) return { to: form, state: { from: location }, preventScrollReset: wide };
-  return { to: "/signin", state: { from: location, next: { pathname: form } } };
+  const toForm = { to: form, state: { from: location }, preventScrollReset: wide };
+  if (account !== undefined || restoring) return toForm;
+  const signIn = { from: location, next: { pathname: form } };
+  return {
+    to: "/signin",
+    state: signIn,
+    "aria-busy": addOn.asking ? true : undefined,
+    "aria-disabled": addOn.asking ? true : undefined,
+    onClick(event) {
+      if (addOn.asking) return event.preventDefault();
+      // A new tab, a browser with no add-on, or signing in not open: the sign-in page, by the link.
+      if (!isPlainClick(event) || !config.features.signIn || !hasAddOn()) return;
+      event.preventDefault();
+      void addOn.ask().then((asked) => {
+        if (asked === "in") void navigate(toForm.to, { state: toForm.state, preventScrollReset: toForm.preventScrollReset });
+        else if (asked === "failed") void navigate("/signin", { state: { ...signIn, addOnRefused: true } });
+      });
+    },
+  };
 }
 
 /**
