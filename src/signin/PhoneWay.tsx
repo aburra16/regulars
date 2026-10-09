@@ -2,6 +2,7 @@ import { type FormEvent, type JSX, type RefObject, useEffect, useEffectEvent, us
 
 import { useConnect } from "../account/AccountProvider.tsx";
 import { copy } from "../copy/en.ts";
+import { isHandheld } from "./handheld.ts";
 import { QrCode } from "./QrCode.tsx";
 
 /*
@@ -17,13 +18,8 @@ import { QrCode } from "./QrCode.tsx";
 /** The ground the panel is on: the phone's dark page, or the white card on a desktop (SignIn.dc.html, DeskSignIn.dc.html). */
 export type Tone = "night" | "card";
 
-/** The colours of each part on each ground, the sign-in page's own, and what differs between its two layouts. */
+/** The colours of each part on each ground, the sign-in page's own. */
 interface Look {
-  /**
-   * The phone's layout. There the person is likely on the phone their app is on, which cannot scan its
-   * own screen: "Open the app" goes to the app with the link.
-   */
-  onPhone: boolean;
   /** A button that goes on: white on the dark page, as Continue is; the accent on the card. */
   primary: string;
   /** A button beside the way on: outlined, as Keep House picks is. */
@@ -40,7 +36,6 @@ interface Look {
 
 const LOOK: Record<Tone, Look> = {
   night: {
-    onPhone: true,
     primary: "border-0 bg-ground text-ink",
     secondary: "border-token border-muted bg-transparent text-ground",
     text: "text-ground",
@@ -49,7 +44,6 @@ const LOOK: Record<Tone, Look> = {
     code: "",
   },
   card: {
-    onPhone: false,
     primary: "border-0 bg-accent-solid text-on-accent",
     secondary: "border-token border-field-border bg-transparent text-ink",
     text: "text-ink",
@@ -87,12 +81,16 @@ function CancelButton({ look, onCancel }: { look: Look; onCancel(): void }): JSX
 
 /**
  * Signing in with an app on the phone: a code to scan and a link to copy, which the app waits on from
- * when it is drawn, and on a phone a link that opens the app on it; and a field for a link from the
- * phone app, which stops the wait and connects with that instead. One way at a time; each ends when
- * the panel goes (`Cancel`, or the page left).
+ * when it is drawn, and on a phone or a tablet a link that opens the app on it; and a field for a link
+ * from the phone app, which stops the wait and connects with that instead. One way at a time; each ends
+ * when the panel goes (`Cancel`, or the page left).
  */
 function PhonePanel({ look, onFailed, onCancel }: { look: Look; onFailed(): void; onCancel(): void }): JSX.Element {
   const connect = useConnect();
+  // On a phone or a tablet, judged by the device and not the window's width (`isHandheld`), the person
+  // is likely on the device their app is on, which cannot scan its own screen: "Open the app" goes to
+  // the app with the link. A computer's window, however narrow, has the code to scan.
+  const [handheld] = useState(isHandheld);
   const fieldId = useId();
   const said = useRef<HTMLParagraphElement>(null);
   useFocusOnMount(said);
@@ -156,7 +154,7 @@ function PhonePanel({ look, onFailed, onCancel }: { look: Look; onFailed(): void
       </div>
       <div className="flex flex-col items-center gap-1">
         <div className="flex flex-wrap justify-center gap-2">
-          {look.onPhone && link !== undefined && !pasting && (
+          {handheld && link !== undefined && !pasting && (
             <a href={link} className={`${SMALL} ${look.primary} no-underline`}>
               {copy.signin.openApp}
             </a>

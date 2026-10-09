@@ -16,7 +16,10 @@ function YouFrame({ name, children }: { name: string | undefined; children?: Rea
   useDocumentTitle(copy.titles.you);
   return (
     <div className="mx-auto flex w-full max-w-[480px] flex-1 flex-col gap-6 px-gutter-phone pt-10 pb-8 wide:px-gutter-desktop wide:pt-14">
-      <h1 className="m-0 font-display text-display-phone font-extrabold tracking-display wrap-break-word wide:text-display-desktop">
+      <h1
+        tabIndex={-1}
+        className="m-0 font-display text-display-phone font-extrabold tracking-display wrap-break-word outline-none wide:text-display-desktop"
+      >
         {name === undefined ? copy.nav.you : <bdi lang={scriptLang(name)}>{name}</bdi>}
       </h1>
       {children}

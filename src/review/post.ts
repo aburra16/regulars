@@ -94,6 +94,12 @@ export interface SendOptions {
    * left trying, nor once the sending has stopped.
    */
   onSlow?: () => void;
+  /**
+   * Called once after `onSlow`, when it is slow no more: a review relay has taken the review, or none is
+   * left trying (each has refused it for good, or run out of time), though the person's own relays may
+   * be. Not once the sending has stopped.
+   */
+  onSlowEnd?: () => void;
 }
 
 /**
@@ -420,7 +426,7 @@ function sendPatiently(
  * post as they say it. The person's own relays have one try each, of `PUBLISH_TIMEOUT_MS`; a review
  * relay is sent it patiently (`sendPatiently`, rulings P1 and P2), all within `REVIEW_RELAY_PATIENCE_MS`
  * from the start. `opts.onSlow` hears when none has taken it after `SLOW_POST_MS`, while one is still
- * trying. `signal` stops the sending, tries to come and all, until the review is posted; once it is,
+ * trying, and `opts.onSlowEnd` when that is over: one took it, or none is left trying. `signal` stops the sending, tries to come and all, until the review is posted; once it is,
  * only those limits do, so a person who goes back to the place does not cut their own relays off.
  *
  * Throws `NotPosted`, with what each relay did and the event, when no review relay took it once every
@@ -428,7 +434,7 @@ function sendPatiently(
  * reason when `signal` aborts before it is posted.
  */
 export function sendReview(event: NostrEvent, relays: readonly string[], signal: AbortSignal, opts: SendOptions = {}): Promise<Posted> {
-  const { writers = appWriters, onSlow } = opts;
+  const { writers = appWriters, onSlow, onSlowEnd } = opts;
   if (signal.aborted) return Promise.reject(signal.reason);
   if (relays.length === 0) return Promise.reject(new NotPosted({}, [], event));
 
@@ -441,11 +447,25 @@ export function sendReview(event: NostrEvent, relays: readonly string[], signal:
   });
 
   // The caller's signal, until the review is posted; the review relays' patience, from the start; and
-  // when to say it is slow, while a review relay is still trying.
+  // when to say it is slow, while a review relay is still trying, and that it is slow no more.
   const cut = new AbortController();
   const patience = timeLimit(REVIEW_RELAY_PATIENCE_MS);
   let trying = relays.filter((url) => isReviewRelay(url)).length;
-  const slow = onSlow === undefined || trying === 0 ? undefined : setTimeout(onSlow, SLOW_POST_MS);
+  let saidSlow = false;
+  const slow =
+    onSlow === undefined || trying === 0
+      ? undefined
+      : setTimeout(() => {
+          saidSlow = true;
+          onSlow();
+        }, SLOW_POST_MS);
+  /** It is not slow, now or from here on: a review relay has taken it, or none is left trying. */
+  const slowOver = () => {
+    clearTimeout(slow);
+    if (!saidSlow) return;
+    saidSlow = false;
+    onSlowEnd?.();
+  };
   const onAbort = () => {
     clearTimeout(slow);
     cut.abort(signal.reason);
@@ -465,12 +485,12 @@ export function sendReview(event: NostrEvent, relays: readonly string[], signal:
       }
       if (isReviewRelay(url)) {
         trying -= 1;
-        // No review relay is left trying: it is not slow, it is over.
-        if (trying === 0) clearTimeout(slow);
+        // No review relay is left trying: it is not slow, it is over, though the person's own relays may still be answering.
+        if (trying === 0 && !signal.aborted) slowOver();
       }
       if (posted === undefined && reason === null && isReviewRelay(url)) {
         posted = { event, accepted, refused, settled };
-        clearTimeout(slow);
+        slowOver();
         signal.removeEventListener("abort", onAbort);
         resolve(posted);
       }

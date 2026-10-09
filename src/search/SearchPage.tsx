@@ -198,7 +198,9 @@ function PhoneSearch(): JSX.Element {
     <div className="flex w-full flex-1 flex-col">
       {/* 20 px at the right, 8 at the left, where the back button's own 44 px box puts its arrow in line with the gutter. */}
       <header className="flex flex-col gap-3.5 pt-3.5 pr-5 pl-2">
-        <h1 className="sr-only">{copy.pages.search}</h1>
+        <h1 tabIndex={-1} className="sr-only">
+          {copy.pages.search}
+        </h1>
         <div className="flex items-center gap-1">
           <Link
             to="/"

@@ -514,6 +514,38 @@ describe("posting a review", () => {
     expect(screen.queryByText(copy.review.stillPosting)).not.toBeInTheDocument();
   });
 
+  it("stops saying Regulars is slow once it has refused the review for good after the line showed, while the person's own relay is still trying", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.directory.push(listOf(me.pubkey, [OWN]));
+    // Regulars says nothing for 10 seconds, then refuses it for good; the person's own relay never answers.
+    world.writers[SEARCH] = createMemoryWriter({ answers: [{ delayMs: 10_000, refuse: "blocked: not on the list" }] });
+    world.writers[OWN] = createMemoryWriter({ silent: true });
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+
+    await user.click((await starButtons())[3]!);
+    const button = postButton();
+    const form = button.closest("form")!;
+    await user.click(button);
+    await waitFor(() => expect(sentTo(world, OWN)).toHaveLength(1));
+    const live = within(form).getByRole("status");
+    await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS));
+    expect(live).toHaveTextContent(copy.review.stillPosting);
+
+    // Refused for good at 10 seconds: the line goes at once, though the person's own relay has 5 seconds left.
+    await act(() => vi.advanceTimersByTimeAsync(10_000 - SLOW_POST_MS));
+    expect(screen.queryByText(copy.review.stillPosting)).not.toBeInTheDocument();
+    expect(live).toHaveTextContent(copy.review.posting);
+    expect(button).toHaveAccessibleName(copy.review.posting);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS));
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.failed);
+    expect(screen.queryByText(copy.review.stillPosting)).not.toBeInTheDocument();
+  });
+
   it("shows no line left from the last post on Try again: it says Regulars is slow only once it is, again", async () => {
     const world = newWorld();
     const me = signedIn(world);

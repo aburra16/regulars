@@ -151,23 +151,42 @@ describe("config", () => {
   });
 });
 
-// These two run in order: the first changes the config, the second sees what tests/setup.ts restores.
-describe("each test's config (tests/setup.ts)", () => {
-  it("may be changed by a test", () => {
-    config.mapTilerKey = "a-key";
-    config.reviewRelays = ["ws://localhost:10547"];
-    config.devScorer = { pubkey: SCORER, relay: "ws://localhost:10547" };
-    config.houseTrustRelays = ["ws://localhost:10547"];
-    config.scoring = { line: 50, priorWeight: 0, priorMean: 1 };
-    config.relayReadExtras = { "ws://localhost:10547": { search: "spam" } };
-  });
+/**
+ * Fails unless the config is as tests/setup.ts puts it before each test: My circle and Saved closed, no
+ * map key, review relays or scorer override, and the trust relays, relay-list relays, scoring and read
+ * extras as config.ts sets them.
+ */
+function expectEachTestsConfig(): void {
+  expect(config.features).toMatchObject({ circle: false, saved: false });
+  expect(config.mapTilerKey).toBeUndefined();
+  expect(config.reviewRelays).toEqual([]);
+  expect(config.devScorer).toBeUndefined();
+  expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
+  expect(config.relayListRelays).toEqual(["wss://purplepag.es"]);
+  expect(config.scoring).toEqual({ line: 5, priorWeight: 1.5, priorMean: 3.5 });
+  expect(config.relayReadExtras).toEqual({ [SEARCH_RELAY]: { search: "include:spam" } });
+}
 
-  it("is back at its defaults for the next test, with no map key, review relays or scorer override", () => {
-    expect(config.mapTilerKey).toBeUndefined();
-    expect(config.reviewRelays).toEqual([]);
-    expect(config.devScorer).toBeUndefined();
-    expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
-    expect(config.scoring).toEqual({ line: 5, priorWeight: 1.5, priorMean: 3.5 });
-    expect(config.relayReadExtras).toEqual({ [SEARCH_RELAY]: { search: "include:spam" } });
+/** Changes every part of the config that tests/setup.ts puts back, in place and by replacing it. */
+function changeEverything(): void {
+  config.features.circle = true;
+  config.features.saved = true;
+  config.mapTilerKey = "a-key";
+  config.reviewRelays = ["ws://localhost:10547"];
+  config.devScorer = { pubkey: SCORER, relay: "ws://localhost:10547" };
+  config.houseTrustRelays.push("ws://localhost:10547");
+  config.relayListRelays = ["ws://localhost:10547"];
+  config.scoring.line = 50;
+  config.relayReadExtras[SEARCH_RELAY]!.search = "spam";
+}
+
+// Each of these starts by checking the config is as each test's is, then changes all of it: whichever
+// order they run in, the second sees that what the first changed did not reach it. Neither needs the
+// other to run first, and either alone still checks the config it starts with.
+describe("each test's config (tests/setup.ts)", () => {
+  it.each(["one", "another"])("is at its defaults as %s test starts, whatever a test before it changed", () => {
+    expectEachTestsConfig();
+    changeEverything();
+    expect(config.scoring.line).toBe(50);
   });
 });

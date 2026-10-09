@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 
 import { Personalize } from "../circle/Personalize.tsx";
 import { copy } from "../copy/en.ts";
+import { NearButton } from "../location/CityPicker.tsx";
+import { LocationNotice } from "../location/LocationNotice.tsx";
 import { useHere } from "../location/useLocation.ts";
 import { distanceKm, formatDistance } from "../places/distance.ts";
 import { placeKindLabel } from "../places/kinds.ts";
@@ -116,10 +118,12 @@ const RecentItem = memo(function RecentItem({
  * Trending (Avi, 2026-10-08; decision 31), at `/trending`: the newest reviews of places everywhere, from
  * the people who count in the view on screen, as they count in its ratings, newest first. It was called
  * Recent, which the code keeps; it is to rank places by recent activity once there are enough reviews
- * (decision 31). A heading, the House picks / My circle toggle (on a phone, under the heading, with
- * Personalize under it, as Explore has them; on a desktop, the top bar's), one quiet line saying what
- * the list is and whose reviews these are, and the list, each review a link to its place. No number
- * about a person, and no order but time (decision 19).
+ * (decision 31). A heading; on a phone, under it, the "Near …" control of Explore's top, which opens the
+ * same town picker and names the place every distance is from (decision 43); the House picks / My circle
+ * toggle (on a phone, under those, with Personalize under it, as Explore has them; on a desktop, the top
+ * bar's, beside its own "Near …"), one quiet line saying what the list is and whose reviews these are,
+ * and the list, each review a link to its place. No number about a person, and no order but time
+ * (decision 19).
  *
  * The list is the session's (`useRecent`): Back from a place finds it as it was, scrolled where it was.
  * Where the reading stands is said in a polite status above the list: the loading line, or that the
@@ -271,12 +275,21 @@ export function RecentPage(): JSX.Element {
       <div ref={top} tabIndex={-1} className="flex flex-col outline-none">
         <h1
           id={headingId}
-          className="m-0 font-display text-display-phone leading-[1.1] font-extrabold tracking-display wide:text-display-desktop"
+          tabIndex={-1}
+          className="m-0 font-display text-display-phone leading-[1.1] font-extrabold tracking-display outline-none wide:text-display-desktop"
         >
           {copy.pages.recent}
         </h1>
+        {/* On a phone, where the distances are from, as the top of Explore says it (decision 43), and why the
+            person's location could not be used; on a desktop, the top bar says both. */}
         {!wide && (
-          <div className="mt-4">
+          <div className="mt-1.5 flex flex-col">
+            <NearButton />
+            <LocationNotice />
+          </div>
+        )}
+        {!wide && (
+          <div className="mt-3">
             <ViewSwitch variant="bar" />
           </div>
         )}

@@ -208,7 +208,9 @@ export function DeskLayout({
         ref={column}
         className="flex w-list shrink-0 flex-col gap-3.5 overflow-y-auto pt-[18px] pr-6 pb-6 pl-(--gutter-desktop)"
       >
-        <h1 className="sr-only">{title}</h1>
+        <h1 tabIndex={-1} className="sr-only">
+          {title}
+        </h1>
         {head}
         {/* The cards; or, with nothing to list, only the chosen pin's card, above what the page says instead. */}
         {(instead === undefined || first !== undefined) && (

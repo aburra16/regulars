@@ -77,7 +77,9 @@ export function FiltersPage(): JSX.Element {
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex items-center justify-between pt-3.5 pr-3 pl-5">
-        <h1 className="m-0 font-display text-[26px] font-extrabold tracking-display">{copy.pages.filters}</h1>
+        <h1 tabIndex={-1} className="m-0 font-display text-[26px] font-extrabold tracking-display outline-none">
+          {copy.pages.filters}
+        </h1>
         <Link
           replace
           to={fromExplore ? "/" : searchPath(params.toString())}

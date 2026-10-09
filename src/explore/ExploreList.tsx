@@ -251,7 +251,9 @@ export function ExploreList(): JSX.Element {
   return (
     <div className="flex flex-col pb-5">
       <div className="flex flex-col gap-4 px-gutter-phone pt-4">
-        <h1 className="sr-only">{copy.pages.explore}</h1>
+        <h1 tabIndex={-1} className="sr-only">
+          {copy.pages.explore}
+        </h1>
         <SearchLink />
         <div ref={toggleBlock} tabIndex={-1} className="flex flex-col gap-2 outline-none">
           <ViewSwitch variant="bar" />

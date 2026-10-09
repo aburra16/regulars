@@ -10,6 +10,7 @@ import { useWide } from "../shell/useWide.ts";
 import { CloseIcon } from "../ui/icons.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
 import { ADD_ON_WAIT_MS, hasAddOn, lookForAddOn, msSinceLoad } from "./addOn.ts";
+import { isHandheld } from "./handheld.ts";
 import { loadPhoneWay } from "./loadPhoneWay.ts";
 import type { PhoneWay as PhoneWayPanel, Tone } from "./PhoneWay.tsx";
 import { cameFrom, goingTo, landingFrom, wantsPhone } from "./returnTo.ts";
@@ -167,8 +168,8 @@ type Step =
  * "Continue with Nostr", one tap where it can be (decision 23). Where the browser has an add-on, it
  * asks it at once who the person is (the add-on may ask them first), and "Use an app on your phone
  * instead" is under it. Where it has none, it opens the phone's way at once (./PhoneWay.tsx): the
- * code, the link, and on a phone "Open the app"; on a desktop, with the line on how to get an add-on
- * under it. Pressed before the page has finished looking for an add-on that comes late, it says it is
+ * code, the link, and on a phone or a tablet "Open the app" (judged by the device: ./handheld.ts); on
+ * a computer, in either layout, with the line on how to get an add-on under it. Pressed before the page has finished looking for an add-on that comes late, it says it is
  * looking, for at most half a second, and then goes one way: the phone's way is never shown and then
  * taken away. When the add-on says no, fails or does not answer in a minute, it says so, with Try
  * again and the phone's way. A link that asks for the phone's way (`wantsPhone`: "Use an app on your
@@ -200,6 +201,8 @@ function Continue({
   const { state } = useLocation();
   const addOn = useAddOn();
   const asking = useAddOnSignIn();
+  // A phone or a tablet, by the device (./handheld.ts): its way is the app on it, not an add-on.
+  const [handheld] = useState(isHandheld);
   const [phoneFirst] = useState(() => open && wantsPhone(state));
   const [step, setStep] = useState<Step>(() => (phoneFirst ? { at: "fetching" } : { at: "button", focus: false }));
   const button = useRef<HTMLButtonElement>(null);
@@ -263,8 +266,8 @@ function Continue({
     return (
       <>
         <step.Panel tone={tone} onCancel={cancel} />
-        {/* A phone's browser seldom takes an add-on: the line is for a desktop's. */}
-        {tone === "card" && !withAddOn && (
+        {/* A phone's or a tablet's browser seldom takes an add-on, and it has "Open the app": the line is a computer's. */}
+        {!handheld && !withAddOn && (
           <p className={`m-0 text-center text-caption leading-[1.45] ${noteClass}`}>{copy.signin.noAddOn}</p>
         )}
       </>
