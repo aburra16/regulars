@@ -261,11 +261,15 @@ export const copy = {
     withScore: (view: string, score: string) => `${view} · ${score}`,
     // DRAFT for Avi
     /**
-     * The My circle half while the person's circle is on its way: looked for, or asked for and not
-     * ready yet. It is off, and says so (the brief's screen 11; Tuning.dc.html). Before the circle is
-     * asked for, the half reads `circle`, and opens Personalize (Avi, 2026-10-08).
+     * The My circle half while My circle is not open (`config.features.circle`): it is off, and says so
+     * (the brief's screen 11; Tuning.dc.html). While it is open, the half reads `circle`: before the
+     * circle is asked for, it opens Personalize (Avi, 2026-10-08); while it is looked for or asked for,
+     * it is off, with a turning arrow after the words once Brainstorm works it out (Avi, 2026-10-09).
      */
     circleSoon: "My circle · soon",
+    // DRAFT for Avi
+    /** The half's name, for a screen reader, while Brainstorm works the person's circle out: its arrow turns on screen. */
+    circleWorking: "My circle, being worked out",
   },
   /**
    * Personalizing: the action that asks Brainstorm, our scoring partner, to work out the person's
@@ -288,15 +292,18 @@ export const copy = {
     // DRAFT for Avi
     /** Stops waiting on the add-on or the app, and gives Personalize back. */
     cancel: "Cancel",
-    // DRAFT for Avi: the banner's heading (Tuning.dc.html).
+    // DRAFT for Avi: the first line of the bar at the foot of the screen, while Brainstorm works the circle out (Avi, 2026-10-09).
     workingTitle: "Working out your circle",
-    // DRAFT for Avi: the banner's words (Tuning.dc.html).
-    workingBody: "This takes a few minutes. Keep browsing House picks. We'll tell you when My circle is ready.",
+    // DRAFT for Avi: the bar's second line.
+    workingBody: "This takes a few minutes.",
     // DRAFT for Avi
-    /** A quiet notice once it is ready. It never switches the view: the toggle's My circle half is now on. */
+    /**
+     * In the bar, once the run the person started is done. It never switches the view: the toggle's My
+     * circle half is on now, with a check after its words for a moment.
+     */
     ready: "Your circle is ready.",
     // DRAFT for Avi: the brief's § 6.
-    /** Brainstorm would not start a run, as one was made lately, and that run is the one used. */
+    /** Brainstorm would not start a run, as one was made lately, and that run is the one used: in the bar, and beside Update now. */
     recently: "Your circle was updated recently. We'll use that.",
     // DRAFT for Avi
     /** Brainstorm would not start a run (too many from this address), and the person has none yet. */
@@ -308,8 +315,8 @@ export const copy = {
     /** Beside `busy` or `unavailable`: personalizes again. */
     tryAgain: "Try again",
     // DRAFT for Avi
-    /** Beside `ready` or `recently`: puts the notice away. */
-    dismiss: "Dismiss",
+    /** The bar's ×, for a screen reader: puts the bar away before its time is up. */
+    closeBar: "Close this message",
     // DRAFT for Avi
     /** In the panel My circle's half opens: closes it, asking Brainstorm nothing. */
     notNow: "Not now",
@@ -781,7 +788,7 @@ export const copy = {
      */
     updateStarted: "Your circle is still being worked out. We'll use the new one on your next visit.",
     // DRAFT for Avi
-    /** Brainstorm has worked it out again. */
+    /** Brainstorm has worked it out again: beside Update now, or in the bar once the person has left this page. */
     updated: "Your circle is up to date.",
     // DRAFT for Avi
     /** The run failed, took too long, or Brainstorm could not be reached. */

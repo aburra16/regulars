@@ -14,6 +14,10 @@ export default mergeConfig(
       environment: "jsdom",
       include: ["tests/**/*.test.{ts,tsx}"],
       setupFiles: ["./tests/setup.ts"],
+      // Whole-app tests draw every card and then read the whole page; on a busy machine (CI's runners,
+      // or several runs at once) some take longer than the 5 s default without anything being wrong.
+      // Tests wait for outcomes, not time, so a longer limit only stops a slow machine failing them.
+      testTimeout: 15_000,
     },
   }),
 );

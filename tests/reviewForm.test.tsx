@@ -728,8 +728,8 @@ describe("signing in to rate", () => {
     await user.click(retry);
     await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
     expect(addOn.getPublicKey).toHaveBeenCalledTimes(2);
-    // The way back from the form is the place, one step back.
-    await user.click(screen.getByRole("link", { name: copy.review.back }));
+    // The way back from the form is the place, one step back (once the form is drawn).
+    await user.click(await screen.findByRole("link", { name: copy.review.back }));
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
     expect(router.state.historyAction).toBe("POP");
   });

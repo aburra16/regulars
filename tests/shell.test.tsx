@@ -118,7 +118,7 @@ afterEach(() => {
 const READY: CircleValue = {
   state: "ready",
   ready: true,
-  notice: false,
+  news: null,
   held: false,
   updateStep: "idle",
   edition: 0,
@@ -126,7 +126,6 @@ const READY: CircleValue = {
   retry: () => {},
   update: () => {},
   cancel: () => {},
-  dismissReady: () => {},
   clearUpdate: () => {},
 };
 
@@ -155,11 +154,15 @@ const topBarSearch = () => screen.queryByRole("search");
 const toggle = () => screen.getByRole("group", { name: copy.view.label });
 
 /**
- * The shell's two quiet regions, in the order of the page: where the places are near (under the
+ * The shell's two quiet regions over the page, in its order: where the places are near (under the
  * top of the page), then how the places loaded. Both are always there, empty until they have
- * something to say. The pages draw their own status lines inside `main`, which these leave out.
+ * something to say. The pages draw their own status lines inside `main`, and the bar that tells of
+ * the person's circle has its own after it, at the foot of the screen: these leave both out.
  */
-const shellRegions = () => screen.getAllByRole("status").filter((region) => region.closest("main") === null);
+const shellRegions = () => {
+  const main = screen.getByRole("main");
+  return screen.getAllByRole("status").filter((region) => main.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_PRECEDING);
+};
 const locationRegion = () => {
   const [region, ...rest] = shellRegions();
   expect(rest).toHaveLength(1);
@@ -441,6 +444,66 @@ describe("ViewToggle", () => {
     expect(screen.getByRole("button", { name: "My circle" })).toHaveAttribute("aria-controls", "door-panel");
   });
 
+  it("draws My circle's half off, plain, with no 'soon', while the circle is looked for or asked for", () => {
+    renderToggle({ circleStatus: "waiting" });
+    const half = screen.getByRole("button", { name: "My circle" });
+    expect(half).toBeDisabled();
+    expect(half).toHaveTextContent(/^My circle$/);
+    expect(half.querySelector("svg")).toBeNull();
+  });
+
+  it("draws My circle's half off while the circle is worked out, with a turning arrow after the words, and says so to a screen reader", () => {
+    renderToggle({ circleStatus: "working" });
+    const half = screen.getByRole("button", { name: copy.view.circleWorking });
+    expect(half).toBeDisabled();
+    expect(half).toHaveTextContent(/^My circle$/);
+    expect(half).toHaveClass("text-muted");
+    const arrow = half.querySelector("svg")!;
+    expect(arrow).toHaveAttribute("aria-hidden", "true");
+    expect(arrow).toHaveAttribute("stroke", "currentColor");
+    expect(arrow).toHaveAttribute("width", "16");
+    // One turn every 1.6 s; for a person who asks for less motion, a fade in its place (src/styles/index.css).
+    expect(arrow).toHaveClass("animate-turn", "motion-reduce:animate-breathe");
+  });
+
+  it("draws the check after My circle's words while it is checked, the half on, its name as it was", () => {
+    renderToggle({ circleStatus: "checked" });
+    const half = screen.getByRole("button", { name: "My circle" });
+    expect(half).toBeEnabled();
+    expect(half.querySelector("svg")).toHaveClass("text-trust", "animate-check", "motion-reduce:animate-none");
+    cleanup();
+
+    // Chosen, the half carries no check: the trust green does not show on its fill.
+    renderToggle({ value: "circle", circleStatus: "checked" });
+    expect(screen.getByRole("button", { name: "My circle" }).querySelector("svg")).toBeNull();
+  });
+
+  it("keeps 'My circle · soon' while My circle is not open, with no mark", () => {
+    renderToggle({ circleStatus: "soon" });
+    const half = screen.getByRole("button", { name: copy.view.circleSoon });
+    expect(half).toBeDisabled();
+    expect(half.querySelector("svg")).toBeNull();
+  });
+
+  it("keeps My circle's words in place as its mark comes and goes, on the top bar too: a slot on each side, not the padding", () => {
+    for (const circleStatus of [undefined, "working", "checked"] as const) {
+      const { unmount } = render(<ViewToggle value="house" onChange={() => {}} variant="compact" circleStatus={circleStatus} />);
+      const half = within(toggle()).getAllByRole("button")[1]!;
+      // A block that lines its children up by their middles: an inline one would take its baseline from
+      // the empty slot, and draw the words lower than House picks'.
+      expect(half.firstElementChild).toHaveClass("flex", "items-center", "justify-center");
+      expect(half.firstElementChild).not.toHaveClass("inline-flex");
+      const slots = [...half.firstElementChild!.children];
+      expect(slots).toHaveLength(2);
+      for (const slot of slots) expect(slot).toHaveClass("w-[22px]");
+      // The slots take the padding's place: the half is as wide in each state.
+      expect(half).toHaveClass("px-1.5");
+      expect(half).not.toHaveClass("px-4");
+      expect(within(toggle()).getAllByRole("button")[0]).toHaveClass("px-4");
+      unmount();
+    }
+  });
+
   it("makes each button at least 44 px tall to tap", () => {
     for (const variant of ["bar", "compact", "panel"] as const) {
       const { unmount } = render(<ViewToggle value="house" onChange={() => {}} variant={variant} />);
@@ -450,6 +513,23 @@ describe("ViewToggle", () => {
       }
       unmount();
     }
+  });
+});
+
+describe("the bar that tells of the person's circle", () => {
+  it.each([
+    ["a phone's Explore, above its tabs", "/", PHONE, "bottom-[calc(var(--tab-bar-height)+12px)]"],
+    ["a phone's page with no tabs", "/about", PHONE, "bottom-4"],
+    ["a desktop", "/", DESKTOP, "wide:bottom-6"],
+  ] as const)("is a polite status at the foot of the screen, after the page, empty while there is nothing to say, on %s", (_, path, px, bottom) => {
+    renderApp(path, { width: px });
+    const bar = screen.getAllByRole("status").at(-1)!;
+    expect(screen.getByRole("main").compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bar).toBeEmptyDOMElement();
+    // Centred, floating over the page, and drawn only while it has something to say.
+    expect(bar.parentElement).toHaveClass("fixed", "left-1/2", "-translate-x-1/2", bottom);
+    expect(bar.parentElement).not.toHaveClass("bg-ground");
+    expect(bar.parentElement!.children).toHaveLength(1);
   });
 });
 
