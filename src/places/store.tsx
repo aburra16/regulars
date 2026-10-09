@@ -32,11 +32,20 @@ export interface PlacesState {
   /** Set when the last load from the relay failed. Any places shown are the saved ones. */
   error?: PlacesError;
   /**
-   * The towns the places are put in (src/data/towns.json), which come with them: places are not shown
-   * before their towns. Null when the towns could not be loaded; absent while there are no places.
+   * The towns the places are put in (src/data/towns.json), which load with them: the places wait for
+   * them `TOWNS_WAIT_MS` at most. Null while they have not come after that, or could not be loaded;
+   * absent while there are no places.
    */
   towns?: TownList | null;
 }
+
+/**
+ * How long, at most, places that are ready wait for their towns before they show without them, in
+ * milliseconds: long enough for the towns' chunk, which loads beside the places and is most often in
+ * first, so the places are not put in their localities' towns and then moved; short enough that a slow
+ * chunk does not keep the list off the screen.
+ */
+export const TOWNS_WAIT_MS = 300;
 
 export type PlacesValue = PlacesState & {
   /** Loads the places from the relay again. */
@@ -118,9 +127,10 @@ function mayReplace(count: number, complete: boolean, saved: { count: number } |
  * `reader` is read once, on mount; without one, the provider reads the places relay.
  *
  * The towns load at the same time, from their own chunk (`loadTowns`), and either copy of the places
- * shows once they have come, or failed to: the screens never put the places in towns twice. `towns`,
- * read once on mount, gives them instead (null: as if they could not be loaded); a test that passes
- * them never loads the chunk.
+ * waits for them `TOWNS_WAIT_MS` at most; past that, the places show in the towns their localities
+ * name, and are put in the towns of the file when they come, once. When the chunk could not be loaded,
+ * it is loaded again when the browser is back on line. `towns`, read once on mount, gives them instead
+ * (null: as if they could not be loaded); a test that passes them never loads the chunk.
  */
 export function PlacesProvider({
   children,
@@ -135,7 +145,26 @@ export function PlacesProvider({
   const [attempt, setAttempt] = useState(0);
   const [givenReader] = useState(reader);
   const [givenTowns] = useState(towns);
+  // The towns: undefined while their chunk has not come, null when it could not be loaded.
+  const [loadedTowns, setLoadedTowns] = useState<TownList | null | undefined>(givenTowns);
+  const [townsAttempt, setTownsAttempt] = useState(0);
+  // The load of the towns under way, which the places wait for.
+  const townsLoad = useRef<Promise<TownList | null>>(Promise.resolve(givenTowns ?? null));
   const deviceRef = useRef<Device>({});
+
+  // The towns, from their chunk, unless they were given. Declared before the places' load, so that it
+  // starts first, and towns that come in time are set before the places that waited for them.
+  useEffect(() => {
+    if (givenTowns !== undefined) return;
+    let live = true;
+    townsLoad.current = loadTowns();
+    void townsLoad.current.then((list) => {
+      if (live) setLoadedTowns(list);
+    });
+    return () => {
+      live = false;
+    };
+  }, [givenTowns, townsAttempt]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -149,8 +178,19 @@ export function PlacesProvider({
           : { status: "error", places: [], source: "network", complete: false, error: "network" },
       );
 
-    // The towns, from their chunk, at the same time as the rest. They never fail: null is none.
-    const townsReady = givenTowns === undefined ? loadTowns() : Promise.resolve(givenTowns);
+    // Places that are ready wait for the towns `TOWNS_WAIT_MS` at most (the towns' own load, above,
+    // sets them). Neither ever rejects.
+    const townsInTime = () =>
+      Promise.race([
+        townsLoad.current,
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, TOWNS_WAIT_MS);
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+        }),
+      ]);
 
     // Read the saved copy once per mount. It shows unless places are on screen already: the
     // relay's, which win, or this same copy, shown by an earlier run.
@@ -161,7 +201,7 @@ export function PlacesProvider({
       }
       device.copy = device.replaced ? null : copy;
     });
-    void Promise.all([device.read, townsReady]).then(([, loadedTowns]) => {
+    void device.read.then(townsInTime).then(() => {
       const copy = device.copy;
       if (signal.aborted || copy === null || copy === undefined) return;
       setState((current) =>
@@ -173,7 +213,6 @@ export function PlacesProvider({
               source: "cache",
               complete: copy.complete,
               savedAt: copy.savedAt,
-              towns: loadedTowns,
               ...(current.status === "error" ? { error: "network" as const } : {}),
             },
       );
@@ -193,7 +232,7 @@ export function PlacesProvider({
         return;
       }
       const { events, complete, places } = loaded;
-      const towns = await townsReady;
+      await townsInTime();
       if (signal.aborted) return;
 
       // Judged against the saved copy if it has been read. If not, the relay has won the race.
@@ -203,7 +242,7 @@ export function PlacesProvider({
       }
       // `savedAt` stays the saved copy's until these places are saved too.
       const before = device.saved?.savedAt;
-      setState({ status: "ready", places, source: "network", complete, towns, ...(before === undefined ? {} : { savedAt: before }) });
+      setState({ status: "ready", places, source: "network", complete, ...(before === undefined ? {} : { savedAt: before }) });
       // The saved copy is off the screen for good: let it go, and the indexes built for it.
       device.replaced = true;
       device.copy = null;
@@ -234,20 +273,28 @@ export function PlacesProvider({
 
   // Back on line: load again, unless the latest places are on screen already. A load that was
   // waiting on a connection that had gone is started again, not left to run out its time.
+  // The towns' chunk that could not be loaded is loaded again too.
   const latestState = useRef(state);
+  const latestTowns = useRef(loadedTowns);
   useEffect(() => {
     latestState.current = state;
-  }, [state]);
+    latestTowns.current = loadedTowns;
+  }, [state, loadedTowns]);
   useEffect(() => {
     const onOnline = () => {
       const { status, source, error } = latestState.current;
       if (status !== "ready" || source !== "network" || error !== undefined) retry();
+      if (latestTowns.current === null && givenTowns === undefined) setTownsAttempt((n) => n + 1);
     };
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
-  }, [retry]);
+  }, [retry, givenTowns]);
 
-  const value = useMemo(() => ({ ...state, retry }), [state, retry]);
+  const shownTowns = state.places.length === 0 ? undefined : (loadedTowns ?? null);
+  const value = useMemo(
+    () => ({ ...state, ...(shownTowns === undefined ? {} : { towns: shownTowns }), retry }),
+    [state, shownTowns, retry],
+  );
   return <PlacesContext value={value}>{children}</PlacesContext>;
 }
 

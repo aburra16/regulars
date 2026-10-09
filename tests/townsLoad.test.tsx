@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RelayReader } from "../src/nostr/events";
 import { CACHE_KEY } from "../src/places/cache";
-import { PlacesProvider, usePlaces } from "../src/places/store";
+import { buildIndexes } from "../src/places/indexes";
+import { PlacesProvider, TOWNS_WAIT_MS, usePlaces } from "../src/places/store";
 import { loadTowns, readTowns, type TownList, townsLoader } from "../src/places/towns";
 import { useIndexes } from "../src/places/useIndexes";
 import raw from "./fixtures/funchal-items.json";
@@ -18,6 +19,12 @@ const towns = vi.hoisted(() => ({ load: undefined as (() => Promise<unknown>) | 
 vi.mock("../src/places/towns", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/places/towns")>();
   return { ...actual, loadTowns: () => (towns.load ?? actual.loadTowns)() };
+});
+
+// The real `buildIndexes`, counted.
+vi.mock("../src/places/indexes", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/places/indexes")>();
+  return { ...actual, buildIndexes: vi.fn(actual.buildIndexes) };
 });
 
 // The saved copy's read, as the app does it, with word to the test when it has answered.
@@ -102,7 +109,7 @@ describe("the places, with their towns", () => {
     expect(funchal).toMatchObject({ geonameId: 2267827, country: "PT" });
   });
 
-  it("are not shown before their towns have come, from the relay or from the device", async () => {
+  it("wait a moment for their towns, from the relay or from the device, and show with them when they come in time", async () => {
     await set(CACHE_KEY, { events: fixtures.slice(0, 10), savedAt: 1_000, complete: true });
     const slow = later<TownList | null>();
     towns.load = () => slow.promise;
@@ -116,9 +123,17 @@ describe("the places, with their towns", () => {
         answered.settle();
       },
     };
-    const { result } = renderPlaces(fixtures, { reader });
+    const seen: (TownList | null | undefined)[] = [];
+    const { result } = renderHook(
+      () => {
+        const value = { places: usePlaces(), indexes: useIndexes() };
+        if (value.places.status === "ready") seen.push(value.places.towns);
+        return value;
+      },
+      { wrapper: ({ children }: { children: ReactNode }) => <PlacesProvider reader={reader}>{children}</PlacesProvider> },
+    );
 
-    // The saved copy has been read, and the relay has answered: still loading, while the towns are not in.
+    // The saved copy has been read, and the relay has answered: still loading, a moment, for the towns.
     await act(async () => {
       await Promise.all([read.promise, answered.promise]);
     });
@@ -130,6 +145,44 @@ describe("the places, with their towns", () => {
     await waitFor(() => expect(result.current.indexes?.byD.size).toBe(43));
     expect(result.current.places.towns).toBe(list);
     expect(result.current.indexes!.cities.map((city) => [city.name, city.count])).toEqual([["Funchal", 43]]);
+    // Never on screen without them.
+    expect(seen.every((each) => each === list)).toBe(true);
+    expect(TOWNS_WAIT_MS).toBe(300);
+  });
+
+  it("show without their towns when the chunk stalls, and take them, building the indexes once more, when they come", async () => {
+    vi.mocked(buildIndexes).mockClear();
+    const slow = later<TownList | null>();
+    towns.load = () => slow.promise;
+    const { result } = renderPlaces(fixtures);
+
+    // Past the wait: the places, in the towns their localities name.
+    await waitFor(() => expect(result.current.indexes?.byD.size).toBe(43));
+    expect(result.current.places.towns).toBeNull();
+    expect(result.current.indexes!.cities.map((city) => [city.name, city.geonameId])).toEqual([["Funchal", undefined]]);
+    expect(vi.mocked(buildIndexes)).toHaveBeenCalledTimes(1);
+
+    const list = townsOf([{ id: 2267827, name: "Funchal", country: "PT", lat: 32.6657, lon: -16.9255 }]);
+    slow.settle(list);
+    await waitFor(() => expect(result.current.places.towns).toBe(list));
+    expect(result.current.indexes!.cities.map((city) => [city.name, city.geonameId])).toEqual([["Funchal", 2267827]]);
+    expect(vi.mocked(buildIndexes)).toHaveBeenCalledTimes(2);
+  });
+
+  it("load the towns again when the browser is back on line, while they could not be loaded", async () => {
+    const list = townsOf([{ id: 2267827, name: "Funchal", country: "PT", lat: 32.6657, lon: -16.9255 }]);
+    const load = vi.fn<() => Promise<TownList | null>>().mockResolvedValueOnce(null).mockResolvedValue(list);
+    towns.load = load;
+    const { result } = renderPlaces(fixtures);
+    await waitFor(() => expect(result.current.indexes).toBeDefined());
+    expect(result.current.places.towns).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(result.current.places.towns).toBe(list));
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(result.current.indexes!.cities[0]).toMatchObject({ name: "Funchal", geonameId: 2267827 });
   });
 
   it("go in the towns their localities name when the towns cannot be loaded", async () => {
