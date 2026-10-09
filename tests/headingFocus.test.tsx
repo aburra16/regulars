@@ -112,6 +112,18 @@ describe("the focus after going to another page", () => {
     expect(scrollTo).toHaveBeenLastCalledWith(0, 640);
   });
 
+  it("goes to the place's name and back to Explore's heading in React's strict mode, which runs every effect twice", async () => {
+    const user = userEvent.setup();
+    await openApp("/", { events: fixtures, readers, strict: true });
+    expect(document.body).toHaveFocus();
+    const card = cards()[0]!;
+    await user.click(card);
+    expect(await screen.findByRole("heading", { level: 1, name: placeOf(card).name })).toHaveFocus();
+    await user.click(screen.getByRole("link", { name: copy.place.back }));
+    await waitFor(() => expect(pageHeading()).toHaveTextContent(copy.pages.explore));
+    expect(pageHeading()).toHaveFocus();
+  });
+
   it("goes to Explore's heading on the browser's own Back, though the person has pressed nothing on the page", async () => {
     const { router } = await open("/about", undefined, ["/", "/about"]);
     expect(document.body).toHaveFocus();
@@ -148,15 +160,18 @@ describe("the focus after going to another page", () => {
     expect(await screen.findByRole("heading", { level: 1, name: copy.pages.recent })).toHaveFocus();
   });
 
-  it("is left alone on the first load, and on the first load's own redirect (an old link to Recent)", async () => {
+  it("is left alone on the first load", async () => {
     await open("/");
+    expect(await screen.findByRole("heading", { level: 1, name: copy.pages.explore })).toBeInTheDocument();
     expect(document.body).toHaveFocus();
-    resetWidth();
-    const { router, unmount } = await open("/recent");
+  });
+
+  it("is left alone on what the first load does by itself: an old link to Recent, sent on to Trending", async () => {
+    const { router } = await open("/recent");
     await waitFor(() => expect(router.state.location.pathname).toBe("/trending"));
+    expect(router.state.historyAction).toBe("REPLACE");
     expect(await screen.findByRole("heading", { level: 1, name: copy.pages.recent })).toBeInTheDocument();
     expect(document.body).toHaveFocus();
-    unmount();
   });
 
   it("is left where the new page puts it: in the phone's search field, opened from Explore", async () => {
