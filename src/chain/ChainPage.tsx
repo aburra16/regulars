@@ -26,7 +26,7 @@ import { fitView } from "./fit.ts";
 import { LocationRow } from "./LocationRow.tsx";
 
 /**
- * How many of the locations near you the page lists before "Show all": a chain with many in a city
+ * How many of the locations near here the page lists before "Show all": a chain with many in a city
  * (a coffee house on every block) is as long as a screen's worth, and no more.
  */
 const NEAR_COUNT_MAX = 50;
@@ -61,8 +61,10 @@ interface ChainInfo {
   chain: Chain;
   /** The locations the page can list, nearest first: all of them, to `ROWS_MAX`. */
   listed: PlaceDistance[];
-  /** How many of the chain's locations are within a city's reach of here: the ones "near you". */
+  /** How many of the chain's locations are within a city's reach of here: the ones "near Funchal". */
   near: number;
+  /** Where here is, as the "Near …" control names it: a town, or "you" when it is the device. */
+  where: string;
   /** How many locations the list shows at first: those near, to `NEAR_COUNT_MAX`, or the nearest few when none is near. */
   first: number;
   /** The kind of most of the chain's places, in words, and the category of its tile. */
@@ -79,7 +81,7 @@ interface Shown {
 }
 
 /**
- * What the view on screen rates the locations near you, said after the box's line (Chain.dc.html):
+ * What the view on screen rates the locations near here, said after the box's line (Chain.dc.html):
  * the house, or the person's circle. The lowest and the highest score when two or more have one, the
  * score when one does, and nothing when none does. A range, never an average: each location is its own.
  */
@@ -92,10 +94,10 @@ function viewRange(info: ChainInfo, scores: ListScores): string | undefined {
   const circle = scores.view === "circle";
   if (near.length === 1) {
     const one = formatScore(near[0]!);
-    return circle ? copy.chain.circleOne(one) : copy.chain.houseOne(one);
+    return circle ? copy.chain.circleOne(one, info.where) : copy.chain.houseOne(one, info.where);
   }
   const [low, high] = [formatScore(Math.min(...near)), formatScore(Math.max(...near))];
-  return circle ? copy.chain.circleRange(low, high) : copy.chain.houseRange(low, high);
+  return circle ? copy.chain.circleRange(low, high, info.where) : copy.chain.houseRange(low, high, info.where);
 }
 
 /** The tinted box under the header (Chain.dc.html): each location stands on its own, and what the view rates those near. */
@@ -112,11 +114,11 @@ function EachScored({ range }: { range: string | undefined }): JSX.Element {
 }
 
 /**
- * The locations: those near you, or the nearest few when none is, and below them a button for all
+ * The locations: those near here, or the nearest few when none is, and below them a button for all
  * of them, which shows every one at once, the focus moved to the first that is new.
  */
 function Locations({ info, shown, showMap }: { info: ChainInfo; shown: Shown; showMap: boolean }): JSX.Element {
-  const { chain, listed, near, first, locale, now } = info;
+  const { chain, listed, near, where, first, locale, now } = info;
   const { count, setCount, scores } = shown;
   const list = useRef<HTMLUListElement>(null);
   const focusAt = useRef<number | null>(null);
@@ -128,7 +130,7 @@ function Locations({ info, shown, showMap }: { info: ChainInfo; shown: Shown; sh
   }, [count]);
 
   const expanded = count > first;
-  const heading = expanded ? copy.pages.chain : near > 0 ? copy.chain.near : copy.chain.nearest;
+  const heading = expanded ? copy.pages.chain : near > 0 ? copy.chain.near(where) : copy.chain.nearest;
   const showAll = () => {
     focusAt.current = count;
     setCount(listed.length);
@@ -218,7 +220,7 @@ function ChainMap({
 
 /** The phone's page (Chain.dc.html): the way back, the header, the box, the locations and the credit. */
 function PhoneChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Element {
-  const { chain, near, kind } = info;
+  const { chain, near, where, kind } = info;
   return (
     <div className="flex flex-1 flex-col">
       <div className="px-3 pt-3.5">
@@ -227,7 +229,7 @@ function PhoneChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Ele
       <section className="flex min-w-0 flex-col gap-2.5 px-gutter-phone pt-1.5">
         <KindTile category={kind.category} size="page" tone="ink" />
         <Name name={chain.name} className="text-display-phone leading-[1.08] tracking-display" />
-        <div className="text-[15px] text-muted">{copy.chain.line(kind.label, chain.places.length, near)}</div>
+        <div className="text-[15px] text-muted">{copy.chain.line(kind.label, chain.places.length, near, where)}</div>
       </section>
       <div className="px-gutter-phone pt-[18px]">
         <EachScored range={viewRange(info, shown.scores)} />
@@ -248,7 +250,7 @@ function PhoneChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Ele
  * with the map and the credit.
  */
 function DeskChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Element {
-  const { chain, near, kind, listed } = info;
+  const { chain, near, where, kind, listed } = info;
   const pinned = useMemo(() => listed.slice(0, shown.count), [listed, shown.count]);
   return (
     <div className="mx-auto flex w-full max-w-content flex-col gap-4 px-gutter-desktop pt-4 pb-12">
@@ -259,7 +261,7 @@ function DeskChain({ info, shown }: { info: ChainInfo; shown: Shown }): JSX.Elem
             <KindTile category={kind.category} size="page" tone="ink" />
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               <Name name={chain.name} className="text-display-desktop leading-[1.05] tracking-[-0.025em]" />
-              <div className="text-body text-muted">{copy.chain.line(kind.label, chain.places.length, near)}</div>
+              <div className="text-body text-muted">{copy.chain.line(kind.label, chain.places.length, near, where)}</div>
             </div>
           </section>
           <EachScored range={viewRange(info, shown.scores)} />
@@ -304,8 +306,8 @@ function ChainView({ chain }: { chain: Chain }): JSX.Element {
     const listed = all.slice(0, ROWS_MAX);
     const kind = commonKind(chain, all.slice(0, Math.max(near, NEAREST_COUNT)));
     const first = Math.min(listed.length, near > 0 ? Math.min(near, NEAR_COUNT_MAX) : NEAREST_COUNT);
-    return { chain, listed, near, first, kind, locale, now };
-  }, [chain, all, near, locale, now]);
+    return { chain, listed, near, where: here.label, first, kind, locale, now };
+  }, [chain, all, near, here.label, locale, now]);
 
   // A new town is a new list, which starts from its first locations; Back to a page of the history finds this one as it was.
   const list = `${chainSlug(chain)}|${here.lat}|${here.lon}`;

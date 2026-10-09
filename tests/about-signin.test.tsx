@@ -248,8 +248,8 @@ describe("the about page: what it says", () => {
 
   it("says what House picks are once, and the house section points to it", async () => {
     await openApp("/about", { events: fixtures });
-    // One paragraph defines them: scores from the reviewers the house trusts.
-    const definitions = screen.getAllByText(/scores from the reviewers/);
+    // One paragraph defines them: ratings from the reviewers the house trusts.
+    const definitions = screen.getAllByText(/ratings from the reviewers/);
     expect(definitions).toHaveLength(1);
     expect(section(copy.about.reviewsHeading)).toContainElement(definitions[0]!);
     // The house section names the house and what it does for House picks, in its own words.

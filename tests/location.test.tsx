@@ -14,6 +14,7 @@ import type { City } from "../src/places/indexes";
 import { PlacesProvider, usePlaces } from "../src/places/store";
 import raw from "./fixtures/funchal-items.json";
 import { createMemoryReader } from "./support/memoryReader";
+import { zoneIs } from "./support/zone";
 
 // `cities` replaces the towns the indexes list. null: no indexes yet, as while the places load;
 // undefined: the real ones, which need a PlacesProvider.
@@ -77,17 +78,6 @@ const refusedWith = (code: number) => installGeolocation((_ok, fail) => fail(fai
 const saved = () => window.localStorage.getItem(STORAGE_KEY);
 
 // ---- The device's time zone and language, and what the browser allows, for the tests ----
-
-// The real `resolvedOptions`, taken once, before any test stands in for it: a test that sets the
-// zone twice wraps this, not its own stand-in, which would call itself until the stack ran out.
-const realResolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
-
-/** The device's time zone, as `Intl` says it; everything else `Intl` says is as it is. */
-function zoneIs(zone: string) {
-  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockImplementation(function (this: Intl.DateTimeFormat) {
-    return { ...realResolvedOptions.call(this), timeZone: zone };
-  });
-}
 
 /** The browser's language, as `navigator.language` says it. */
 function languageIs(tag: string) {
@@ -1326,7 +1316,7 @@ describe("the copy", () => {
       "Location is off, so we're showing places near Funchal. Pick a city, or turn on location in your browser settings.",
     );
     expect(copy.location.unavailable).toBe("We couldn't find your location. Pick a city instead.");
-    expect(copy.location.pickTitle).toBe("Choose a place");
+    expect(copy.location.pickTitle).toBe("Choose a town");
     expect(copy.location.useMine).toBe("Use my location");
     expect(copy.location.filterPlaceholder).toBe("Search towns and cities");
     expect(copy.location.count(7)).toBe("7 places");

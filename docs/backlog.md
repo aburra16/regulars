@@ -10,10 +10,10 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 - **Benjamin:** done. His review is live (decision 29); the review relay had run out of memory.
 
 **Copy**
-- The UI wording marked DRAFT in `src/copy/en.ts` needs a pass.
+- Avi walked through every screen's wording on 2026-10-09. One string is still marked DRAFT in `src/copy/en.ts`: `reviews.uncounted` ("2 reviews, shown without a rating for now"), reworded after his pass.
 
 **Product calls**
-- **Recent on the phone has no "Near …" line,** so its distances are from wherever Explore last looked. Add one?
+- **Trending on the phone has no "Near …" line,** so its distances are from wherever Explore last looked. Add one?
 - **Photos:** the recommendation is photos attached to reviews, stored on a nostr file server we choose, shown only from people who count. For discussion; not scheduled.
 - **Open from the brief (§ 12):**
   - flagged reviewers: folded with the rest, or hidden;
@@ -36,8 +36,9 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 2. **Saved lists**, now hidden behind `features.saved`.
 3. **Add or fix a place.** Today "Add a missing place" opens an OpenStreetMap note; the in-app form comes later.
 4. **Tags**, once the W20 fix on `feat/tags` lands.
-5. **A "Near here" filter on Recent.**
-6. **Growth beyond Funchal.** The map already shows every place; this needs a plan for seeding first reviewers.
+5. **A "Near here" filter on Trending.**
+6. **Trending ranked by recent activity,** once there are enough reviews: places ranked by how many people who count reviewed them in the last 30 days (decision 31).
+7. **Growth beyond Funchal.** The map already shows every place; this needs a plan for seeding first reviewers.
 
 ## Hardening before many people use it
 
@@ -77,7 +78,7 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 - `towns.json` is 159 KB raw (73 KB gzip) and grows at each refresh; regenerate it with each monthly import (README).
 - The `townsWaitMs` prop has no test of its own.
 
-**Recent** (decision 28)
+**Trending** (decisions 28 and 31; the code keeps the name Recent)
 - The list is rebuilt on every store change (fine at today's scale).
 - The rank-failure flag is per view, not per person, so a brief false failure line is possible.
 

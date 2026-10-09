@@ -67,12 +67,15 @@ export function SavedIcon(props: IconProps): JSX.Element {
   );
 }
 
-/** The clock: the Recent tab. */
-export function RecentIcon(props: IconProps): JSX.Element {
+/**
+ * The trending-up arrow, a line that rises in a zig-zag to an arrowhead at its top right: the Trending
+ * tab, and before the word in the desktop's link to it (decision 31).
+ */
+export function TrendingIcon(props: IconProps): JSX.Element {
   return (
     <Icon {...props}>
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 7.5V12l3 2" />
+      <polyline points="3,17 9,11 13,15 21,7" />
+      <polyline points="15,7 21,7 21,13" />
     </Icon>
   );
 }

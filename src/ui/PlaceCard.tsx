@@ -10,6 +10,7 @@ import type { ShownScore } from "../score/shown.ts";
 import { KindTile } from "./KindTile.tsx";
 import { NO_SCORE, ScoreFigure, WhoLine, whoLine } from "./ScoreSlot.tsx";
 import { scriptLang } from "./scriptLang.ts";
+import { stateColour } from "./stateColour.ts";
 
 export interface PlaceCardProps {
   place: Place;
@@ -17,7 +18,7 @@ export interface PlaceCardProps {
   km: number;
   /**
    * `unrated-dashed` is a place others have rated, with no score, in a list that has places with
-   * scores: a dashed edge and "No score yet" at the top right, where the score would be
+   * scores: a dashed edge and "No rating yet" at the top right, where the score would be
    * (Main.dc.html). Every other card is `normal`.
    */
   variant: "normal" | "unrated-dashed";
@@ -27,7 +28,10 @@ export interface PlaceCardProps {
    * card says nobody has reviewed the place yet ("No reviews yet"). Default: none.
    */
   score?: ShownScore;
-  /** The browser's language: it decides miles or kilometres, and the 12- or 24-hour clock. */
+  /**
+   * The browser's language: it decides the 12- or 24-hour clock, how numbers are written, and miles or
+   * kilometres where the device's time zone does not (`readsMiles`).
+   */
   locale: string;
   now: Date;
   /** The card of the pin chosen on the map: a heavier edge in the ink colour (DeskExplore.dc.html). */
@@ -44,18 +48,20 @@ function edge(variant: PlaceCardProps["variant"], selected: boolean, onMap: bool
 }
 
 /**
- * The words about the hours, as part of a line. An open or closed place has that word first, in
- * bold ("Open until 11 pm"); the copy puts it first in every line of those two states. Any other
- * line is as it is.
+ * The words about the hours, as part of a line. An open or closed place has the words that say so
+ * first, in bold and in their colour (`stateColour`): "Closed" red, "Open" green, "Closing soon" amber;
+ * the copy puts them first in every line of those states. Any other line is as it is.
  */
 export function HoursText({ state, line }: { state: OpenState; line: string }): JSX.Element {
-  if (state.kind !== "open" && state.kind !== "closed") return <>{line}</>;
-  const space = line.indexOf(" ");
-  const word = space === -1 ? line : line.slice(0, space);
+  const colour = stateColour(state);
+  if (colour === undefined) return <>{line}</>;
+  const soon = copy.hours.closingSoonWords;
+  const end = state.kind === "open" && state.closingSoon === true && line.startsWith(soon) ? soon.length : line.indexOf(" ");
+  const words = end === -1 ? line : line.slice(0, end);
   return (
     <>
-      <span className="font-bold text-ink">{word}</span>
-      {space === -1 ? "" : line.slice(space)}
+      <span className={`font-bold ${colour}`}>{words}</span>
+      {end === -1 ? "" : line.slice(end)}
     </>
   );
 }

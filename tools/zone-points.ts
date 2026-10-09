@@ -1,6 +1,7 @@
 /*
  * Writes src/location/zones.ts: where each time zone's principal place is, from the time zone
- * database's zone.tab or zone1970.tab (both public domain), in tenths of a degree.
+ * database's zone.tab or zone1970.tab (both public domain), in tenths of a degree, and the country
+ * the table gives the zone.
  *
  *   node tools/zone-points.ts [table...] [--version <tzdata version>]
  *     With no table, reads /usr/share/zoneinfo/zone.tab, and the version from the +VERSION file
@@ -25,15 +26,24 @@ function degrees(text: string, degreeDigits: number): number {
   return sign * (whole + minutes / 60 + seconds / 3600);
 }
 
-/** Each zone's point in the text of a zone.tab or zone1970.tab, in degrees, in the order of the file. */
-export function pointsOf(text: string): Map<string, [lat: number, lon: number]> {
-  const points = new Map<string, [number, number]>();
+/** A zone's point in degrees, and its country (ISO 3166 alpha-2, upper case) when the table gives it one. */
+export type ZonePoint = [lat: number, lon: number, country?: string];
+
+/**
+ * Each zone's point in the text of a zone.tab or zone1970.tab, in degrees, with its country, in the
+ * order of the file. zone.tab gives each zone one country; zone1970.tab may give several ("BE,LU,NL"),
+ * and a zone of several countries is no one country's, so it has none.
+ */
+export function pointsOf(text: string): Map<string, ZonePoint> {
+  const points = new Map<string, ZonePoint>();
   for (const line of text.split("\n")) {
     if (line.startsWith("#") || line.trim() === "") continue;
-    const [, point, zone] = line.split("\t");
+    const [codes, point, zone] = line.split("\t");
     const match = /^([+-]\d{4}(?:\d{2})?)([+-]\d{5}(?:\d{2})?)$/.exec(point ?? "");
     if (match === null || zone === undefined || !zone.includes("/")) throw new Error(`Cannot read the line: ${line}`);
-    points.set(zone, [degrees(match[1]!, 2), degrees(match[2]!, 3)]);
+    const where: ZonePoint = [degrees(match[1]!, 2), degrees(match[2]!, 3)];
+    if (codes !== undefined && /^[A-Z]{2}$/.test(codes)) where.push(codes);
+    points.set(zone, where);
   }
   return points;
 }
@@ -41,15 +51,15 @@ export function pointsOf(text: string): Map<string, [lat: number, lon: number]> 
 /**
  * The points as one string, by area, the areas apart by ";": the area's name, ":", and its zones
  * apart by ",", each the rest of its name, its latitude and its longitude in whole tenths of a
- * degree, apart by spaces: "Europe:Lisbon 387 -92,Madrid 404 -37;…". `unpackZones`
- * (src/location/guess.ts) reads it back.
+ * degree, and its country when it has one, apart by spaces: "Europe:Lisbon 387 -92 PT,Madrid 404 -37 ES;…".
+ * `unpackZones` (src/location/timeZone.ts) reads it back.
  */
-export function pack(points: ReadonlyMap<string, readonly [number, number]>): string {
+export function pack(points: ReadonlyMap<string, Readonly<ZonePoint>>): string {
   const areas = new Map<string, string[]>();
   for (const zone of [...points.keys()].sort()) {
-    const [lat, lon] = points.get(zone)!;
+    const [lat, lon, country] = points.get(zone)!;
     const slash = zone.indexOf("/");
-    const entry = `${zone.slice(slash + 1)} ${Math.round(lat * 10)} ${Math.round(lon * 10)}`;
+    const entry = [zone.slice(slash + 1), Math.round(lat * 10), Math.round(lon * 10), ...(country === undefined ? [] : [country])].join(" ");
     const area = zone.slice(0, slash);
     const list = areas.get(area);
     if (list === undefined) areas.set(area, [entry]);
@@ -59,14 +69,14 @@ export function pack(points: ReadonlyMap<string, readonly [number, number]>): st
 }
 
 /** The module the app reads. */
-export function zonesModule(points: ReadonlyMap<string, readonly [number, number]>, version: string, sources: string[]): string {
+export function zonesModule(points: ReadonlyMap<string, Readonly<ZonePoint>>, version: string, sources: string[]): string {
   return `// Written by tools/zone-points.ts from ${sources.join(" and ")} of the time zone database ${version}, which
 // is in the public domain. Do not edit it: run the tool again.
 
 /** The version of the time zone database the points come from. */
 export const TZDATA_VERSION = "${version}";
 
-/** Where each of ${points.size} time zones' principal place is, packed as \`pack\` in tools/zone-points.ts says. */
+/** Where each of ${points.size} time zones' principal place is, and its country, packed as \`pack\` in tools/zone-points.ts says. */
 export const ZONE_POINTS =
   "${pack(points)}";
 `;
@@ -78,7 +88,7 @@ function main(args: string[]): void {
   const files = tables.length > 0 ? tables : ["/usr/share/zoneinfo/zone.tab"];
   const version = at < 0 ? readFileSync(join(dirname(files[0]!), "+VERSION"), "utf8").trim() : args[at + 1]!;
 
-  const points = new Map<string, [number, number]>();
+  const points = new Map<string, ZonePoint>();
   for (const file of files) {
     for (const [zone, point] of pointsOf(readFileSync(file, "utf8"))) if (!points.has(zone)) points.set(zone, point);
   }

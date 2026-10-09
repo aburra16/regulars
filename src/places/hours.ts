@@ -19,9 +19,10 @@ export type OpenState =
   /**
    * `closesAt` is undefined when nothing ends the opening this week: open 24/7, say.
    * `closesAfterADay` is set, to true and only then, when it closes more than 24 hours after
-   * `now`, so the line can name the weekday.
+   * `now`, so the line can name the weekday. `closingSoon` is set, to true and only then, when it
+   * closes within `CLOSING_SOON_MINUTES` of `now`: its words are the same, in another colour.
    */
-  | { kind: "open"; closesAt?: Date; closesAfterADay?: boolean }
+  | { kind: "open"; closesAt?: Date; closesAfterADay?: boolean; closingSoon?: boolean }
   /**
    * `opensAt` is undefined when it does not open again this week (a seasonal place, or one that
    * is shut for good). `opensAfterADay` is set, to true and only then, when it opens more than
@@ -55,6 +56,14 @@ const GUESSED: ReadonlySet<string> = new Set([
 const SOLAR = /\b(?:sunrise|sunset|dawn|dusk)\b/i;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How near its closing an open place is closing soon (Avi, 2026-10-09): 45 minutes or less left, to
+ * the second, on the place's clock. A place open all day, or with no closing time this week, never is.
+ */
+export const CLOSING_SOON_MINUTES = 45;
+
+const CLOSING_SOON_MS = CLOSING_SOON_MINUTES * 60 * 1000;
 
 /**
  * OpenStreetMap limits a tag value to 255 characters, so anything longer did not come from it.
@@ -239,11 +248,15 @@ function evaluate(raw: string, place: HoursPlace, now: Date): OpenState {
   // closing time. Nor is one the runtime's zone may have moved.
   if (next !== undefined && (hours.getUnknown(next) || maybeMoved(next))) return unparsed;
 
-  const afterADay = next !== undefined && wallMs(next) - wallMs(here) > DAY_MS;
+  const left = next === undefined ? undefined : wallMs(next) - wallMs(here);
+  const afterADay = left !== undefined && left > DAY_MS;
   if (hours.getState(here)) {
     // No change within a week of an open place: for a diner, open all the time.
     if (next === undefined) return { kind: "open" };
-    return afterADay ? { kind: "open", closesAt: next, closesAfterADay: true } : { kind: "open", closesAt: next };
+    if (afterADay) return { kind: "open", closesAt: next, closesAfterADay: true };
+    // The time left on the wall clock, as a person there reads it.
+    const soon = left !== undefined && left <= CLOSING_SOON_MS;
+    return soon ? { kind: "open", closesAt: next, closingSoon: true } : { kind: "open", closesAt: next };
   }
   if (next !== undefined) {
     return afterADay ? { kind: "closed", opensAt: next, opensAfterADay: true } : { kind: "closed", opensAt: next };
@@ -309,10 +322,11 @@ function formatTime(at: Date, twelveHour: boolean, withWeekday: boolean): string
 
 /**
  * The line a card or the place page shows for a state: "Open until 11 pm", "Closed · opens 7 am",
- * "Hours not listed", or the hours as written when they cannot be read. The time follows the
- * locale's 12- or 24-hour clock. `where` matters for an open place, and on the desktop's place page
- * for a closed one: the page says "Open now · closes 11 pm"; `placeInline`, inside the desktop's
- * line that dots join already, says "Open now, closes 11 pm" and "Closed, opens 7 am".
+ * "Closing soon · 11 pm" within 45 minutes of closing (`closingSoon`), "Hours not listed", or the hours
+ * as written when they cannot be read. The time follows the locale's 12- or 24-hour clock. `where`
+ * matters for an open place, and on the desktop's place page for a closed one or one closing soon: the
+ * page says "Open now · closes 11 pm"; `placeInline`, inside the desktop's line that dots join already,
+ * says "Open now, closes 11 pm", "Closed, opens 7 am" and "Closing soon, 11 pm".
  */
 export function openLine(state: OpenState, locale: string, where: "card" | "place" | "placeInline"): string {
   switch (state.kind) {
@@ -323,6 +337,7 @@ export function openLine(state: OpenState, locale: string, where: "card" | "plac
     case "open": {
       if (state.closesAt === undefined) return copy.hours.open24;
       const time = formatTime(state.closesAt, usesTwelveHour(locale), state.closesAfterADay === true);
+      if (state.closingSoon === true) return where === "placeInline" ? copy.hours.closingSoonInline(time) : copy.hours.closingSoon(time);
       if (where === "card") return copy.hours.openUntil(time);
       return where === "place" ? copy.hours.openNowCloses(time) : copy.hours.openNowClosesInline(time);
     }

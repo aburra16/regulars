@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { deviceTimeZone, guessTown, languageCountry, startGuesser, unpackZones, zonePoint } from "../src/location/guess";
+import { guessTown, languageCountry, startGuesser } from "../src/location/guess";
+import { deviceTimeZone, unpackZones, zoneCountry, zonePoint } from "../src/location/timeZone";
 import { TZDATA_VERSION, ZONE_POINTS } from "../src/location/zones";
 import type { City } from "../src/places/indexes";
 import { pack, pointsOf } from "../tools/zone-points";
+import { realResolvedOptions, zoneIs } from "./support/zone";
 
 const town = (name: string, country: string, lat: number, lon: number, count: number): City => ({ name, country, lat, lon, count });
 
@@ -18,17 +20,6 @@ const bangkok = town("Bangkok", "TH", 13.7563, 100.5018, 30);
 const kolkata = town("Kolkata", "IN", 22.5726, 88.3639, 12);
 const minato = town("Minato", "JP", 35.6581, 139.7516, 3);
 const towns = [lisbon, miami, porto, newYork, chiangMai, funchal, bangkok, kolkata];
-
-// The real `resolvedOptions`, taken once, before any test stands in for it: a test that sets the
-// zone twice wraps this, not its own stand-in, which would call itself until the stack ran out.
-const realResolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
-
-/** The device's time zone, as `Intl` says it; everything else `Intl` says is as it is. */
-function zoneIs(zone: string | undefined) {
-  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockImplementation(function (this: Intl.DateTimeFormat) {
-    return { ...realResolvedOptions.call(this), timeZone: zone as string };
-  });
-}
 
 /** The browser's language, as `navigator.language` says it. */
 function languageIs(tag: string) {
@@ -71,6 +62,29 @@ describe("zonePoint", () => {
       expect(zonePoint(zone)).toBeUndefined();
     },
   );
+});
+
+describe("zoneCountry", () => {
+  it.each<[string, string]>([
+    ["America/New_York", "US"],
+    ["America/Anchorage", "US"],
+    ["Pacific/Honolulu", "US"],
+    // The territories, as zone.tab gives them: each its own country.
+    ["America/Puerto_Rico", "PR"],
+    ["Pacific/Guam", "GU"],
+    ["Europe/London", "GB"],
+    ["Europe/Jersey", "JE"],
+    ["Europe/Prague", "CZ"],
+    ["Africa/Monrovia", "LR"],
+    ["Asia/Yangon", "MM"],
+    ["Atlantic/Madeira", "PT"],
+  ])("is zone.tab's country for %s: %s", (zone, country) => {
+    expect(zoneCountry(zone)).toBe(country);
+  });
+
+  it.each([["Etc/UTC"], ["Etc/GMT+5"], ["UTC"], ["Mars/Olympus"], [""], [undefined]])("is undefined for %s, which is in no country", (zone) => {
+    expect(zoneCountry(zone)).toBeUndefined();
+  });
 });
 
 describe("guessTown", () => {
@@ -302,7 +316,7 @@ describe("the zones' points", () => {
     expect(ZONE_POINTS.length).toBeLessThan(10_000);
   });
 
-  it("are read from zone.tab and zone1970.tab lines, both ways of writing a point", () => {
+  it("are read from zone.tab and zone1970.tab lines, both ways of writing a point, with the zone's country when it has one", () => {
     const text = [
       "# A comment",
       "PT\t+3843-00908\tEurope/Lisbon\tPortugal (mainland)",
@@ -315,12 +329,21 @@ describe("the zones' points", () => {
     expect([...points.keys()]).toEqual(["Europe/Lisbon", "America/New_York", "Europe/Brussels", "America/Argentina/Buenos_Aires"]);
     expect(points.get("Europe/Lisbon")![0]).toBeCloseTo(38 + 43 / 60, 6);
     expect(points.get("America/New_York")![1]).toBeCloseTo(-(74 + 0 / 60 + 23 / 3600), 6);
+    expect(points.get("Europe/Lisbon")![2]).toBe("PT");
+    // A zone zone1970.tab gives several countries is no one country's.
+    expect(points.get("Europe/Brussels")![2]).toBeUndefined();
 
-    // Packed, then read back as the app reads it: to a tenth of a degree.
+    // Packed, then read back as the app reads it: to a tenth of a degree, and the country.
     const unpacked = unpackZones(pack(points));
-    expect(unpacked.get("Europe/Lisbon")).toEqual([38.7, -9.1]);
-    expect(unpacked.get("America/New_York")).toEqual([40.7, -74]);
-    expect(unpacked.get("America/Argentina/Buenos_Aires")).toEqual([-34.6, -58.4]);
+    expect(unpacked.get("Europe/Lisbon")).toEqual([38.7, -9.1, "PT"]);
+    expect(unpacked.get("America/New_York")).toEqual([40.7, -74, "US"]);
+    expect(unpacked.get("America/Argentina/Buenos_Aires")).toEqual([-34.6, -58.4, "AR"]);
+    expect(unpacked.get("Europe/Brussels")).toEqual([50.8, 4.3]);
+  });
+
+  it("give every zone of zone.tab its country", () => {
+    const points = unpackZones(ZONE_POINTS);
+    expect([...points.values()].filter(([, , country]) => country === undefined)).toEqual([]);
   });
 
   it("throw on a line that is not a zone", () => {

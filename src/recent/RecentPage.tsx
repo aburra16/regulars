@@ -113,11 +113,13 @@ const RecentItem = memo(function RecentItem({
 });
 
 /**
- * Recent (Avi, 2026-10-08): the newest reviews of places everywhere, from the people who count in the
- * view on screen, as they count in its scores, newest first. A heading, the House picks / My circle
- * toggle (on a phone, under the heading, with Personalize under it, as Explore has them; on a desktop,
- * the top bar's), one quiet line saying whose reviews these are, and the list, each review a link to
- * its place. No number about a person, and no order but time (decision 19).
+ * Trending (Avi, 2026-10-08; decision 31), at `/trending`: the newest reviews of places everywhere, from
+ * the people who count in the view on screen, as they count in its ratings, newest first. It was called
+ * Recent, which the code keeps; it is to rank places by recent activity once there are enough reviews
+ * (decision 31). A heading, the House picks / My circle toggle (on a phone, under the heading, with
+ * Personalize under it, as Explore has them; on a desktop, the top bar's), one quiet line saying what
+ * the list is and whose reviews these are, and the list, each review a link to its place. No number
+ * about a person, and no order but time (decision 19).
  *
  * The list is the session's (`useRecent`): Back from a place finds it as it was, scrolled where it was.
  * Where the reading stands is said in a polite status above the list: the loading line, or that the

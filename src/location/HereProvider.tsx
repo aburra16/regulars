@@ -52,13 +52,23 @@ function firstState(): State {
  * else the one with the most places in the language's country (`guess.ts`), once the places have
  * loaded; and with none of those, the default city. The device's own position is held in memory
  * only. A city kept before the towns of GeoNames, by its places' locality ("Praha"), is the town it is
- * now ("Prague") once the towns load, and the device keeps that (`keptTownNow`). Use it inside a
- * `PlacesProvider`, whose towns it guesses from and names the picked city from.
+ * now ("Prague") once the towns load, and the device keeps that (`keptTownNow`). While Explore's list
+ * on a desktop is of an area searched on the map, the "Near …" control names that area (`nameArea`),
+ * until the person chooses where again, a town or their location, the same one included. Use it
+ * inside a `PlacesProvider`, whose towns it guesses from and names the picked city from.
  */
 export function HereProvider({ children }: { children: ReactNode }): JSX.Element {
   const cities = useIndexes()?.cities;
   const [state, setState] = useState<State>(firstState);
   const [guess] = useState(startGuesser);
+  // What the "Near …" control calls an area searched on the map, and how many choices of where there
+  // have been: each pick, and each answer of the device, is a new one, which leaves the area.
+  const [area, nameArea] = useState<string>();
+  const [choices, setChoices] = useState(0);
+  const chose = useCallback(() => {
+    setChoices((n) => n + 1);
+    nameArea(undefined);
+  }, []);
 
   // Each ask for the device and each pick takes a number. An answer is for the latest only, so
   // a position that comes after the person picked a city, or after the page went, is dropped.
@@ -83,7 +93,8 @@ export function HereProvider({ children }: { children: ReactNode }): JSX.Element
     const city = savedCityOf(picked);
     writeSavedCity(city);
     setState({ choice: { source: "city", city } });
-  }, [stopWaiting]);
+    chose();
+  }, [stopWaiting, chose]);
 
   /**
    * Asks the browser for the device's location. `quiet`: the ask on load, which the person did
@@ -115,6 +126,7 @@ export function HereProvider({ children }: { children: ReactNode }): JSX.Element
           if (!isPlaceOnEarth(coords.latitude, coords.longitude)) return fail("unavailable");
           stopWaiting();
           setState({ choice: { source: "device", lat: coords.latitude, lon: coords.longitude } });
+          chose();
         },
         (error) => fail(error.code === PERMISSION_DENIED ? "denied" : "unavailable"),
         quiet ? QUIET_DEVICE_OPTIONS : DEVICE_OPTIONS,
@@ -123,7 +135,7 @@ export function HereProvider({ children }: { children: ReactNode }): JSX.Element
       // A browser that refuses to look: the same as one that cannot find the person.
       fail("unavailable");
     }
-  }, [stopWaiting]);
+  }, [stopWaiting, chose]);
 
   const useDevice = useCallback(() => ask(false), [ask]);
 
@@ -174,10 +186,13 @@ export function HereProvider({ children }: { children: ReactNode }): JSX.Element
       pending: pending === true,
       ...(problem === "denied" && { denied: true }),
       ...(problem === "unavailable" && { unavailable: true }),
+      ...(area !== undefined && { area }),
+      choices,
       useDevice,
       pickCity,
+      nameArea,
     };
-  }, [state, cities, keptNow, town, useDevice, pickCity]);
+  }, [state, cities, keptNow, town, area, choices, useDevice, pickCity]);
 
   return <HereContext value={value}>{children}</HereContext>;
 }

@@ -201,13 +201,13 @@ const PLACES = [
 const FLOATING = PLACES.slice(1);
 /**
  * Every toggle with My circle's half: the phone's Explore, the desktop's top bar, the phone's map, the
- * Why page (on a desktop, beside the top bar's) and the phone's Recent (on a desktop, the top bar's).
+ * Why page (on a desktop, beside the top bar's) and the phone's Trending (on a desktop, the top bar's).
  */
 const TOGGLES = [
   ...PLACES,
   ["the phone's Why page", WHY_PATH, undefined],
   ["the desktop's Why page", WHY_PATH, DESKTOP],
-  ["the phone's Recent", "/recent", undefined],
+  ["the phone's Trending", "/trending", undefined],
 ] as const;
 /** The page at `path`, as wide as `px` (a phone's when undefined). */
 const openAt = (path: string, px: number | undefined) => openApp(path, { events: fixtures, readers, ...(px === undefined ? {} : { px }) });
@@ -292,15 +292,15 @@ describe("the copy", () => {
   it("says what personalizing does beside the button (decision 26), and the states in plain words", () => {
     expect(copy.circle.personalize).toBe("Personalize");
     expect(copy.circle.consent).toBe(
-      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle's scores are public.",
+      "Personalizing asks Brainstorm, our scoring partner, to build your circle. It sets up a public scoring profile for you, and your circle is public.",
     );
-    expect(copy.circle.workingTitle).toBe("Working out your circle");
-    // The bar's two short lines (Avi, 2026-10-09): "Working out your circle. This takes a few minutes."
+    expect(copy.circle.workingTitle).toBe("Building your circle");
+    // The bar's two short lines (Avi, 2026-10-09): "Building your circle. This takes a few minutes."
     expect(copy.circle.workingBody).toBe("This takes a few minutes.");
-    expect(copy.view.circleWorking).toBe("My circle, being worked out");
+    expect(copy.view.circleWorking).toBe("My circle, being built");
     expect(copy.circle.closeBar).toBe("Close this message");
     expect(copy.circle.ready).toBe("Your circle is ready.");
-    expect(copy.circle.recently).toBe("Your circle was updated recently. We'll use that.");
+    expect(copy.circle.recently).toBe("Your circle was updated recently, so we're using that.");
     expect(copy.circle.busy).toBe("Brainstorm is busy right now. Try again in a little while.");
     expect(copy.circle.unavailable).toBe("My circle isn't available right now.");
     expect(copy.circle.notNow).toBe("Not now");
@@ -930,7 +930,7 @@ describe("the bar at the foot of the screen (Avi, 2026-10-09)", () => {
     expect(region).toHaveTextContent(WORKING);
     await after(BAR_MS);
     await waitFor(() => expect(region).toBeEmptyDOMElement());
-    for (const path of ["/recent", "/", WHY_PATH, "/map"]) {
+    for (const path of ["/trending", "/", WHY_PATH, "/map"]) {
       await act(() => router.navigate(path));
       expect(barRegion()).toBeEmptyDOMElement();
     }

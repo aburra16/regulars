@@ -26,7 +26,10 @@ export interface PlaceRowProps {
    * elsewhere, where a distance across an ocean says nothing. Default: the distance.
    */
   where?: string;
-  /** The browser's language: it decides miles or kilometres, and the 12- or 24-hour clock. */
+  /**
+   * The browser's language: it decides the 12- or 24-hour clock, how numbers are written, and miles or
+   * kilometres where the device's time zone does not (`readsMiles`).
+   */
   locale: string;
   now: Date;
   /** The place's score from the view on screen (`ShownScore`). Default: none, "No reviews yet". */
@@ -35,7 +38,7 @@ export interface PlaceRowProps {
 
 /**
  * What goes at the top right of a row, where a score goes (Search.dc.html, Chain.dc.html): the
- * score; "No score yet" for a place with reviews and no score; "No reviews yet" for one nobody has;
+ * score; "No rating yet" for a place with reviews and no score; "No reviews yet" for one nobody has;
  * nothing while its reviews are being read or counted, when they couldn't be loaded, or when House
  * picks can't be worked out, which the line under it says.
  */

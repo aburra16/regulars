@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { formatInteger, LOCALE_FALLBACK, safeLocale } from "../src/locale";
-import { formatDistance, usesMiles } from "../src/places/distance";
+import { formatDistance, milesFor, readsMiles, usesMiles } from "../src/places/distance";
+import { withinChoices } from "../src/search/filters";
+import { zoneIs } from "./support/zone";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("safeLocale", () => {
   it.each([
@@ -87,5 +93,88 @@ describe("a distance as far as a person can go", () => {
   it("writes the decimals in Latin digits, as every number the app writes, with the marks that go with them", () => {
     expect(formatDistance(1.5, "ar-EG")).toBe("1.5 km");
     expect(formatDistance(3494.4, "ar-EG")).toBe("3,494 km");
+  });
+});
+
+describe("the unit, from where the device is (Avi, 2026-10-09)", () => {
+  it.each<[string, string]>([
+    // The United States, Alaska and Hawaii, and the territories, each its own country in zone.tab.
+    ["America/New_York", "pt-BR"],
+    ["America/Los_Angeles", "es-MX"],
+    ["America/Anchorage", "en-GB"],
+    ["Pacific/Honolulu", "ja-JP"],
+    ["America/Puerto_Rico", "es-PR"],
+    ["America/St_Thomas", "en-VI"],
+    ["Pacific/Guam", "en-GU"],
+    ["Pacific/Saipan", "en-MP"],
+    ["Pacific/Pago_Pago", "en-AS"],
+    ["Pacific/Midway", "en-UM"],
+    // The United Kingdom, and the Crown dependencies, each its own country in zone.tab.
+    ["Europe/London", "en-GB"],
+    ["Europe/Jersey", "en-GB"],
+    ["Europe/Guernsey", "en-GB"],
+    ["Europe/Isle_of_Man", "en-GB"],
+    // Liberia and Myanmar.
+    ["Africa/Monrovia", "en-LR"],
+    ["Asia/Yangon", "my-MM"],
+  ])("is miles on a device in %s, whatever its language (%s)", (zone, locale) => {
+    expect(milesFor(zone, locale)).toBe(true);
+  });
+
+  it.each<[string, string]>([
+    ["Europe/Prague", "en-US"],
+    ["Europe/Lisbon", "en-US"],
+    ["Atlantic/Madeira", "en"],
+    ["America/Toronto", "en-US"],
+    ["Asia/Tokyo", "en-US"],
+    // Ireland, beside the United Kingdom, reads kilometres.
+    ["Europe/Dublin", "en-GB"],
+  ])("is kilometres on a device in %s, even in %s", (zone, locale) => {
+    expect(milesFor(zone, locale)).toBe(false);
+  });
+
+  it.each<[string | undefined, string, boolean]>([
+    ["Etc/UTC", "en-US", true],
+    ["UTC", "en-US", true],
+    ["Mars/Olympus", "my-MM", true],
+    [undefined, "en", true],
+    ["Etc/UTC", "pt-PT", false],
+    [undefined, "en-GB", false],
+  ])("is the language's on a device whose zone is no country's (%s, %s)", (zone, locale, miles) => {
+    expect(milesFor(zone, locale)).toBe(miles);
+    expect(usesMiles(locale)).toBe(miles);
+  });
+
+  it("follows the device's own zone: miles in New York, kilometres in Prague in American English, miles in London", () => {
+    zoneIs("America/New_York");
+    expect(readsMiles("pt-BR")).toBe(true);
+    expect(formatDistance(1.609344, "pt-BR")).toBe("1,0 mi");
+    zoneIs("Europe/Prague");
+    expect(readsMiles("en-US")).toBe(false);
+    expect(formatDistance(1.609344, "en-US")).toBe("1.6 km");
+    zoneIs("Europe/London");
+    expect(readsMiles("en-GB")).toBe(true);
+    expect(formatDistance(1.609344, "en-GB")).toBe("1.0 mi");
+  });
+
+  it("reads an old name for a zone as the zone: Asia/Rangoon is Myanmar's", () => {
+    zoneIs("Asia/Rangoon");
+    expect(formatDistance(1.609344, "en")).toBe("1.0 mi");
+  });
+
+  it("falls back to the language when the device names no zone, or one in no country", () => {
+    zoneIs(undefined);
+    expect(formatDistance(1.609344, "en-US")).toBe("1.0 mi");
+    expect(formatDistance(1.609344, "pt-PT")).toBe("1,6 km");
+    zoneIs("Etc/UTC");
+    expect(formatDistance(1.609344, "en-US")).toBe("1.0 mi");
+    expect(formatDistance(1.609344, "de-DE")).toBe("1,6 km");
+  });
+
+  it("decides the choices of distance to limit a search to: kilometres in Prague, miles in Chicago", () => {
+    zoneIs("Europe/Prague");
+    expect(withinChoices("en-US").map((choice) => choice.label)).toEqual(["1 km", "2 km", "5 km", "10 km", "25 km"]);
+    zoneIs("America/Chicago");
+    expect(withinChoices("de-DE").map((choice) => choice.label)).toEqual(["0.5 mi", "1 mi", "3 mi", "5 mi", "15 mi"]);
   });
 });

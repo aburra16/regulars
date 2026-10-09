@@ -131,9 +131,7 @@ describe("the review form (Review.dc.html, DeskReview.dc.html)", () => {
     expect(copy.review.textLabel).toBe("What should a friend know?");
     expect(text).toHaveValue("");
     expect(screen.getByText(copy.review.notice)).toBeInTheDocument();
-    expect(copy.review.notice).toBe(
-      "Reviews are public and carry your name. One review per place: posting again replaces this one. You can remove it later.",
-    );
+    expect(copy.review.notice).toBe("Reviews are public and carry your name. Posting again replaces your review; you can remove it later.");
 
     // Off until a star is chosen: pressing it does nothing.
     const post = postButton();
@@ -247,7 +245,7 @@ describe("posting a review", () => {
     expect(await reviewWords("Get the bolo")).toBeInTheDocument();
   });
 
-  it("says it is saved to the person's own places but not to Regulars when only their own relay takes it, and holds nothing (R13)", async () => {
+  it("says it is saved to the person's account but not to Regulars when only their own relay takes it, and holds nothing (R13)", async () => {
     const world = newWorld();
     const me = signedIn(world);
     world.directory.push(listOf(me.pubkey, [OWN]));
@@ -263,7 +261,7 @@ describe("posting a review", () => {
     await user.click(postButton());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.notOnRegulars);
-    expect(copy.review.notOnRegulars).toBe("Saved to your own places, but not to Regulars yet. Try again.");
+    expect(copy.review.notOnRegulars).toBe("Saved to your account, but not to Regulars yet. Try again.");
     expect(sentTo(world, SEARCH)).toHaveLength(1);
     expect(sentTo(world, OWN)).toHaveLength(1);
     expect(router.state.location.pathname).toBe(REVIEW_PATH);

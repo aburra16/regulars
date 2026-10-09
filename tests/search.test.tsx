@@ -42,6 +42,7 @@ import raw from "./fixtures/funchal-items.json";
 import { FakeMap } from "./support/fakeMaplibre";
 import { createMemoryReader } from "./support/memoryReader";
 import { appTowns } from "./support/towns";
+import { zoneIs } from "./support/zone";
 
 const fixtures: NostrEvent[] = raw;
 const fixturePlaces = parsePlaces(fixtures);
@@ -567,7 +568,8 @@ describe("a place row", () => {
     const kind = `${placeKindLabel("cafe", "coffee_shop")} · 0.2 mi · Closed · opens 9:30 am`;
     expect(link).toHaveAccessibleDescription(`${kind} ${copy.score.noReviewsYet}`);
     // The word that says whether it is open is bold.
-    expect(within(link).getByText("Closed")).toHaveClass("font-bold", "text-ink");
+    // Closed, in bold and in red (Avi, 2026-10-09; tests/hoursColour.test.tsx).
+    expect(within(link).getByText("Closed")).toHaveClass("font-bold", "text-accent");
     expect(link.textContent).toContain("Coffee shop · 0.2 mi · Closed · opens 9:30 am");
   });
 
@@ -636,7 +638,7 @@ describe("a chain row", () => {
     expect(link).toHaveTextContent(copy.explore.chainKind(kind, 2));
     // Both are closed at 08:45.
     expect(link).toHaveTextContent(copy.search.chainNearbyOpen(2, 0));
-    expect(copy.search.chainNearbyOpen(2, 0)).toBe("2 near you, none open now");
+    expect(copy.search.chainNearbyOpen(2, 0)).toBe("2 nearby, none open now");
   });
 
   it("has no tint or edge of its own: it is a row", () => {
@@ -651,7 +653,8 @@ describe("a chain row", () => {
     renderChain(new Date("2026-10-07T14:00:00Z"));
     const openNow = nearby.filter((each) => openState(each.place, new Date("2026-10-07T14:00:00Z")).kind === "open").length;
     expect(screen.getByRole("link")).toHaveTextContent(copy.search.chainNearbyOpen(2, openNow));
-    expect(copy.search.chainNearbyOpen(3, 2)).toBe("3 near you, 2 open now");
+    expect(copy.search.chainNearbyOpen(3, 2)).toBe("3 nearby, 2 open now");
+    expect(copy.search.chainNearbyOpen(12, 3)).toBe("12 nearby, 3 open now");
   });
 });
 
@@ -690,7 +693,7 @@ describe("Search on a phone: the top of the page", () => {
   it("puts the cursor in the field when the person comes from Explore, to type", async () => {
     const user = userEvent.setup();
     open(["/"], fixtures);
-    await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a place name/ }));
+    await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a restaurant name/ }));
     expect(field()).toHaveFocus();
   });
 
@@ -735,7 +738,7 @@ describe("Search: the way back", () => {
   describe("to the Explore the person left", () => {
     const exploreChip = (name: string) =>
       within(screen.getByRole("group", { name: copy.explore.filtersLabel })).getByRole("button", { name });
-    const searchLink = () => screen.findByRole("link", { name: /Tacos, coffee, a place name/ });
+    const searchLink = () => screen.findByRole("link", { name: /Tacos, coffee, a restaurant name/ });
     const atExplore = async () => {
       const opened = openInBrowser("/");
       await screen.findByRole("heading", { level: 1, name: copy.pages.explore });
@@ -1316,12 +1319,12 @@ describe("Search: the filters that are on", () => {
       variant(nameOnly, { d: "tide-3", name: "Tide Pool Bar", lat: "32.653", lon: "-16.91", ...hours("Mo-Su 12:00-23:00") }),
     ];
     const view = await openSearch("/search?q=tide", events);
-    expect(rowFor("Tide Pool Bar")).toHaveTextContent("3 near you, 2 open now");
+    expect(rowFor("Tide Pool Bar")).toHaveTextContent("3 nearby, 2 open now");
     expect(rowFor("Tide Pool Bar")).toHaveTextContent("3 locations");
     view.unmount();
 
     await openSearch("/search?q=tide&open=1", events);
-    expect(rowFor("Tide Pool Bar")).toHaveTextContent("2 near you, 2 open now");
+    expect(rowFor("Tide Pool Bar")).toHaveTextContent("2 nearby, 2 open now");
     expect(rowFor("Tide Pool Bar")).toHaveTextContent("3 locations");
   });
 
@@ -1613,8 +1616,10 @@ describe("Search: the link to add a place", () => {
       lon: Number.NaN,
       source: "default",
       pending: false,
+      choices: 0,
       useDevice: () => {},
       pickCity: () => {},
+      nameArea: () => {},
     };
     const router = createMemoryRouter([{ path: "/search", element: <SearchPage /> }], { initialEntries: ["/search?q=pizza"] });
     render(
@@ -1890,11 +1895,11 @@ describe("Filters", () => {
   });
 
   describe("sort", () => {
-    it("offers House picks' score, which needs no sign in, Distance and Name", async () => {
+    it("offers House picks' rating, which needs no sign in, Distance and Name", async () => {
       await openFilters();
       const sort = groupNamed(copy.filters.sortBy);
       const buttons = within(sort).getAllByRole("button");
-      expect(buttons.map((button) => button.textContent)).toEqual(["House picks' score", "Distance", "Name"]);
+      expect(buttons.map((button) => button.textContent)).toEqual(["House picks' rating", "Distance", "Name"]);
       expect(buttons[0]).toBeEnabled();
       expect(buttons[0]).not.toHaveAccessibleDescription();
     });
@@ -1961,9 +1966,9 @@ describe("Filters", () => {
       expect(pressedSorts()).toEqual([pressed]);
     });
 
-    it("has House picks' score pressed for an address that asks for it", async () => {
+    it("has House picks' rating pressed for an address that asks for it", async () => {
       await openFilters("/filters?sort=score");
-      expect(pressedSorts()).toEqual(["House picks' score"]);
+      expect(pressedSorts()).toEqual(["House picks' rating"]);
     });
 
     it("goes to the results with no sort in the address when none is pressed, and with the one that is", async () => {
@@ -1996,7 +2001,7 @@ describe("Filters", () => {
       const toggle = screen.getByRole("switch", { name: "Open now" });
       expect(toggle).toHaveAttribute("aria-checked", "false");
       expect(toggle).toHaveAccessibleDescription(copy.filters.openNowNote);
-      expect(screen.getByText("Keeps places with no hours listed.")).toBeInTheDocument();
+      expect(screen.getByText("Places with no hours listed stay in.")).toBeInTheDocument();
     });
 
     it("turns on and off, and is 44 px tall to touch", async () => {
@@ -2032,6 +2037,21 @@ describe("Filters", () => {
       const buttons = within(groupNamed(copy.filters.distance)).getAllByRole("button");
       expect(buttons.map((button) => button.textContent)).toEqual(["1 km", "2 km", "5 km", "10 km", "25 km"]);
       expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "false", "true"]);
+    });
+
+    it("offers kilometres on a device in Prague, though its language is American English, and miles on one in London", async () => {
+      zoneIs("Europe/Prague");
+      const prague = await openFilters();
+      const kilometres = within(groupNamed(copy.filters.distance)).getAllByRole("button");
+      expect(kilometres.map((button) => button.textContent)).toEqual(["1 km", "2 km", "5 km", "10 km", "25 km"]);
+      expect(kilometres.at(-1)).toHaveAttribute("aria-pressed", "true");
+      prague.unmount();
+
+      zoneIs("Europe/London");
+      vi.spyOn(navigator, "language", "get").mockReturnValue("en-GB");
+      await openFilters();
+      const miles = within(groupNamed(copy.filters.distance)).getAllByRole("button");
+      expect(miles.map((button) => button.textContent)).toEqual(["0.5 mi", "1 mi", "3 mi", "5 mi", "15 mi"]);
     });
 
     it("presses the one the person taps, and the address's own when it has one", async () => {
@@ -2258,7 +2278,7 @@ describe("Filters", () => {
     it("does put it there when the person comes to search from Explore, as before", async () => {
       const user = userEvent.setup();
       open(["/"], fixtures);
-      await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a place name/ }));
+      await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a restaurant name/ }));
       expect(field()).toHaveFocus();
     });
 

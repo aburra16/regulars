@@ -4,7 +4,7 @@ import { copy } from "../copy/en.ts";
 
 /**
  * Words for a screen reader alone, after a link's own: a space, then them. The space is a text node
- * of its own, outside the hidden words, so the link's name reads "Site motya.pt", not "Sitemotya.pt".
+ * of its own, outside the hidden words, so the link's name reads "Website motya.pt", not "Websitemotya.pt".
  */
 export function Unseen({ text }: { text: string }): JSX.Element {
   return (

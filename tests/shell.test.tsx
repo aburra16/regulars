@@ -6,6 +6,7 @@ import { act, cleanup, render, renderHook, screen, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { createMemoryRouter, type RouteObject, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,6 +25,7 @@ import { useDocumentTitle } from "../src/shell/useDocumentTitle";
 import { useWide, WIDE_QUERY } from "../src/shell/useWide";
 import { Attribution } from "../src/ui/Attribution";
 import { HouseName } from "../src/ui/HouseName";
+import { TrendingIcon } from "../src/ui/icons";
 import { KindTile } from "../src/ui/KindTile";
 import { Stars } from "../src/ui/Stars";
 import { ViewToggle } from "../src/ui/ViewToggle";
@@ -202,11 +204,11 @@ describe("useWide", () => {
 });
 
 describe("the layout, by width", () => {
-  it("at 390 px shows the tabs Explore, Map, Recent and You, and no top bar", () => {
+  it("at 390 px shows the tabs Explore, Map, Trending and You, and no top bar", () => {
     renderApp("/", { width: PHONE });
     const tabs = within(tabBar()!).getAllByRole("link");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Recent", "You"]);
-    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/recent", "/you"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Trending", "You"]);
+    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/trending", "/you"]);
     // Each takes an equal share of the bar.
     for (const tab of tabs) expect(tab).toHaveClass("flex-1");
     expect(within(tabBar()!).getByRole("link", { name: "Explore" })).toHaveAttribute("aria-current", "page");
@@ -225,10 +227,10 @@ describe("the layout, by width", () => {
     expect(within(top).getByRole("button", { name: "Near Funchal" })).toBeInTheDocument();
   });
 
-  it("at 390 px shows the tabs on Map, Recent and You, marking the page that is open", () => {
+  it("at 390 px shows the tabs on Map, Trending and You, marking the page that is open", () => {
     for (const [path, tab] of [
       ["/map", "Map"],
-      ["/recent", "Recent"],
+      ["/trending", "Trending"],
       ["/you", "You"],
     ] as const) {
       const { unmount } = renderApp(path, { width: PHONE });
@@ -267,7 +269,7 @@ describe("the layout, by width", () => {
   });
 
   it("at 1360 px shows the one top bar on every page but sign in, and never the tabs", () => {
-    for (const path of ["/map", "/recent", "/search?q=tea", "/place/osm-node-1", "/chain/abc", "/about", "/saved", "/you"]) {
+    for (const path of ["/map", "/trending", "/search?q=tea", "/place/osm-node-1", "/chain/abc", "/about", "/saved", "/you"]) {
       const { unmount } = renderApp(path, { width: DESKTOP });
       expect(topBarSearch()).toBeInTheDocument();
       expect(toggle()).toBeInTheDocument();
@@ -287,19 +289,19 @@ describe("the layout, by width", () => {
       expect(screen.getByText(copy.saved.signedOut)).toBeInTheDocument();
       // On a phone the tabs are there, with none of them the page that is open.
       if (width === PHONE) {
-        expect(within(tabBar()!).getAllByRole("link").map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Recent", "You"]);
+        expect(within(tabBar()!).getAllByRole("link").map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Trending", "You"]);
         expect(within(tabBar()!).queryByRole("link", { current: "page" })).not.toBeInTheDocument();
       }
       unmount();
     }
   });
 
-  it("puts Saved back, between Recent and You and left of the account, once saved lists open", () => {
+  it("puts Saved back, between Trending and You and left of the account, once saved lists open", () => {
     config.features.saved = true;
     const phone = renderApp("/saved", { width: PHONE });
     const tabs = within(tabBar()!).getAllByRole("link");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Recent", "Saved", "You"]);
-    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/recent", "/saved", "/you"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Trending", "Saved", "You"]);
+    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/trending", "/saved", "/you"]);
     expect(within(tabBar()!).getByRole("link", { name: "Saved" })).toHaveAttribute("aria-current", "page");
     phone.unmount();
 
@@ -310,10 +312,54 @@ describe("the layout, by width", () => {
     expect(saved).toHaveAttribute("aria-current", "page");
     const account = within(bar).getByRole("link", { name: copy.nav.signIn });
     expect(saved.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // After Recent, the other page the top bar links to, in the top bar's navigation of pages.
-    const recent = within(bar).getByRole("link", { name: copy.nav.recent });
-    expect(recent.compareDocumentPosition(saved) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // After Trending, the other page the top bar links to, in the top bar's navigation of pages.
+    const trending = within(bar).getByRole("link", { name: copy.nav.recent });
+    expect(trending.compareDocumentPosition(saved) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(bar).getByRole("navigation", { name: copy.nav.pages })).toContainElement(saved);
+  });
+
+  it("draws a rising arrow for Trending (decision 31): on the phone's tab, and just before the word in the desktop's link", () => {
+    const phone = renderApp("/", { width: PHONE });
+    const tab = within(tabBar()!).getByRole("link", { name: "Trending" });
+    expect(tab.querySelector("svg")!.outerHTML).toBe(renderToStaticMarkup(<TrendingIcon size={22} />));
+    phone.unmount();
+
+    renderApp("/", { width: DESKTOP });
+    const link = within(screen.getByRole("navigation", { name: copy.nav.pages })).getByRole("link", { name: "Trending" });
+    expect(link).toHaveAttribute("href", "/trending");
+    // The icon first, then the word; the icon is for the eye only, in the link's own colour.
+    const icon = link.firstElementChild!;
+    expect(icon.outerHTML).toBe(renderToStaticMarkup(<TrendingIcon size={18} />));
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+    expect(icon).toHaveAttribute("stroke", "currentColor");
+    expect(link).toHaveTextContent(/^Trending$/);
+  });
+
+  it("draws the trending-up arrow as a line icon: a rising zig-zag, and an arrowhead at its top right", () => {
+    const svg = new DOMParser().parseFromString(renderToStaticMarkup(<TrendingIcon size={22} />), "image/svg+xml").documentElement;
+    expect(svg.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(svg.getAttribute("fill")).toBe("none");
+    // No clock face: the clock was Recent's.
+    expect(svg.querySelector("circle")).toBeNull();
+    const [line, head] = [...svg.querySelectorAll("polyline")].map((each) =>
+      each.getAttribute("points")!.split(" ").map((point) => point.split(",").map(Number) as [number, number]),
+    );
+    // The line rises from the bottom left to the top right (y grows downward), with at least one dip on the way.
+    expect(line!.length).toBeGreaterThanOrEqual(4);
+    expect(line!.at(-1)![0]).toBeGreaterThan(line![0]![0]);
+    expect(line!.at(-1)![1]).toBeLessThan(line![0]![1]);
+    expect(line!.some(([, y], i) => i > 0 && y > line![i - 1]![1])).toBe(true);
+    // The arrowhead's corner is where the line ends.
+    expect(head).toHaveLength(3);
+    expect(head![1]).toEqual(line!.at(-1));
+  });
+
+  it("takes an old link to Recent to Trending, in place of it in the history", async () => {
+    const { router } = renderApp("/recent", { width: PHONE });
+    expect(await screen.findByRole("heading", { level: 1, name: "Trending" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/trending");
+    expect(router.state.historyAction).toBe("REPLACE");
+    expect(within(tabBar()!).getByRole("link", { name: "Trending" })).toHaveAttribute("aria-current", "page");
   });
 
   it("switches between the two as the window is resized", () => {
@@ -485,8 +531,8 @@ describe("ViewToggle", () => {
     expect(half.querySelector("svg")).toBeNull();
   });
 
-  it("hints 'Working out your circle' over My circle's half while the circle is worked out, on every look, its name as it was", () => {
-    expect(copy.circle.workingTitle).toBe("Working out your circle");
+  it("hints 'Building your circle' over My circle's half while the circle is built, on every look, its name as it was", () => {
+    expect(copy.circle.workingTitle).toBe("Building your circle");
     for (const variant of ["bar", "compact", "panel", "map"] as const) {
       const { unmount } = render(<ViewToggle value="house" onChange={() => {}} variant={variant} circleStatus="working" />);
       const half = within(toggle()).getByRole("button", { name: copy.view.circleWorking });
@@ -1033,8 +1079,8 @@ describe("HouseName", () => {
   });
 
   it("draws a text that does not name the house as it is, with no badge", () => {
-    const { container } = render(<HouseName text="Scores from the people you trust." size="body" />);
-    expect(container.innerHTML).toBe("Scores from the people you trust.");
+    const { container } = render(<HouseName text="Ratings from the people you trust." size="body" />);
+    expect(container.innerHTML).toBe("Ratings from the people you trust.");
   });
 });
 
@@ -1219,13 +1265,13 @@ describe("the copy", () => {
     expect([copy.nav.explore, copy.nav.map, copy.nav.recent, copy.nav.saved, copy.nav.you]).toEqual([
       "Explore",
       "Map",
-      "Recent",
+      "Trending",
       "Saved",
       "You",
     ]);
     // Signed out, the account button signs the person in, and is named so (decision 23).
     expect(copy.nav.signIn).toBe("Sign in");
-    expect(copy.search.placeholder).toBe("Tacos, coffee, a place name");
+    expect(copy.search.placeholder).toBe("Tacos, coffee, a restaurant name");
     expect(copy.search.label).toBe("Search places");
     expect([copy.view.house, copy.view.circle]).toEqual(["House picks", "My circle"]);
     expect(copy.load.retry).toBe("Try again");

@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import type { RouteObject } from "react-router-dom";
+import { Navigate, type RouteObject } from "react-router-dom";
 
 import { AboutPage } from "./about/AboutPage.tsx";
 import { ChainPage } from "./chain/ChainPage.tsx";
@@ -46,8 +46,11 @@ export const routes: RouteObject[] = [
           // ?q=&open=&kinds=&within=&sort=. On a desktop, the results are in Explore's layout, beside the map.
           { path: "search", element: <SearchPage />, handle: chrome({ fill: "wide" }) },
           { path: "filters", element: <FiltersPage /> },
-          // The newest reviews from the people behind the view's scores, everywhere (Avi, 2026-10-08).
-          { path: "recent", element: <RecentPage />, handle: chrome({ tabs: true }) },
+          // Trending: the newest reviews from the people behind the view's ratings, everywhere (Avi,
+          // 2026-10-08; decision 31). Its code keeps the name the list had: recent.
+          { path: "trending", element: <RecentPage />, handle: chrome({ tabs: true }) },
+          // Its address before decision 31. A link to it goes on working, and Back skips it.
+          { path: "recent", element: <Navigate to="/trending" replace />, handle: chrome({ tabs: true, needsPlaces: false }) },
           // Its child is the review form: a page of its own on a phone, a dialog over the place on a desktop.
           { path: "place/:d", element: <PlacePage />, children: [{ path: "review", element: <ReviewRoute /> }] },
           { path: "chain/:key", element: <ChainPage /> },

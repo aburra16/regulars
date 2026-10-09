@@ -24,8 +24,8 @@ import { createMemoryWriter, type MemoryWriter } from "./support/memoryWriter";
 import { expectNoNumbersAboutPeople } from "./support/noNumbers";
 
 /*
- * Recent (Avi, 2026-10-08): the newest reviews of places everywhere, from the people who count in the
- * view on screen, newest first, each a link to its place. The relays are held in memory: Brainstorm's
+ * Trending (Recent until decision 31; Avi, 2026-10-08): the newest reviews of places everywhere, from the
+ * people who count in the view on screen, newest first, each a link to its place. The relays are held in memory: Brainstorm's
  * search relay (reviews and names), the house's trust relay (its list, and the circle's ranks) and a
  * made-up scorer for the house. Brainstorm's client is mocked: the one call it could get is the
  * returning visitor's look, which a kept circle skips. Nothing opens a socket or reaches the network.
@@ -218,12 +218,12 @@ function keptCircle(pubkey: string): void {
   window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "ready", scorer: CIRCLE_AT }));
 }
 
-/** Recent, at the end of `entries`, reading `net`, and sending reviews with `writers`; in React's strict mode when `strict`. */
+/** Trending, at the end of `entries`, reading `net`, and sending reviews with `writers`; in React's strict mode when `strict`. */
 const openRecent = (
   net: Network,
   {
     px = PHONE,
-    entries = ["/recent"],
+    entries = ["/trending"],
     writers,
     strict = false,
   }: { px?: number; entries?: string[]; writers?: (url: string) => RelayWriter; strict?: boolean } = {},
@@ -275,7 +275,7 @@ afterEach(() => {
   Reflect.deleteProperty(window, "nostr");
 });
 
-describe("Recent: the list", () => {
+describe("Trending: the list", () => {
   it("lists the reviews of the reviewers the house trusts, newest first, each with who, when, the place, its distance, the stars and the words, linking to the place", async () => {
     const net = network({
       reviews: [
@@ -289,10 +289,10 @@ describe("Recent: the list", () => {
     await openRecent(net);
 
     expect(screen.getByRole("heading", { level: 1, name: copy.pages.recent })).toBeInTheDocument();
-    expect(copy.pages.recent).toBe("Recent reviews");
+    expect(copy.pages.recent).toBe("Trending");
     expect(document.title).toBe(copy.titles.recent);
     expect(screen.getByText(copy.recent.houseLine)).toBeInTheDocument();
-    expect(copy.recent.houseLine).toBe("From the reviewers the house trusts.");
+    expect(copy.recent.houseLine).toBe("The newest reviews from the reviewers the house trusts.");
     await listsExactly([ALICE_AT_JACAFE, BOB_AT_MAIA]);
 
     const [alice, bob] = entryLinks() as [HTMLElement, HTMLElement];
@@ -386,7 +386,7 @@ describe("Recent: the list", () => {
   });
 });
 
-describe("Recent: whose reviews", () => {
+describe("Trending: whose reviews", () => {
   it("lists the circle's reviewers and the person's own in My circle; once three pages are read, switching reads no review", async () => {
     const net = network();
     const me = signedIn(net);
@@ -414,7 +414,7 @@ describe("Recent: whose reviews", () => {
     await user.click(myCircle());
     expect(myCircle()).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(copy.recent.circleLine)).toBeInTheDocument();
-    expect(copy.recent.circleLine).toBe("From your circle.");
+    expect(copy.recent.circleLine).toBe("The newest reviews from your circle.");
     // At once, and by name.
     expect(listed()).toEqual([
       "Carol's review of Museu Café, 1 minute ago",
@@ -556,7 +556,7 @@ describe("Recent: whose reviews", () => {
     // Jacafé's page first: the scores store reads its reviews.
     const { router } = await openRecent(net, { entries: [placePath(JACAFE)] });
     await waitFor(() => expect(placeReads(net).length).toBeGreaterThan(0));
-    await act(() => router.navigate("/recent"));
+    await act(() => router.navigate("/trending"));
     expect(await saidPolitely(copy.recent.failed)).not.toBeNull();
     await settle();
     const reads = placeReads(net).length;
@@ -586,7 +586,7 @@ describe("Recent: whose reviews", () => {
   });
 });
 
-describe("Recent: paging", () => {
+describe("Trending: paging", () => {
   /** 350 reviews, by people nobody ranks but Alice (10th), Bob (50th), Erin (220th) and Frank (320th). */
   const longFeed = () =>
     Array.from({ length: 350 }, (_, i) => {
@@ -722,7 +722,7 @@ describe("Recent: paging", () => {
     net.reviews.push(...Array.from({ length: 150 }, (_, i) => reviewOf(stranger(500 + i), JACAFE, 4, `New ${i}.`, NOW_S + 60 * (i + 1))));
     vi.setSystemTime(NOW_S * 1000 + FEED_FRESH_MS + 1_000);
     await act(() => router.navigate("/you"));
-    await act(() => router.navigate("/recent"));
+    await act(() => router.navigate("/trending"));
     await waitFor(() => expect(feedReads(net)).toHaveLength(4));
     await settle();
     expect(feedReads(net)).toHaveLength(4);
@@ -748,7 +748,7 @@ describe("Recent: paging", () => {
   });
 });
 
-describe("Recent: read states", () => {
+describe("Trending: read states", () => {
   it("says politely that it is reading, until the reviews come", async () => {
     const net = network({ reviews: [reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR)] });
     net.holdFeed = true;
@@ -802,7 +802,7 @@ describe("Recent: read states", () => {
   });
 });
 
-describe("Recent: the person's own review, and coming back", () => {
+describe("Trending: the person's own review, and coming back", () => {
   it("puts a review the person posts this session at the top, without reading again", async () => {
     const net = network({ reviews: [reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR)] });
     const me = signedIn(net);
@@ -823,7 +823,7 @@ describe("Recent: the person's own review, and coming back", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe(placePath(JACAFE)));
     expect(writer.published).toHaveLength(1);
 
-    await act(() => router.navigate("/recent"));
+    await act(() => router.navigate("/trending"));
     await listsExactly(["Your review of Jacafé, now", ALICE_AT_JACAFE]);
     expect(within(entryLinks()[0]!).getByText("Pastéis still warm.")).toBeInTheDocument();
     expect(feedReads(net)).toHaveLength(1);
@@ -874,7 +874,7 @@ describe("Recent: the person's own review, and coming back", () => {
     // Another tab and back, within two minutes: nothing read.
     vi.setSystemTime((NOW_S + 60) * 1000);
     await act(() => router.navigate("/you"));
-    await act(() => router.navigate("/recent"));
+    await act(() => router.navigate("/trending"));
     expect(listed()).toHaveLength(2);
     expect(feedReads(net)).toHaveLength(1);
 
@@ -884,7 +884,7 @@ describe("Recent: the person's own review, and coming back", () => {
     net.reviews.splice(1, 1);
     vi.setSystemTime(NOW_S * 1000 + FEED_FRESH_MS + 1_000);
     await act(() => router.navigate("/you"));
-    await act(() => router.navigate("/recent"));
+    await act(() => router.navigate("/trending"));
     expect(listed()).toHaveLength(2);
     await listsExactly(["Erin's review of Novo Tahiti, 1 minute ago", "Alice Bento's review of Jacafé, 2 hours ago"]);
     expect(feedReads(net)).toHaveLength(2);
@@ -902,7 +902,7 @@ describe("Recent: the person's own review, and coming back", () => {
     net.reviews.push(reviewOf(ERIN, NOVO, 5, "New on the list.", NOW_S + 60));
     vi.setSystemTime(NOW_S * 1000 + FEED_FRESH_MS + 1_000);
     await act(() => router.navigate("/you"));
-    await act(() => router.navigate("/recent"));
+    await act(() => router.navigate("/trending"));
     expect(await saidPolitely(copy.recent.newerFailed)).not.toBeNull();
     expect(listed()).toEqual([ALICE_AT_JACAFE]);
 
@@ -913,13 +913,13 @@ describe("Recent: the person's own review, and coming back", () => {
   });
 });
 
-describe("Recent: getting there", () => {
+describe("Trending: getting there", () => {
   it("is a tab on a phone, between Map and You, marked while it is open", async () => {
     const net = network();
     await openRecent(net);
     const tabs = within(tabBar()!).getAllByRole("link");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Recent", "You"]);
-    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/recent", "/you"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Trending", "You"]);
+    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/trending", "/you"]);
     const recent = within(tabBar()!).getByRole("link", { name: copy.nav.recent });
     expect(recent).toHaveAttribute("aria-current", "page");
     expect(recent.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
@@ -932,7 +932,7 @@ describe("Recent: getting there", () => {
     const { router } = await openRecent(net, { px: DESKTOP });
     const bar = screen.getByRole("banner");
     const link = within(bar).getByRole("link", { name: copy.nav.recent });
-    expect(link).toHaveAttribute("href", "/recent");
+    expect(link).toHaveAttribute("href", "/trending");
     // In the top bar's own navigation, named apart from the phone's tabs.
     expect(within(bar).getByRole("navigation", { name: copy.nav.pages })).toContainElement(link);
     expect(copy.nav.pages).not.toBe(copy.nav.label);

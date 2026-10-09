@@ -119,6 +119,8 @@ interface Action {
   kind: "go" | "call" | "site";
   href: string;
   words: string;
+  /** What a screen reader hears in place of `words`, when it says more: "Get directions" for "Directions". */
+  heard?: string;
   /** Said to a screen reader after the words: where the link goes. */
   more?: string;
   /** The link leaves the app, for a page that is not ours: a new tab, telling it nothing of where it came from. */
@@ -128,7 +130,8 @@ interface Action {
 function actionList(actions: PlaceActions, alone: boolean): Action[] {
   const list: Action[] = [];
   if (actions.go !== "") {
-    list.push({ kind: "go", href: actions.go, words: alone ? copy.place.directions : copy.place.go, out: "noopener noreferrer" });
+    const go = alone ? { words: copy.place.directions } : { words: copy.place.go, heard: copy.place.directions };
+    list.push({ kind: "go", href: actions.go, ...go, out: "noopener noreferrer" });
   }
   if (actions.call !== undefined) list.push({ kind: "call", href: actions.call, words: copy.place.call });
   if (actions.site !== undefined) {
@@ -139,7 +142,17 @@ function actionList(actions: PlaceActions, alone: boolean): Action[] {
 }
 
 function ActionLink({ action, className, icon }: { action: Action; className: string; icon: boolean }): JSX.Element {
-  const words: ReactNode[] = [action.words];
+  const words: ReactNode[] =
+    action.heard === undefined
+      ? [action.words]
+      : [
+          <span key="words" aria-hidden="true">
+            {action.words}
+          </span>,
+          <span key="heard" className="sr-only">
+            {action.heard}
+          </span>,
+        ];
   if (action.more !== undefined) words.push(<Unseen key="more" text={action.more} />);
   // The link leaves the app.
   if (action.out !== undefined) words.push(<NewTabHint key="out" />);
@@ -163,7 +176,9 @@ const phoneButton =
 
 /**
  * The phone's actions, only those the place has. Two or three sit side by side, each an icon and a
- * word (Place.dc.html); directions on their own fill the width and say so (PlaceNew.dc.html).
+ * word (Place.dc.html), as many to a row as fit at 104 px or more, the widest a button's words and
+ * icon need ("Directions"): three across from 375 px wide, two and one at 320. Directions on their own
+ * fill the width and say so (PlaceNew.dc.html).
  */
 export function PhoneActions({ actions }: { actions: PlaceActions }): JSX.Element | null {
   const alone = actions.call === undefined && actions.site === undefined;
@@ -171,7 +186,7 @@ export function PhoneActions({ actions }: { actions: PlaceActions }): JSX.Elemen
   if (list.length === 0) return null;
   if (alone) return <ActionLink action={list[0]!} icon className={`${phoneButton} w-full`} />;
   return (
-    <div className={`grid gap-2.5 ${list.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(104px,100%),1fr))] gap-2.5">
       {list.map((action) => (
         <ActionLink key={action.kind} action={action} icon className={phoneButton} />
       ))}
@@ -184,7 +199,7 @@ const railButton =
   "flex h-12 min-w-0 items-center justify-center gap-1.5 rounded-tile border-token border-ink px-2 text-secondary font-bold text-ink no-underline";
 
 /**
- * The desktop's actions, in the rail (DeskPlace.dc.html): Go, Call and Site, those the place has,
+ * The desktop's actions, in the rail (DeskPlace.dc.html): Directions, Call and Website, those the place has,
  * and Save, which asks the person to sign in first, once saved lists open (`config.features.saved`).
  * As many to a row as fit.
  */

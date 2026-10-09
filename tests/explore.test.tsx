@@ -26,6 +26,7 @@ import { PlaceCard } from "../src/ui/PlaceCard";
 import raw from "./fixtures/funchal-items.json";
 import { createMemoryReader } from "./support/memoryReader";
 import { appTowns } from "./support/towns";
+import { zoneIs } from "./support/zone";
 
 const fixtures: NostrEvent[] = raw;
 const fixturePlaces = parsePlaces(fixtures);
@@ -160,7 +161,7 @@ describe("Explore on a phone: the top of the page", () => {
   it("has the place the list is near, the search field, the toggle with its line, then the chips", async () => {
     await openExplore();
     const near = screen.getByRole("button", { name: "Near Funchal" });
-    const search = screen.getByRole("link", { name: /Tacos, coffee, a place name/ });
+    const search = screen.getByRole("link", { name: /Tacos, coffee, a restaurant name/ });
     const toggle = screen.getByRole("group", { name: copy.view.label });
     const chips = screen.getByRole("group", { name: copy.explore.filtersLabel });
     const list = screen.getByRole("list");
@@ -179,7 +180,7 @@ describe("Explore on a phone: the top of the page", () => {
 
   it("says whose scores these are, with a link to how that works", async () => {
     await openExplore();
-    expect(copy.explore.houseLine).toBe("Scores from the reviewers that Mise en Place, our house curator, trusts.");
+    expect(copy.explore.houseLine).toBe("Ratings from reviewers our house curator, Mise en Place, trusts.");
     const link = screen.getByRole("link", { name: "How this works" });
     // The Why page (screen 12, D4): tests/why.test.tsx.
     expect(link).toHaveAttribute("href", "/why");
@@ -297,7 +298,13 @@ describe("Explore on a phone: the list", () => {
       `Loft Brunch & Cocktails${copy.explore.chainKind(kind, 2)}${copy.explore.chainNearby(2, formatDistance(closest, "en-US"))}`,
     );
     expect(link).toHaveTextContent(`${kind} · 2 locations`);
-    expect(link).toHaveTextContent(/2 near you, the closest \d+(\.\d)? mi/);
+    // The header keeps the chain's total; under it, how many are near the "Near …" place, and how far
+    // the closest is from it: no "you", and no count said twice.
+    expect(link).toHaveTextContent(/2 nearby, the closest \d+(\.\d)? mi away/);
+    expect(copy.explore.chainNearby(12, "0.4 mi")).toBe("12 nearby, the closest 0.4 mi away");
+    expect(copy.explore.chainNearby(1, "0.4 mi")).toBe("1 nearby, the closest 0.4 mi away");
+    expect(link).not.toHaveTextContent(/\byou\b/);
+    expect(link.textContent!.match(/locations/g)).toHaveLength(1);
     // Both locations are in the one card.
     expect(screen.getAllByText("Loft Brunch & Cocktails")).toHaveLength(1);
   });
@@ -601,6 +608,14 @@ describe("Explore: how a place reads", () => {
     expect(formatDistance(km, "pt-PT")).toMatch(/ (km|m)$/);
   });
 
+  it("shows distances in kilometres on a device in Madeira's time zone, though the browser's language is American English", async () => {
+    zoneIs("Atlantic/Madeira");
+    await openExplore();
+    // Kilometres (or metres), in the language's way of writing numbers, and still its 12-hour clock.
+    expect(card("Jacafé")).toHaveAccessibleDescription(/^Coffee shop · \d+(?:\.\d)? (?:km|m) Closed · opens 9:30 am/);
+    expect(card("Novo Tahiti")).toHaveAccessibleDescription(/^Restaurant · \d+(?:\.\d)? (?:km|m) Open until 10 pm/);
+  });
+
   it("keeps the open line up to date as the minutes pass", async () => {
     const tick: { run?: () => void } = {};
     const setInterval = globalThis.setInterval;
@@ -649,16 +664,16 @@ describe("Explore: the unrated card", () => {
     expect(link()).not.toHaveClass("border-line");
   });
 
-  it("says 'No score yet' at the top right in the dashed variant, as My circle's list does, and not 'No reviews yet'", () => {
+  it("says 'No rating yet' at the top right in the dashed variant, as My circle's list does, and not 'No reviews yet'", () => {
     renderCard({ variant: "unrated-dashed" });
-    expect(copy.score.noScoreYet).toBe("No score yet");
-    const score = within(link()).getByText("No score yet");
+    expect(copy.score.noScoreYet).toBe("No rating yet");
+    const score = within(link()).getByText("No rating yet");
     expect(score.parentElement).toBe(within(link()).getByText(first.name).parentElement);
     expect(score).toHaveClass("text-caption", "font-semibold", "text-muted", "whitespace-nowrap");
     expect(link()).not.toHaveTextContent(copy.score.noReviewsYet);
   });
 
-  it("says 'No reviews yet' under the hours in the normal variant, and not 'No score yet'", () => {
+  it("says 'No reviews yet' under the hours in the normal variant, and not 'No rating yet'", () => {
     renderCard();
     expect(link()).toHaveTextContent(copy.score.noReviewsYet);
     expect(link()).not.toHaveTextContent(copy.score.noScoreYet);
@@ -846,10 +861,10 @@ describe("Explore: the filter chips", () => {
       variant(loft, { d: "tide-3", name: "Tide Pool Bar", lat: "32.653", lon: "-16.91", ...hours("Mo-Su 12:00-23:00") }),
     ];
     await openExplore("/", events);
-    expect(card("Tide Pool Bar")).toHaveTextContent("3 near you");
+    expect(card("Tide Pool Bar")).toHaveTextContent("3 nearby, the closest");
 
     await user.click(chip("Open now"));
-    expect(card("Tide Pool Bar")).toHaveTextContent("2 near you");
+    expect(card("Tide Pool Bar")).toHaveTextContent("2 nearby, the closest");
     expect(card("Tide Pool Bar")).toHaveTextContent("3 locations");
   });
 

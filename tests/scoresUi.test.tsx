@@ -238,7 +238,7 @@ describe("a place's card", () => {
     expect(copy.score.ratedByHouse(1)).toBe("Rated by 1 person the house trusts");
   });
 
-  it("is dashed, with 'No score yet', for a place only others have rated, in a list with a scored place", async () => {
+  it("is dashed, with 'No rating yet', for a place only others have rated, in a list with a scored place", async () => {
     const { readers } = houseNetwork([...jacafeScored(), reviewOf(CAROL, MAIA, 2)], HOUSE_RANKS);
     await openApp("/", { events: places, readers });
 
@@ -281,7 +281,7 @@ describe("a place's card", () => {
       expect(link).not.toHaveClass("border-dashed");
     }
     expect(card("Jacafé")).not.toHaveTextContent("4.6");
-    expect(copy.score.counting).toBe("Reviews are being counted");
+    expect(copy.score.counting).toBe("Loading reviews…");
 
     scorer.open();
     await waitFor(() => expect(card("Jacafé")).toHaveTextContent("4.6"));
@@ -321,15 +321,15 @@ describe("a place's card while its reviews are read, and when they can't be", ()
     expect(copy.score.failed).toBe("Reviews couldn't be loaded");
   });
 
-  it("says 'No score yet' for reviews by people the house trusts that give no stars, and never leaves the line empty", async () => {
+  it("says 'No rating yet' for reviews by people the house trusts that give no stars, and never leaves the line empty", async () => {
     const { readers } = houseNetwork([...jacafeScored(), starlessReviewOf(ALICE, MAIA, "Lovely terrace.")], HOUSE_RANKS);
     await openApp("/", { events: places, readers });
 
     await waitFor(() => expect(card("Maia")).toHaveTextContent(copy.score.starless(1)));
     expect(card("Maia")).toHaveTextContent(copy.score.noScoreYet);
     expect(card("Maia")).toHaveClass("border-dashed");
-    expect(copy.score.starless(1)).toBe("1 person the house trusts reviewed it without stars");
-    expect(copy.score.starless(2)).toBe("2 people the house trusts reviewed it without stars");
+    expect(copy.score.starless(1)).toBe("1 person the house trusts wrote about it, no stars yet");
+    expect(copy.score.starless(2)).toBe("2 people the house trusts wrote about it, no stars yet");
   });
 
   it("draws a card again only when its own score changes", async () => {
@@ -441,9 +441,9 @@ describe("the pins", () => {
     expect(pins[0]!.label).toBe("4.6");
     expect(pins[0]!.name).toBe(`Jacafé, ${kindOf(JACAFE)}, ${hoursOf(JACAFE)}, 4.6 out of 5, rated by 2 people the house trusts`);
     expect(pins[1]).not.toHaveProperty("label");
-    expect(pins[1]!.name).toBe(`Maia, ${kindOf(MAIA)}, ${hoursOf(MAIA)}, no score yet`);
+    expect(pins[1]!.name).toBe(`Maia, ${kindOf(MAIA)}, ${hoursOf(MAIA)}, no rating yet`);
     expect(pins[2]).not.toHaveProperty("label");
-    expect(pins[2]!.name).toBe(`Museu Café, ${kindOf(MUSEU)}, ${hoursOf(MUSEU)}, reviews being counted`);
+    expect(pins[2]!.name).toBe(`Museu Café, ${kindOf(MUSEU)}, ${hoursOf(MUSEU)}, loading reviews`);
     expect(pins[3]).not.toHaveProperty("label");
     expect(pins[3]!.name).toMatch(/, no reviews yet$/);
   });
@@ -640,7 +640,7 @@ describe("the place page, scored", () => {
     const title = await screen.findByText(copy.reviews.foldedMore(1));
     expect(copy.reviews.foldedMore(1)).toBe("1 more review from outside House picks");
     expect(copy.reviews.foldedMore(4)).toBe("4 more reviews from outside House picks");
-    expect(copy.reviews.foldedNote).toBe("Shown on request, never removed.");
+    expect(copy.reviews.foldedNote).toBe("Folded away, never deleted.");
     const box = title.closest("section")!;
     expect(box).toHaveClass("border-dashed", "border-line-dashed");
     expect(within(box).getByText(copy.reviews.foldedNote)).toBeInTheDocument();
@@ -874,7 +874,7 @@ describe("the place page, not scored", () => {
     expect(screen.queryByRole("button", { name: copy.reviews.show })).not.toBeInTheDocument();
   });
 
-  it("says 'No score yet' for a place only others have rated, and folds their reviews", async () => {
+  it("says 'No rating yet' for a place only others have rated, and folds their reviews", async () => {
     const { readers } = houseNetwork([reviewOf(CAROL, MAIA, 2, "Too sweet.", 5)], HOUSE_RANKS);
     await openApp(placePath(MAIA), { events: places, readers });
 
@@ -925,7 +925,7 @@ describe("the place page, not scored", () => {
     expect(document.activeElement).toContainElement(screen.getByText(copy.score.fromHouse(2)));
   });
 
-  it("says 'No score yet' for reviews by people the house trusts with no stars, and lists them", async () => {
+  it("says 'No rating yet' for reviews by people the house trusts with no stars, and lists them", async () => {
     const { readers } = houseNetwork([starlessReviewOf(ALICE, MAIA, "Lovely terrace.")], HOUSE_RANKS);
     await openApp(placePath(MAIA), { events: places, readers });
 
@@ -963,7 +963,7 @@ describe("the place page, not scored", () => {
     await openApp(placePath(JACAFE), { events: places, readers });
 
     const quiet = await screen.findByText(copy.score.houseUnavailable);
-    expect(copy.score.houseUnavailable).toBe("House picks can't be worked out right now.");
+    expect(copy.score.houseUnavailable).toBe("House picks aren't available right now.");
     expect(quiet).toHaveClass("text-muted");
     expect(screen.getAllByText(copy.score.houseUnavailable)).toHaveLength(1);
     // No score from unweighted stars: no number, no stars, until the reviews are shown.
@@ -974,7 +974,7 @@ describe("the place page, not scored", () => {
     expect(screen.getByText(`${copy.score.peopleRated(2)}.`)).toBeInTheDocument();
 
     const box = screen.getByText(copy.reviews.uncounted(2)).closest("section")!;
-    expect(copy.reviews.uncounted(2)).toBe("2 reviews, not counted right now");
+    expect(copy.reviews.uncounted(2)).toBe("2 reviews, shown without a rating for now");
     await user.click(within(box).getByRole("button", { name: copy.reviews.show }));
     const shown = await screen.findAllByRole("article");
     expect(shown).toHaveLength(2);
@@ -1028,17 +1028,18 @@ describe("the chain page", () => {
   const path = `/chain/${chainSlug(CONFEITARIA)}`;
   const box = () => screen.getByText(copy.chain.eachScored).closest("section")!;
 
-  it("says the range the house rates the locations near you, when two or more have scores", async () => {
+  it("says the range the house rates the locations near the town, when two or more have scores", async () => {
     const [one, two] = nearest as [Place, Place];
     const reviews = [reviewOf(ALICE, one, 4), reviewOf(BOB, one, 3), reviewOf(ALICE, two, 4), reviewOf(BOB, two, 5)];
     const { readers } = houseNetwork(reviews, HOUSE_RANKS);
     await openApp(path, { events: places, readers });
 
     // (0.8 × 4 + 0.6 × 3) / 1.4 and (0.8 × 4 + 0.6 × 5) / 1.4.
-    await waitFor(() => expect(box()).toHaveTextContent(copy.chain.houseRange("3.6", "4.4")));
-    expect(within(box()).getByText(`${copy.chain.eachScoredDetail} ${copy.chain.houseRange("3.6", "4.4")}`)).toBeInTheDocument();
-    expect(copy.chain.houseRange("3.6", "4.4")).toBe("Near you, the house rates them from 3.6 to 4.4.");
-    expect(copy.chain.houseRange("4.0", "4.0")).toBe("Near you, the house rates them 4.0.");
+    await waitFor(() => expect(box()).toHaveTextContent(copy.chain.houseRange("3.6", "4.4", "Funchal")));
+    expect(within(box()).getByText(`${copy.chain.eachScoredDetail} ${copy.chain.houseRange("3.6", "4.4", "Funchal")}`)).toBeInTheDocument();
+    expect(copy.chain.houseRange("3.6", "4.4", "Funchal")).toBe("Near Funchal, the house rates them from 3.6 to 4.4.");
+    expect(copy.chain.houseRange("4.0", "4.0", "Funchal")).toBe("Near Funchal, the house rates them 4.0.");
+    expect(copy.chain.houseRange("3.6", "4.4", copy.location.you)).toBe("Near you, the house rates them from 3.6 to 4.4.");
 
     // Each location has its own score at the top right of its row, and who it comes from.
     const row = screen.getAllByRole("link").find((link) => link.getAttribute("href") === placePath(one))!;
@@ -1047,16 +1048,16 @@ describe("the chain page", () => {
     expect(row).not.toHaveTextContent(copy.score.noReviewsYet);
   });
 
-  it("says the one score, when one location near you has a score", async () => {
+  it("says the one score, when one location near the town has a score", async () => {
     const [one] = nearest as [Place];
     const { readers } = houseNetwork([reviewOf(ALICE, one, 4)], HOUSE_RANKS);
     await openApp(path, { events: places, readers });
 
-    await waitFor(() => expect(box()).toHaveTextContent(copy.chain.houseOne("4.0")));
-    expect(copy.chain.houseOne("4.2")).toBe("Near you, the house rates one 4.2.");
+    await waitFor(() => expect(box()).toHaveTextContent(copy.chain.houseOne("4.0", "Funchal")));
+    expect(copy.chain.houseOne("4.2", "Funchal")).toBe("Near Funchal, the house rates one 4.2.");
   });
 
-  it("says only M1's line when no location near you has a score", async () => {
+  it("says only M1's line when no location near the town has a score", async () => {
     const [one] = nearest as [Place];
     const { search, readers } = houseNetwork([reviewOf(CAROL, one, 2)], HOUSE_RANKS);
     await openApp(path, { events: places, readers });
@@ -1071,7 +1072,7 @@ describe("the chain page", () => {
 
 // ---- Sorting ----
 
-describe("sorting by House picks' score", () => {
+describe("sorting by House picks' rating", () => {
   it("leaves Explore's list in distance order when places have scores and no sort is chosen", async () => {
     const search = heldReader([reviewOf(ALICE, MAIA, 5), ...PROFILES]);
     const { readers } = houseNetwork([], HOUSE_RANKS, { [SEARCH]: search });
@@ -1111,8 +1112,8 @@ describe("sorting by House picks' score", () => {
     const { router } = await openApp("/filters", { events: places, readers });
     const sort = screen.getByRole("group", { name: copy.filters.sortBy });
     const buttons = within(sort).getAllByRole("button");
-    expect(buttons.map((button) => button.textContent)).toEqual(["House picks' score", "Distance", "Name"]);
-    expect(copy.filters.sort.score).toBe("House picks' score");
+    expect(buttons.map((button) => button.textContent)).toEqual(["House picks' rating", "Distance", "Name"]);
+    expect(copy.filters.sort.score).toBe("House picks' rating");
     expect(buttons[0]).toBeEnabled();
     expect(buttons[0]).not.toHaveAccessibleDescription();
 
@@ -1126,7 +1127,7 @@ describe("sorting by House picks' score", () => {
     const { readers } = houseNetwork([], HOUSE_RANKS);
     await openApp("/?sort=score", { events: places, readers, px: DESKTOP });
     expect(screen.getByRole("button", { name: copy.deskExplore.sort.score })).toBeInTheDocument();
-    expect(copy.deskExplore.sort.score).toBe("Sort: House picks' score");
+    expect(copy.deskExplore.sort.score).toBe("Sort: House picks' rating");
   });
 });
 
