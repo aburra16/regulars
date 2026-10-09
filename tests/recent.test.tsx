@@ -215,7 +215,7 @@ function signedIn(net: Network, name = "Maya"): string {
 
 /** Earlier in this session, the person's circle was found ready: a reload of the tab finds it, and asks Brainstorm nothing. */
 function keptCircle(pubkey: string): void {
-  window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "ready", scorer: CIRCLE_AT, notice: false }));
+  window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "ready", scorer: CIRCLE_AT }));
 }
 
 /** Recent, at the end of `entries`, reading `net`, and sending reviews with `writers`; in React's strict mode when `strict`. */

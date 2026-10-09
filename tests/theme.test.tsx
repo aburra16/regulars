@@ -127,6 +127,8 @@ const GRAPHIC: ReadonlyArray<[fg: string, bg: string, where: string]> = [
   ["muted", "ground", "the ring of a pin with no score"],
   ["you-are-here", "map-land", "where the person is"],
   ["trust", "trust-tint", "a trust mark on the tint"],
+  // On the toggle's ground it is `trust` on `ground`, which TEXT holds to more.
+  ["trust", "surface", "the check on My circle's half, on the toggle's panel"],
   ["line-strong", "ground", "chip and outline-button edges, empty stars"],
   ["line-strong", "surface", "an edge or an empty star on a panel"],
   ["line-dashed", "ground", "dashed 'nothing here yet' edges, the review form's empty stars"],

@@ -266,6 +266,52 @@
   --breakpoint-wide: 900px;
 }
 
+/* ---- Motion: the person's circle being worked out, and done (Avi, 2026-10-09). Each is used with a
+   `motion-reduce:` stand-in, for a person whose device asks for less motion: the arrow does not turn
+   (`motion-reduce:animate-breathe`, a slow fade in its place), and the check and the bar come and go
+   without a fade (`motion-reduce:animate-none`). ---- */
+@theme {
+  /* The circular arrow on My circle's half and in the bar: one turn every 1.6 s, evenly. */
+  --animate-turn: turn 1.6s linear infinite;
+  /* Its stand-in: no movement, a fade from full to 55% and back every 2 s. */
+  --animate-breathe: breathe 2s ease-in-out infinite;
+  /* The check on My circle's half: it fades in, stays, and fades out over the 4 s it shows
+     (CHECK_MS, src/circle/CircleNews.tsx). */
+  --animate-check: check 4s ease-in-out both;
+  /* The bar at the foot of the screen, as it comes up. */
+  --animate-appear: appear 0.2s ease-out;
+
+  @keyframes turn {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes breathe {
+    50% {
+      opacity: 0.55;
+    }
+  }
+  @keyframes check {
+    from {
+      opacity: 0;
+    }
+    8% {
+      opacity: 1;
+    }
+    88% {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes appear {
+    from {
+      opacity: 0;
+    }
+  }
+}
+
 /* Fonts, tracking, radii and shadows are named the same in the tokens as in Tailwind's theme
    (--font-display, --radius-card ...). Registering them with @theme would make each variable
    refer to itself, so they are plain utilities that read the token. The layout and size

@@ -22,7 +22,7 @@ import { type CircleState, useCircle } from "./CircleProvider.tsx";
  * A floating panel stays open through the sign-in its Personalize or Try again starts (ruling F1): it
  * says the add-on or phone app asks, with Cancel; it closes once the circle is being worked out, and
  * offers Personalize or Try again again if the sign-in ends without a circle (declined, cancelled,
- * failed). The half itself is off meanwhile, and reads "soon".
+ * failed). The half itself is off meanwhile.
  */
 
 /** The states in which My circle's half is the door: the circle is not asked for, or asking for it ended without one. */

@@ -54,9 +54,16 @@ import { forgetToken, readToken } from "./token.ts";
  * person goes in it, as My circle keeps showing the circle they have. Once the run is done, the scores
  * store reads the new ranks (a new `edition`), and My circle shows them, wherever the person is.
  *
+ * What the person is told as it happens (`news`, Avi, 2026-10-09): that their circle is being worked
+ * out, once a run, from the tap or from a reload that carries on following it; and that a run they
+ * started (Personalize, Try again, Work out my circle again, Update now) ended in a circle. The
+ * returning visitor's look, and a rank found later, tell nothing. The bar at the foot of the screen and
+ * the check on My circle's half say it (./CircleNews.tsx).
+ *
  * Where it is, is kept for the tab (`CIRCLE_KEY`, sessionStorage), so a reload carries on polling the
  * run under way, and starts none (Review Focus 3); an update under way is not kept, and a reload ends
- * its following, not its run. Signing out forgets it, and Brainstorm's token (`ForgetCircleOnSignOut`).
+ * its following, not its run. What the person was told is not kept: a reload tells nothing of a run
+ * that has ended. Signing out forgets it, and Brainstorm's token (`ForgetCircleOnSignOut`).
  * Brainstorm's client (./brainstorm.ts) is loaded when it is first needed (./loadBrainstorm.ts).
  */
 
@@ -98,6 +105,20 @@ export type CircleState =
  */
 export type UpdateStep = "idle" | "signing" | "updating" | "started" | "recently" | "updated" | "failed";
 
+/**
+ * What the person is told of a run of theirs, as it happens (Avi, 2026-10-09):
+ * - `working`: Brainstorm works their circle out (Personalize's flow, or a reload following its run);
+ * - `ready`: the run is done, and the circle can be shown;
+ * - `recently`: Brainstorm would not start a run, as one was made lately, and that one is used.
+ */
+export interface CircleNews {
+  /** The flow it is about: one for each tap, and for each reload that follows a run. Each flow tells each thing once at most. */
+  run: number;
+  what: "working" | "ready" | "recently";
+  /** Whether it is Update now's: the Why page, where Update now was tapped, says how that ended beside it. */
+  update: boolean;
+}
+
 /** Where the circle's state is kept for the tab, with the public key of the person it is for. */
 export const CIRCLE_KEY = "regulars.circle";
 
@@ -123,8 +144,8 @@ export interface CircleValue {
   ready: boolean;
   /** Who publishes the person's circle's ranks, and where: known once it is ready. */
   scorer?: Scorer;
-  /** Whether the quiet notice that it is ready ("ready" or "recently") is to be shown. */
-  notice: boolean;
+  /** The latest thing the person was told of a run of theirs, this page: none until a run is under way. */
+  news: CircleNews | null;
   /**
    * Whether a circle that was shown (unconfirmed) is being worked out again (Work out my circle again):
    * it can't be shown meanwhile, and comes back, as My circle, when that ends, however it ends (ruling R13).
@@ -145,8 +166,6 @@ export interface CircleValue {
   update(): void;
   /** Stops waiting on the add-on or the phone app: Personalize's, back to off; Update now's, back to idle. */
   cancel(): void;
-  /** Puts the notice away. */
-  dismissReady(): void;
   /** Lets go of what Update now came to (recently, updated, failed, started): the person has left the Why page. */
   clearUpdate(): void;
 }
@@ -157,7 +176,7 @@ const ignore = () => {};
 const NONE: CircleValue = {
   state: "off",
   ready: false,
-  notice: false,
+  news: null,
   held: false,
   updateStep: "idle",
   edition: 0,
@@ -165,7 +184,6 @@ const NONE: CircleValue = {
   retry: ignore,
   update: ignore,
   cancel: ignore,
-  dismissReady: ignore,
   clearUpdate: ignore,
 };
 
@@ -203,7 +221,6 @@ interface Kept {
   state: KeptState;
   since?: number;
   scorer?: Scorer;
-  notice?: boolean;
   before?: Scorer;
 }
 
@@ -244,7 +261,7 @@ function readKept(pubkey: string): Kept | null {
   }
   if (state === "ready" || state === "recently" || state === "unconfirmed") {
     const scorer = asScorer(kept.scorer);
-    return scorer === undefined ? null : { pubkey, state, scorer, notice: kept.notice === true };
+    return scorer === undefined ? null : { pubkey, state, scorer };
   }
   return { pubkey, state };
 }
@@ -303,7 +320,8 @@ interface Shown {
   who: string | undefined;
   state: CircleState;
   scorer?: Scorer;
-  notice: boolean;
+  /** The latest thing the person was told of a run of theirs (`CircleNews`): set by the flows, never kept. */
+  news?: CircleNews;
   /**
    * While working: when the run followed was first known (Brainstorm named one, or started one, after
    * the sign-in), from which the 45 minutes count. Unset until then; and "working" is kept for the tab
@@ -334,29 +352,52 @@ function settled(next: Shown): Shown {
   if (next.before === undefined) return next;
   if (next.state === "ready" || next.state === "recently") return { ...next, before: undefined };
   if (next.flow === null && NO_CIRCLE.has(next.state)) {
-    return { ...next, state: "unconfirmed", scorer: next.before, notice: false, since: undefined, before: undefined };
+    return { ...next, state: "unconfirmed", scorer: next.before, since: undefined, before: undefined };
   }
   return next;
 }
 
-/** Where `who`'s circle starts on this page: what the tab keeps, else the returning visitor's look. */
+/**
+ * Where `who`'s circle starts on this page: what the tab keeps, else the returning visitor's look. A
+ * run the tab was following is followed again, and the person is told it is being worked out.
+ */
 function shownFor(who: string | undefined): Shown {
-  const fresh = { who, notice: false, update: "idle", edition: 0 } as const;
+  const fresh = { who, update: "idle", edition: 0 } as const;
   if (who === undefined || !config.features.circle) return { ...fresh, state: "off", flow: null };
   const kept = readKept(who);
   // A run followed longer ago than polling lasts (a session restored days later, say) is not polled:
   // the tab looks again, as on the session's first load (ruling R13).
   const stale = kept?.state === "working" && Date.now() - (kept.since ?? 0) >= POLL_CAP_MS;
   if (kept === null || stale) return { ...fresh, state: "checking", flow: newFlow("check") };
+  const flow = kept.state === "working" ? newFlow("resume") : null;
   return {
     ...fresh,
     state: kept.state,
     scorer: kept.scorer,
-    notice: kept.notice ?? false,
     since: kept.since,
     before: kept.before,
-    flow: kept.state === "working" ? newFlow("resume") : null,
+    flow,
+    ...(flow === null ? {} : { news: { run: flow.id, what: "working", update: false } }),
   };
+}
+
+/**
+ * `next`, a step of the flow under way in `now`, with what it tells the person (`CircleNews`): that
+ * their circle is being worked out, the first time the flow works it out (a sign-in that runs out and
+ * is asked again tells nothing new); that it ended in a circle; or how Update now's run ended in one.
+ * The returning visitor's look tells nothing, and nor does a flow that ends without a circle.
+ */
+function told(now: Shown, next: Shown): Shown {
+  const flow = now.flow;
+  if (flow === null || flow.mode === "check") return next;
+  const tell = (what: CircleNews["what"]): Shown => ({ ...next, news: { run: flow.id, what, update: flow.mode === "update" } });
+  if (flow.mode === "update") {
+    if (next.update === now.update) return next;
+    return next.update === "updated" ? tell("ready") : next.update === "recently" ? tell("recently") : next;
+  }
+  if (next.state === now.state) return next;
+  if (next.state === "working") return now.news?.run === flow.id ? next : tell("working");
+  return next.state === "ready" || next.state === "recently" ? tell(next.state) : next;
 }
 
 /** What a flow works with: whose circle, how to say where it is, when to stop, and the relays. */
@@ -407,7 +448,7 @@ async function check(step: Step): Promise<void> {
     const client = await loadBrainstorm();
     const found = await findScorer(client, step);
     if (found === null) return step.set({ state: "off", flow: null });
-    step.set({ state: found.ranked ? "ready" : "unconfirmed", scorer: found.scorer, notice: false, flow: null });
+    step.set({ state: found.ranked ? "ready" : "unconfirmed", scorer: found.scorer, flow: null });
   } catch {
     // Brainstorm or the relay could not be reached: Personalize is offered, and says more if tapped.
     step.set({ state: "off", flow: null });
@@ -437,11 +478,11 @@ async function follow(client: Client, step: Step, token: string | null, since: n
         if (where === "failed") return step.set({ state: "failed", flow: null });
         // A run that is done has published what it has, which for a circle of one may be nothing.
         const found = where === "done" ? await findScorer(client, step) : null;
-        if (found !== null) return step.set({ state: "ready", scorer: found.scorer, notice: true, flow: null });
+        if (found !== null) return step.set({ state: "ready", scorer: found.scorer, flow: null });
       } else {
         // With no run to look at, only a rank by the scorer says it has published.
         const found = await findScorer(client, step);
-        if (found?.ranked === true) return step.set({ state: "ready", scorer: found.scorer, notice: true, flow: null });
+        if (found?.ranked === true) return step.set({ state: "ready", scorer: found.scorer, flow: null });
       }
       missed = 0;
     } catch (error) {
@@ -536,7 +577,7 @@ async function start(step: Step, account: Account): Promise<void> {
   if (recently && client.runState(run) === "done") {
     try {
       const found = await findScorer(client, step);
-      if (found !== null) return step.set({ state: "recently", scorer: found.scorer, notice: true, flow: null });
+      if (found !== null) return step.set({ state: "recently", scorer: found.scorer, flow: null });
     } catch {
       if (signal.aborted) return;
       // Not readable yet: followed below, as any done run.
@@ -619,7 +660,7 @@ async function rework(step: Step, account: Account): Promise<void> {
       const run = await client.latestRun(token, signal);
       const where = run === null ? "failed" : client.runState(run);
       if (where === "done") {
-        return step.set({ update: "updated", state: "ready", notice: false, edition: ++editions, flow: null });
+        return step.set({ update: "updated", state: "ready", edition: ++editions, flow: null });
       }
       if (where === "failed") return step.set({ update: "failed", flow: null });
       missed = 0;
@@ -666,9 +707,9 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
   const tappedWith = useRef<Account | undefined>(undefined);
 
   /**
-   * A flow's step: what it sets is taken only while it is the flow under way, for the same person. A
-   * flow that finds the circle worked out (again), or under way again, lets go of the count the Why
-   * page kept of it.
+   * A flow's step: what it sets is taken only while it is the flow under way, for the same person, with
+   * what that tells the person (`told`). A flow that finds the circle worked out (again), or under way
+   * again, lets go of the count the Why page kept of it.
    */
   const stepFor = useCallback(
     (pubkey: string, id: number, signal: AbortSignal): Step => ({
@@ -679,7 +720,7 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
         if (signal.aborted) return;
         const fresh = change.state === "ready" || change.state === "recently" || change.edition !== undefined;
         if (fresh || change.update === "started") forgetCircleCount();
-        setShown((now) => (now.who === pubkey && now.flow?.id === id ? settled({ ...now, ...change }) : now));
+        setShown((now) => (now.who === pubkey && now.flow?.id === id ? told(now, settled({ ...now, ...change })) : now));
       },
     }),
     [readers],
@@ -718,13 +759,13 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
 
   // Kept for the tab, as it changes.
   useEffect(() => {
-    const { who: pubkey, state, since, scorer, notice } = shown;
+    const { who: pubkey, state, since, scorer } = shown;
     if (pubkey === undefined || !config.features.circle || state === "checking" || state === "signing") return;
     if (state === "working") {
       // Kept once a run is known; until then, what was kept before stays.
       if (since !== undefined) keep({ pubkey, state, since, ...(shown.before === undefined ? {} : { before: shown.before }) });
     } else if ((state === "ready" || state === "recently" || state === "unconfirmed") && scorer !== undefined) {
-      keep({ pubkey, state, scorer, notice });
+      keep({ pubkey, state, scorer });
     } else {
       keep({ pubkey, state });
     }
@@ -740,7 +781,8 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
     const now = latest.current;
     if (!config.features.circle || account === undefined || now.who !== account.pubkey || !CAN_START.has(now.state)) return;
     tappedWith.current = account;
-    // With a sign-in this tab already has, the add-on is not asked.
+    // With a sign-in this tab already has, the add-on is not asked, and the circle is being worked out
+    // from the tap: the person is told so.
     const state: CircleState = readToken(account.pubkey) === null ? "signing" : "working";
     const flow = newFlow("start");
     setShown((current) =>
@@ -749,11 +791,11 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
             ...current,
             state,
             since: undefined,
-            notice: false,
             update: "idle",
             // An unconfirmed circle, worked out again: put back if that ends with none (ruling R13).
             before: current.state === "unconfirmed" ? current.scorer : undefined,
             flow,
+            ...(state === "working" ? { news: { run: flow.id, what: "working", update: false } } : {}),
           }
         : current,
     );
@@ -778,10 +820,6 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
 
   const clearUpdate = useCallback(() => {
     setShown((now) => (UPDATE_ENDED.has(now.update) ? { ...now, update: "idle" } : now));
-  }, []);
-
-  const dismissReady = useCallback(() => {
-    setShown((now) => (now.notice ? { ...now, state: now.state === "recently" ? "ready" : now.state, notice: false } : now));
   }, []);
 
   const ready = SHOWN.has(shown.state) && shown.scorer !== undefined;
@@ -822,7 +860,7 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
       state: shown.state,
       ready,
       scorer: ready ? shown.scorer : undefined,
-      notice: ready && shown.notice,
+      news: shown.news ?? null,
       held,
       updateStep: shown.update,
       edition,
@@ -830,10 +868,9 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
       retry: personalize,
       update,
       cancel,
-      dismissReady,
       clearUpdate,
     }),
-    [shown.state, shown.scorer, shown.notice, shown.update, held, edition, ready, personalize, update, cancel, dismissReady, clearUpdate],
+    [shown.state, shown.scorer, shown.news, shown.update, held, edition, ready, personalize, update, cancel, clearUpdate],
   );
   return <CircleContext value={value}>{children}</CircleContext>;
 }

@@ -3,11 +3,13 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
 import { useCircleDoor } from "../circle/CircleDoor.tsx";
+import { useCircleNews } from "../circle/CircleNews.tsx";
 import { useCircle } from "../circle/CircleProvider.tsx";
 import { DoorPanel } from "../circle/Personalize.tsx";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { useView, type View } from "../view/ViewProvider.tsx";
+import { CheckIcon, TurningIcon } from "./icons.tsx";
 
 export type { View } from "../view/ViewProvider.tsx";
 
@@ -21,15 +23,47 @@ export type { View } from "../view/ViewProvider.tsx";
  */
 export type ViewToggleVariant = "bar" | "compact" | "panel" | "map";
 
-const LOOK: Record<ViewToggleVariant, { group: string; button: string }> = {
-  bar: { group: "rounded-button bg-surface", button: "h-11 flex-1 rounded-[12px] text-[15px]" },
+/**
+ * Each look's group and buttons, and the buttons' padding at the sides (`pad`): none where the halves
+ * share the width. `padSlots` is My circle's half's while its slots for a mark take the padding's place.
+ */
+const LOOK: Record<ViewToggleVariant, { group: string; button: string; pad: string; padSlots: string }> = {
+  bar: { group: "rounded-button bg-surface", button: "h-11 flex-1 rounded-[12px] text-[15px]", pad: "", padSlots: "" },
   compact: {
     group: "rounded-tile bg-surface",
-    button: "relative h-10 rounded-[10px] px-4 text-secondary after:absolute after:inset-x-0 after:-inset-y-0.5",
+    button: "relative h-10 rounded-[10px] text-secondary after:absolute after:inset-x-0 after:-inset-y-0.5",
+    pad: "px-4",
+    padSlots: "px-1.5",
   },
-  panel: { group: "rounded-tile bg-ground", button: "h-11 flex-1 rounded-[10px] text-secondary" },
-  map: { group: "rounded-button bg-ground shadow-float", button: "h-11 flex-1 rounded-[12px] text-[15px]" },
+  panel: { group: "rounded-tile bg-ground", button: "h-11 flex-1 rounded-[10px] text-secondary", pad: "", padSlots: "" },
+  map: { group: "rounded-button bg-ground shadow-float", button: "h-11 flex-1 rounded-[12px] text-[15px]", pad: "", padSlots: "" },
 };
+
+/**
+ * Where My circle stands for its half, when it can't be chosen yet or has just become ready:
+ * - `soon`: My circle is not open (`config.features.circle`): off, "My circle · soon";
+ * - `waiting`: the person's circle is looked for, or their add-on asks them: off, "My circle";
+ * - `working`: Brainstorm works it out: off, "My circle" with the turning arrow after it, named so;
+ * - `checked`: a run the person started has just ended in a circle: on, with the check after the words.
+ */
+export type CircleStatus = "soon" | "waiting" | "working" | "checked";
+
+/**
+ * A slot beside My circle's words as wide as its mark and the gap before it (16 px and 6 px): one
+ * each side, so the words stay centred and the half keeps its width as the mark comes and goes.
+ */
+const SLOT = "w-[22px] shrink-0";
+
+/**
+ * The mark after My circle's words, about 16 px, in the line icons' style: the arrow, in the words'
+ * colour (muted, as the half is off), turning once every 1.6 s, or for a person who asks for less
+ * motion fading instead; the check, in the trust colour, fading in and out unless they ask for less.
+ */
+function markOf(status: CircleStatus | undefined): JSX.Element | null {
+  if (status === "working") return <TurningIcon size={16} className="animate-turn motion-reduce:animate-breathe" />;
+  if (status === "checked") return <CheckIcon size={16} className="text-trust animate-check motion-reduce:animate-none" />;
+  return null;
+}
 
 /**
  * Where the door's own panel floats under the toggle: from the start of the top bar's, as wide as its
@@ -48,8 +82,8 @@ export interface ViewToggleProps {
   /** Each view's score for one place; a half shows its score when it has one: "House picks · 4.5". */
   scores?: { house?: number; circle?: number };
   variant?: ViewToggleVariant;
-  /** My circle cannot be had yet: its half is off and says so, "My circle · soon" (the brief's screen 11). */
-  circleSoon?: boolean;
+  /** Where My circle stands, while it can't be chosen yet or has just become ready (`CircleStatus`). */
+  circleStatus?: CircleStatus;
   /**
    * My circle's half is the door to it, before the person's circle is asked for (Avi, 2026-10-08): it
    * opens, or goes to, the panel that offers Personalize. It is not a view to choose yet, so it is not
@@ -60,8 +94,13 @@ export interface ViewToggleProps {
   halves?: { house?: Ref<HTMLButtonElement>; circle?: Ref<HTMLButtonElement> };
 }
 
-/** The House picks / My circle toggle: two buttons, the chosen one pressed. It tells its parent what was tapped. */
-export function ViewToggle({ value, onChange, scores, variant = "bar", circleSoon = false, circleDoor, halves }: ViewToggleProps): JSX.Element {
+/**
+ * The House picks / My circle toggle: two buttons, the chosen one pressed. It tells its parent what was
+ * tapped. My circle's half, with no score on it, has its words between two slots, one of which holds
+ * its mark while there is one (`circleStatus`): the turning arrow, or the check, which a chosen half
+ * does not carry.
+ */
+export function ViewToggle({ value, onChange, scores, variant = "bar", circleStatus, circleDoor, halves }: ViewToggleProps): JSX.Element {
   const look = LOOK[variant];
   const views = [
     { view: "house", label: copy.view.house, score: scores?.house },
@@ -71,29 +110,43 @@ export function ViewToggle({ value, onChange, scores, variant = "bar", circleSoo
     <div role="group" aria-label={copy.view.label} className={`flex gap-1 p-1 ${look.group}`}>
       {views.map(({ view, label, score }) => {
         const chosen = view === value;
-        const soon = view === "circle" && circleSoon && !chosen;
-        const door = view === "circle" && circleDoor !== undefined && !soon && !chosen;
+        const status = view === "circle" && !chosen ? circleStatus : undefined;
+        const off = status === "soon" || status === "waiting" || status === "working";
+        const door = view === "circle" && circleDoor !== undefined && !off && !chosen;
+        const scored = score === undefined ? label : copy.view.withScore(label, copy.score.value(score));
+        const words = status === "soon" ? copy.view.circleSoon : scored;
+        // "My circle · soon" never takes a mark, and a score leaves no room for one.
+        const slots = view === "circle" && circleStatus !== "soon" && score === undefined;
         return (
           <button
             key={view}
             ref={halves?.[view]}
             type="button"
+            aria-label={status === "working" ? copy.view.circleWorking : undefined}
             aria-pressed={door ? undefined : chosen}
             aria-expanded={door ? circleDoor?.expanded : undefined}
             aria-controls={door ? circleDoor?.controls : undefined}
-            disabled={soon}
+            disabled={off}
             onClick={() => {
               if (!chosen) onChange(view);
             }}
-            className={`border-0 font-text font-bold ${look.button} ${
+            className={`border-0 font-text font-bold ${look.button} ${slots ? look.padSlots : look.pad} ${
               chosen
                 ? "cursor-pointer bg-emphasis text-on-emphasis"
-                : soon
+                : off
                   ? "cursor-not-allowed bg-transparent text-muted"
                   : "cursor-pointer bg-transparent text-ink"
             }`}
           >
-            {soon ? copy.view.circleSoon : score === undefined ? label : copy.view.withScore(label, copy.score.value(score))}
+            {slots ? (
+              <span className="inline-flex items-center justify-center">
+                <span className={SLOT} />
+                {words}
+                <span className={`flex items-center justify-end ${SLOT}`}>{markOf(status)}</span>
+              </span>
+            ) : (
+              words
+            )}
           </button>
         );
       })}
@@ -103,10 +156,9 @@ export function ViewToggle({ value, onChange, scores, variant = "bar", circleSoo
 
 /**
  * The toggle for the app's own view (`useView`). My circle can be chosen once it is open
- * (`config.features.circle`) and the person's circle is ready (`useCircle`, after Personalize):
- * choosing it puts away the notice that said so. Until then the view stays House picks: tapping My
- * circle goes to the sign-in page for a person who has not signed in, which can come back to where
- * they were, as signing in comes first.
+ * (`config.features.circle`) and the person's circle is ready (`useCircle`, after Personalize). Until
+ * then the view stays House picks: tapping My circle goes to the sign-in page for a person who has not
+ * signed in, which can come back to where they were, as signing in comes first.
  *
  * Signed in, before their circle is asked for, or when asking for it ended without one, My circle's
  * half is the door to Personalize (`useCircleDoor`; Avi, 2026-10-08). On a page with a panel of its
@@ -115,14 +167,19 @@ export function ViewToggle({ value, onChange, scores, variant = "bar", circleSoo
  * it closes on Not now and Escape (the focus back on the half, or on House picks while the half is off),
  * and on a tap or the focus anywhere else. It stays open through the sign-in its Personalize or Try
  * again starts, with Cancel and no Not now, and goes once the circle is being worked out, with the
- * focus on House picks if it was in it (ruling F1). While the circle is looked for, or asked for, the
- * half is off and reads "soon".
+ * focus on House picks if it was in it (ruling F1).
+ *
+ * While the circle is looked for, or asked for, the half is off and reads "My circle"; once Brainstorm
+ * works it out, with the turning arrow after it, and its name says so (Avi, 2026-10-09). When a run the
+ * person started ends in a circle, the half is on, with the check after it for a moment
+ * (`useCircleNews`). While My circle is not open at all, the half is off and reads "soon".
  */
-export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "circleSoon" | "circleDoor" | "halves">): JSX.Element {
+export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "circleStatus" | "circleDoor" | "halves">): JSX.Element {
   const { view, setView } = useView();
   const { account } = useAccount();
   const circle = useCircle();
   const door = useCircleDoor();
+  const { checked } = useCircleNews();
   const navigate = useNavigate();
   const location = useLocation();
   const id = useId();
@@ -176,9 +233,17 @@ export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "
       if (account === undefined) void navigate("/signin", { state: { from: location } });
       return;
     }
-    if (next === "circle") circle.dismissReady();
     setView(next);
   };
+
+  // My circle's half: off while My circle is not open, or the circle is looked for or asked for; with
+  // the check for a moment once a run the person started ends in it.
+  let status: CircleStatus | undefined;
+  if (account !== undefined && !open && !door.door) {
+    status = !config.features.circle ? "soon" : circle.state === "working" ? "working" : "waiting";
+  } else if (open && checked) {
+    status = "checked";
+  }
 
   return (
     <div ref={root} onBlur={onBlur} className="relative">
@@ -186,7 +251,7 @@ export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "
         {...props}
         value={view}
         onChange={choose}
-        circleSoon={!open && account !== undefined && !door.door}
+        circleStatus={status}
         circleDoor={
           door.door ? { expanded: floating || pageShows, controls: floating ? panelId : pageShows ? page?.id : undefined } : undefined
         }

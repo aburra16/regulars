@@ -114,6 +114,17 @@ export async function openApp(
   return { router, ...view };
 }
 
+/**
+ * The polite status of the bar at the foot of the screen, which tells of the person's circle
+ * (src/circle/CircleNews.tsx): the page's last status, after `main`. It is always there, and empty
+ * while there is no bar.
+ */
+export function barRegion(): HTMLElement {
+  const region = screen.getAllByRole("status").at(-1)!;
+  expect(screen.getByRole("main").compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  return region;
+}
+
 /** What the store holds, as text: how many places and where from. */
 function Probe() {
   const { places, source } = usePlaces();

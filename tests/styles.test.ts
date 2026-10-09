@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { compile } from "tailwindcss";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { CHECK_MS } from "../src/circle/CircleNews";
 import { WIDE_QUERY } from "../src/shell/useWide";
 
 const root = process.cwd();
@@ -206,6 +207,28 @@ describe("focus and scrolling", () => {
   it("gives the tab bar the height the page scrolls past", () => {
     // At least that tall: a bar that grows with a larger text size still clears the page's padding.
     expect(read("src/shell/TabBar.tsx")).toMatch(/(?<![\w-])min-h-\(--tab-bar-height\)/);
+  });
+});
+
+describe("the motion of My circle being worked out (Avi, 2026-10-09)", () => {
+  it("turns the arrow once every 1.6 s, evenly, and in its place fades it to 55% and back every 2 s for a person who asks for less motion", async () => {
+    const css = await compileUtilities(["animate-turn", "motion-reduce:animate-breathe"]);
+    expect(css).toMatch(/--animate-turn:\s*turn 1\.6s linear infinite;/);
+    expect(css).toMatch(/@keyframes turn\s*\{\s*to\s*\{\s*transform:\s*rotate\(360deg\);?\s*\}\s*\}/);
+    expect(css).toMatch(/--animate-breathe:\s*breathe 2s ease-in-out infinite;/);
+    expect(css).toMatch(/@keyframes breathe\s*\{\s*50%\s*\{\s*opacity:\s*0\.55;?\s*\}\s*\}/);
+    expect(declarationsOf(css, "animate-turn")).toEqual(["animation: var(--animate-turn)"]);
+    // The fade is the turn's stand-in only where the person asks for less motion.
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.motion-reduce\\:animate-breathe\s*\{\s*animation:\s*var\(--animate-breathe\);/);
+  });
+
+  it("fades the check in and out over the time it shows (CHECK_MS), and the bar in; neither for a person who asks for less motion", async () => {
+    expect(CHECK_MS).toBe(4_000);
+    const css = await compileUtilities(["animate-check", "animate-appear", "motion-reduce:animate-none"]);
+    expect(css).toMatch(/--animate-check:\s*check 4s ease-in-out both;/);
+    expect(css).toMatch(/@keyframes check\s*\{\s*from\s*\{\s*opacity:\s*0;?\s*\}[^@]*to\s*\{\s*opacity:\s*0;?\s*\}\s*\}/);
+    expect(css).toMatch(/--animate-appear:\s*appear 0\.2s ease-out;/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.motion-reduce\\:animate-none\s*\{\s*animation:\s*none;/);
   });
 });
 

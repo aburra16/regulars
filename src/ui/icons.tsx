@@ -188,11 +188,34 @@ export function MinusIcon(props: IconProps): JSX.Element {
   );
 }
 
-/** Three quarters of a circle: the circle being worked out (Tuning.dc.html's banner). */
+/** Three quarters of a circle: the circle being worked out again, beside Update now (Tuning.dc.html's banner). */
 export function WorkingIcon(props: IconProps): JSX.Element {
   return (
     <Icon {...props} strokeWidth={2.4}>
       <path d="M12 3a9 9 0 1 0 9 9" />
+    </Icon>
+  );
+}
+
+/**
+ * The circular arrow, the usual sign of something under way: a circle open at the right, its arrow
+ * pointing on round, clockwise. It is drawn to turn about its centre: the person's circle being worked
+ * out, on My circle's half and in the bar at the foot of the screen.
+ */
+export function TurningIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <path d="M19.52 14.74A8 8 0 1 1 18.13 6.86" />
+      <path d="M18.48 2.88l-.35 3.98-3.98-.35" />
+    </Icon>
+  );
+}
+
+/** The check: a run of the person's has ended in their circle, on My circle's half and in the bar. */
+export function CheckIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props} strokeWidth={2.4}>
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
     </Icon>
   );
 }
