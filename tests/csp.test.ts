@@ -257,13 +257,17 @@ describe("zod, which Nostrify checks what relays send with", () => {
     }
   });
 
-  it("is told so by each module that loads Nostrify", () => {
+  it("is told so first by each module that loads Nostrify: its first import", () => {
     const loading = sourceFiles(resolve(ROOT, "src")).filter((path) =>
       /^import\s+(?!type\b)[^;]*from\s+"@nostrify\/nostrify"/m.test(readFileSync(path, "utf8")),
     );
     expect(loading.length).toBeGreaterThan(0);
     for (const path of loading) {
-      expect(readFileSync(path, "utf8"), relative(ROOT, path)).toMatch(/^import\s+"(?:\.\/|\.\.\/nostr\/)zod\.ts";$/m);
+      // The first line of the module that starts an import, whatever comments come before it.
+      const firstImport = readFileSync(path, "utf8")
+        .split("\n")
+        .find((line) => /^import\b/.test(line));
+      expect(firstImport, relative(ROOT, path)).toMatch(/^import\s+"(?:\.\/|\.\.\/nostr\/)zod\.ts";$/);
     }
   });
 });
