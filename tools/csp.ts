@@ -21,7 +21,13 @@ export const CSP_DIRECTIVES = {
   // Anything not named below: nothing.
   "default-src": ["'none'"],
   // The app's own files, and the theme's script in index.html by its hash. No eval: nothing needs it.
-  "script-src": ["'self'"],
+  // And the scripts of the browser's sign-in add-ons (NIP-07: nos2x, Alby and others), which put
+  // window.nostr on the page with a <script src> of their own, served from these schemes: only an add-on
+  // the person has installed serves from them, so no site can. An add-on that writes its code into the
+  // page as a script's text cannot be let in: that takes 'unsafe-inline', which a browser ignores beside
+  // a hash, and which without the hash would let in any script written into the page. Where the policy
+  // blocks one, the sign-in says so in the console (src/signin/addOn.ts, `watchForBlockedAddOn`).
+  "script-src": ["'self'", "chrome-extension:", "moz-extension:", "safari-web-extension:"],
   // The app's own stylesheets, and styles written into the page ('unsafe-inline'). Today nothing in the
   // app needs them: React and MapLibre set styles through the DOM's style object, which a policy does
   // not govern. But a style attribute or element a library writes later would break in production

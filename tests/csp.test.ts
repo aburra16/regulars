@@ -90,6 +90,14 @@ describe("the policy in the built page", () => {
     expect(scriptSrc).not.toContain("'unsafe-inline'");
   });
 
+  it("lets in the scripts of the browser's sign-in add-ons, from the schemes only an installed add-on serves", () => {
+    // NIP-07 add-ons put window.nostr on the page with a script of their own (nos2x, Alby and others).
+    const scriptSrc = policyOf(html)!.get("script-src") ?? [];
+    for (const scheme of ["chrome-extension:", "moz-extension:", "safari-web-extension:"]) expect(scriptSrc).toContain(scheme);
+    // And no scheme any site could serve from.
+    for (const scheme of ["https:", "http:", "data:", "blob:", "*"]) expect(scriptSrc).not.toContain(scheme);
+  });
+
   it("lets in no eval, in any directive", () => {
     const written = policyOf(html)!;
     expect([...written].filter(([, sources]) => sources.includes("'unsafe-eval'")).map(([name]) => name)).toEqual([]);
