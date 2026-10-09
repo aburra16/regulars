@@ -724,6 +724,64 @@ describe("patience with the review relays (rulings P1 and P2)", () => {
     expect(onSlow).not.toHaveBeenCalled();
   });
 
+  it("says it is slow no more as soon as no review relay is left trying, while the person's own relay still is", async () => {
+    const onSlow = vi.fn();
+    const onSlowEnd = vi.fn();
+    // Regulars says nothing for 10 seconds, then refuses it for good; the person's own relay never answers.
+    const search = createMemoryWriter({ answers: [{ delayMs: 10_000, refuse: "blocked: not on the list" }] });
+    const sent = send(signed(), [SEARCH, OWN], writersOver({ [SEARCH]: search, [OWN]: createMemoryWriter({ silent: true }) }), undefined, {
+      onSlow,
+      onSlowEnd,
+    });
+
+    await vi.advanceTimersByTimeAsync(SLOW_POST_MS);
+    expect(onSlow).toHaveBeenCalledTimes(1);
+    expect(onSlowEnd).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10_000 - SLOW_POST_MS);
+    // Still sending, to the person's own relay, and not slow: nothing is left that would take it to Regulars.
+    expect(onSlowEnd).toHaveBeenCalledTimes(1);
+    expect(sent).toEqual({});
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
+    await vi.waitFor(() => expect(sent.error).toBeInstanceOf(NotPosted));
+    expect(onSlow).toHaveBeenCalledTimes(1);
+    expect(onSlowEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("says it is slow no more, once, when a review relay takes it after all", async () => {
+    const onSlow = vi.fn();
+    const onSlowEnd = vi.fn();
+    const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: createMemoryWriter({ answers: [{ silent: true }] }) }), undefined, {
+      onSlow,
+      onSlowEnd,
+    });
+    await vi.advanceTimersByTimeAsync(SLOW_POST_MS);
+    expect(onSlow).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
+    await vi.waitFor(() => expect(sent.posted).toBeDefined());
+    expect(onSlowEnd).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
+    expect(onSlowEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("never says it is slow no more when it never said it was slow, nor once the person has left", async () => {
+    const onSlowEnd = vi.fn();
+    const quick = send(signed(), [SEARCH], writersOver({ [SEARCH]: createMemoryWriter({ refuse: "blocked: not on the list" }) }), undefined, {
+      onSlow: vi.fn(),
+      onSlowEnd,
+    });
+    await vi.waitFor(() => expect(quick.error).toBeInstanceOf(NotPosted));
+
+    const controller = new AbortController();
+    const onSlow = vi.fn();
+    const left = send(signed(), [SEARCH], writersOver({ [SEARCH]: createMemoryWriter({ silent: true }) }), controller.signal, { onSlow, onSlowEnd });
+    await vi.advanceTimersByTimeAsync(SLOW_POST_MS);
+    expect(onSlow).toHaveBeenCalledTimes(1);
+    controller.abort(new Error("The person closed the form"));
+    await vi.waitFor(() => expect(left.error).toBeDefined());
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
+    expect(onSlowEnd).not.toHaveBeenCalled();
+  });
+
   it("counts the 8 seconds from when the review is sent, not from when the signer was asked to sign it", async () => {
     const onSlow = vi.fn();
     const by = signer();

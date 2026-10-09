@@ -40,7 +40,8 @@ export interface RemoveReview {
   status: RemoveStatus;
   /**
    * Whether the removal under way is slow: no review relay has taken it `SLOW_POST_MS` after it was
-   * sent (ruling P1). The review says so, under its button. False whenever nothing is being removed.
+   * sent, and one is still trying (ruling P1). The review says so, under its button. False whenever
+   * nothing is being removed, and once no review relay is left trying.
    */
   slow: boolean;
   /** Whether the person is signed in, with a signer to sign the removal: not while a kept session is restored. */
@@ -106,12 +107,15 @@ export function useRemoveReview(place: Place, mine: Review | undefined): RemoveR
     /** Where it is sent, and where it was taken already (by an earlier try). */
     let relays: readonly string[] = [];
     const before = resend ? again.accepted : [];
+    // Slow while no review relay has taken it and one is still trying: the line goes once none is,
+    // though the person's own relays may still be answering.
     const onSlow = () => setSlow(true);
+    const onSlowEnd = () => setSlow(false);
     try {
       let removed: Posted;
       if (resend) {
         relays = again.relays;
-        removed = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers, onSlow });
+        removed = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers, onSlow, onSlowEnd });
       } else {
         unremoved.current = null;
         relays = removalRelays(await whereToPost(account.pubkey, account.signer, readers, signal), reviews);
@@ -119,6 +123,7 @@ export function useRemoveReview(place: Place, mine: Review | undefined): RemoveR
           writers,
           signWithin: signTimeFor(account.how),
           onSlow,
+          onSlowEnd,
         });
       }
       unremoved.current = null;
