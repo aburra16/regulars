@@ -14,22 +14,24 @@ import { useLocation, useNavigationType } from "react-router-dom";
  * load does by itself before the person has done anything (an old link to Recent, sent on to
  * Trending). Not when the new page puts the focus somewhere of its own as it comes in: a dialog's first
  * control, the search field opened from Explore, the control that opened a dialog when the dialog
- * closes. Not when the app put it somewhere on purpose just before the page changed, and the person
+ * closes. Not when the app put it somewhere on purpose for the page change that follows, and the person
  * has done nothing since (`usePlaceFocus`: the account button that has just become theirs, as signing
- * in from You takes them on to Explore). Nor when it is somewhere else that stays: the field the person
+ * in from You takes them on to Explore); for that one page change only. Nor when it is somewhere else that stays: the field the person
  * is typing in (the desktop's search, in the top bar), or the × of the bar that tells them of their circle.
  */
 
 /** What says the person has done something on the page: a press, a key, a click (a screen reader's too). */
 const ACTS = ["pointerdown", "keydown", "click"] as const;
 
-/** Where the app last put the focus on purpose (`usePlaceFocus`), until the person does something. */
+/** Where the app last put the focus on purpose (`usePlaceFocus`), for the next page change, until the person does something. */
 export const PlacedFocus = createContext<RefObject<Element | null> | null>(null);
 
 /**
  * Puts the focus on an element on purpose, without scrolling, where the next page's heading leaves it
- * (`useHeadingFocus`) until the person does something: for a focus the app moves just before the page
- * changes, which `ArrivalMark` cannot tell from one left behind. Outside the frame, it only focuses.
+ * (`useHeadingFocus`), unless the person does something first: for a focus the app moves just before a
+ * page change it has begun, which `ArrivalMark` cannot tell from one left behind. It holds for that one
+ * change; use it only when one follows, or the next the person makes would leave the focus here.
+ * Outside the frame, it only focuses.
  */
 export function usePlaceFocus(): (element: HTMLElement | null) => void {
   const placed = useContext(PlacedFocus);
@@ -128,7 +130,10 @@ export function useHeadingFocus(
     if (!due.current || !ready) return;
     due.current = false;
     const active = document.activeElement;
-    if (active !== arrival.current || !nowhere(active) || active === placed.current) return;
+    const own = active === placed.current;
+    // Where the app put the focus on purpose holds for this page change only: Back after it is the person's.
+    placed.current = null;
+    if (active !== arrival.current || !nowhere(active) || own) return;
     if (main.current !== null) headingOf(main.current, hash)?.focus({ preventScroll: true });
   }, [pathname, hash, how, ready, main]);
 

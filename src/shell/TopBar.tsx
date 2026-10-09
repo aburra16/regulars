@@ -38,21 +38,30 @@ function Disc({ size, children }: { size: AccountSize; children: ReactNode }): J
  * The account button's signing in where the person is (decision 23), for the top that draws it: the
  * button, and the lines under the top (`AccountSignInLines`). Signed in here, the button that is now
  * the person's takes the focus (`focusNext`), as the one they pressed is gone; on a page that only
- * asked them to sign in (You, Saved), they go on to Explore, as its own Sign in takes them. The top
- * stays from page to page: on another page, what it said of signing in on the last one is over.
+ * asked them to sign in (You, Saved), they go on to Explore, as its own Sign in takes them, and the
+ * button keeps the focus there. The top stays from page to page: on another page, what it said of
+ * signing in on the last one is over.
  */
 export interface AccountSignIn {
   inline: InlineSignIn;
-  focusNext: RefObject<boolean>;
+  focusNext: RefObject<FocusNext>;
 }
+
+/**
+ * Whether the account button that has just become the person's takes the focus when it is drawn:
+ * `here`, on the page they signed in on; `on to Explore`, where a page that only asked them to sign in
+ * sends them, which leaves it there (`usePlaceFocus`); or not (null).
+ */
+type FocusNext = "here" | "on to Explore" | null;
 
 export function useAccountSignIn(): AccountSignIn {
   const location = useLocation();
   const navigate = useNavigate();
-  const focusNext = useRef(false);
+  const focusNext = useRef<FocusNext>(null);
   const inline = useInlineSignIn({ from: location }, () => {
-    focusNext.current = true;
-    if (landingFrom({ from: location }) === undefined) void navigate("/");
+    const onward = landingFrom({ from: location }) === undefined;
+    focusNext.current = onward ? "on to Explore" : "here";
+    if (onward) void navigate("/");
   });
   const { reset } = inline;
   const at = useRef(location.key);
@@ -76,22 +85,25 @@ export function AccountSignInLines({ signIn, className = "" }: { signIn: Account
  * the design draws it (DeskExplore.dc.html, Tuning.dc.html), named "Sofia, your account" for a screen
  * reader. Until the name is known, or when their profile has none, the person icon, named "Your
  * account". A picture that will not load gives way to the initial. `focusNext`: it has just become
- * theirs by a press of it, and takes the focus.
+ * theirs by a press of it, and takes the focus, kept through the page change that follows on to Explore.
  *
  * Privacy: the picture's address comes only from the person's own signed profile, and the image host
  * it names sees their IP address, their browser, and when they open Regulars; with no referrer, not
  * which page. Reviewers' pictures are loaded the same way beside their reviews (Avi, 2026-10-09), so
  * the hosts they name see each visitor of a place's page.
  */
-function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: string; focusNext: RefObject<boolean> }): JSX.Element {
+function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: string; focusNext: RefObject<FocusNext> }): JSX.Element {
   const { name, picture } = useOwnProfile(pubkey);
   const button = useRef<HTMLAnchorElement>(null);
-  // On purpose: from a page that only asked them to sign in, they go on to Explore, and the focus stays here.
+  // Going on to Explore, on purpose: the page change leaves the focus here. Staying, a plain focus,
+  // which the next page the person goes to takes to its heading, as it would any other.
   const placeFocus = usePlaceFocus();
   useEffect(() => {
-    if (!focusNext.current) return;
-    focusNext.current = false;
-    placeFocus(button.current);
+    const how = focusNext.current;
+    if (how === null) return;
+    focusNext.current = null;
+    if (how === "on to Explore") placeFocus(button.current);
+    else button.current?.focus({ preventScroll: true });
   }, [focusNext, placeFocus]);
   return (
     <NavLink ref={button} to="/you" end aria-label={name === undefined ? copy.nav.yourAccount : copy.nav.accountOf(name)} className={ROUND}>

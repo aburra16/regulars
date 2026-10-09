@@ -281,6 +281,37 @@ describe("the focus the app puts somewhere on purpose, as the page changes", () 
     expect(await rateLink(world)).toHaveFocus();
   });
 
+  /** Signs the person in with the add-on from the desktop top bar's account button, and gives back the button that is theirs now. */
+  async function signInFromTheTopBar(user: ReturnType<typeof userEvent.setup>) {
+    installAddOn(generateSecretKey());
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
+    return within(screen.getByRole("banner")).findByRole("link", { name: copy.nav.yourAccount });
+  }
+
+  it("is the account button's on the page the person signed in on, and the browser's Back after takes it to the next page's heading", async () => {
+    const user = userEvent.setup();
+    const { router } = await open("/", DESKTOP, ["/about", "/"]);
+    const mine = await signInFromTheTopBar(user);
+    expect(router.state.location.pathname).toBe("/");
+    expect(mine).toHaveFocus();
+
+    await act(() => router.navigate(-1));
+    expect(router.state.location.pathname).toBe("/about");
+    expect(await screen.findByRole("heading", { level: 1, name: copy.about.title })).toHaveFocus();
+  });
+
+  it("is the account button's for the one page change it was put there for: the browser's Back after takes it to the next heading", async () => {
+    const user = userEvent.setup();
+    const { router } = await open("/you", DESKTOP);
+    const mine = await signInFromTheTopBar(user);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    await waitFor(() => expect(mine).toHaveFocus());
+
+    await act(() => router.navigate(-1));
+    expect(router.state.location.pathname).toBe("/you");
+    await waitFor(() => expect(within(screen.getByRole("main")).getByRole("heading", { level: 1 })).toHaveFocus());
+  });
+
   it("goes to the heading of the page sign in lands back on, which puts the focus nowhere of its own", async () => {
     const relay = new MemoryConnectRelay();
     const app = createSignerApp(relay);
