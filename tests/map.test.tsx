@@ -1305,20 +1305,42 @@ describe("distances on the map's pages, when the device has said where the perso
     expect(screen.getByRole("link", { name: "Jacafé" })).toHaveAccessibleDescription(expect.stringContaining(` · ${fromDevice} `));
   });
 
-  it("are from the device in the desktop's list, which is nearest the device first and limited from it", async () => {
+  it("are from the device in the desktop's list until the person searches the map, nearest the device first and limited from it", async () => {
     const user = userEvent.setup();
     deviceAt(HERE.lat, HERE.lon);
-    const { map } = await openApp("/?within=0.8", { px: DESKTOP });
+    await openApp("/?within=0.8", { px: DESKTOP });
+    await user.click(screen.getByRole("button", { name: "Near Funchal" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: copy.location.useMine }));
+    await screen.findByRole("img", { name: copy.map.youAreHere });
+    expect(screen.getByRole("button", { name: "Near you" })).toBeInTheDocument();
+
+    const rows = idx
+      .near(HERE.lat, HERE.lon, config.defaultCity.radiusKm)
+      .filter((row) => row.km <= 0.8);
+    const names = groupForList(rows, idx).map((entry) => ("chain" in entry ? entry.chain.name : entry.place.name));
+    expect(names.length).toBeGreaterThan(3);
+    const cards = within(screen.getByRole("list")).getAllByRole("link");
+    expect(cards.map(nameOf)).toEqual(names.slice(0, 30));
+    expect(cards[0]).toHaveAccessibleDescription(expect.stringContaining(` · ${formatDistance(rows[0]!.km, "en-US")} `));
+  });
+
+  it("are from the middle of an area the person searches, even with the device on: the 'Near …' control names the area", async () => {
+    const user = userEvent.setup();
+    deviceAt(HERE.lat, HERE.lon);
+    const { map } = await openApp("/?within=1.6", { px: DESKTOP });
     await user.click(screen.getByRole("button", { name: "Near Funchal" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: copy.location.useMine }));
     await screen.findByRole("img", { name: copy.map.youAreHere });
 
     act(() => map.dragTo(EAST_OF_FUNCHAL));
     await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    expect(screen.queryByRole("button", { name: "Near you" })).not.toBeInTheDocument();
 
+    // The middle of the view, and the distance chosen (a mile) from it, not from the device.
+    const middle = { lat: 32.65, lon: -16.89 };
     const rows = placesInBox(idx, [EAST_OF_FUNCHAL.west, EAST_OF_FUNCHAL.south, EAST_OF_FUNCHAL.east, EAST_OF_FUNCHAL.north])
-      .map((each) => ({ place: each, km: distanceKm(HERE.lat, HERE.lon, each.lat, each.lon) }))
-      .filter((row) => row.km <= 0.8)
+      .map((each) => ({ place: each, km: distanceKm(middle.lat, middle.lon, each.lat, each.lon) }))
+      .filter((row) => row.km <= 1.6)
       .sort((a, b) => a.km - b.km);
     const names = groupForList(rows, idx).map((entry) => ("chain" in entry ? entry.chain.name : entry.place.name));
     expect(names.length).toBeGreaterThan(3);
@@ -1342,6 +1364,95 @@ describe("distances on the map's pages, when the device has said where the perso
       "Lisbon place 2",
       "Lisbon place 3",
     ]);
+  });
+});
+
+describe("the 'Near …' control, once the person searches an area of the desktop's map", () => {
+  /** Three places in Lisbon, whose town is Lisbon by its name and by the towns' file. */
+  const lisboa = [0, 1, 2].map((i) =>
+    variant(nameOnly, {
+      d: `lisboa-${i}`,
+      name: `Lisboa place ${i + 1}`,
+      lat: String(38.72 + i * 0.001),
+      lon: "-9.14",
+      locality: "Lisbon",
+      country: "PT",
+    }),
+  );
+  const near = (name: string) => screen.getByRole("button", { name: copy.explore.near(name) });
+  const cards = () => within(screen.getByRole("list")).getAllByRole("link");
+
+  it("names the listed town nearest the area's middle, and every distance is from that middle", async () => {
+    const user = userEvent.setup();
+    const { map } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisboa] });
+    expect(near("Funchal")).toBeInTheDocument();
+
+    // The middle is Lisboa place 1.
+    act(() => map.dragTo(LISBON_VIEW, 13, [-9.14, 38.72]));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    expect(await screen.findByRole("button", { name: "Near Lisbon" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.queryByRole("button", { name: "Near Funchal" })).not.toBeInTheDocument();
+    expect(cards().map(nameOf)).toEqual(["Lisboa place 1", "Lisboa place 2", "Lisboa place 3"]);
+    expect(cards()[0]).toHaveAccessibleDescription(expect.stringContaining(` · ${formatDistance(0, "en-US")} `));
+  });
+
+  it("names 'this map area' when no listed town is within a town's reach of the middle (30 km)", async () => {
+    const user = userEvent.setup();
+    const { map } = await openApp("/", { px: DESKTOP });
+    // Open sea, between Madeira and the Azores.
+    act(() => map.dragTo({ west: -30, south: 30, east: -25, north: 35 }, 7));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    expect(await screen.findByRole("button", { name: "Near this map area" })).toBeInTheDocument();
+    expect(copy.explore.near(copy.map.thisMapArea)).toBe("Near this map area");
+    expect(screen.getByText(copy.map.noneInArea)).toBeInTheDocument();
+  });
+
+  it("names the town again when the person picks it, even the town it was near before", async () => {
+    const user = userEvent.setup();
+    const { map } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisboa] });
+    await user.click(near("Funchal"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Funchal/ }));
+    const before = cards().map(nameOf);
+    act(() => map.dragTo(LISBON_VIEW, 13, [-9.14, 38.72]));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    await user.click(await screen.findByRole("button", { name: "Near Lisbon" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Funchal/ }));
+
+    expect(await screen.findByRole("button", { name: "Near Funchal" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Near Lisbon" })).not.toBeInTheDocument();
+    // The list is near the town again, as it was before the search.
+    await waitFor(() => expect(cards().map(nameOf)).toEqual(before));
+  });
+
+  it("names the person again when they use their location, even where they were before", async () => {
+    const user = userEvent.setup();
+    deviceAt(HERE.lat, HERE.lon);
+    const { map } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisboa] });
+    await user.click(near("Funchal"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: copy.location.useMine }));
+    expect(await screen.findByRole("button", { name: "Near you" })).toBeInTheDocument();
+
+    act(() => map.dragTo(LISBON_VIEW, 13, [-9.14, 38.72]));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    await user.click(await screen.findByRole("button", { name: "Near Lisbon" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: copy.location.useMine }));
+
+    expect(await screen.findByRole("button", { name: "Near you" })).toBeInTheDocument();
+    await waitFor(() => expect(cards().map(nameOf)).not.toContain("Lisboa place 1"));
+  });
+
+  it("names where the places are near again on another page: the search's results are near the town", async () => {
+    const user = userEvent.setup();
+    const { map, router } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...lisboa] });
+    act(() => map.dragTo(LISBON_VIEW, 13, [-9.14, 38.72]));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    expect(await screen.findByRole("button", { name: "Near Lisbon" })).toBeInTheDocument();
+
+    await act(() => router.navigate("/search?q=cafe"));
+    expect(await screen.findByRole("button", { name: "Near Funchal" })).toBeInTheDocument();
+    // Back to Explore, the map and its area are as they were, and so is the name.
+    await act(() => router.navigate(-1));
+    expect(await screen.findByRole("button", { name: "Near Lisbon" })).toBeInTheDocument();
   });
 });
 

@@ -17,7 +17,7 @@ import { FilterMenus } from "./FilterMenus.tsx";
 import { useMapFocus } from "./mapFocus.ts";
 import { SearchAreaButton } from "./MapPage.tsx";
 import { setExploreIdx } from "./returnPoint.ts";
-import { useAreaEntries, useSearchedArea } from "./useArea.ts";
+import { useAreaEntries, useNameSearchedArea, useSearchedArea } from "./useArea.ts";
 
 /**
  * Explore on a desktop (DeskExplore.dc.html): the list beside the map (DeskLayout). The top bar,
@@ -42,6 +42,8 @@ export function DeskExplore(): JSX.Element {
   const filters = useMemo(() => filtersFromParams(params, locale), [params, locale]);
   const memoryKey = `desk:${historyKey}`;
   const searched = useSearchedArea(memoryKey);
+  // An area searched on the map: the "Near …" control names it, as the list's distances are from its middle.
+  useNameSearchedArea(searched);
   const { area } = searched;
   const { placesInArea, entries: filtered, inArea, nearestOnly, from } = useAreaEntries(area, filters);
   const sort = sortInUse(filters);

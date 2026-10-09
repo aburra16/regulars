@@ -129,7 +129,17 @@ async function openPlace(
 
 /** Where the person is, as the app knows it: near a point, from the default city, a town they picked, or their device. */
 function hereAt(lat: number, lon: number, source: HereValue["source"]): HereValue {
-  return { label: source === "device" ? copy.location.you : "Funchal", lat, lon, source, pending: false, useDevice() {}, pickCity() {} };
+  return {
+    label: source === "device" ? copy.location.you : "Funchal",
+    lat,
+    lon,
+    source,
+    pending: false,
+    choices: 0,
+    useDevice() {},
+    pickCity() {},
+    nameArea() {},
+  };
 }
 
 const heading = () => screen.getByRole("heading", { level: 1 });

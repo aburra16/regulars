@@ -1191,6 +1191,12 @@ export const copy = {
     /** Where a search of the map is, in a sentence that names where the places are: "No places near this area match those filters." */
     thisArea: "this area",
     // DRAFT for Avi
+    /**
+     * After "Near" in the "Near …" control, for an area searched on the desktop's map that has no listed
+     * town within a town's reach of its middle: "Near this map area".
+     */
+    thisMapArea: "this map area",
+    // DRAFT for Avi
     /** The card of the pin chosen on the phone's map, for a screen reader: the region a pin opens. */
     selected: "Selected on the map",
     // DRAFT for Avi

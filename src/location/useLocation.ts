@@ -27,6 +27,18 @@ export interface Here {
   unavailable?: boolean;
   /** The device's location has been asked for and has not answered yet. The place shown is the one it was before. */
   pending: boolean;
+  /**
+   * While Explore's list on a desktop is of an area searched on the map, what the "Near …" control
+   * calls it in place of `label`, since every distance on that list is from the area's middle: the
+   * listed town nearest the middle, or "this map area" (`nameArea`). Absent the rest of the time.
+   */
+  area?: string;
+  /**
+   * How many times where the places are near has been chosen this visit: a town picked, or the
+   * device's answer. A list of an area searched on the map starts again near here on each new choice,
+   * the same town or the same position included.
+   */
+  choices: number;
 }
 
 export type HereValue = Here & {
@@ -38,6 +50,11 @@ export type HereValue = Here & {
   useDevice(): void;
   /** Moves to a city and keeps it on this device. */
   pickCity(c: City): void;
+  /**
+   * Names the area the list on screen is of, for the "Near …" control (`area`), or, with undefined,
+   * says the list is near here again. Explore's desktop page calls it as the person searches its map.
+   */
+  nameArea(name: string | undefined): void;
 };
 
 export const HereContext = createContext<HereValue | null>(null);

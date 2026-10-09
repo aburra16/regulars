@@ -1616,8 +1616,10 @@ describe("Search: the link to add a place", () => {
       lon: Number.NaN,
       source: "default",
       pending: false,
+      choices: 0,
       useDevice: () => {},
       pickCity: () => {},
+      nameArea: () => {},
     };
     const router = createMemoryRouter([{ path: "/search", element: <SearchPage /> }], { initialEntries: ["/search?q=pizza"] });
     render(

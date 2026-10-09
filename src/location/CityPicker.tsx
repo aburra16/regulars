@@ -282,8 +282,11 @@ export function HereCityPicker({ onClose }: { onClose(): void }): JSX.Element {
  * has not answered the button reads "Finding your location…"; if it says no or cannot,
  * `LocationNotice` says why. While where to start is not known yet (`Here.settling`: no town
  * picked, and the places the town is guessed from loading) it has no town to name, and offers
- * "Use my location" alone, which asks the browser in one tap. `plain` is the control at the top
- * of the phone's Explore; `pill` sits at the end of the desktop search field, with the pin and no chevron.
+ * "Use my location" alone, which asks the browser in one tap. While Explore's list on a desktop is of
+ * an area searched on the map, it names that area (`Here.area`: "Near Lisbon", "Near this map area"),
+ * since the list's distances are from its middle, until the person picks a town or their location.
+ * `plain` is the control at the top of the phone's Explore; `pill` sits at the end of the desktop
+ * search field, with the pin and no chevron.
  */
 export function NearButton({ variant = "plain" }: { variant?: "plain" | "pill" }): JSX.Element {
   const here = useHere();
@@ -306,7 +309,7 @@ export function NearButton({ variant = "plain" }: { variant?: "plain" | "pill" }
   // No town to name yet, and none to pick from: the person can still be found, in one tap. It is
   // the same button either way, so the focus stays on it when the device starts answering.
   const offerDevice = here.settling === true && !here.pending;
-  const text = here.pending ? copy.location.finding : offerDevice ? copy.location.useMine : copy.explore.near(here.label);
+  const text = here.pending ? copy.location.finding : offerDevice ? copy.location.useMine : copy.explore.near(here.area ?? here.label);
   return (
     <>
       <button
