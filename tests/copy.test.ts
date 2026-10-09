@@ -190,6 +190,12 @@ describe("copy", () => {
     expect(leaves.filter((leaf) => /\bscor(?:e|es|ed)\b/i.test(leaf.text))).toEqual([]);
   });
 
+  it("calls the newest reviews' page Trending, and nothing Recent any more (decision 31)", () => {
+    expect([copy.nav.recent, copy.pages.recent]).toEqual(["Trending", "Trending"]);
+    expect(copy.titles.recent).toBe(`Trending · ${config.appName}`);
+    expect(leavesOf(copy, "").filter((leaf) => /\bRecent\b/.test(leaf.text))).toEqual([]);
+  });
+
   it("takes the app name from config.appName, not a second literal", async () => {
     expect(copy.app.name).toBe(config.appName);
 

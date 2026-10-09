@@ -10,7 +10,7 @@ import { LocationNotice } from "../location/LocationNotice.tsx";
 import { BUSY_CONTROL, type InlineSignIn, InlineSignInLines, useInlineSignIn } from "../signin/InlineSignIn.tsx";
 import { landingFrom } from "../signin/returnTo.ts";
 import { ThemeToggle } from "../theme/ThemeToggle.tsx";
-import { PersonIcon, SearchIcon } from "../ui/icons.tsx";
+import { PersonIcon, SearchIcon, TrendingIcon } from "../ui/icons.tsx";
 import { ProfilePicture } from "../ui/ProfilePicture.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
@@ -185,9 +185,12 @@ function SearchField(): JSX.Element {
   );
 }
 
-/** A page's link in the top bar, in words, 44 px tall: in the accent, and bold, while its page is open. */
+/**
+ * A page's link in the top bar, in words, 44 px tall, with its icon before them when it has one: in the
+ * accent, and bold, while its page is open.
+ */
 const pageLink = ({ isActive }: { isActive: boolean }) =>
-  `inline-flex min-h-touch items-center text-[15px] no-underline ${
+  `inline-flex min-h-touch items-center gap-1.5 text-[15px] no-underline ${
     isActive ? "font-bold text-accent" : "font-semibold text-ink hover:text-accent"
   }`;
 
@@ -195,7 +198,8 @@ const pageLink = ({ isActive }: { isActive: boolean }) =>
  * The desktop's one top bar (DeskExplore.dc.html): the wordmark, the search field with the
  * location inside it, the House picks / My circle toggle (whose My circle half opens Personalize in a
  * panel under it, before the person's circle is asked for), the dark mode switch, the links to pages
- * (Recent, the newest reviews; Saved once saved lists open, `config.features.saved`), and the account
+ * (Trending, the newest reviews, with its rising arrow before the word; Saved once saved lists open,
+ * `config.features.saved`), and the account
  * button. The links sit with the account button, past the switch, as the way to other pages, apart
  * from the toggle that changes the scores, in a navigation of their own (`copy.nav.pages`). Under it, the lines of the account button signing the
  * person in, and the region that says when the person's location could not be used.
@@ -214,7 +218,8 @@ export function TopBar(): JSX.Element {
           <ThemeToggle />
           {/* Named apart from the phone's tabs ("Main"), which a desktop never has. */}
           <nav aria-label={copy.nav.pages} className="flex items-center gap-x-[18px]">
-            <NavLink to="/recent" className={pageLink}>
+            <NavLink to="/trending" className={pageLink}>
+              <TrendingIcon size={18} />
               {copy.nav.recent}
             </NavLink>
             {config.features.saved && (

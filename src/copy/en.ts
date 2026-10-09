@@ -32,8 +32,8 @@ const pages = {
   signin: "Sign in",
   saved: "Saved",
   you: "You",
-  // DRAFT for Avi
-  recent: "Recent reviews",
+  /** The newest reviews (decision 31: named Trending now, ranked by recent activity later). */
+  recent: "Trending",
 };
 
 /** How many places a chain has: "74 locations". */
@@ -146,11 +146,10 @@ export const copy = {
     label: "Main",
     explore: "Explore",
     map: "Map",
+    /** The tab, and the desktop top bar's link, to the newest reviews from the people behind the ratings (decision 31). */
+    recent: pages.recent,
     // DRAFT for Avi
-    /** The tab, and the desktop top bar's link, to the newest reviews from the people behind the scores. */
-    recent: "Recent",
-    // DRAFT for Avi
-    /** The desktop top bar's links to pages (Recent, Saved), for a screen reader: not `label`, the phone's tabs. */
+    /** The desktop top bar's links to pages (Trending, Saved), for a screen reader: not `label`, the phone's tabs. */
     pages: "Pages",
     saved: "Saved",
     you: "You",
@@ -507,16 +506,17 @@ export const copy = {
     },
   },
   /**
-   * Recent (Avi, 2026-10-08): the newest reviews of places everywhere, from the people who count in the
-   * view on screen, newest first. Each is a link to its place.
+   * Trending (Avi, 2026-10-08; named Recent until decision 31): the newest reviews of places everywhere,
+   * from the people who count in the view on screen, newest first. Each is a link to its place. The
+   * keys keep the name the list had.
    */
   recent: {
     // DRAFT for Avi
-    /** Under the toggle while it is on House picks: whose reviews these are. */
-    houseLine: "From the reviewers the house trusts.",
+    /** Under the toggle while it is on House picks: what the list is, and whose reviews these are. */
+    houseLine: "The newest reviews from the reviewers the house trusts.",
     // DRAFT for Avi
     /** The same, while it is on My circle. */
-    circleLine: "From your circle.",
+    circleLine: "The newest reviews from your circle.",
     // DRAFT for Avi
     /** In place of the name on the person's own review. */
     you: "You",
@@ -547,7 +547,7 @@ export const copy = {
     loading: "Reading the latest reviews…",
     // DRAFT for Avi
     /** No review relay answered for the newest reviews, with Try again (`load.retry`). */
-    failed: "Recent reviews couldn't be loaded.",
+    failed: "The latest reviews couldn't be loaded.",
     // DRAFT for Avi
     /** The same, for the newest page read again over a list on screen, which stays. */
     newerFailed: "The newest reviews couldn't be loaded.",

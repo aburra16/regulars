@@ -46,6 +46,12 @@ Avi's answers on 2026-10-07 to the questions in `handoff/START_HERE.md` and the 
 
 | # | Topic | Decision |
 |---|---|---|
-| 28 | Recent | A feed of the newest reviews from the people behind the scores on screen (House picks' reviewers, or the person's circle and their own), newest first, in its own tab, "Recent" (a link in the desktop's top bar). It covers everywhere, with each place's distance; a "Near here" filter can come later. Order is by time only, and a person shows by name only (decision 19). |
+| 28 | Recent | A feed of the newest reviews from the people behind the scores on screen (House picks' reviewers, or the person's circle and their own), newest first, in its own tab, "Recent" (renamed Trending, decision 31) (a link in the desktop's top bar). It covers everywhere, with each place's distance; a "Near here" filter can come later. Order is by time only, and a person shows by name only (decision 19). |
 | 29 | More review relays | Reviews are posted to and read from `wss://nos.lol` and `wss://relay.primal.net` as well as `wss://search.brainstorm.world` (decision 16), plus the reviewer's own write relays. A review counts as posted once any of the three takes it. Added on 2026-10-09, when NosFabrica's relay stopped taking writes (its storage node ran out of memory), so that Regulars never hangs on one relay. Whose reviews count is still decided by trust, so spam on public relays changes nothing. |
 | 30 | Towns | Towns come from GeoNames' cities1000 (CC BY 4.0, credited on About), cut down at build time by `tools/towns.ts` to the towns the places need (`src/data/towns.json`, regenerated with each import). A place belongs to the town its locality names, else the nearest within 30 km; small districts fold into their city; a few capitals take in their districts by a reviewed list (Bangkok, Tokyo). Towns are named in English where GeoNames is, and found by their local names too. The search bar shows matching towns first, and places by name beyond here under "Elsewhere". |
+
+## Avi's answers on 2026-10-09, on the wording of Explore
+
+| # | Topic | Decision |
+|---|---|---|
+| 31 | Trending | Recent is renamed Trending, with a trending-up icon; the list stays the newest reviews from the people who count in the view, newest first, until there are enough reviews to rank places by recent activity (then: places ranked by how many people who count reviewed them in the last 30 days). |

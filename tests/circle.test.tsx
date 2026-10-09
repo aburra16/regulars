@@ -201,13 +201,13 @@ const PLACES = [
 const FLOATING = PLACES.slice(1);
 /**
  * Every toggle with My circle's half: the phone's Explore, the desktop's top bar, the phone's map, the
- * Why page (on a desktop, beside the top bar's) and the phone's Recent (on a desktop, the top bar's).
+ * Why page (on a desktop, beside the top bar's) and the phone's Trending (on a desktop, the top bar's).
  */
 const TOGGLES = [
   ...PLACES,
   ["the phone's Why page", WHY_PATH, undefined],
   ["the desktop's Why page", WHY_PATH, DESKTOP],
-  ["the phone's Recent", "/recent", undefined],
+  ["the phone's Trending", "/trending", undefined],
 ] as const;
 /** The page at `path`, as wide as `px` (a phone's when undefined). */
 const openAt = (path: string, px: number | undefined) => openApp(path, { events: fixtures, readers, ...(px === undefined ? {} : { px }) });
@@ -930,7 +930,7 @@ describe("the bar at the foot of the screen (Avi, 2026-10-09)", () => {
     expect(region).toHaveTextContent(WORKING);
     await after(BAR_MS);
     await waitFor(() => expect(region).toBeEmptyDOMElement());
-    for (const path of ["/recent", "/", WHY_PATH, "/map"]) {
+    for (const path of ["/trending", "/", WHY_PATH, "/map"]) {
       await act(() => router.navigate(path));
       expect(barRegion()).toBeEmptyDOMElement();
     }
