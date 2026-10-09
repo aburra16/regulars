@@ -345,8 +345,9 @@ function fileTown(town: Town, own: readonly Place[], towns: TownList): City {
     names.add(ascii);
     aliases.add(ascii);
   }
-  // The names of the towns and districts it takes in ("Areeiro" for Lisbon, "Shibuya" for Tokyo).
-  for (const name of town.takenIn ?? []) if (!names.has(name)) aliases.add(name);
+  // The names of the towns and districts it takes in ("Areeiro" for Lisbon, "Shibuya" for Tokyo), but
+  // never one that is another listed town's name: a Glendale Denver took in is not the Glendale listed.
+  for (const name of town.takenIn ?? []) if (!names.has(name) && !towns.names.has(name)) aliases.add(name);
   for (const place of own) {
     const locality = foldName(place.locality ?? "");
     if (locality === "" || names.has(locality)) continue;

@@ -76,6 +76,22 @@ describe("towns from the file", () => {
     expect(cities.filter((city) => pickerMatches(city, foldName(label(city)), foldName("Shibuya"))).map((city) => city.name)).toEqual(["Tokyo"]);
   });
 
+  it("never takes as another name the name of a different town in the list", () => {
+    // Denver took in a Glendale; another Glendale is a listed town of its own, with places.
+    const denver = { id: 5419384, name: "Denver", country: "US", lat: 39.7392, lon: -104.9847 };
+    const glendale = { id: 5352423, name: "Glendale", country: "US", lat: 34.1425, lon: -118.2551 };
+    const taking = townsOf([denver, glendale], [], {}, { [denver.id]: ["Glendale", "Cherry Creek"] });
+    const { cities } = buildIndexes(
+      [make("A", { lat: 39.74, lon: -104.98, country: "US" }), make("B", { lat: 34.14, lon: -118.25, country: "US", locality: "Glendale" })],
+      taking,
+    );
+    expect(byName(cities, "Denver")?.aliases).toEqual(["cherry creek"]);
+    const find = townFinder(cities, (city) => city.name);
+    expect(find("Glendale", 3).map((city) => city.name)).toEqual(["Glendale"]);
+    const label = cityLabeller(cities);
+    expect(cities.filter((city) => pickerMatches(city, foldName(label(city)), foldName("Glendale"))).map((city) => city.name)).toEqual(["Glendale"]);
+  });
+
   it("marks a capital, and no other town", () => {
     const capitals = townsOf([{ ...PRAGUE, capital: true }, RICANY]);
     const { cities } = buildIndexes([inPrague("A", "Praha"), make("B", { lat: RICANY.lat, lon: RICANY.lon })], capitals);
