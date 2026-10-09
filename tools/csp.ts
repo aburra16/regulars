@@ -22,9 +22,12 @@ export const CSP_DIRECTIVES = {
   "default-src": ["'none'"],
   // The app's own files, and the theme's script in index.html by its hash. No eval: nothing needs it.
   "script-src": ["'self'"],
-  // The app's own stylesheets. React and MapLibre set an element's styles through the DOM's style
-  // object, which a policy does not govern, and nothing writes a style attribute or element.
-  "style-src": ["'self'"],
+  // The app's own stylesheets, and styles written into the page ('unsafe-inline'). Today nothing in the
+  // app needs them: React and MapLibre set styles through the DOM's style object, which a policy does
+  // not govern. But a style attribute or element a library writes later would break in production
+  // alone: jsdom has no policy, so no test would see it. A style does little harm beside scripts that
+  // run only from the site's files and the theme's hash, so styles are let in and scripts are not.
+  "style-src": ["'self'", "'unsafe-inline'"],
   // The house's pictures, the kinds' icons and MapLibre's controls (some as data: addresses),
   // MapLibre's images where the browser cannot decode them itself (blob:), and reviewers' pictures,
   // which come from any https site they name (src/nostr/profiles.ts takes no other).

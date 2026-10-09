@@ -14,8 +14,8 @@ import { CSP_DIRECTIVES } from "../tools/csp";
 // no headers), written by the build with the hash of the theme's script in its head (tools/csp.ts).
 // The first part builds the real vite.config.ts and index.html in memory, as `npm run build` does,
 // and checks the meta against the page. The second reads the code for the addresses it reaches, and
-// checks the policy lets it reach each one. The last two check what would break under the policy
-// without failing a test in jsdom, which has none: a style written into the page, and zod's try of eval.
+// checks the policy lets it reach each one. The last checks what would break under the policy without
+// failing a test in jsdom, which has none: zod's try of eval.
 const ROOT = process.cwd();
 
 type Output = Awaited<ReturnType<typeof build>>;
@@ -88,7 +88,18 @@ describe("the policy in the built page", () => {
     expect(scriptSrc.filter((source) => source.startsWith("'sha256-"))).toEqual(scripts.map(sha256));
     expect(scriptSrc).toContain("'self'");
     expect(scriptSrc).not.toContain("'unsafe-inline'");
-    expect(scriptSrc).not.toContain("'unsafe-eval'");
+  });
+
+  it("lets in no eval, in any directive", () => {
+    const written = policyOf(html)!;
+    expect([...written].filter(([, sources]) => sources.includes("'unsafe-eval'")).map(([name]) => name)).toEqual([]);
+  });
+
+  it("lets in styles written into the page, and scripts only by their hash", () => {
+    // A style a library writes into the page would otherwise break in production alone, where a test
+    // in jsdom, which has no policy, cannot see it; a style does little harm beside strict scripts.
+    expect(policyOf(html)!.get("style-src")).toEqual(["'self'", "'unsafe-inline'"]);
+    expect(policyOf(html)!.get("script-src")).not.toContain("'unsafe-inline'");
   });
 
   it("is the policy of tools/csp.ts, with the hash added", () => {
@@ -217,22 +228,6 @@ describe("the policy and the addresses the code reaches", () => {
     expect(allows(img, "https://pictures.example.com/me.jpg")).toBe(true);
     expect(allows(img, "https://api.maptiler.com/maps/dataviz-light/sprite.png")).toBe(true);
     expect(allows(img, "http://pictures.example.com/me.jpg")).toBe(false);
-  });
-});
-
-describe("styles under the policy", () => {
-  it("has no style written into the page, which the policy refuses: only stylesheets, and styles set through the DOM", () => {
-    // A style attribute, a <style> element, or CSS text set as a whole would each need 'unsafe-inline'.
-    // React's `style` and MapLibre set styles one property at a time, which the policy does not govern.
-    const written = sourceFiles(resolve(ROOT, "src")).filter((path) =>
-      /<style\b|setAttribute\(\s*["'`]style["'`]|\.cssText\s*=|insertRule\(/.test(readFileSync(path, "utf8")),
-    );
-    expect(written.map((path) => relative(ROOT, path))).toEqual([]);
-    // The icons, which are written into the page as they are (src/ui/KindTile.tsx, src/ui/Stars.tsx).
-    const icons = resolve(ROOT, "src/assets/icons");
-    const styledIcons = readdirSync(icons).filter((name) => /\bstyle\s*=|<style\b/.test(readFileSync(join(icons, name), "utf8")));
-    expect(styledIcons).toEqual([]);
-    expect(CSP_DIRECTIVES["style-src"]).toEqual(["'self'"]);
   });
 });
 
