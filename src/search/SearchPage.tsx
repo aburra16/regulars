@@ -225,6 +225,8 @@ function PhoneSearch(): JSX.Element {
         </div>
 
         <TownsFound towns={beyond.towns} className="pl-3" />
+        {/* Between the towns and the places elsewhere, when either is there: the places near, for a screen reader. */}
+        {(beyond.towns.length > 0 || beyond.elsewhere.length > 0) && <h2 className="sr-only">{copy.search.nearHeading(here.label)}</h2>}
 
         <div ref={chipGroup} role="group" aria-label={copy.explore.filtersLabel} className="flex flex-wrap gap-2 pl-3">
           <Link

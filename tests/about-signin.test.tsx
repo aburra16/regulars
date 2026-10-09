@@ -162,7 +162,7 @@ describe("the about page: where the places come from", () => {
   it.each([390, 1360])("credits GeoNames for the towns' names in fine print, and links to their licence in a new tab, at %s px", async (px) => {
     await openApp("/about", { events: fixtures, px });
     const credit = screen.getByText(copy.about.townsSource);
-    expect(copy.about.townsSource).toBe("Town names from GeoNames (geonames.org), CC BY 4.0.");
+    expect(copy.about.townsSource).toBe("Town names adapted from GeoNames (geonames.org), CC BY 4.0.");
     expect(credit).toHaveClass("text-caption", "text-muted");
     // In the section on where the places come from, after OpenStreetMap's licence.
     expect(credit.closest("section")).toHaveAccessibleName(copy.about.placesHeading);

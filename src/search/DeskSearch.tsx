@@ -67,6 +67,8 @@ export function DeskSearch(): JSX.Element {
       head={
         <>
           <TownsFound towns={beyond.towns} />
+          {/* Between the towns and the places elsewhere, when either is there: the places near, for a screen reader. */}
+          {(beyond.towns.length > 0 || beyond.elsewhere.length > 0) && <h2 className="sr-only">{copy.search.nearHeading(here.label)}</h2>}
           <FilterMenus filters={filters} order={order} onChange={setFilters} locale={locale} />
           <ResultsLine empty={empty} count={count} near={here.label} order={order} />
         </>

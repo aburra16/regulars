@@ -22,6 +22,7 @@ import { PlacesProvider } from "../src/places/store";
 import { ScoresProvider } from "../src/score/ScoresProvider";
 import { routes } from "../src/routes";
 import { SearchPage } from "../src/search/SearchPage";
+import { ELSEWHERE_SHOWN, TOWNS_SHOWN } from "../src/search/useBeyond";
 import {
   applyFilters,
   type Filters,
@@ -2432,6 +2433,44 @@ describe("Search: towns, and places elsewhere", () => {
       expect(within(elsewhere()).getByText(copy.search.elsewhereUnfiltered("New York City"))).toBeInTheDocument();
       expect(copy.search.elsewhereUnfiltered("New York City")).toBe("Filters and sorting apply to the places near New York City only.");
       expect(elsewhereRow("Kavárna Vltava")).toBeInTheDocument();
+    });
+
+    it("heads the places near, for a screen reader, between the towns and the places elsewhere", async () => {
+      hereIs({ name: "Funchal", country: "PT", lat: 32.6657, lon: -16.9255 });
+      await openSearch("/search?q=funchal", world);
+      const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+      expect(headings).toEqual([copy.search.townsHeading, copy.search.nearHeading("Funchal"), copy.search.elsewhereHeading]);
+      expect(screen.getByRole("heading", { level: 2, name: "Places near Funchal" })).toHaveClass("sr-only");
+    });
+
+    it("lists three towns at most, and five places elsewhere at most", async () => {
+      // Six towns of a name, each with a place, and six places of a name far from here.
+      const many = [
+        ...[0, 1, 2, 3, 4, 5].map((i) =>
+          variant(nameOnly, { d: `san-${i}`, name: `Spot ${i}`, lat: String(13.7 + i * 0.4), lon: "-89.2", locality: `San Test ${i}`, country: "SV" }),
+        ),
+        ...[0, 1, 2, 3, 4, 5].map((i) => variant(nameOnly, { d: `far-${i}`, name: `Faraway Diner ${i}`, lat: String(50.0 + i * 0.01), lon: "14.4", country: "CZ" })),
+      ];
+      hereIs({ name: "Funchal", country: "PT", lat: 32.6657, lon: -16.9255 });
+      await openSearch("/search?q=san%20test", [...world, ...many]);
+      expect(within(towns()).getAllByRole("button")).toHaveLength(TOWNS_SHOWN);
+      expect(TOWNS_SHOWN).toBe(3);
+      cleanupAndClear();
+      await openSearch("/search?q=faraway", [...world, ...many]);
+      expect(within(elsewhere()).getAllByRole("link")).toHaveLength(ELSEWHERE_SHOWN);
+      expect(ELSEWHERE_SHOWN).toBe(5);
+    });
+
+    it("shows no towns for a kind of place that is also how a town's name starts", async () => {
+      // "bar" is a kind of place; Barcelona starts with it.
+      const barcelona = [0, 1].map((i) =>
+        variant(nameOnly, { d: `bcn-${i}`, name: `Can ${i}`, lat: String(41.38 + i * 0.001), lon: "2.17", locality: "Barcelona", country: "ES" }),
+      );
+      await openSearch("/search?q=bar", [...world, ...barcelona]);
+      expect(screen.queryByRole("region", { name: copy.search.townsHeading })).not.toBeInTheDocument();
+      cleanupAndClear();
+      await openSearch("/search?q=barc", [...world, ...barcelona]);
+      expect(within(towns()).getByRole("button", { name: /^Barcelona, Spain/ })).toBeInTheDocument();
     });
 
     it("shows neither for a kind of place, which is a search of the places near", async () => {

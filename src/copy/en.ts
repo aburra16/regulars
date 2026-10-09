@@ -221,6 +221,9 @@ export const copy = {
      */
     townRowName: (where: string, n: number) => `${where}, ${places(n)}`,
     // DRAFT for Avi
+    /** Over the places near, for a screen reader, between the towns and the places elsewhere. `near` is "Funchal", or "you". */
+    nearHeading: (near: string) => `Places near ${near}`,
+    // DRAFT for Avi
     /** Over the places farther away whose names have the words, below the places near. */
     elsewhereHeading: "Elsewhere",
     // DRAFT for Avi
@@ -834,7 +837,7 @@ export const copy = {
     licence: "© OpenStreetMap contributors. Place data is available under the Open Database Licence.",
     // DRAFT for Avi
     /** Where the towns' names come from (src/data/towns.json), in fine print, as `source` is. */
-    townsSource: "Town names from GeoNames (geonames.org), CC BY 4.0.",
+    townsSource: "Town names adapted from GeoNames (geonames.org), CC BY 4.0.",
     // DRAFT for Avi
     /** The link to the terms of that licence, under the link to OpenStreetMap's. */
     townsLicenceLink: "Town names licence",
