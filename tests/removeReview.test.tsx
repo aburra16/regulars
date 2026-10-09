@@ -15,7 +15,7 @@ import { distanceKm } from "../src/places/distance";
 import { buildIndexes, chainSlug } from "../src/places/indexes";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
-import { PUBLISH_TIMEOUT_MS, REVIEW_RELAY_WAITS_MS, SIGN_TIMEOUT_MS } from "../src/review/post";
+import { PUBLISH_TIMEOUT_MS, REVIEW_RELAY_PATIENCE_MS, REVIEW_RELAY_WAITS_MS, SIGN_TIMEOUT_MS, SLOW_POST_MS } from "../src/review/post";
 import { REVIEW_KIND } from "../src/reviews/review";
 import { removalTemplate, reviewTemplate } from "../src/reviews/write";
 import { HELD_REVIEWS_KEY } from "../src/score/store";
@@ -406,6 +406,69 @@ describe("removing a review", () => {
     expect(removal).toMatchObject({ kind: 5 });
     expect(sentTo(world, SEARCH)).toEqual([removal, removal, removal]);
     expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("says under Removing…, politely, that it is still removing once Regulars has not taken it in 8 seconds; the line goes once it is removed", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+    // Regulars does not answer the first try, and takes the second.
+    world.writers[SEARCH] = createMemoryWriter({ answers: [{ silent: true }] });
+    await open(world, fromExplore(PLACE_PATH));
+    const mine = await yourReview();
+    await removeButton(mine);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+
+    await removeIt(user);
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+    const button = within(mine).getByRole("button", { name: copy.reviews.removing });
+    const line = within(mine).getByRole("status");
+    expect(line).toHaveAttribute("aria-live", "polite");
+
+    await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS - 1_000));
+    expect(line).toBeEmptyDOMElement();
+    expect(screen.queryByText(copy.reviews.stillRemoving)).not.toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    expect(line).toHaveTextContent(copy.reviews.stillRemoving);
+    expect(copy.reviews.stillRemoving).toBe("Still removing. Regulars is slow to answer right now.");
+    // A line anyone can see, under the button, which still says Removing… and is still off.
+    expect(line).not.toHaveClass("sr-only");
+    expect(button.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(button).toHaveAccessibleName(copy.reviews.removing);
+    expect(button).toHaveAttribute("aria-disabled", "true");
+
+    // The second try is taken: the review comes off, the line with it, and the page says it is removed.
+    await act(() => vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[0]!));
+    await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
+    expect(screen.queryByText(copy.reviews.stillRemoving)).not.toBeInTheDocument();
+    expect(screen.getByText(copy.reviews.removed, { selector: '[role="status"]' })).toBeInTheDocument();
+    expect(sentTo(world, SEARCH)).toHaveLength(2);
+  });
+
+  it("stops saying it is still removing once Regulars has not taken the removal in time: it says it didn't come off", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+    world.writers[SEARCH] = createMemoryWriter({ silent: true });
+    await open(world, fromExplore(PLACE_PATH));
+    const mine = await yourReview();
+    await removeButton(mine);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+
+    await removeIt(user);
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+    await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS));
+    expect(within(mine).getByRole("status")).toHaveTextContent(copy.reviews.stillRemoving);
+
+    await act(() => vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS));
+    expect(await within(mine).findByRole("alert")).toHaveTextContent(copy.reviews.removeFailed);
+    expect(screen.queryByText(copy.reviews.stillRemoving)).not.toBeInTheDocument();
+    expect(within(mine).getByText("Get the bolo")).toBeInTheDocument();
   });
 
   it("says the review didn't come off when no relay takes the removal, keeps it, with Try again and Keep it", async () => {

@@ -426,6 +426,12 @@ export const copy = {
     /** The button while it is being removed, and said politely to a screen reader. */
     removing: "Removing…",
     // DRAFT for Avi
+    /**
+     * Under the button, said politely, while Regulars has not taken the removal 8 seconds after it was
+     * sent (ruling P1): it is still trying, and the button still says Removing… (a state the design does not draw).
+     */
+    stillRemoving: "Still removing. Regulars is slow to answer right now.",
+    // DRAFT for Avi
     /** Said politely to a screen reader once it is removed (the section goes, a state the design does not draw). */
     removed: "Your review is removed.",
     // DRAFT for Avi

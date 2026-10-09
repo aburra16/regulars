@@ -38,6 +38,11 @@ interface Unremoved {
 /** What the place's page does with the person's review of it, and where that stands. */
 export interface RemoveReview {
   status: RemoveStatus;
+  /**
+   * Whether the removal under way is slow: no review relay has taken it `SLOW_POST_MS` after it was
+   * sent (ruling P1). The review says so, under its button. False whenever nothing is being removed.
+   */
+  slow: boolean;
   /** Whether the person is signed in, with a signer to sign the removal: not while a kept session is restored. */
   ready: boolean;
   /** Remove: asks first. */
@@ -54,9 +59,9 @@ export interface RemoveReview {
  * their signer signs; it goes to the review relays, where they write now and where each version went
  * (`removalRelays`). Once a review relay takes it, each is hidden at once, and kept hidden from a relay
  * that lags (`noteRemoval`); their own relays may still be answering. A review relay that is slow, or
- * fails for now, is sent it again, as a review is (`sendReview`). When no review relay takes it, it
- * says so (and whether their own relays did), and Try again sends the same removal again, as
- * patiently. A person whose add-on or phone app now signs as someone else (they are signed out,
+ * fails for now, is sent it again, as a review is (`sendReview`), and while none has taken it after
+ * `SLOW_POST_MS`, `slow` says so. When no review relay takes it, it says so (and whether their own
+ * relays did), and Try again sends the same removal again, as patiently. A person whose add-on or phone app now signs as someone else (they are signed out,
  * `AccountChanged`) is sent to sign in, and back to the place. Leaving the page stops it, until a
  * review relay has taken it.
  */
@@ -67,6 +72,7 @@ export function useRemoveReview(place: Place, mine: Review | undefined): RemoveR
   const navigate = useNavigate();
   const location = useLocation();
   const [status, setStatus] = useState<RemoveStatus>("idle");
+  const [slow, setSlow] = useState(false);
   /** Aborts what is under way when the page goes. */
   const life = useRef<AbortController | null>(null);
   /** Whether a removal is under way: a second press before the page has redrawn removes nothing more. */
@@ -100,17 +106,19 @@ export function useRemoveReview(place: Place, mine: Review | undefined): RemoveR
     /** Where it is sent, and where it was taken already (by an earlier try). */
     let relays: readonly string[] = [];
     const before = resend ? again.accepted : [];
+    const onSlow = () => setSlow(true);
     try {
       let removed: Posted;
       if (resend) {
         relays = again.relays;
-        removed = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers });
+        removed = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers, onSlow });
       } else {
         unremoved.current = null;
         relays = removalRelays(await whereToPost(account.pubkey, account.signer, readers, signal), reviews);
         removed = await removeReview(reviews, account, relays, Math.floor(Date.now() / 1000), signal, {
           writers,
           signWithin: signTimeFor(account.how),
+          onSlow,
         });
       }
       unremoved.current = null;
@@ -129,11 +137,13 @@ export function useRemoveReview(place: Place, mine: Review | undefined): RemoveR
       setStatus(taken.length > 0 ? "partial" : "failed");
     } finally {
       busy.current = false;
+      setSlow(false);
     }
   };
 
   return {
     status,
+    slow,
     ready: account !== undefined,
     ask: () => setStatus((now) => (now === "idle" ? "asking" : now)),
     keep: () => setStatus((now) => (now === "asking" || now === "failed" ? "idle" : now)),
