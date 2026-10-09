@@ -1,13 +1,43 @@
 import type { NostrEvent } from "@nostrify/nostrify";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { parsePlaces } from "../src/places/load";
 import raw from "./fixtures/funchal-items.json";
 import { DESKTOP, openApp, resetWidth } from "./support/app";
+import { createSignerApp, MemoryConnectRelay } from "./support/connectRelay";
 import { createMemoryReader } from "./support/memoryReader";
+import { createMemoryWriter } from "./support/memoryWriter";
+import { quietPostWarnings } from "./support/postWarnings";
+import {
+  fromExplore,
+  installAddOn,
+  newWorld,
+  open as openPlace,
+  PLACE_PATH,
+  places,
+  profileOf,
+  rankOf,
+  rateLink,
+  readersOf,
+  REVIEW_PATH,
+  reviewingAs,
+  SEARCH,
+  signedIn,
+  starButtons,
+  writersOf,
+} from "./support/reviewWorld";
+
+// The sign-in page looks, for a moment, for an add-on that comes late (src/signin/addOn.ts): here the
+// page has just loaded, and the look ends at once with what the page has.
+vi.mock("../src/signin/addOn", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/signin/addOn")>();
+  return { ...actual, msSinceLoad: () => 0, lookForAddOn: async () => actual.hasAddOn() };
+});
 
 /*
  * Where the focus goes after the person goes to another page (a new pathname): to the new page's main
@@ -32,6 +62,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   resetWidth();
   Reflect.deleteProperty(window, "scrollY");
+  Reflect.deleteProperty(window, "nostr");
 });
 
 describe("the focus after going to another page", () => {
@@ -103,5 +134,89 @@ describe("the focus after going to another page", () => {
     await user.keyboard("cafe{Enter}");
     await waitFor(() => expect(router.state.location.pathname).toBe("/search"));
     expect(field).toHaveFocus();
+  });
+});
+
+describe("the focus the app puts somewhere on purpose, as the page changes", () => {
+  beforeEach(() => {
+    config.reviewRelays = [SEARCH];
+    quietPostWarnings();
+  });
+
+  /** The first star of the review form's dialog, once it is open. */
+  const firstStar = async () => (await starButtons())[0]!;
+
+  it("is left on the review dialog's first star when Rate this place signs the person in with their add-on and opens it", async () => {
+    const world = newWorld();
+    const key = generateSecretKey();
+    installAddOn(key);
+    world.search.push(profileOf(getPublicKey(key), "Maya"));
+    const user = userEvent.setup();
+    const { router } = await openPlace(world, fromExplore(PLACE_PATH), DESKTOP);
+    await user.click(await rateLink(world));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
+    await reviewingAs("Maya", within(await screen.findByRole("dialog", { name: copy.review.dialogLabel })));
+    expect(await firstStar()).toHaveFocus();
+  });
+
+  it("is left on the dialog's first star when sign in opens the form in its place, after the phone app", async () => {
+    const world = newWorld();
+    const relay = new MemoryConnectRelay();
+    const app = createSignerApp(relay);
+    world.search.push(profileOf(app.userPubkey, "Alice"));
+    const user = userEvent.setup();
+    const { router } = await openApp(PLACE_PATH, {
+      events: places,
+      entries: fromExplore(PLACE_PATH),
+      px: DESKTOP,
+      readers: readersOf(world),
+      writers: writersOf(world),
+      relays: () => relay,
+    });
+    await user.click(await rateLink(world));
+    expect(router.state.location.pathname).toBe("/signin");
+    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await user.click(await screen.findByRole("button", { name: copy.signin.copyLink }));
+    await app.scan(writeText.mock.calls[0]![0]);
+
+    await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
+    await reviewingAs("Alice", within(await screen.findByRole("dialog", { name: copy.review.dialogLabel })));
+    expect(await firstStar()).toHaveFocus();
+  });
+
+  it("is given back to Rate this place when the dialog closes after posting, as by its cross and Escape", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    const { router } = await openPlace(world, fromExplore(PLACE_PATH), DESKTOP);
+    await user.click(await rateLink(world));
+    const dialog = await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    await user.click(await firstStar());
+    await user.click(within(dialog).getByRole("button", { name: copy.review.post }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await rateLink(world)).toHaveFocus();
+  });
+
+  it("goes to the heading of the page sign in lands back on, which puts the focus nowhere of its own", async () => {
+    const relay = new MemoryConnectRelay();
+    const app = createSignerApp(relay);
+    const user = userEvent.setup();
+    const { router } = await openApp("/about", { events: fixtures, readers, px: DESKTOP, relays: () => relay, entries: ["/", "/about"] });
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.signIn }));
+    expect(router.state.location.pathname).toBe("/signin");
+    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await user.click(await screen.findByRole("button", { name: copy.signin.copyLink }));
+    await app.scan(writeText.mock.calls[0]![0]);
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/about"));
+    expect(router.state.historyAction).toBe("POP");
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: copy.about.title })).toHaveFocus());
   });
 });

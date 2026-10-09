@@ -14,6 +14,7 @@ import { PersonIcon, SearchIcon, TrendingIcon } from "../ui/icons.tsx";
 import { ProfilePicture } from "../ui/ProfilePicture.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
+import { usePlaceFocus } from "./headingFocus.ts";
 
 type AccountSize = "phone" | "desktop";
 
@@ -85,11 +86,13 @@ export function AccountSignInLines({ signIn, className = "" }: { signIn: Account
 function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: string; focusNext: RefObject<boolean> }): JSX.Element {
   const { name, picture } = useOwnProfile(pubkey);
   const button = useRef<HTMLAnchorElement>(null);
+  // On purpose: from a page that only asked them to sign in, they go on to Explore, and the focus stays here.
+  const placeFocus = usePlaceFocus();
   useEffect(() => {
     if (!focusNext.current) return;
     focusNext.current = false;
-    button.current?.focus({ preventScroll: true });
-  }, [focusNext]);
+    placeFocus(button.current);
+  }, [focusNext, placeFocus]);
   return (
     <NavLink ref={button} to="/you" end aria-label={name === undefined ? copy.nav.yourAccount : copy.nav.accountOf(name)} className={ROUND}>
       <Disc size={size}>

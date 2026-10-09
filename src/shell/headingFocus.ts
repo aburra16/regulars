@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
+import { createContext, type RefObject, useCallback, useContext, useEffect, useLayoutEffect, useRef } from "react";
 import { useLocation, useNavigationType } from "react-router-dom";
 
 /*
@@ -12,12 +12,34 @@ import { useLocation, useNavigationType } from "react-router-dom";
  * load does by itself before the person has done anything (an old link to Recent, sent on to
  * Trending). Not when the new page puts the focus somewhere of its own as it comes in: a dialog's first
  * control, the search field opened from Explore, the control that opened a dialog when the dialog
- * closes. Nor when it is somewhere else that stays: the field the person is typing in (the desktop's
- * search, in the top bar), or the × of the bar that tells them of their circle.
+ * closes. Not when the app put it somewhere on purpose just before the page changed, and the person
+ * has done nothing since (`usePlaceFocus`: the account button that has just become theirs, as signing
+ * in from You takes them on to Explore). Nor when it is somewhere else that stays: the field the person
+ * is typing in (the desktop's search, in the top bar), or the × of the bar that tells them of their circle.
  */
 
 /** What says the person has done something on the page: a press, a key, a click (a screen reader's too). */
 const ACTS = ["pointerdown", "keydown", "click"] as const;
+
+/** Where the app last put the focus on purpose (`usePlaceFocus`), until the person does something. */
+export const PlacedFocus = createContext<RefObject<Element | null> | null>(null);
+
+/**
+ * Puts the focus on an element on purpose, without scrolling, where the next page's heading leaves it
+ * (`useHeadingFocus`) until the person does something: for a focus the app moves just before the page
+ * changes, which `ArrivalMark` cannot tell from one left behind. Outside the frame, it only focuses.
+ */
+export function usePlaceFocus(): (element: HTMLElement | null) => void {
+  const placed = useContext(PlacedFocus);
+  return useCallback(
+    (element: HTMLElement | null) => {
+      if (element === null) return;
+      element.focus({ preventScroll: true });
+      if (placed !== null) placed.current = element;
+    },
+    [placed],
+  );
+}
 
 /**
  * Notes what has the focus as each new page goes in, into `at`. Drawn first in the frame, before the
@@ -43,29 +65,35 @@ function nowhere(active: Element | null): boolean {
 
 /**
  * Moves the focus to the main heading of each new page in `main`, once it is in (`ready`: the frame
- * shows the page, not the places' loading line), when it is where it was as the page went in (`at`,
- * noted by `ArrivalMark`), and that is nowhere of its own (`nowhere`). Call it in the component that
- * draws `main` and the mark: its effects run after the page's.
+ * shows the page, not the places' loading line), when it is where it was as the page went in
+ * (`arrival`, which `ArrivalMark` notes), that is nowhere of its own (`nowhere`), and the app did not
+ * put it there on purpose (`placed`, which `usePlaceFocus` notes and the frame gives as `PlacedFocus`).
+ * Call it in the component that draws `main` and the mark: its effects run after the page's.
  */
-export function useHeadingFocus(main: RefObject<HTMLElement | null>, at: RefObject<Element | null>, ready: boolean): void {
+export function useHeadingFocus(
+  main: RefObject<HTMLElement | null>,
+  ready: boolean,
+): { arrival: RefObject<Element | null>; placed: RefObject<Element | null> } {
   const { pathname } = useLocation();
   const how = useNavigationType();
+  const arrival = useRef<Element | null>(null);
+  const placed = useRef<Element | null>(null);
   // Whether the person has done anything on the page yet. Back and Forward are theirs too.
   const acted = useRef(false);
   // The pathname whose page the focus was last settled for, and whether a new page's heading is due it.
   const settled = useRef(pathname);
   const due = useRef(false);
 
+  // Anything the person does: they have acted, and where the app put the focus is theirs to move now.
   useEffect(() => {
-    const stop = () => {
-      for (const type of ACTS) document.removeEventListener(type, note, true);
-    };
     const note = () => {
       acted.current = true;
-      stop();
+      placed.current = null;
     };
     for (const type of ACTS) document.addEventListener(type, note, true);
-    return stop;
+    return () => {
+      for (const type of ACTS) document.removeEventListener(type, note, true);
+    };
   }, []);
 
   useEffect(() => {
@@ -76,7 +104,9 @@ export function useHeadingFocus(main: RefObject<HTMLElement | null>, at: RefObje
     if (!due.current || !ready) return;
     due.current = false;
     const active = document.activeElement;
-    if (active !== at.current || !nowhere(active)) return;
+    if (active !== arrival.current || !nowhere(active) || active === placed.current) return;
     main.current?.querySelector("h1")?.focus({ preventScroll: true });
-  }, [pathname, how, ready, main, at]);
+  }, [pathname, how, ready, main]);
+
+  return { arrival, placed };
 }

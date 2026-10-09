@@ -76,7 +76,6 @@ What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: 
 **Focus after navigation** (the polish batch)
 - A page with no `h1` (Not found, a page that broke, a place still being looked for) leaves the focus where it was.
 - A new search from the results (the same pathname) never moves the focus; the first, from Explore's top bar, leaves it in the field.
-- Signing in from You or Saved with the top bar's account button lands on Explore with the focus on its heading, not on the account button that is now the person's.
 
 **Tests and proof** (M2a record)
 - Proof marker tags.

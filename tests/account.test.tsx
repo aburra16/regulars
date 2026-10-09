@@ -1113,6 +1113,28 @@ describe("the account button, signed out", () => {
     expect(readSession()).toMatchObject({ how: "browser" });
   });
 
+  it.each(["/you", "/saved"])(
+    "gives the focus to the account button that is now the person's, on the Explore it lands on from %s, not to Explore's heading",
+    async (path) => {
+      const key = generateSecretKey();
+      installAddOn(key);
+      const user = userEvent.setup();
+      const { router } = await openApp(path, { events: fixtures, px: DESKTOP, readers: readersWith([profileOf(getPublicKey(key), "Maya")]) });
+      const top = screen.getByRole("banner");
+      await user.click(within(top).getByRole("link", { name: copy.nav.signIn }));
+      await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.explore });
+      await settle();
+      const mine = within(top).getByRole("link", { name: /account$/i });
+      expect(mine).toHaveAttribute("href", "/you");
+      expect(mine).toHaveFocus();
+
+      // That was the page's own doing, once: the next page the person goes to has its heading take the focus.
+      await user.click(within(top).getByRole("link", { name: copy.nav.recent }));
+      expect(await screen.findByRole("heading", { level: 1, name: copy.pages.recent })).toHaveFocus();
+    },
+  );
+
   it("stops saying the add-on didn't work once the person goes to another page", async () => {
     const addOn = installAddOn(generateSecretKey());
     addOn.getPublicKey.mockRejectedValueOnce(new Error("The person said no"));
