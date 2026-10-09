@@ -261,7 +261,8 @@ const PART_VOTES_MIN = 2;
  *    that town, the nearest of the name: "Glendale" is Glendale, though Burbank is nearer.
  * 2. Otherwise it is in the town nearest to it within reach, unless that town is a part of a bigger
  *    one. A town is a part when at least two of the places nearest to it name one bigger town (more
- *    people) within their reach by their locality, and those are more than half of its places with a
+ *    people, in the same country and first-level area: not Edgewater, New Jersey, in New York City)
+ *    within their reach by their locality, and those are more than half of its places with a
  *    locality, and more than name it; one is enough when GeoNames knows the town's people, and they
  *    are a twentieth of the bigger town's or fewer (Areeiro, a quarter of Lisbon). A locality names a town first by its name or ASCII name, then by
  *    GeoNames' other names for it ("Praha" is Prague); a town's own name comes before a bigger town's,
@@ -341,8 +342,16 @@ export function chooseTowns(
       located += 1;
       const keys = localityKeys(locality);
       const names = (set: Set<string>) => keys.some((key) => set.has(key));
+      // A bigger town in the same country and first-level area (state, province, region) only.
       const bigger = (by: (town: GeoTown) => Set<string>) =>
-        reach[i]!.find((each) => each !== town && each.population > town.population && names(by(each)));
+        reach[i]!.find(
+          (each) =>
+            each !== town &&
+            each.country === town.country &&
+            each.admin1 === town.admin1 &&
+            each.population > town.population &&
+            names(by(each)),
+        );
       let vote: GeoTown | undefined;
       if (names(ownNames(town))) ownVotes += 1;
       else if ((vote = bigger(ownNames)) !== undefined) votes.set(vote, (votes.get(vote) ?? 0) + 1);

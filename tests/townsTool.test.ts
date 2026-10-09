@@ -304,6 +304,21 @@ describe("chooseTowns: parts", () => {
     expect(runtimeTown(choice, inAreeiro[1]!)).toBe("Lisbon");
   });
 
+  it("never makes a town a part of a bigger one across a state, province or country line, whatever the votes", () => {
+    // Edgewater, New Jersey, across the Hudson from New York City; GeoNames calls the city New York too.
+    const newYork = geoRow(5128581, "New York City", 40.7143, -74.006, { country: "US", admin1: "NY", population: 8804190, alternates: "New York" });
+    const edgewater = (admin1: string, country = "US") => geoRow(5097672, "Edgewater", 40.827, -73.9757, { country, admin1, population: 12034 });
+    const votes = [
+      { lat: 40.827, lon: -73.976, locality: "New York" },
+      { lat: 40.8265, lon: -73.9755, locality: "New York" },
+      { lat: 40.8268, lon: -73.9758 },
+    ];
+    expect(ids(chooseTowns(geo(newYork, edgewater("NJ")), votes).towns)).toEqual([5097672]);
+    expect(ids(chooseTowns(geo(newYork, edgewater("NY", "CA")), votes).towns)).toEqual([5097672]);
+    // On the same side of the line, it is a part.
+    expect(ids(chooseTowns(geo(newYork, edgewater("NY")), votes).towns)).toEqual([5128581]);
+  });
+
   it("asks two places' word of a town whose people GeoNames does not know", () => {
     expect(ids(chooseTowns(geo(lisbon(), areeiro(0)), inAreeiro).towns)).toEqual([2271547]);
   });
