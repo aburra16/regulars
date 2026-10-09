@@ -319,6 +319,20 @@ describe("chooseTowns: parts", () => {
     expect(ids(chooseTowns(geo(newYork, edgewater("NY")), votes).towns)).toEqual([5128581]);
   });
 
+  it("goes by the country alone when either town has no first-level area, or GeoNames' 00", () => {
+    // Willemstad, which GeoNames gives no area, and Santa Rosa beside it, which it gives "00".
+    const willemstad = (admin1: string) => geoRow(3513090, "Willemstad", 12.1084, -68.9335, { code: "PPLC", country: "CW", admin1, population: 125000, alternates: "Curacao" });
+    const santaRosa = (admin1: string) => geoRow(3513264, "Santa Rosa", 12.1167, -68.8833, { country: "CW", admin1, population: 5198 });
+    const votes = [{ lat: 12.117, lon: -68.883, locality: "Curacao" }, { lat: 12.1165, lon: -68.8835, locality: "Curacao" }, { lat: 12.1168, lon: -68.8832 }];
+    expect(ids(chooseTowns(geo(willemstad(""), santaRosa("00")), votes).towns)).toEqual([3513090]);
+    expect(ids(chooseTowns(geo(willemstad("01"), santaRosa("")), votes).towns)).toEqual([3513090]);
+    expect(ids(chooseTowns(geo(willemstad("00"), santaRosa("02")), votes).towns)).toEqual([3513090]);
+    // Two areas GeoNames knows, and differ: apart.
+    expect(ids(chooseTowns(geo(willemstad("01"), santaRosa("02")), votes).towns)).toEqual([3513264]);
+    // Another country, with no area: apart.
+    expect(ids(chooseTowns(geo(willemstad(""), geoRow(3513264, "Santa Rosa", 12.1167, -68.8833, { country: "AW", admin1: "", population: 5198 })), votes).towns)).toEqual([3513264]);
+  });
+
   it("asks two places' word of a town whose people GeoNames does not know", () => {
     expect(ids(chooseTowns(geo(lisbon(), areeiro(0)), inAreeiro).towns)).toEqual([2271547]);
   });

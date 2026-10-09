@@ -519,10 +519,7 @@
 ],
 "CW": [
 [3513090,"Willemstad",12.1225,-68.8864],
-[3513221,"Sint Michiel Liber",12.15,-68.9833],
-[3513264,"Santa Rosa",12.1167,-68.8833],
-[3513761,"Dorp Soto",12.2775,-69.1125],
-[3513861,"Brievengat",12.15,-68.9]
+[3513761,"Dorp Soto",12.2775,-69.1125]
 ],
 "CY": [
 [146214,"Paphos",34.7768,32.4245],
@@ -3936,12 +3933,13 @@
 "1279233": ["Sarkhej"],
 "1609350": ["Anusawari","Arun Amarin","Ban Bang Bamru","Ban Chang Lo","Ban Khlong Bang Bon","Ban Khlong Bang Phran","Ban Khlong Bang Phrom","Ban Khlong Bang Ramat","Ban Khlong Chak Phra","Ban Khlong Prawet","Ban Khlong Sakae","Ban Lak Song","Ban Samae Dam","Ban Tha Kham","Bang Bon","Bang Bon Nuea","Bang Kapi","Bang Khae","Bang Khae Nuea","Bang Khen","Bang Khlo","Bang Kho Laem","Bang Kho Laem subdistrict","Bang Khun Non","Bang Khun Si","Bang Khun Thian","Bang Na","Bang Phai","Bang Phlat","Bang Rak","Bang Rak Subdistrict","Bang Sue","Bang Sue subdistrict","Bang Yi Khan","Bangbontai","Bangkok Noi","Bangkok Riverside","Bangkok Yai","Bueng Kum","Chan Kasem","Chatuchak","Chatuchak subdistrict","Chom Thong","Chomphon","Chong Nonsi","Chorakhe Bua","Din Daeng","Don Mueang","Dusit","Godown","Huai Khwang","Huamak","Inner Huai Khwang","Khan Na Yao","Khetsamsenok","Khlong Chan","Khlong Kum","Khlong San","Khlong Toei","Khwaeng Bang Khae","Khwaeng Bang Plat","Lak Si","Lat Phrao","Lat Yao","Makkasan","Muban Thep Thani","Nong Khaem","Pathum Wan","Phasi Charoen","Phaya Thai","Phra Khanong","Phra Nakhon","Pom Prap Sattru Phai","Rat Burana","Ratchathewi","Sai Mai","Sam Sen Nai","Samphantawong","Samphanthawong","Saphan Sung","Sathon","Sathorn","Sena Nikhom","Siriraj","Suan Luang","Taling Chan","Tha Raeng","Thawi Watthana","Thon Buri","Thung Khru","Wang Thonglang","Wat Arun","Wat Tha Phra","Watthana","Wong Sawang","Yan Nawa"],
 "1735161": ["Bangsar","Mont Kiara","Taman OUG","Taman Tun Dr Ismail"],
+"1819729": ["Leighton Hill","South Wave Court","Tsim Sha Tsui"],
 "1835848": ["Yongsan-dong"],
 "1838524": ["Dongnae"],
 "1848354": ["Idogaya-kamimachi","Kikuna"],
 "1850147": ["Akasaka","Akihabara","Aobadai","Arakawa","Asagaya-minami","Asagayakita","Asahigaoka","Asakusa","Asakusabashi","Azabu-jūban","Chiyoda","Chūō","Daikan'yamacho","Daikan’yamachō","Ebara","Ebisu","Egota","Eifuku","Etchūjima","Futaba","Ginza","Gōtokuji","Hamamatsuchō","Hatchōbori","Hatsudai","Heiwadai","Higashi-nihombashi","Higashigotanda","Hikarigaoka","Hikawadai","Ichigaya-honmurachō","Igusa","Iidabashi","Ikebukuro","Inokashira","Iriya","Itabashi","Iwamotochō","Jiyūgaoka","Jūjō-nakahara","Kabukicho","Kachidoki","Kagurazaka","Kaigan","Kamiigusa","Kaminakazato","Kamiya","Kanda-awajichō","Kanda-jinbōchō","Kita","Kita-aoyama","Komagome","Kuramae","Kōraku","Meguro","Mejiro","Minami-aoyama","Minato City","Monzen-nakachō","Motoyoyogichō","Nagasaki","Nakameguro","Nakano","Nakanobu","Nakazato","Nezu","Nihonbashi-Kayabachō","Nihonbashi-bakurochō","Nishinippori","Nukui","Numabukuro","Ogikubo","Roppongi","Saginomiya","Sakuradai","Sakuragaokachō","Sasazuka","Sendagaya","Sendagi","Senzoku","Setagaya","Shibakōen","Shibuya","Shimo'ochiai","Shimoigusa","Shimo’ochiai","Shimura","Shinbashi","Shinjuku","Sugamo","Tabata","Taito","Takanawa","Takanodai","Tennōzu","Togoshi","Tokiwadai","Toranomon","Toshima","Toyosu","Tsukiji","Ueno","Umegaoka","Wakabayashi","Waseda-tsurumakichō","Yotsuya","Yoyogi","Yushima","Yōga","Yūtenji","Zōshigaya","Ōji","Ōkubo","Ōtsuka","Ōyama-higashichō","Ōyama-kanaichō","Ōyama-nishichō"],
 "1853909": ["Umeda"],
-"1880252": ["Rochor"],
+"1880252": ["MacPherson","Rochor"],
 "2193733": ["Bayswater","Mount Eden"],
 "2253354": ["Yoff"],
 "2267057": ["Areeiro","Bairro Alto","Campo Pequeno","Campolide","Chelas"],
@@ -4000,7 +3998,7 @@
 "3469058": ["Sobradinho"],
 "3492908": ["La Julia","Zona Colonial"],
 "3511233": ["Sabana del Puerto"],
-"3513090": ["Bandariba"],
+"3513090": ["Bandariba","Brievengat","Santa Rosa","Sint Michiel Liber"],
 "3513563": ["Dorp Tera Kora"],
 "3523349": ["Cholul"],
 "3530597": ["Benito Juarez"],

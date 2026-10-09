@@ -220,6 +220,17 @@ export interface TownChoice {
   names: Map<GeoTown, string[]>;
 }
 
+/** Whether GeoNames gives a town no first-level area: none at all, or "00", which it gives where a country has none (Curaçao). */
+const noArea = (town: GeoTown) => town.admin1 === "" || town.admin1 === "00";
+
+/**
+ * Whether two towns are in the same country and first-level area (state, province, region), which a
+ * town must share with the bigger town it is a part of; the country alone when either has no area.
+ */
+function sameArea(a: GeoTown, b: GeoTown): boolean {
+  return a.country === b.country && (noArea(a) || noArea(b) || a.admin1 === b.admin1);
+}
+
 /** How small, in people, a part may be beside the bigger town for one place's word to make it a part: a twentieth. */
 const ONE_VOTE_SHARE = 0.05;
 
@@ -261,13 +272,15 @@ const PART_VOTES_MIN = 2;
  *    that town, the nearest of the name: "Glendale" is Glendale, though Burbank is nearer.
  * 2. Otherwise it is in the town nearest to it within reach, unless that town is a part of a bigger
  *    one. A town is a part when at least two of the places nearest to it name one bigger town (more
- *    people, in the same country and first-level area: not Edgewater, New Jersey, in New York City)
- *    within their reach by their locality, and those are more than half of its places with a
+ *    people) within their reach by their locality, and those are more than half of its places with a
  *    locality, and more than name it; one is enough when GeoNames knows the town's people, and they
- *    are a twentieth of the bigger town's or fewer (Areeiro, a quarter of Lisbon). A locality names a town first by its name or ASCII name, then by
- *    GeoNames' other names for it ("Praha" is Prague); a town's own name comes before a bigger town's,
- *    and a bigger town's before the town's other names: the City of London's places that say London
- *    are London's. A town that some place names (step 1) is never a part.
+ *    are a twentieth of the bigger town's or fewer (Areeiro, a quarter of Lisbon). The bigger town is
+ *    in the same country and first-level area, or the same country where GeoNames gives either town
+ *    no area (Curaçao): Edgewater, New Jersey, is no part of New York City. A locality names a town
+ *    first by its name or ASCII name, then by GeoNames' other names for it ("Praha" is Prague); a
+ *    town's own name comes before a bigger town's, and a bigger town's before the town's other names:
+ *    the City of London's places that say London are London's. A town that some place names (step 1)
+ *    is never a part.
  * 3. A capital of `absorbing` takes in every town of its own first-level area within its reach as a
  *    part, whatever its places say (tools/towns-absorb.ts); and it is found by the names of those
  *    towns, and of the `districts` (PPLX) there.
@@ -344,14 +357,7 @@ export function chooseTowns(
       const names = (set: Set<string>) => keys.some((key) => set.has(key));
       // A bigger town in the same country and first-level area (state, province, region) only.
       const bigger = (by: (town: GeoTown) => Set<string>) =>
-        reach[i]!.find(
-          (each) =>
-            each !== town &&
-            each.country === town.country &&
-            each.admin1 === town.admin1 &&
-            each.population > town.population &&
-            names(by(each)),
-        );
+        reach[i]!.find((each) => each !== town && sameArea(each, town) && each.population > town.population && names(by(each)));
       let vote: GeoTown | undefined;
       if (names(ownNames(town))) ownVotes += 1;
       else if ((vote = bigger(ownNames)) !== undefined) votes.set(vote, (votes.get(vote) ?? 0) + 1);
