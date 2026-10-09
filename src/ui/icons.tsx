@@ -61,6 +61,16 @@ export function SavedIcon(props: IconProps): JSX.Element {
   );
 }
 
+/** The clock: the Recent tab. */
+export function RecentIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </Icon>
+  );
+}
+
 /** The head and shoulders: the You tab, and the account button. */
 export function PersonIcon(props: IconProps): JSX.Element {
   return (

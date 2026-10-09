@@ -26,8 +26,9 @@ import { type PlaceScore, scorePlace } from "./score.ts";
  * (the house's, and the person's circle once it is ready), and the reviewers' names, read once a
  * session and held in memory. Scores are worked out from them when asked for, from the view asked
  * for, and never stored (brief § 5): toggling the view reads nothing (Review Focus 5). What it holds
- * about people stays here: a page gets reviews, place scores and names, and the person signed in their
- * own picture, never a person's rank or weight (decision 19).
+ * about people stays here: a page gets reviews, place scores and names, whether a reviewer counts in a
+ * view (yes or no, for Recent), and the person signed in their own picture, never a person's rank or
+ * weight (decision 19).
  *
  * Nothing here loads the relay code: the app's readers import it when they first read
  * (src/nostr/relayCode.ts), so the store can be on the first screen.
@@ -486,6 +487,12 @@ export class ScoresStore {
     circle: new Map(),
   };
 
+  /**
+   * The people whose ranks a page wants from each view beside the reviewers of the places asked for:
+   * Recent's reviewers (`wantRanks`), whose reviews it lists once their view has said they count.
+   */
+  readonly #rankWanted = new Set<string>();
+
   /** House picks' ranks, from the scorer the house names. */
   readonly #house = new RankBook((signal) => resolveScorer(this.#readers, signal));
   /** My circle's ranks, from the person's own scorer, once their circle is ready (`setCircle`). */
@@ -716,6 +723,50 @@ export class ScoresStore {
     }
     if (added) this.#queueFlush();
   }
+
+  /**
+   * Asks each view's scorer about the people with `pubkeys`, as it asks about the reviewers of the
+   * places pages ask for, in the same turns: Recent's reviewers, whom it lists only once their view has
+   * said they count (`countsIn`). Each is asked about once a session from each view, so switching the
+   * view asks for nothing new; a circle that is ready later is asked about them too.
+   */
+  wantRanks(pubkeys: Iterable<string>): void {
+    let added = false;
+    for (const pubkey of pubkeys) {
+      if (!isHex64(pubkey) || this.#rankWanted.has(pubkey)) continue;
+      this.#rankWanted.add(pubkey);
+      added = true;
+    }
+    if (added) this.#weigh();
+  }
+
+  /**
+   * Whether `pubkey`'s reviews count from `view`, as they count in its scores: in My circle, the person
+   * whose circle it is always does; anyone else does at or above the line (`config.scoring.line`) from
+   * the view's scorer. Undefined while that is not known: they have not been asked about or answered
+   * for, the view can't be worked out right now, or there is no circle ready. Nobody is outside a view
+   * before its scorer has said so. Yes or no, never how much: a page shows a person by name only
+   * (decision 19).
+   */
+  countsIn(pubkey: string, view: View): boolean | undefined {
+    const book = this.#bookOf(view);
+    if (book === null || book.state === "unavailable") return undefined;
+    if (pubkey === book.owner) return true;
+    if (!book.known.has(pubkey)) return undefined;
+    return weightOf(book.ranks.get(pubkey), config.scoring.line) > 0;
+  }
+
+  /**
+   * `events`, review events a page read on its own (Recent's), with every review of `pubkey`'s that the
+   * store shows: read for a place, or held (posted this session, and not read back yet). Less each review
+   * the person removed this session (`noteRemoval`), as the store hides them everywhere. With no
+   * `pubkey` (nobody signed in), `events` less those removed.
+   */
+  readonly withOwn = (events: Iterable<NostrEvent>, pubkey: string | undefined): NostrEvent[] => {
+    const all = [...events].filter(this.#notRemoved);
+    if (pubkey !== undefined) for (const ev of this.#shownEvents()) if (ev.pubkey === pubkey) all.push(ev);
+    return all;
+  };
 
   /**
    * The place at `address`'s score from `view` (House picks unless named): across all its filings, one
@@ -1029,9 +1080,10 @@ export class ScoresStore {
   /**
    * Asks each view's scorer about the reviewers it has not been asked about, `RANK_BATCH` to a read:
    * House picks', and My circle's once the person's circle is ready, whose own reviews need no rank.
-   * Nothing is asked of a scorer until a place has a review: then the house's scorer is read, once a
-   * session, and the ranks each scorer gives (`#rank`). A view that is unavailable is asked nothing
-   * until it is tried again (`refresh`, back on line).
+   * The reviewers are those of the places asked for, and the people a page wants ranked (`wantRanks`).
+   * Nothing is asked of a scorer until there is someone to ask about: then the house's scorer is read,
+   * once a session, and the ranks each scorer gives (`#rank`). A view that is unavailable is asked
+   * nothing until it is tried again (`refresh`, back on line).
    */
   #weigh(): void {
     const life = this.#life;
@@ -1040,11 +1092,13 @@ export class ScoresStore {
     for (const book of this.#books()) {
       if (book.state === "unavailable") continue;
       const unknown = new Set<string>();
+      const consider = (pubkey: string) => {
+        if (pubkey !== book.owner && !book.asked.has(pubkey)) unknown.add(pubkey);
+      };
       for (const reviews of this.#reviewsByAddress().values()) {
-        for (const review of reviews) {
-          if (review.reviewer !== book.owner && !book.asked.has(review.reviewer)) unknown.add(review.reviewer);
-        }
+        for (const review of reviews) consider(review.reviewer);
       }
+      for (const pubkey of this.#rankWanted) consider(pubkey);
       if (unknown.size === 0) continue;
       for (const pubkey of unknown) book.asked.add(pubkey);
       if (book.state === "idle") {
@@ -1160,15 +1214,18 @@ export class ScoresStore {
     this.#changed("names");
   }
 
+  /** Whether `ev` is not a review the person removed: written after the removal, or never removed. */
+  readonly #notRemoved = (ev: NostrEvent): boolean => {
+    const removedAt = this.#removed.get(eventKey(ev));
+    return removedAt === undefined || ev.created_at > removedAt;
+  };
+
   /** Every review event read or held, but those the person removed. */
   #shownEvents(): NostrEvent[] {
     const events: NostrEvent[] = [];
     for (const read of this.#read.values()) events.push(...read);
     for (const held of this.#own.values()) events.push(held.event);
-    return events.filter((ev) => {
-      const removedAt = this.#removed.get(eventKey(ev));
-      return removedAt === undefined || ev.created_at > removedAt;
-    });
+    return events.filter(this.#notRemoved);
   }
 
   /**

@@ -9,6 +9,7 @@ import { DeskExplore } from "./explore/DeskExplore.tsx";
 import { ExploreList } from "./explore/ExploreList.tsx";
 import { MapPage } from "./explore/MapPage.tsx";
 import { PlacePage } from "./place/PlacePage.tsx";
+import { RecentPage } from "./recent/RecentPage.tsx";
 import { ReviewRoute } from "./review/ReviewPage.tsx";
 import { FiltersPage } from "./search/FiltersPage.tsx";
 import { SearchPage } from "./search/SearchPage.tsx";
@@ -45,6 +46,8 @@ export const routes: RouteObject[] = [
           // ?q=&open=&kinds=&within=&sort=. On a desktop, the results are in Explore's layout, beside the map.
           { path: "search", element: <SearchPage />, handle: chrome({ fill: "wide" }) },
           { path: "filters", element: <FiltersPage /> },
+          // The newest reviews from the people behind the view's scores, everywhere (Avi, 2026-10-08).
+          { path: "recent", element: <RecentPage />, handle: chrome({ tabs: true }) },
           // Its child is the review form: a page of its own on a phone, a dialog over the place on a desktop.
           { path: "place/:d", element: <PlacePage />, children: [{ path: "review", element: <ReviewRoute /> }] },
           { path: "chain/:key", element: <ChainPage /> },

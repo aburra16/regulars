@@ -199,11 +199,11 @@ describe("useWide", () => {
 });
 
 describe("the layout, by width", () => {
-  it("at 390 px shows the tabs Explore, Map and You, and no top bar", () => {
+  it("at 390 px shows the tabs Explore, Map, Recent and You, and no top bar", () => {
     renderApp("/", { width: PHONE });
     const tabs = within(tabBar()!).getAllByRole("link");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "You"]);
-    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/you"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Recent", "You"]);
+    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/recent", "/you"]);
     // Each takes an equal share of the bar.
     for (const tab of tabs) expect(tab).toHaveClass("flex-1");
     expect(within(tabBar()!).getByRole("link", { name: "Explore" })).toHaveAttribute("aria-current", "page");
@@ -222,9 +222,10 @@ describe("the layout, by width", () => {
     expect(within(top).getByRole("button", { name: "Near Funchal" })).toBeInTheDocument();
   });
 
-  it("at 390 px shows the tabs on Map and You, marking the page that is open", () => {
+  it("at 390 px shows the tabs on Map, Recent and You, marking the page that is open", () => {
     for (const [path, tab] of [
       ["/map", "Map"],
+      ["/recent", "Recent"],
       ["/you", "You"],
     ] as const) {
       const { unmount } = renderApp(path, { width: PHONE });
@@ -263,7 +264,7 @@ describe("the layout, by width", () => {
   });
 
   it("at 1360 px shows the one top bar on every page but sign in, and never the tabs", () => {
-    for (const path of ["/map", "/search?q=tea", "/place/osm-node-1", "/chain/abc", "/about", "/saved", "/you"]) {
+    for (const path of ["/map", "/recent", "/search?q=tea", "/place/osm-node-1", "/chain/abc", "/about", "/saved", "/you"]) {
       const { unmount } = renderApp(path, { width: DESKTOP });
       expect(topBarSearch()).toBeInTheDocument();
       expect(toggle()).toBeInTheDocument();
@@ -283,19 +284,19 @@ describe("the layout, by width", () => {
       expect(screen.getByText(copy.saved.signedOut)).toBeInTheDocument();
       // On a phone the tabs are there, with none of them the page that is open.
       if (width === PHONE) {
-        expect(within(tabBar()!).getAllByRole("link").map((tab) => tab.textContent)).toEqual(["Explore", "Map", "You"]);
+        expect(within(tabBar()!).getAllByRole("link").map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Recent", "You"]);
         expect(within(tabBar()!).queryByRole("link", { current: "page" })).not.toBeInTheDocument();
       }
       unmount();
     }
   });
 
-  it("puts Saved back, between Map and You and left of the account, once saved lists open", () => {
+  it("puts Saved back, between Recent and You and left of the account, once saved lists open", () => {
     config.features.saved = true;
     const phone = renderApp("/saved", { width: PHONE });
     const tabs = within(tabBar()!).getAllByRole("link");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Saved", "You"]);
-    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/saved", "/you"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Recent", "Saved", "You"]);
+    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/recent", "/saved", "/you"]);
     expect(within(tabBar()!).getByRole("link", { name: "Saved" })).toHaveAttribute("aria-current", "page");
     phone.unmount();
 
@@ -306,6 +307,9 @@ describe("the layout, by width", () => {
     expect(saved).toHaveAttribute("aria-current", "page");
     const account = within(bar).getByRole("link", { name: copy.nav.signIn });
     expect(saved.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // After Recent, the other page the top bar links to.
+    const recent = within(bar).getByRole("link", { name: copy.nav.recent });
+    expect(recent.compareDocumentPosition(saved) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("switches between the two as the window is resized", () => {
@@ -1092,7 +1096,13 @@ describe("the production markup", () => {
 
 describe("the copy", () => {
   it("is the wording of the design and the plan", () => {
-    expect([copy.nav.explore, copy.nav.map, copy.nav.saved, copy.nav.you]).toEqual(["Explore", "Map", "Saved", "You"]);
+    expect([copy.nav.explore, copy.nav.map, copy.nav.recent, copy.nav.saved, copy.nav.you]).toEqual([
+      "Explore",
+      "Map",
+      "Recent",
+      "Saved",
+      "You",
+    ]);
     // Signed out, the account button signs the person in, and is named so (decision 23).
     expect(copy.nav.signIn).toBe("Sign in");
     expect(copy.search.placeholder).toBe("Tacos, coffee, a place name");

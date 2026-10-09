@@ -3,18 +3,20 @@ import { NavLink } from "react-router-dom";
 
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
-import { MapIcon, PersonIcon, SavedIcon, SearchIcon } from "../ui/icons.tsx";
+import { MapIcon, PersonIcon, RecentIcon, SavedIcon, SearchIcon } from "../ui/icons.tsx";
 
 const TABS = [
   { to: "/", label: copy.nav.explore, Icon: SearchIcon },
   { to: "/map", label: copy.nav.map, Icon: MapIcon },
+  { to: "/recent", label: copy.nav.recent, Icon: RecentIcon },
   { to: "/saved", label: copy.nav.saved, Icon: SavedIcon },
   { to: "/you", label: copy.nav.you, Icon: PersonIcon },
 ] as const;
 
 /**
- * The phone's tabs, at the foot of the screen (Main.dc.html): Explore, Map, Saved and You, each an
- * equal share of the bar. Saved is left out until saved lists open (`config.features.saved`).
+ * The phone's tabs, at the foot of the screen (Main.dc.html): Explore, Map, Recent, Saved and You, each
+ * an equal share of the bar. Recent is the newest reviews (Avi, 2026-10-08). Saved is left out until
+ * saved lists open (`config.features.saved`).
  */
 export function TabBar(): JSX.Element {
   const tabs = TABS.filter(({ to }) => to !== "/saved" || config.features.saved);

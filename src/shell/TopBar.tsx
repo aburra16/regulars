@@ -202,12 +202,20 @@ function SearchField(): JSX.Element {
   );
 }
 
+/** A page's link in the top bar, in words, 44 px tall: in the accent, and bold, while its page is open. */
+const pageLink = ({ isActive }: { isActive: boolean }) =>
+  `inline-flex min-h-touch items-center text-[15px] no-underline ${
+    isActive ? "font-bold text-accent" : "font-semibold text-ink hover:text-accent"
+  }`;
+
 /**
  * The desktop's one top bar (DeskExplore.dc.html): the wordmark, the search field with the
  * location inside it, the House picks / My circle toggle (whose My circle half opens Personalize in a
- * panel under it, before the person's circle is asked for), the dark mode switch, Saved once saved
- * lists open (`config.features.saved`), and the account button. Under it, the lines of the account
- * button signing the person in, and the region that says when the person's location could not be used.
+ * panel under it, before the person's circle is asked for), the dark mode switch, the links to pages
+ * (Recent, the newest reviews; Saved once saved lists open, `config.features.saved`), and the account
+ * button. The links sit with the account button, past the switch, as the way to other pages, apart
+ * from the toggle that changes the scores. Under it, the lines of the account button signing the
+ * person in, and the region that says when the person's location could not be used.
  */
 export function TopBar(): JSX.Element {
   const signIn = useAccountSignIn();
@@ -221,15 +229,11 @@ export function TopBar(): JSX.Element {
         <div className="ml-auto flex flex-wrap items-center gap-x-[18px] gap-y-3">
           <ViewSwitch variant="compact" />
           <ThemeToggle />
+          <NavLink to="/recent" className={pageLink}>
+            {copy.nav.recent}
+          </NavLink>
           {config.features.saved && (
-            <NavLink
-              to="/saved"
-              className={({ isActive }) =>
-                `inline-flex min-h-touch items-center text-[15px] no-underline ${
-                  isActive ? "font-bold text-accent" : "font-semibold text-ink hover:text-accent"
-                }`
-              }
-            >
+            <NavLink to="/saved" className={pageLink}>
               {copy.nav.saved}
             </NavLink>
           )}
