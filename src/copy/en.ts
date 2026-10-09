@@ -201,11 +201,11 @@ export const copy = {
     },
     // DRAFT for Avi
     /**
-     * A chain in the results, in place of a rating (Search.dc.html, without its "near you"): how many
-     * of its locations the results have, and how many of those are open: "12 locations, 3 open now".
+     * A chain in the results, in place of a rating (Search.dc.html, without its "near you"): how many of
+     * its locations are near the "Near …" place, and how many of those are open: "12 nearby, 3 open now".
      */
     chainNearbyOpen: (near: number, open: number) =>
-      `${locations(near)}, ${open === 0 ? "none" : open.toLocaleString("en")} open now`,
+      `${near.toLocaleString("en")} nearby, ${open === 0 ? "none" : open.toLocaleString("en")} open now`,
     /** The button after the last row shown, when there are more. */
     showMore: "Show more",
     /** The box under the results when Open now left some out (Search.dc.html). */
@@ -1068,10 +1068,11 @@ export const copy = {
     chainKind,
     // DRAFT for Avi
     /**
-     * How many of a chain's locations the list has, and how far the closest is from where the list is
-     * near (Main.dc.html, without its "near you"): "12 locations, the closest 0.4 mi away".
+     * How many of a chain's locations are near the "Near …" place, and how far the closest is from it
+     * (Main.dc.html, without its "near you"): "12 nearby, the closest 0.4 mi away". The line above it
+     * has the chain's total ("Bakery · 74 locations").
      */
-    chainNearby: (n: number, distance: string) => `${locations(n)}, the closest ${distance} away`,
+    chainNearby: (n: number, distance: string) => `${n.toLocaleString("en")} nearby, the closest ${distance} away`,
     /** The button after the last card shown, when there are more. */
     showMore: "Show more",
     // DRAFT for Avi

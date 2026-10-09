@@ -638,7 +638,7 @@ describe("a chain row", () => {
     expect(link).toHaveTextContent(copy.explore.chainKind(kind, 2));
     // Both are closed at 08:45.
     expect(link).toHaveTextContent(copy.search.chainNearbyOpen(2, 0));
-    expect(copy.search.chainNearbyOpen(2, 0)).toBe("2 locations, none open now");
+    expect(copy.search.chainNearbyOpen(2, 0)).toBe("2 nearby, none open now");
   });
 
   it("has no tint or edge of its own: it is a row", () => {
@@ -653,8 +653,8 @@ describe("a chain row", () => {
     renderChain(new Date("2026-10-07T14:00:00Z"));
     const openNow = nearby.filter((each) => openState(each.place, new Date("2026-10-07T14:00:00Z")).kind === "open").length;
     expect(screen.getByRole("link")).toHaveTextContent(copy.search.chainNearbyOpen(2, openNow));
-    expect(copy.search.chainNearbyOpen(3, 2)).toBe("3 locations, 2 open now");
-    expect(copy.search.chainNearbyOpen(12, 3)).toBe("12 locations, 3 open now");
+    expect(copy.search.chainNearbyOpen(3, 2)).toBe("3 nearby, 2 open now");
+    expect(copy.search.chainNearbyOpen(12, 3)).toBe("12 nearby, 3 open now");
   });
 });
 
@@ -1319,12 +1319,12 @@ describe("Search: the filters that are on", () => {
       variant(nameOnly, { d: "tide-3", name: "Tide Pool Bar", lat: "32.653", lon: "-16.91", ...hours("Mo-Su 12:00-23:00") }),
     ];
     const view = await openSearch("/search?q=tide", events);
-    expect(rowFor("Tide Pool Bar")).toHaveTextContent("3 locations, 2 open now");
+    expect(rowFor("Tide Pool Bar")).toHaveTextContent("3 nearby, 2 open now");
     expect(rowFor("Tide Pool Bar")).toHaveTextContent("3 locations");
     view.unmount();
 
     await openSearch("/search?q=tide&open=1", events);
-    expect(rowFor("Tide Pool Bar")).toHaveTextContent("2 locations, 2 open now");
+    expect(rowFor("Tide Pool Bar")).toHaveTextContent("2 nearby, 2 open now");
     expect(rowFor("Tide Pool Bar")).toHaveTextContent("3 locations");
   });
 
