@@ -346,6 +346,23 @@ Tasks 1–7 were built and reviewed task by task, then the whole branch was revi
 
   Not taken: a Content-Security-Policy meta tag (not in the spec; a hardening for Avi to consider), and rare IPv6 transition ranges.
 
+**After launch**
+
+On 2026-10-09 a review reached the reviewer's own relays but never wss://search.brainstorm.world. That relay has one serial writer behind a global queue; its OKs came 35 to 41 s late on staging, and a reindex was likely running. The app gave all relays 12 s, once.
+
+- **P1.** Patience with the review relays (amends R12–R14's one bound).
+  - The person's own relays have one try of 15 s.
+  - A review relay is sent the review again, each time over a new connection, after a failure that may pass: `error:`, `rate-limited:`, or a connection lost before it answered (the writer now reports that at once). It waits 2 s, then 5 s. Any other refusal is final. At most 3 tries, all within 50 s from the start.
+  - Removal and Try again get the same patience.
+  - After 8 s with no review relay having taken it, while one is still trying, a quiet line under the button says "Still posting. Regulars is slow to answer right now." ("Still removing." for a removal), politely.
+  - A try a review relay did not take is logged with `console.warn`, by its address: what it answered, or the app's note that time ran out or the connection was lost. Keys, ids and bech32 names are redacted, and the text is cut at 200 characters. The person's own relays are never logged, as their signer may have named them.
+- **P2.** Overlapping tries. The relay stores a queued event even after the client hangs up, and its `duplicate:` OK waits behind the same queue.
+  - A review relay's try is never cut at 15 s. Once it has had no answer for 15 s, the next starts at once, beside it, on a new connection.
+  - After a failure that may pass, the next still waits 2 s, then 5 s.
+  - At most 3 tries in all. Every connection still open closes at 50 s.
+  - The first OK true counts, once, and closes the others. A final refusal on any try ends it and closes the others.
+  - When the relay never took it, why not is its last answer, or the time running out.
+
 ### Deferred minors
 
 **Sign-in**
