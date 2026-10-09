@@ -832,23 +832,27 @@ describe("signing in with an app on the phone", () => {
     expect(copy.signin.openApp).toBe("Open the app");
   });
 
-  it("offers Open the app by the device, not the window's width: on a tablet laid out as a desktop", async () => {
+  it("offers Open the app by the device, not the window's width: on a tablet laid out as a desktop, with no line on add-ons", async () => {
     const relay = new MemoryConnectRelay();
     const user = userEvent.setup();
     await openApp("/signin", { events: fixtures, px: DESKTOP, device: "handheld", relays: () => relay });
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
     await screen.findByRole("img", { name: copy.signin.qrLabel });
     expect(screen.getByRole("link", { name: copy.signin.openApp })).toHaveAttribute("href", expect.stringMatching(LINK));
+    // The line on getting an add-on is a computer's: a tablet's browser seldom takes one, and has the app.
+    expect(screen.queryByText(copy.signin.noAddOn)).not.toBeInTheDocument();
+    expect(copy.signin.noAddOn).toBe("To sign in with this browser, add a sign-in add-on to it, then reload this page.");
   });
 
-  it("does not offer Open the app in a computer's window, however narrow: its person scans the code", async () => {
+  it("does not offer Open the app in a computer's window, however narrow: its person scans the code, with the line on add-ons under it", async () => {
     const relay = new MemoryConnectRelay();
     const user = userEvent.setup();
     await openApp("/signin", { events: fixtures, px: PHONE, device: "computer", relays: () => relay });
     await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
-    expect(await screen.findByRole("img", { name: copy.signin.qrLabel })).toBeInTheDocument();
+    const code = await screen.findByRole("img", { name: copy.signin.qrLabel });
     expect(screen.queryByRole("link", { name: copy.signin.openApp })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: copy.signin.copyLink })).toBeInTheDocument();
+    expect(follows(code, screen.getByText(copy.signin.noAddOn))).toBe(true);
   });
 
   it("says so when the browser will not copy the link", async () => {

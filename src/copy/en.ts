@@ -616,7 +616,7 @@ export const copy = {
     phoneInstead: "Use an app on your phone instead",
     /** While the page looks, for a moment, for an add-on that comes late, before Continue goes one way or the other. */
     lookingForAddOn: "Looking for your add-on…",
-    /** Under the phone's way, on a desktop whose browser has no add-on to sign in with. */
+    /** Under the phone's way, on a computer whose browser has no add-on to sign in with (not on a phone or a tablet). */
     noAddOn: "To sign in with this browser, add a sign-in add-on to it, then reload this page.",
     /** While the browser's add-on asks the person. */
     browserWaiting: `Your browser add-on will ask you to allow ${config.appName}.`,

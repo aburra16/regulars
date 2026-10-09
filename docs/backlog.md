@@ -69,7 +69,6 @@ What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: 
 - The rank-failure flag is per view, not per person, so a brief false failure line is possible.
 
 **Reviews and sign-in** (M2b record)
-- On a tablet laid out as a desktop, the phone app's way of signing in now offers "Open the app", and still shows the line on getting a browser add-on, which is a computer's hint.
 - Cards redraw once when the house becomes ready.
 - No targeted retry of failed places.
 
