@@ -1321,7 +1321,7 @@ describe("signed in", () => {
     }
   });
 
-  it("draws no reviewer's picture, only the person's own, on a page that lists reviewers", async () => {
+  it("draws a reviewer's picture beside their review, and the person's own on the account button", async () => {
     const pubkey = signedInWithBrowser();
     const own = "https://img.example.test/sofia.jpg";
     const reviewer = getPublicKey(generateSecretKey());
@@ -1341,9 +1341,12 @@ describe("signed in", () => {
     expect(await screen.findByText("Maya")).toBeInTheDocument();
     const button = await within(screen.getByRole("banner")).findByRole("link", { name: "Sofia, your account" });
     expect(pictureIn(button)).toHaveAttribute("src", own);
-    // The one picture on the page is the person's own: no image of any other, and no address of theirs anywhere.
-    expect([...document.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual([own]);
-    expect(document.documentElement.innerHTML).not.toContain(theirs);
+    // Maya's is beside her review (Avi, 2026-10-09): the two pictures on the page, each loaded with no referrer.
+    const review = (await screen.findByText("Get the bolo")).closest("article")!;
+    await waitFor(() => expect(review.querySelector("img")).toHaveAttribute("src", theirs));
+    const pictures = [...document.querySelectorAll("img")];
+    expect(pictures.map((img) => img.getAttribute("src")).sort()).toEqual([own, theirs].sort());
+    for (const img of pictures) expect(img).toHaveAttribute("referrerpolicy", "no-referrer");
   });
 
   it("shows the initial in place of a picture that will not load, and does not ask for it again", async () => {

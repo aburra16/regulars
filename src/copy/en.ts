@@ -293,6 +293,7 @@ export const copy = {
     /** Stops waiting on the add-on or the app, and gives Personalize back. */
     cancel: "Cancel",
     // DRAFT for Avi: the first line of the bar at the foot of the screen, while Brainstorm works the circle out (Avi, 2026-10-09).
+    // Also the hint over My circle's half while it is off for that, shown as the pointer rests on it (Avi, 2026-10-09).
     workingTitle: "Working out your circle",
     // DRAFT for Avi: the bar's second line.
     workingBody: "This takes a few minutes.",

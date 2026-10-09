@@ -822,6 +822,28 @@ describe("the person's own review: on its own, at the top of the reviews (R15)",
     expect(router.state.historyAction).toBe("POP");
   });
 
+  it("has the person's own picture beside their name, as their account button does, never dimmed", async () => {
+    const picture = "https://img.example.test/maya.jpg";
+    const world = newWorld();
+    const me = signedIn(world, { picture });
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 4, "My words"));
+    await open(world, fromExplore(PLACE_PATH));
+
+    const mine = await yourReview();
+    await within(mine).findByText(me.name);
+    const face = await waitFor(() => {
+      const found = mine.querySelector("img");
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(face).toHaveAttribute("src", picture);
+    expect(face).toHaveAttribute("alt", "");
+    expect(face).toHaveAttribute("referrerpolicy", "no-referrer");
+    expect(face).not.toHaveClass("opacity-60");
+    expect(within(mine).getByRole("heading", { level: 3 })).toHaveTextContent(me.name);
+  });
+
   it("is not there for someone signed out, who sees the review where anyone's goes", async () => {
     const world = newWorld();
     const me = signedIn(world);

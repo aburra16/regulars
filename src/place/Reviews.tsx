@@ -6,7 +6,8 @@ import type { Review } from "../reviews/review.ts";
 import { whenWritten, writtenOn } from "../reviews/when.ts";
 import type { PlaceScore } from "../score/score.ts";
 import type { ViewState } from "../score/store.ts";
-import { useNames } from "../score/useScore.ts";
+import { useNames, usePictures } from "../score/useScore.ts";
+import { ProfilePicture } from "../ui/ProfilePicture.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Stars } from "../ui/Stars.tsx";
 import type { View } from "../view/ViewProvider.tsx";
@@ -17,10 +18,11 @@ import { EditLink, RateLink } from "./ScorePanel.tsx";
  * the person signed in, on its own at the top, with Edit and Remove (ruling R15); those by people
  * inside the view (the house trusts them, or they are in the person's circle), listed; and those by
  * people outside it, folded into a dashed box that shows them, dimmed, on request. Each review has its
- * reviewer's name, its stars, when it was written and its words. A reviewer appears by name only:
- * never a rank, a weight or a meter (decision 19), and the folded box is no verdict on the people in
- * it. Nor does anything say whether the view counts the person's own review: it is never among the
- * others, nor dimmed, nor counted with them.
+ * reviewer's picture (or initial), name, its stars, when it was written and its words. A reviewer
+ * appears by their name and the picture their profile gives: never a rank, a weight or a meter
+ * (decision 19), and the folded box is no verdict on the people in it. Nor does anything say whether
+ * the view counts the person's own review: it is never among the others, nor dimmed, nor counted with
+ * them.
  */
 
 /** The first character a person would see of a name: one emoji, or one letter with its marks. */
@@ -32,16 +34,21 @@ function initialOf(name: string): string {
   return (first ?? "").toLocaleUpperCase();
 }
 
-/** One review. A folded one is dimmed: drawn in the muted colour, its stars too. */
+/**
+ * One review, with its reviewer's `picture` when their profile gives one. A folded one is dimmed:
+ * drawn in the muted colour, its stars too, and its picture faded to match.
+ */
 function ReviewItem({
   review,
   name,
+  picture,
   now,
   wide,
   folded,
 }: {
   review: Review;
   name: string;
+  picture: string | undefined;
   now: Date;
   wide: boolean;
   folded: boolean;
@@ -51,12 +58,15 @@ function ReviewItem({
   return (
     <article data-folded={folded ? "true" : undefined} className="flex flex-col gap-2">
       <div className={`flex items-center ${wide ? "gap-3" : "gap-2.5"}`}>
-        {/* The initial stands in for a face, which the app does not have. */}
+        {/*
+          The reviewer's picture, filling the circle (Avi, 2026-10-09); their initial until it is known,
+          when there is none, or when it will not load. Hidden from a screen reader: the name is beside it.
+        */}
         <span
           aria-hidden="true"
           className={`flex shrink-0 items-center justify-center rounded-full bg-surface font-bold ${ink} ${wide ? "size-11" : "size-10"}`}
         >
-          {initialOf(name)}
+          <ProfilePicture address={picture} fallback={initialOf(name)} className={folded ? "opacity-60" : ""} />
         </span>
         <h3 className={`m-0 min-w-0 flex-1 truncate text-body font-bold ${ink}`}>
           <bdi lang={scriptLang(name)}>{name}</bdi>
@@ -88,12 +98,14 @@ function ReviewItem({
 function ReviewList({
   reviews,
   names,
+  pictures,
   now,
   wide,
   folded,
 }: {
   reviews: readonly Review[];
   names: Map<string, string>;
+  pictures: Map<string, string>;
   now: Date;
   wide: boolean;
   folded: boolean;
@@ -105,6 +117,7 @@ function ReviewList({
           <ReviewItem
             review={review}
             name={names.get(review.reviewer) ?? copy.reviews.someone}
+            picture={pictures.get(review.reviewer)}
             now={now}
             wide={wide}
             folded={folded}
@@ -144,12 +157,14 @@ const actionsRow = "flex flex-wrap items-center gap-x-6";
 function YourReview({
   review,
   name,
+  picture,
   now,
   wide,
   removal,
 }: {
   review: Review;
   name: string;
+  picture: string | undefined;
   now: Date;
   wide: boolean;
   removal: RemoveReview;
@@ -188,7 +203,7 @@ function YourReview({
       <h2 id={headingId} className={sectionHeading(wide)}>
         {copy.reviews.yours}
       </h2>
-      <ReviewItem review={review} name={name} now={now} wide={wide} folded={false} />
+      <ReviewItem review={review} name={name} picture={picture} now={now} wide={wide} folded={false} />
       <div onKeyDown={onKeyDown} className="flex flex-col gap-3">
         {status !== "partial" && (
           <div className={actionsRow}>
@@ -305,6 +320,7 @@ export function Reviews({
     [mine, inside, folded],
   );
   const names = useNames(reviewers);
+  const pictures = usePictures(reviewers);
 
   return (
     <div className={`flex flex-col ${wide ? "gap-[26px]" : "gap-[22px]"}`}>
@@ -312,6 +328,7 @@ export function Reviews({
         <YourReview
           review={mine}
           name={names.get(mine.reviewer) ?? copy.reviews.someone}
+          picture={pictures.get(mine.reviewer)}
           now={now}
           wide={wide}
           removal={removal}
@@ -323,7 +340,7 @@ export function Reviews({
             <h2 className={sectionHeading(wide)}>{view === "circle" ? copy.reviews.headingCircle : copy.reviews.heading}</h2>
             {rate && <RateLink />}
           </div>
-          <ReviewList reviews={inside} names={names} now={now} wide={wide} folded={false} />
+          <ReviewList reviews={inside} names={names} pictures={pictures} now={now} wide={wide} folded={false} />
         </section>
       )}
       {folded.length > 0 && (
@@ -352,7 +369,7 @@ export function Reviews({
           </section>
           {/* Always on the page, so the button can name it as what it opens; empty and hidden while closed. */}
           <div id={foldedId} hidden={!open}>
-            {open && <ReviewList reviews={folded} names={names} now={now} wide={wide} folded />}
+            {open && <ReviewList reviews={folded} names={names} pictures={pictures} now={now} wide={wide} folded />}
           </div>
         </div>
       )}

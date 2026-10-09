@@ -1,5 +1,5 @@
 import { copy } from "../copy/en.ts";
-import { useNames, useOwnPicture } from "../score/useScore.ts";
+import { useNames, usePictures } from "../score/useScore.ts";
 
 /**
  * The name of the person who has signed in, from their profile, as reviewers' names are read (the
@@ -13,10 +13,10 @@ export function useOwnName(pubkey: string): string | undefined {
 
 /**
  * The name and picture of the person who has signed in, from their profile (`useOwnName`,
- * `useOwnPicture`): each undefined until it is known, or when their profile gives none to show.
+ * `usePictures`): each undefined until it is known, or when their profile gives none to show.
  */
 export function useOwnProfile(pubkey: string): { name: string | undefined; picture: string | undefined } {
-  return { name: useOwnName(pubkey), picture: useOwnPicture(pubkey) };
+  return { name: useOwnName(pubkey), picture: usePictures([pubkey]).get(pubkey) };
 }
 
 /**

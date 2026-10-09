@@ -24,26 +24,35 @@ export type { View } from "../view/ViewProvider.tsx";
 export type ViewToggleVariant = "bar" | "compact" | "panel" | "map";
 
 /**
- * Each look's group and buttons, and the buttons' padding at the sides (`pad`): none where the halves
- * share the width. `padSlots` is My circle's half's while its slots for a mark take the padding's place.
+ * Each look's group, what holds each half in it (`half`: it shares the width, where the halves do),
+ * and the buttons, with their padding at the sides (`pad`): none where the halves share the width.
+ * `padSlots` is My circle's half's while its slots for a mark take the padding's place.
  */
-const LOOK: Record<ViewToggleVariant, { group: string; button: string; pad: string; padSlots: string }> = {
-  bar: { group: "rounded-button bg-surface", button: "h-11 flex-1 rounded-[12px] text-[15px]", pad: "", padSlots: "" },
+const LOOK: Record<ViewToggleVariant, { group: string; half: string; button: string; pad: string; padSlots: string }> = {
+  bar: { group: "rounded-button bg-surface", half: "flex flex-1", button: "h-11 flex-1 rounded-[12px] text-[15px]", pad: "", padSlots: "" },
   compact: {
     group: "rounded-tile bg-surface",
+    half: "flex",
     button: "relative h-10 rounded-[10px] text-secondary after:absolute after:inset-x-0 after:-inset-y-0.5",
     pad: "px-4",
     padSlots: "px-1.5",
   },
-  panel: { group: "rounded-tile bg-ground", button: "h-11 flex-1 rounded-[10px] text-secondary", pad: "", padSlots: "" },
-  map: { group: "rounded-button bg-ground shadow-float", button: "h-11 flex-1 rounded-[12px] text-[15px]", pad: "", padSlots: "" },
+  panel: { group: "rounded-tile bg-ground", half: "flex flex-1", button: "h-11 flex-1 rounded-[10px] text-secondary", pad: "", padSlots: "" },
+  map: {
+    group: "rounded-button bg-ground shadow-float",
+    half: "flex flex-1",
+    button: "h-11 flex-1 rounded-[12px] text-[15px]",
+    pad: "",
+    padSlots: "",
+  },
 };
 
 /**
  * Where My circle stands for its half, when it can't be chosen yet or has just become ready:
  * - `soon`: My circle is not open (`config.features.circle`): off, "My circle · soon";
  * - `waiting`: the person's circle is looked for, or their add-on asks them: off, "My circle";
- * - `working`: Brainstorm works it out: off, "My circle" with the turning arrow after it, named so;
+ * - `working`: Brainstorm works it out: off, "My circle" with the turning arrow after it, named so,
+ *   and with a hint that says so while the pointer rests on it (Avi, 2026-10-09);
  * - `checked`: a run the person started has just ended in a circle: on, with the check after the words.
  */
 export type CircleStatus = "soon" | "waiting" | "working" | "checked";
@@ -111,6 +120,14 @@ export interface ViewToggleProps {
  * tapped. My circle's half, with no score on it, has its words between two slots, one of which holds
  * its mark while there is one (`circleStatus`): the turning arrow, or the check, which a chosen half
  * does not carry.
+ *
+ * While the circle is worked out, a hint over My circle's half says so in plain words, for a pointer
+ * that rests on it ("Working out your circle"), and in no other state. A disabled button is not
+ * hovered in every browser (Firefox and Safari send no pointer events to one, and may show no title
+ * from it or from around it), so the hint is the title of what holds the half, and an off half lets
+ * the pointer through to it. A screen reader hears the half's own name, which says the same, and not
+ * the hint: a title on what holds a button is no part of the button's name or description. A touch
+ * screen, with no pointer to rest on the half, shows no hint.
  */
 export function ViewToggle({
   value,
@@ -139,38 +156,44 @@ export function ViewToggle({
         // "My circle · soon" never takes a mark, and a score leaves no room for one.
         const slots = view === "circle" && circleStatus !== "soon" && score === undefined;
         return (
-          <button
+          // What holds the half: the hint's place, which the pointer reaches through an off half.
+          <span
             key={view}
-            ref={halves?.[view]}
-            type="button"
-            aria-label={status === "working" ? copy.view.circleWorking : undefined}
-            aria-pressed={door ? undefined : chosen}
-            aria-expanded={door ? circleDoor?.expanded : undefined}
-            aria-controls={door ? circleDoor?.controls : undefined}
-            disabled={off}
-            onClick={() => {
-              if (!chosen) onChange(view);
-            }}
-            className={`border-0 font-text font-bold ${look.button} ${slots ? look.padSlots : look.pad} ${
-              chosen
-                ? "cursor-pointer bg-emphasis text-on-emphasis"
-                : off
-                  ? "cursor-not-allowed bg-transparent text-muted"
-                  : "cursor-pointer bg-transparent text-ink"
-            }`}
+            title={status === "working" ? copy.circle.workingTitle : undefined}
+            className={`${look.half} ${off ? "cursor-not-allowed" : ""}`}
           >
-            {slots ? (
-              // A block, its children lined up by their middles: inline, it would take its baseline from
-              // the empty slot and draw the words lower than the other half's.
-              <span className="flex items-center justify-center">
-                <span className={SLOT} />
-                {words}
-                <span className={`flex items-center justify-end ${SLOT}`}>{markOf(status, checkSince)}</span>
-              </span>
-            ) : (
-              words
-            )}
-          </button>
+            <button
+              ref={halves?.[view]}
+              type="button"
+              aria-label={status === "working" ? copy.view.circleWorking : undefined}
+              aria-pressed={door ? undefined : chosen}
+              aria-expanded={door ? circleDoor?.expanded : undefined}
+              aria-controls={door ? circleDoor?.controls : undefined}
+              disabled={off}
+              onClick={() => {
+                if (!chosen) onChange(view);
+              }}
+              className={`border-0 font-text font-bold ${look.button} ${slots ? look.padSlots : look.pad} ${
+                chosen
+                  ? "cursor-pointer bg-emphasis text-on-emphasis"
+                  : off
+                    ? "pointer-events-none bg-transparent text-muted"
+                    : "cursor-pointer bg-transparent text-ink"
+              }`}
+            >
+              {slots ? (
+                // A block, its children lined up by their middles: inline, it would take its baseline from
+                // the empty slot and draw the words lower than the other half's.
+                <span className="flex items-center justify-center">
+                  <span className={SLOT} />
+                  {words}
+                  <span className={`flex items-center justify-end ${SLOT}`}>{markOf(status, checkSince)}</span>
+                </span>
+              ) : (
+                words
+              )}
+            </button>
+          </span>
         );
       })}
     </div>
