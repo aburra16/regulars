@@ -170,8 +170,9 @@ export function ViewLine({
 /**
  * Explore, as a list (Main.dc.html; the phone's first screen). Below the top of the page, which the
  * shell draws, it has the search field, the toggle, Personalize under it for a person signed in whose
- * circle is not ready (and the banner while it gets ready, Tuning.dc.html), the filter chips and the
- * places near the person, nearest first, chains as one card. A chip is kept in the address, so Back undoes it.
+ * circle is not ready (once My circle's half opens it, before the circle is asked for; and the banner
+ * while it gets ready, Tuning.dc.html), the line under the toggle, the filter chips and the places near
+ * the person, nearest first, chains as one card. A chip is kept in the address, so Back undoes it.
  * The desktop has its own Explore, with the map beside the list (DeskExplore).
  */
 export function ExploreList(): JSX.Element {
@@ -207,7 +208,8 @@ export function ExploreList(): JSX.Element {
   // The scores of the whole list, asked for in one go. The list stays nearest first.
   const { entries, scores } = useListScores(grouped);
   const { refresh } = useScoreActions();
-  // The toggle and its line, which keep the focus when Personalize's notice is put away.
+  // The toggle, Personalize and the line under them, which keep the focus when Personalize's notice is
+  // put away, or Personalize goes with the button pressed.
   const toggleBlock = useRef<HTMLDivElement>(null);
 
   const choose = (next: ExploreChip) =>
@@ -253,9 +255,10 @@ export function ExploreList(): JSX.Element {
         <SearchLink />
         <div ref={toggleBlock} tabIndex={-1} className="flex flex-col gap-2 outline-none">
           <ViewSwitch variant="bar" />
+          {/* The panel My circle's half opens, right under it: next for the keyboard too. */}
+          <Personalize holdFocus={toggleBlock} offer="opened" className="pb-2" />
           <ViewLine unavailable={scores.state === "unavailable"} onRetry={refresh} className="gap-2" />
         </div>
-        <Personalize holdFocus={toggleBlock} />
         <Chips
           label={copy.explore.filtersLabel}
           options={CHIP_OPTIONS}

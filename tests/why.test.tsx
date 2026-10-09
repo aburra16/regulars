@@ -284,6 +284,35 @@ describe("signed in, before personalizing", () => {
     expect(screen.queryByRole("link", { name: copy.signin.button })).not.toBeInTheDocument();
     expect(brainstorm.latestRun).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["a phone", undefined, 1],
+    ["a desktop", DESKTOP, 2],
+  ])("keeps Personalize in view without a tap on %s, and My circle's half, on each toggle, goes to it", async (_, px, toggles) => {
+    signedIn();
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await openWhy(px);
+    const button = await screen.findByRole("button", { name: copy.circle.personalize });
+    expect(screen.getByText(copy.circle.consent)).toBeInTheDocument();
+    // The page's own toggle, and on a desktop the top bar's.
+    const groups = screen.getAllByRole("group", { name: copy.view.label });
+    expect(groups).toHaveLength(toggles);
+    for (const group of groups) {
+      const half = within(group).getByRole("button", { name: copy.view.circle });
+      expect(half).toBeEnabled();
+      expect(half).not.toHaveAttribute("aria-pressed");
+      // Its panel is this page's, which shows already.
+      expect(half).toHaveAttribute("aria-expanded", "true");
+      expect(document.getElementById(half.getAttribute("aria-controls") ?? "")).toContainElement(button);
+      await user.click(half);
+      expect(button).toHaveFocus();
+    }
+    // No second panel: one Personalize, and no Not now, which only a panel opened from the half has.
+    expect(screen.getAllByRole("button", { name: copy.circle.personalize })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: copy.circle.notNow })).not.toBeInTheDocument();
+    expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
+    for (const call of [brainstorm.signInToBrainstorm, brainstorm.latestRun, brainstorm.startRun]) expect(call).not.toHaveBeenCalled();
+  });
 });
 
 describe("your circle, once it is ready", () => {

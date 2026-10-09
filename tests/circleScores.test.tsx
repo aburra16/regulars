@@ -851,7 +851,8 @@ describe("a circle with nobody in it yet (brief § 6, rulings R7, R8 and R10)", 
     const user = userEvent.setup();
     await openReady(net, "/map");
     await circleRanksIn(net);
-    const block = toggle().parentElement!;
+    // The toggle is in its own box, which the door to My circle's panel floats from (src/ui/ViewToggle.tsx).
+    const block = toggle().parentElement!.parentElement!;
     // The toggle and its line share one block of the column over the map, apart from the search field.
     expect(within(block).queryByRole("link")).toBeNull();
     expect(block.textContent).not.toContain(copy.explore.circleEmpty);

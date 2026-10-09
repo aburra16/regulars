@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { Outlet, ScrollRestoration, useMatches } from "react-router-dom";
 
+import { CircleDoorProvider } from "../circle/CircleDoor.tsx";
 import { useClearUpdateOffWhy } from "../circle/leaveWhy.ts";
 import { copy } from "../copy/en.ts";
 import { useHere } from "../location/useLocation.ts";
@@ -104,13 +105,16 @@ function Frame(): JSX.Element {
 /**
  * The app around every page: the desktop's top bar or the phone's tabs, chosen by the window's
  * width, the load banners, and the page. It is the root route's element; the page is its outlet.
+ * The view, and the door to My circle, are the same for the top bar's toggle and the page's.
  */
 export function Shell(): JSX.Element {
   return (
     <ViewProvider>
-      <Frame />
-      {/* A new page opens at its top; Back returns to where the person was. */}
-      <ScrollRestoration getKey={scrollKey} />
+      <CircleDoorProvider>
+        <Frame />
+        {/* A new page opens at its top; Back returns to where the person was. */}
+        <ScrollRestoration getKey={scrollKey} />
+      </CircleDoorProvider>
     </ViewProvider>
   );
 }

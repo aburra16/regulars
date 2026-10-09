@@ -41,8 +41,10 @@ export function SearchAreaButton({ onClick, className = "" }: { onClick(): void;
 
 /**
  * Explore, on the map (Map.dc.html; the phone's second tab). The map fills the screen above the
- * tabs, with the search field and the toggle floating at its top. Every place is a pin, at any zoom
- * (decision 25), a chain's places each on their own, and pins that crowd are a bubble with a count.
+ * tabs, with the search field and the toggle floating at its top; before the person's circle is asked
+ * for, the toggle's My circle half opens Personalize in a panel floating under it. Every place is a
+ * pin, at any zoom (decision 25), a chain's places each on their own, and pins that crowd are a bubble
+ * with a count.
  *
  * Tapping a pin docks its place's card at the foot of the map, and the card opens the place; under
  * the card of one of a chain's places is the way to the chain. Tapping the map away from the pins

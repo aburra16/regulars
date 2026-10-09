@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { NostrEvent } from "@nostrify/nostrify";
-import { act, render, renderHook, screen, within } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -419,6 +419,21 @@ describe("ViewToggle", () => {
     renderToggle({ scores: { house: 4 } });
     expect(screen.getByRole("button", { name: "House picks · 4.0" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "My circle" })).toBeInTheDocument();
+  });
+
+  it("makes My circle's half a button that opens a panel while it is the door to My circle: no pressed state", () => {
+    renderToggle({ circleDoor: { expanded: false } });
+    const half = screen.getByRole("button", { name: "My circle" });
+    expect(half).toBeEnabled();
+    expect(half).toHaveAttribute("aria-expanded", "false");
+    expect(half).not.toHaveAttribute("aria-pressed");
+    expect(half).not.toHaveAttribute("aria-controls");
+    expect(screen.getByRole("button", { name: "House picks" })).toHaveAttribute("aria-pressed", "true");
+    cleanup();
+
+    renderToggle({ circleDoor: { expanded: true, controls: "door-panel" } });
+    expect(screen.getByRole("button", { name: "My circle" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "My circle" })).toHaveAttribute("aria-controls", "door-panel");
   });
 
   it("makes each button at least 44 px tall to tap", () => {

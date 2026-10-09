@@ -228,15 +228,16 @@ export const copy = {
     withScore: (view: string, score: string) => `${view} · ${score}`,
     // DRAFT for Avi
     /**
-     * The My circle half while the person's circle cannot be had yet, after they sign in: off, and
-     * saying so, until it is ready (the brief's screen 11; Tuning.dc.html).
+     * The My circle half while the person's circle is on its way: looked for, or asked for and not
+     * ready yet. It is off, and says so (the brief's screen 11; Tuning.dc.html). Before the circle is
+     * asked for, the half reads `circle`, and opens Personalize (Avi, 2026-10-08).
      */
     circleSoon: "My circle · soon",
   },
   /**
-   * Personalizing: the action under the toggle on Explore that asks Brainstorm, our scoring partner,
-   * to work out the person's circle, and what it says while it does (decisions 8 and 26; the brief's
-   * screen 11, Tuning.dc.html). "Brainstorm" is the partner's name.
+   * Personalizing: the action that asks Brainstorm, our scoring partner, to work out the person's
+   * circle, in the panel My circle's half opens under the toggle, and what it says while it does
+   * (decisions 8 and 26; the brief's screen 11, Tuning.dc.html). "Brainstorm" is the partner's name.
    */
   circle: {
     // DRAFT for Avi
@@ -276,6 +277,9 @@ export const copy = {
     // DRAFT for Avi
     /** Beside `ready` or `recently`: puts the notice away. */
     dismiss: "Dismiss",
+    // DRAFT for Avi
+    /** In the panel My circle's half opens: closes it, asking Brainstorm nothing. */
+    notNow: "Not now",
     // DRAFT for Avi
     /**
      * Beside the line that says nobody in the circle has rated places yet, when the person's scorer
