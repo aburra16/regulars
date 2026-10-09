@@ -885,68 +885,51 @@ export const copy = {
       "Places, reviews and lists are public records that don't live inside this app. Other apps can read the same ones, and yours stay with you if you leave.",
   },
   /**
-   * Writing a review (Review.dc.html; DeskReview.dc.html, a dialog over the place's page). The tags
-   * the design draws ("Anything worth flagging?") are left out while tags are off (brief § 4.4).
+   * Writing a review (Review.dc.html; DeskReview.dc.html, a dialog over the place's page), every
+   * string as Avi approved it (2026-10-09). The tags the design draws ("Anything worth flagging?") are
+   * left out while tags are off (brief § 4.4).
    */
   review: {
-    // DRAFT for Avi
     /** The dialog on a desktop, for a screen reader (DeskReview.dc.html). */
     dialogLabel: "Write a review",
-    // DRAFT for Avi
     /** At the top, who the review will carry the name of (the design's). */
     reviewingAs: (name: string) => `Reviewing as ${name}`,
-    // DRAFT for Avi
     /** Over the place's name (the design's). */
     yourReviewOf,
-    // DRAFT for Avi
     /** Over the stars (the design's). */
     howWasIt: "How was it?",
-    // DRAFT for Avi
     /** The word under the stars for each number of them, from one to five (the design's). */
     starWords: [...starWords],
-    // DRAFT for Avi
     /** A star button, for a screen reader: how many stars, and their word. "4 stars, Good". */
     star: (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "star" : "stars"}, ${starWords[n - 1] ?? ""}`,
-    // DRAFT for Avi
     /** The text box's label (the design's). */
     textLabel: "What should a friend know?",
-    // DRAFT for Avi
     /** In the empty text box (the design's). */
     textPlaceholder: "What to order, when to go, what to skip.",
-    // DRAFT for Avi
     /** Under the text box (the design's). */
     textHint: "Optional. A rating on its own still counts.",
-    // DRAFT for Avi
-    /** Over Post (the design's, Review.dc.html; DeskReview.dc.html leaves out its last sentence). */
-    notice: "Reviews are public and carry your name. One review per place: posting again replaces this one. You can remove it later.",
-    // DRAFT for Avi
+    /** Over Post (Avi, 2026-10-09). */
+    notice: "Reviews are public and carry your name. Posting again replaces your review; you can remove it later.",
     /** The button that posts it (the design's). */
     post: "Post review",
-    // DRAFT for Avi
     /** The same button while the review is being posted. */
     posting: "Posting…",
-    // DRAFT for Avi
     /**
      * Under the button, said politely, while Regulars has not taken the review 8 seconds after it was
      * sent (ruling P1): it is still trying, and the button still says Posting… (a state the design does not draw).
      */
     stillPosting: "Still posting. Regulars is slow to answer right now.",
-    // DRAFT for Avi
     /** No relay took the review, or there was nowhere to send it; what was typed stays (a state the design does not draw). */
     failed: "Your review didn't post. Try again.",
-    // DRAFT for Avi
     /**
      * Only the person's own relays took the review, not the ones Regulars reads reviews from (ruling
-     * R13): it is out there, and not on Regulars. What was typed stays.
+     * R13): it is in their account, and not on Regulars. What was typed stays (Avi, 2026-10-09).
      */
-    notOnRegulars: "Saved to your own places, but not to Regulars yet. Try again.",
-    // DRAFT for Avi
+    notOnRegulars: "Saved to your account, but not to Regulars yet. Try again.",
     /** Post, once a post has failed: it posts again. */
     tryAgain: "Try again",
-    // DRAFT for Avi
     /** The arrow at the top left of the phone's form, for a screen reader: back to the place. */
     back: "Back",
-    // DRAFT for Avi
     /** The cross at the top right of the desktop's dialog, for a screen reader. */
     close: "Close",
   },
