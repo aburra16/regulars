@@ -135,11 +135,11 @@ const actionsRow = "flex flex-wrap items-center gap-x-6";
  * Asked, Keep it takes Remove's place, in the same row, and the focus goes to it; what removing does,
  * and the Remove that does it, come after, so that a second quick tap where Remove was keeps the review
  * rather than removing it (ruling R17). Keep it, or Escape, closes the question and gives the focus back
- * to Remove; not while it is being removed. Removing, that Remove says so; when no relay took it, an
- * alert says so, and it becomes Try again: one button throughout, which keeps the focus. When only the
- * person's own relays took it, it says so, with Try again and nothing to keep it by, nor Edit: it is
- * gone from their own places already. A double click on Remove asks, and its second click does not
- * confirm.
+ * to Remove; not while it is being removed. Removing, that Remove says so, and a quiet line under it
+ * once Regulars is slow to take it; when no relay took it, an alert says so, and it becomes Try again:
+ * one button throughout, which keeps the focus. When only the person's own relays took it, it says so,
+ * with Try again and nothing to keep it by, nor Edit: it is gone from their own places already. A
+ * double click on Remove asks, and its second click does not confirm.
  */
 function YourReview({
   review,
@@ -170,6 +170,8 @@ function YourReview({
 
   const asked = status !== "idle" && status !== "removed";
   const removing = status === "removing";
+  /** Whether Regulars is slow to take the removal under way: said under its button, for everyone. */
+  const slow = removing && removal.slow;
   const confirm = (event: MouseEvent<HTMLButtonElement>) => {
     // The second click of a double click on Remove, which asked: not a yes.
     if (event.detail > 1 || removing) return;
@@ -242,6 +244,13 @@ function YourReview({
                 {removing ? copy.reviews.removing : status === "asking" ? copy.reviews.removeConfirm : copy.reviews.removeAgain}
               </button>
             </div>
+            {/*
+              Said politely once Regulars is slow to take the removal, under the button, which still
+              says Removing…; empty, and seen by no one, until then (the page says Removing… itself).
+            */}
+            <p role="status" aria-live="polite" className={slow ? "m-0 text-caption leading-[1.45] text-muted" : "sr-only"}>
+              {slow ? copy.reviews.stillRemoving : ""}
+            </p>
           </div>
         )}
       </div>

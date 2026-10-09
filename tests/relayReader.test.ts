@@ -9,7 +9,14 @@ import { relayReader } from "../src/places/relayReader";
 // A stand-in for Nostrify's relay, with no socket: the test plays the relay's part, message by
 // message, and the reader's limits run on fake timers.
 const fake = vi.hoisted(() => ({
-  relays: [] as { url: string; opts: unknown; send(msg: unknown[]): void; closed: boolean; published: unknown[] }[],
+  relays: [] as {
+    url: string;
+    opts: unknown;
+    send(msg: unknown[]): void;
+    drop(type: "close" | "error"): void;
+    closed: boolean;
+    published: unknown[];
+  }[],
 }));
 
 vi.mock("@nostrify/nostrify", () => {
@@ -19,6 +26,8 @@ vi.mock("@nostrify/nostrify", () => {
     closed = false;
     /** The events sent to it, in order. */
     readonly published: unknown[] = [];
+    /** Its connection, as websocket-ts holds it: the browser's socket underneath is what says it closed. */
+    readonly socket = { underlyingWebsocket: new EventTarget() };
 
     constructor(
       readonly url: string,
@@ -30,6 +39,14 @@ vi.mock("@nostrify/nostrify", () => {
     /** The relay sends a message, which goes through `receive` as a real one does. */
     send(msg: unknown[]): void {
       this.receive(msg);
+    }
+
+    /**
+     * The connection closes, or fails, as the browser's socket says. NRelay1 neither says so to an
+     * event waiting for its OK nor sends it again: the event waits until its signal aborts.
+     */
+    drop(type: "close" | "error"): void {
+      this.socket.underlyingWebsocket.dispatchEvent(new Event(type));
     }
 
     protected receive(msg: unknown[]): void {
@@ -350,6 +367,39 @@ describe("writerFor", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect((sent.outcome as { error: Error }).error.message).toBe("blocked: not on the list");
     expect(sent.relay.closed).toBe(true);
+  });
+
+  it("is done when the relay says it has the event already (OK true, duplicate:)", async () => {
+    const sent = await startPublish();
+    sent.relay.send(["OK", review.id, true, "duplicate: already have this event"]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sent.outcome).toEqual({ done: true });
+  });
+
+  it.each([
+    ["closes", "close"],
+    ["fails", "error"],
+  ] as const)(
+    "fails with a NetworkError when the connection %s before the relay answers, and closes it: the relay may never have read the event",
+    async (_, type) => {
+      const sent = await startPublish();
+      sent.relay.drop(type);
+      await vi.advanceTimersByTimeAsync(0);
+      const { error } = sent.outcome as { error: unknown };
+      expect(error).toBeInstanceOf(DOMException);
+      expect((error as DOMException).name).toBe("NetworkError");
+      expect((error as DOMException).message).toBe("The connection was lost before the relay answered");
+      expect(sent.relay.closed).toBe(true);
+    },
+  );
+
+  it("is done all the same when the connection closes after the relay has taken the event", async () => {
+    const sent = await startPublish();
+    sent.relay.send(["OK", review.id, true, ""]);
+    await vi.advanceTimersByTimeAsync(0);
+    sent.relay.drop("close");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sent.outcome).toEqual({ done: true });
   });
 
   it("stops when its signal aborts, with the signal's reason in place of NRelay1's bare AbortError", async () => {

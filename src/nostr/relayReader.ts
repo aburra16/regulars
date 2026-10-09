@@ -94,21 +94,36 @@ export function readerFor(url: string, { verify = true }: { verify?: boolean } =
 
 /**
  * Sends events to the relay at `url`, one connection for each, closed once the relay has answered:
- * done when it takes the event (`OK` true), an error with its reason when it refuses it. A relay that
- * never answers is waited on until `signal` aborts, which the caller bounds (src/review/post.ts).
+ * done when it takes the event (`OK` true, a `duplicate:` one too), an error with its reason when it
+ * refuses it, and a `NetworkError` when the connection closes or fails before it has answered. NRelay1
+ * would wait on then: it does not send the event again, and the relay may never have read it. A relay
+ * that never answers is waited on until `signal` aborts, which the caller bounds (src/review/post.ts).
+ * The connection is closed once it ends, and nothing of it is left listening.
  */
 export function writerFor(url: string): RelayWriter {
   return {
     async publish(event, signal) {
       signal.throwIfAborted();
       let relay: NRelay1 | undefined;
+      const lost = new AbortController();
+      // The relay is named where this is logged (src/review/post.ts), so it is not named here too.
+      const onLost = () => lost.abort(new DOMException("The connection was lost before the relay answered", "NetworkError"));
+      let socket: EventTarget | undefined;
       try {
         relay = new NRelay1(url);
-        await relay.event(event, { signal });
+        // NRelay1's socket is websocket-ts's, over the browser's; for a lone event it opens no other,
+        // so the browser's says when the connection is lost. Should an upgrade move it, the try is
+        // waited out, as it was before (tests/relayWriter.test.ts fails then, to say so).
+        socket = relay.socket?.underlyingWebsocket;
+        socket?.addEventListener("close", onLost);
+        socket?.addEventListener("error", onLost);
+        await relay.event(event, { signal: AbortSignal.any([signal, lost.signal]) });
       } catch (error) {
         // NRelay1 ends an aborted send with a bare AbortError; pass on the reason instead.
-        throw signal.aborted ? signal.reason : error;
+        throw signal.aborted ? signal.reason : lost.signal.aborted ? lost.signal.reason : error;
       } finally {
+        socket?.removeEventListener("close", onLost);
+        socket?.removeEventListener("error", onLost);
         void relay?.close().catch(() => {});
       }
     },
