@@ -15,13 +15,14 @@ import { distanceKm } from "../src/places/distance";
 import { buildIndexes, chainSlug } from "../src/places/indexes";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
-import { SIGN_TIMEOUT_MS } from "../src/review/post";
+import { PUBLISH_TIMEOUT_MS, REVIEW_RELAY_WAITS_MS, SIGN_TIMEOUT_MS } from "../src/review/post";
 import { REVIEW_KIND } from "../src/reviews/review";
 import { removalTemplate, reviewTemplate } from "../src/reviews/write";
 import { HELD_REVIEWS_KEY } from "../src/score/store";
 import { DESKTOP, openApp, PHONE, resetWidth } from "./support/app";
 import { shapedEvent } from "./support/events";
 import { createMemoryWriter } from "./support/memoryWriter";
+import { quietPostWarnings } from "./support/postWarnings";
 import {
   ANOTHER,
   fromExplore,
@@ -151,6 +152,8 @@ beforeEach(() => {
   config.reviewRelays = [SEARCH];
   // The clock stands still at NOW_S: what a removal and a review are stamped with is known.
   vi.useFakeTimers({ toFake: ["Date"], now: NOW_S * 1000 });
+  // What the relays said of each try they did not take (src/review/post.ts), kept off the output.
+  quietPostWarnings();
 });
 
 afterEach(() => {
@@ -377,6 +380,32 @@ describe("removing a review", () => {
     expect(await within(mine).findByRole("alert")).toHaveTextContent(copy.reviews.removeFailed);
     expect(within(mine).getByText("Get the bolo")).toBeInTheDocument();
     expect(sentTo(world, SEARCH)).toEqual([]);
+  });
+
+  it("gives the removal the same patience: Regulars is sent it again while it fails for now, and the review comes off when it takes it", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+    // No answer to the first try, an error of its own on the second, and the third is taken.
+    world.writers[SEARCH] = createMemoryWriter({ answers: [{ silent: true }, { refuse: "error: vespa feed 503" }] });
+    await open(world, fromExplore(PLACE_PATH));
+    const mine = await yourReview();
+    await removeButton(mine);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+
+    await removeIt(user);
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+    await act(() => vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[0]!));
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(2));
+    expect(within(mine).getByRole("button", { name: copy.reviews.removing })).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[1]!));
+    await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
+    const [removal] = sentTo(world, SEARCH);
+    expect(removal).toMatchObject({ kind: 5 });
+    expect(sentTo(world, SEARCH)).toEqual([removal, removal, removal]);
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
   });
 
   it("says the review didn't come off when no relay takes the removal, keeps it, with Try again and Keep it", async () => {

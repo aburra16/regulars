@@ -13,6 +13,16 @@ export interface MemoryWriterOptions {
   delayMs?: number;
   /** Answers only once this settles: a relay slower than the others, for as long as the test likes. */
   until?: Promise<unknown>;
+  /**
+   * Its connection closes before it answers: the event fails with a `NetworkError`, as the app's
+   * writer does (`writerFor`, src/nostr/relayReader.ts). Default: it stays open.
+   */
+  closes?: boolean;
+  /**
+   * How it answers the first events it is sent, one each, in order, as each of these says: a relay
+   * that fails a try and takes the next. Once they run out, it answers as the rest of `opts` says.
+   */
+  answers?: readonly Omit<MemoryWriterOptions, "answers" | "into">[];
 }
 
 /** `promise`, or the signal's reason as soon as it aborts. */
@@ -33,7 +43,8 @@ export interface MemoryWriter extends RelayWriter {
 
 /**
  * A stand-in for a relay that is sent reviews, held in memory, for tests: it takes each event (`OK
- * true`), refuses it, or never answers, at once or later, as `opts` says. It never opens a socket.
+ * true`), refuses it, never answers, or loses its connection, at once or later, as `opts` says (or,
+ * for the first events, `opts.answers`). It never opens a socket.
  */
 export function createMemoryWriter(opts: MemoryWriterOptions = {}): MemoryWriter {
   const published: NostrEvent[] = [];
@@ -43,15 +54,17 @@ export function createMemoryWriter(opts: MemoryWriterOptions = {}): MemoryWriter
     signals,
     async publish(event, signal) {
       signal.throwIfAborted();
+      const answer = opts.answers?.[published.length] ?? opts;
       published.push(event);
       signals.push(signal);
-      if (opts.silent) await orAbort(new Promise<never>(() => {}), signal);
-      if (opts.until !== undefined) await orAbort(opts.until, signal);
-      if (opts.delayMs !== undefined) {
-        const ms = opts.delayMs;
+      if (answer.silent) await orAbort(new Promise<never>(() => {}), signal);
+      if (answer.until !== undefined) await orAbort(answer.until, signal);
+      if (answer.delayMs !== undefined) {
+        const ms = answer.delayMs;
         await orAbort(new Promise((resolve) => setTimeout(resolve, ms)), signal);
       }
-      if (opts.refuse !== undefined) throw new Error(opts.refuse);
+      if (answer.closes) throw new DOMException("The connection closed before the relay answered", "NetworkError");
+      if (answer.refuse !== undefined) throw new Error(answer.refuse);
       opts.into?.push(event);
     },
   };

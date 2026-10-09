@@ -53,10 +53,12 @@ export interface RemoveReview {
  * their review of the place, under any `d` and in any filing (`ownCoordinates`), in one removal that
  * their signer signs; it goes to the review relays, where they write now and where each version went
  * (`removalRelays`). Once a review relay takes it, each is hidden at once, and kept hidden from a relay
- * that lags (`noteRemoval`); their own relays may still be answering. When no review relay takes it,
- * it says so (and whether their own relays did), and Try again sends the same removal again. A person whose add-on or phone app now signs
- * as someone else (they are signed out, `AccountChanged`) is sent to sign in, and back to the place.
- * Leaving the page stops it, until a review relay has taken it.
+ * that lags (`noteRemoval`); their own relays may still be answering. A review relay that is slow, or
+ * fails for now, is sent it again, as a review is (`sendReview`). When no review relay takes it, it
+ * says so (and whether their own relays did), and Try again sends the same removal again, as
+ * patiently. A person whose add-on or phone app now signs as someone else (they are signed out,
+ * `AccountChanged`) is sent to sign in, and back to the place. Leaving the page stops it, until a
+ * review relay has taken it.
  */
 export function useRemoveReview(place: Place, mine: Review | undefined): RemoveReview {
   const { account } = useAccount();

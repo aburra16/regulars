@@ -11,9 +11,11 @@ import { removalTemplate } from "../reviews/write.ts";
 /*
  * Posting a review (M2b Task 6, rulings R12 to R14), and removing one (Task 7): where it goes, signing
  * it with the person's signer, and sending it to all of those relays at once: posted (or removed) as
- * soon as a review relay takes it, the others going on under one limit. Nothing here loads Nostrify:
- * the app's writers load the relay code when a review is first sent (src/nostr/relayCode.ts), so the
- * form can be on the first screen. Nothing is logged: what passes through is the person's.
+ * soon as a review relay takes it, the others going on. A review relay that is slow to answer, or
+ * fails in a way that may pass, is sent it again (ruling P1). Nothing here loads Nostrify: the app's
+ * writers load the relay code when a review is first sent (src/nostr/relayCode.ts), so the form can be
+ * on the first screen. What the relays answer is logged, when one does not take it (`warnNotTaken`);
+ * never what passes through, which is the person's.
  */
 
 /**
@@ -23,10 +25,30 @@ import { removalTemplate } from "../reviews/write.ts";
 export const WRITE_RELAYS_WAIT_MS = 4_000;
 
 /**
- * How long the relays have, all together, to take the review or refuse it: it is sent to every one
- * at once, and those that have not answered by then are given up on.
+ * How long a relay has, on each try, to take the review or refuse it: it is sent to every one at
+ * once, and a try that has not been answered by then is given up on. The person's own relays have
+ * one try; a review relay may have more (`REVIEW_RELAY_TRIES`).
  */
-export const PUBLISH_TIMEOUT_MS = 12_000;
+export const PUBLISH_TIMEOUT_MS = 15_000;
+
+/**
+ * How many tries a review relay has, each over a connection of its own, while it does not answer in
+ * time or fails in a way that may pass (`mayPass`): a relay that stalls while it reindexes, or whose
+ * store fails a batch, often takes the review a moment later.
+ */
+export const REVIEW_RELAY_TRIES = 3;
+
+/** How long to wait before each try at a review relay after the first: 2 seconds before the second, 5 before the third. */
+export const REVIEW_RELAY_WAITS_MS: readonly number[] = [2_000, 5_000];
+
+/**
+ * How long the review relays have in all, from the start, their tries and the waits between them
+ * together: a last try has what is left of it. After that the review is not on Regulars.
+ */
+export const REVIEW_RELAY_PATIENCE_MS = 50_000;
+
+/** How long a review relay may go without taking the review, once it is sent, before the form says it is slow (`SendOptions.onSlow`). */
+export const SLOW_POST_MS = 8_000;
 
 /**
  * A review posted: the signed event, the relays that took it, and what each of the others said. It
@@ -37,7 +59,7 @@ export interface Posted {
   event: NostrEvent;
   /** The relays that have taken it, in the order they were given (the review relays first). One of them is a review relay. */
   accepted: string[];
-  /** Each relay that has refused it, or did not answer in time, and why. */
+  /** Each relay that has refused it, or did not answer in time, and why (a review relay's last try's). */
   refused: Record<string, string>;
   /** Done once every relay has answered, or the time for them is up: `accepted` and `refused` are final. */
   settled: Promise<void>;
@@ -53,7 +75,7 @@ export const SIGN_TIMEOUT_MS = 60_000;
 /** How long the signer of a person signed in by `how` has to sign (`SendOptions.signWithin`): an add-on 60 seconds; a phone app its own. */
 export const signTimeFor = (how: How): number | undefined => (how === "browser" ? SIGN_TIMEOUT_MS : undefined);
 
-/** How a review is sent: the writer of each relay (the app's own by default). */
+/** How a review is sent: the writer of each relay (the app's own by default), asked for one on each try. */
 export interface SendOptions {
   writers?: (url: string) => RelayWriter;
   /**
@@ -61,6 +83,11 @@ export interface SendOptions {
    * not posted (`NotPosted`). None by default: the signer's own limit holds.
    */
   signWithin?: number;
+  /**
+   * Called once when no review relay has taken the review `SLOW_POST_MS` after it was sent (once it
+   * is signed): the form says Regulars is slow to answer. Not once one has, nor once the sending has stopped.
+   */
+  onSlow?: () => void;
 }
 
 /**
@@ -194,20 +221,94 @@ function isSigned(signed: unknown, template: EventTemplate): signed is NostrEven
 }
 
 /**
- * Sends `event` to the relay at `url` with `writers`, until `signal` aborts (a writer that does not
- * stop then is stopped waiting for). Null when it took it; else why not.
+ * Whether a relay's failure to take a review may pass, so that a review relay is sent it again: its
+ * connection closed or failed before it answered (`writerFor`'s `NetworkError`), or it refused the
+ * review for a fault of its own (`error:`) or for now (`rate-limited:`), as NIP-01's prefixes say.
+ * Any other refusal is its answer, and final: `blocked:`, `invalid:`, `replaced:`, `pow:`,
+ * `restricted:`, `auth-required:`, another prefix, or none. A try that ran out of time may pass too
+ * (`tryToSend`).
+ */
+function mayPass(error: unknown): boolean {
+  if (error instanceof DOMException) return error.name === "NetworkError";
+  return error instanceof Error && /^(?:error|rate-limited):/.test(error.message);
+}
+
+/**
+ * Logs that the relay at `url` did not take a review or a removal, and what it said, for whoever
+ * looks into why it didn't post: "[post] wss://… did not take it: error: …". Only the relay's address
+ * and its answer: never the event, what the person wrote, who they are, or anything of their signer's.
+ */
+const warnNotTaken = (url: string, reason: string) => console.warn(`[post] ${url} did not take it: ${reason}`);
+
+/** A signal that aborts with a TimeoutError once `ms` milliseconds have passed, and `stop`, which clears its timer. */
+function timeLimit(ms: number): { signal: AbortSignal; stop(): void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("The relay did not answer in time", "TimeoutError")), ms);
+  return { signal: controller.signal, stop: () => clearTimeout(timer) };
+}
+
+/** Waits `ms` milliseconds, unless `signal` aborts first. True when it waited them all. */
+function pause(ms: number, signal: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve(false);
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** One try at sending a review to a relay: taken (null), or why not, and whether it is worth another. */
+type Tried = { reason: string; again: boolean } | null;
+
+/**
+ * One try at sending `event` to the relay at `url`, with a writer of its own from `writers` (the
+ * app's opens a connection for it): it has `PUBLISH_TIMEOUT_MS`, and stops when `signal` aborts (a
+ * writer that does not stop then is stopped waiting for). Null when the relay took it; else why not,
+ * and whether to try again: when the try ran out of time, or the failure may pass (`mayPass`), but
+ * not when `signal` stopped it.
+ */
+async function tryToSend(url: string, event: NostrEvent, writers: (url: string) => RelayWriter, signal: AbortSignal): Promise<Tried> {
+  const limit = timeLimit(PUBLISH_TIMEOUT_MS);
+  const within = AbortSignal.any([signal, limit.signal]);
+  try {
+    await abortable(Promise.resolve().then(() => writers(url).publish(event, within)), within);
+    return null;
+  } catch (error) {
+    return { reason: reasonOf(error), again: !signal.aborted && (limit.signal.aborted || mayPass(error)) };
+  } finally {
+    limit.stop();
+  }
+}
+
+/**
+ * Sends `event` to the relay at `url` (`tryToSend`), up to `tries` times while its failures may
+ * pass, waiting `REVIEW_RELAY_WAITS_MS` before each try after the first, until `signal` aborts. Null
+ * once it has taken it; else why not, the last time. Each try it does not take is logged
+ * (`warnNotTaken`), unless `left` has aborted: the person stopped it, and the relay said nothing.
  */
 async function sendTo(
   url: string,
   event: NostrEvent,
   writers: (url: string) => RelayWriter,
+  tries: number,
   signal: AbortSignal,
+  left: AbortSignal,
 ): Promise<string | null> {
-  try {
-    await abortable(Promise.resolve().then(() => writers(url).publish(event, signal)), signal);
-    return null;
-  } catch (error) {
-    return reasonOf(error);
+  for (let tried = 1; ; tried += 1) {
+    const result = await tryToSend(url, event, writers, signal);
+    if (result === null) return null;
+    if (!left.aborted) warnNotTaken(url, result.reason);
+    const wait = REVIEW_RELAY_WAITS_MS[tried - 1];
+    if (!result.again || tried >= tries || wait === undefined || !(await pause(wait, signal))) return result.reason;
   }
 }
 
@@ -215,17 +316,21 @@ async function sendTo(
  * Sends `event`, a review signed already, to every one of `relays` at once (Try again sends one this
  * way, without asking for it to be signed again). It is posted as soon as a review relay
  * (`config.reviewRelays`, however written) takes it: that is where Regulars reads it from, and the
- * person's own relays alone are not (ruling R13). The others go on: they have `PUBLISH_TIMEOUT_MS`
- * from the start, all together, and what they say is added to the post as they say it.
- * `signal` stops the sending until the review is posted; once it is, only that time does, so a
- * person who goes back to the place does not cut their own relays off.
+ * person's own relays alone are not (ruling R13). The others go on, and what they say is added to the
+ * post as they say it. Each try at a relay has `PUBLISH_TIMEOUT_MS`. The person's own relays have one;
+ * a review relay that does not answer in time, or fails in a way that may pass (`mayPass`), is sent it
+ * again, up to `REVIEW_RELAY_TRIES` times, `REVIEW_RELAY_WAITS_MS` apart, all within
+ * `REVIEW_RELAY_PATIENCE_MS` from the start (ruling P1). `opts.onSlow` hears when none has taken it
+ * after `SLOW_POST_MS`. `signal` stops the sending, tries to come and all, until the review is
+ * posted; once it is, only those limits do, so a person who goes back to the place does not cut
+ * their own relays off.
  *
  * Throws `NotPosted`, with what each relay did and the event, when no review relay took it once every
  * relay has answered or the time is up, or when there was nowhere to send it; and the signal's
  * reason when `signal` aborts before it is posted.
  */
 export function sendReview(event: NostrEvent, relays: readonly string[], signal: AbortSignal, opts: SendOptions = {}): Promise<Posted> {
-  const { writers = appWriters } = opts;
+  const { writers = appWriters, onSlow } = opts;
   if (signal.aborted) return Promise.reject(signal.reason);
   if (relays.length === 0) return Promise.reject(new NotPosted({}, [], event));
 
@@ -237,16 +342,17 @@ export function sendReview(event: NostrEvent, relays: readonly string[], signal:
     settle = resolve;
   });
 
-  // One limit for them all; and the caller's signal, until the review is posted.
-  const deadline = new AbortController();
-  const timer = setTimeout(
-    () => deadline.abort(new DOMException("The relays did not answer in time", "TimeoutError")),
-    PUBLISH_TIMEOUT_MS,
-  );
+  // The caller's signal, until the review is posted; the review relays' patience, from the start; and
+  // when to say it is slow.
   const cut = new AbortController();
-  const onAbort = () => cut.abort(signal.reason);
+  const patience = timeLimit(REVIEW_RELAY_PATIENCE_MS);
+  const slow = onSlow === undefined ? undefined : setTimeout(onSlow, SLOW_POST_MS);
+  const onAbort = () => {
+    clearTimeout(slow);
+    cut.abort(signal.reason);
+  };
   signal.addEventListener("abort", onAbort, { once: true });
-  const sending = AbortSignal.any([cut.signal, deadline.signal]);
+  const patiently = AbortSignal.any([cut.signal, patience.signal]);
 
   return new Promise<Posted>((resolve, reject) => {
     let posted: Posted | undefined;
@@ -260,18 +366,25 @@ export function sendReview(event: NostrEvent, relays: readonly string[], signal:
       }
       if (posted === undefined && reason === null && isReviewRelay(url)) {
         posted = { event, accepted, refused, settled };
+        clearTimeout(slow);
         signal.removeEventListener("abort", onAbort);
         resolve(posted);
       }
       waiting -= 1;
       if (waiting > 0) return;
-      clearTimeout(timer);
+      patience.stop();
+      clearTimeout(slow);
       signal.removeEventListener("abort", onAbort);
       settle();
       if (posted !== undefined) return;
       reject(signal.aborted ? signal.reason : new NotPosted(refused, accepted, event));
     };
-    for (const url of relays) void sendTo(url, event, writers, sending).then((reason) => answer(url, reason));
+    for (const url of relays) {
+      const sending = isReviewRelay(url)
+        ? sendTo(url, event, writers, REVIEW_RELAY_TRIES, patiently, cut.signal)
+        : sendTo(url, event, writers, 1, cut.signal, cut.signal);
+      void sending.then((reason) => answer(url, reason));
+    }
   });
 }
 
@@ -279,7 +392,8 @@ export function sendReview(event: NostrEvent, relays: readonly string[], signal:
  * Posts a review: `signer` signs `template` (the person's add-on or phone app, which may ask them
  * first), within `opts.signWithin` when given (an add-on: `SIGN_TIMEOUT_MS`), and the signed event,
  * once checked to be what was asked for, is sent to every one of `relays` at once (`sendReview`):
- * posted as soon as a review relay takes it, the others going on. With no relays, nothing is signed.
+ * posted as soon as a review relay takes it, the others going on, and a review relay that is slow or
+ * fails for now tried again. With no relays, nothing is signed.
  *
  * Throws `NotPosted` when no review relay took it (with what the others did, and the event), when
  * there was nowhere to send it, when the signer signed something else, or did not sign in time;
