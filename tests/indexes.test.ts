@@ -363,6 +363,63 @@ describe("search", () => {
     expect(search(fixtureIndexes, "ヘーハー")).toEqual([]);
   });
 
+  describe("a name written without spaces between its words (Thai, Chinese, Japanese, Lao)", () => {
+    // ร้าน ก๋วยเตี๋ยว แม่ มาลี: shop, noodles, mother, Mali. 北京 烤鸭 店: Beijing, roast duck, shop;
+    // 北京 饭店: Beijing, restaurant. こだわり 麺 や: particular, noodles, shop. ເຂົ້າ ມັນ ໄກ່ ສິງກະໂປ:
+    // rice, fat, chicken, Singapore.
+    const thai = make("ร้านก๋วยเตี๋ยวแม่มาลี");
+    const duck = make("北京烤鸭店");
+    const beijing = make("北京饭店");
+    const noodles = make("こだわり麺や");
+    const lao = make("ເຂົ້າມັນໄກ່ສິງກະໂປ");
+    const idx = buildIndexes([thai, duck, beijing, noodles, lao, make("Noodle Bar")]);
+
+    it("is found by a word from its middle", () => {
+      expect(namesOf(search(idx, "ก๋วยเตี๋ยว"))).toEqual([thai.name]);
+      expect(namesOf(search(idx, "烤鸭"))).toEqual([duck.name]);
+      expect(namesOf(search(idx, "麺"))).toEqual([noodles.name]);
+      expect(namesOf(search(idx, "ໄກ່"))).toEqual([lao.name]);
+    });
+
+    it("is found by its last words, and by the start of a word as you type", () => {
+      expect(namesOf(search(idx, "แม่มาลี"))).toEqual([thai.name]);
+      expect(namesOf(search(idx, "ก๋วยเต"))).toEqual([thai.name]);
+      expect(namesOf(search(idx, "店"))).toEqual([duck.name]);
+      expect(namesOf(search(idx, "饭店"))).toEqual([beijing.name]);
+      // Words apart in the name, asked for with a space between them.
+      expect(namesOf(search(idx, "ร้าน มาลี"))).toEqual([thai.name]);
+    });
+
+    it("is still found by its start, a word or less, as before", () => {
+      expect(namesOf(search(idx, "ร้านก๋วย"))).toEqual([thai.name]);
+      expect(namesOf(search(idx, "北京")).sort()).toEqual([duck.name, beijing.name].sort());
+      expect(namesOf(search(idx, "北京烤"))).toEqual([duck.name]);
+    });
+
+    it("is not found by the middle of a word", () => {
+      expect(search(idx, "วยเตี๋ยว")).toEqual([]);
+      expect(search(idx, "鸭")).toEqual([]);
+    });
+
+    it("is found by a word from its middle among the places farther away", () => {
+      const found = idx.elsewhere("ก๋วยเตี๋ยว", { ...CENTER, beyondKm: -1, limit: 5 });
+      expect(namesOf(found)).toEqual([thai.name]);
+    });
+
+    it("is found by its start alone where the browser cannot split words", () => {
+      const withoutSegmenter = Object.create(Intl, { Segmenter: { value: undefined } }) as typeof Intl;
+      vi.stubGlobal("Intl", withoutSegmenter);
+      try {
+        const plain = buildIndexes([thai, duck, beijing, noodles]);
+        expect(search(plain, "ก๋วยเตี๋ยว")).toEqual([]);
+        expect(search(plain, "烤鸭")).toEqual([]);
+        expect(namesOf(search(plain, "ร้านก๋วย"))).toEqual([thai.name]);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
   it("gives each result its distance from the point searched from", () => {
     const rows = search(fixtureIndexes, "jacafe");
     expect(rows[0]!.km).toBeCloseTo(kmFromCenter(rows[0]!.place), 6);
