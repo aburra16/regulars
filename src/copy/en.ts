@@ -87,8 +87,15 @@ const dot = " · ";
 /** A chain's kind and size (Main.dc.html): "Coffee shop · 74 locations". */
 const chainKind = (kind: string, n: number) => `${kind}${dot}${locations(n)}`;
 
-/** How many of a chain's places are near, in the line under its name: "3 near you". */
-const nearYou = (n: number) => `${n === 0 ? "none" : n.toLocaleString("en")} near you`;
+/**
+ * How many of a chain's places are near where the places on screen are near, in the line under its
+ * name: "3 near Funchal", "none near you". `near` is that place as the "Near …" control names it: a
+ * town, or "you" only when it is the device.
+ */
+const nearCount = (n: number, near: string) => `${n === 0 ? "none" : n.toLocaleString("en")} near ${near}`;
+
+/** "Near Funchal", "Near you": where the places on screen are near, as the "Near …" control says it. */
+const nearLabel = (label: string) => `Near ${label}`;
 
 /** What joins the two parts of the hours inside a line that dots join already (DeskPlace.dc.html): "Open now, closes 10 pm". */
 const comma = ", ";
@@ -192,9 +199,13 @@ export const copy = {
       // DRAFT for Avi: words that are not a kind of place are listed best match first.
       relevance: "Best match first",
     },
-    /** A chain in the results, in place of a score (Search.dc.html): "3 near you, 2 open now". */
+    // DRAFT for Avi
+    /**
+     * A chain in the results, in place of a rating (Search.dc.html, without its "near you"): how many
+     * of its locations the results have, and how many of those are open: "12 locations, 3 open now".
+     */
     chainNearbyOpen: (near: number, open: number) =>
-      `${near.toLocaleString("en")} near you, ${open === 0 ? "none" : open.toLocaleString("en")} open now`,
+      `${locations(near)}, ${open === 0 ? "none" : open.toLocaleString("en")} open now`,
     /** The button after the last row shown, when there are more. */
     showMore: "Show more",
     /** The box under the results when Open now left some out (Search.dc.html). */
@@ -1028,7 +1039,7 @@ export const copy = {
   explore: {
     // DRAFT for Avi
     /** The control at the top of the page. `label` is where the places are near: "Funchal", or "you". */
-    near: (label: string) => `Near ${label}`,
+    near: nearLabel,
     /**
      * Under the toggle, while it is on House picks (Main.dc.html), with the house's badge before its
      * name. "How this works" follows it, as a link.
@@ -1052,8 +1063,12 @@ export const copy = {
     /** What a place is and how far it is: "Mexican restaurant · 1.1 mi". */
     kindLine: (kind: string, distance: string) => (distance === "" ? kind : `${kind}${dot}${distance}`),
     chainKind,
-    /** How many of a chain are around: "3 near you, the closest 0.6 mi". */
-    chainNearby: (n: number, distance: string) => `${n.toLocaleString("en")} near you, the closest ${distance}`,
+    // DRAFT for Avi
+    /**
+     * How many of a chain's locations the list has, and how far the closest is from where the list is
+     * near (Main.dc.html, without its "near you"): "12 locations, the closest 0.4 mi away".
+     */
+    chainNearby: (n: number, distance: string) => `${locations(n)}, the closest ${distance} away`,
     /** The button after the last card shown, when there are more. */
     showMore: "Show more",
     // DRAFT for Avi
@@ -1071,31 +1086,39 @@ export const copy = {
   },
   /** A chain's page (Chain.dc.html): the places that share a name, and which of them are near. */
   chain: {
-    /** Under the chain's name (Chain.dc.html): what it is, how many places have its name and how many are near: "Coffee shop · 74 locations · 3 near you". */
-    line: (kind: string, n: number, near: number) => `${chainKind(kind, n)}${dot}${nearYou(near)}`,
-    // DRAFT for Avi: "none near you" is not drawn; the design has a chain with three near.
-    nearYou,
+    /**
+     * Under the chain's name (Chain.dc.html): what it is, how many places have its name and how many
+     * are near `near` (`nearCount`): "Coffee shop · 74 locations · 3 near Funchal".
+     */
+    line: (kind: string, n: number, nearby: number, near: string) => `${chainKind(kind, n)}${dot}${nearCount(nearby, near)}`,
+    // DRAFT for Avi: "none near Funchal" is not drawn; the design has a chain with three near.
+    nearCount,
     eachScored: "Each location is rated on its own",
     eachScoredDetail: "A good one here says little about the one across town.",
     // DRAFT for Avi
-    /** After it, when two or more locations near have scores (Chain.dc.html, worded for House picks): the lowest and the highest. */
-    houseRange: (low: string, high: string) =>
-      low === high ? `Near you, the house rates them ${low}.` : `Near you, the house rates them from ${low} to ${high}.`,
+    /**
+     * After it, when two or more locations near `near` have ratings (Chain.dc.html, worded for House
+     * picks): the lowest and the highest. "Near Funchal, the house rates them from 3.6 to 4.4."
+     */
+    houseRange: (low: string, high: string, near: string) =>
+      low === high ? `${nearLabel(near)}, the house rates them ${low}.` : `${nearLabel(near)}, the house rates them from ${low} to ${high}.`,
     // DRAFT for Avi
-    /** The same, when one location near has a score. */
-    houseOne: (score: string) => `Near you, the house rates one ${score}.`,
+    /** The same, when one location near has a rating. */
+    houseOne: (score: string, near: string) => `${nearLabel(near)}, the house rates one ${score}.`,
     // DRAFT for Avi
     /** The same as `houseRange`, while My circle is the view. */
-    circleRange: (low: string, high: string) =>
-      low === high ? `Near you, your circle rates them ${low}.` : `Near you, your circle rates them from ${low} to ${high}.`,
+    circleRange: (low: string, high: string, near: string) =>
+      low === high
+        ? `${nearLabel(near)}, your circle rates them ${low}.`
+        : `${nearLabel(near)}, your circle rates them from ${low} to ${high}.`,
     // DRAFT for Avi
     /** The same as `houseOne`, while My circle is the view. */
-    circleOne: (score: string) => `Near you, your circle rates one ${score}.`,
-    /** The heading over the locations that are near. */
-    near: "Near you",
+    circleOne: (score: string, near: string) => `${nearLabel(near)}, your circle rates one ${score}.`,
+    /** The heading over the locations that are near, as the "Near …" control names where: "Near Funchal", "Near you". */
+    near: nearLabel,
     // DRAFT for Avi: the heading over the nearest three, when none is near.
     nearest: "Nearest locations",
-    /** The link beside "Near you", on a phone, to the map. */
+    /** The link beside the heading "Near …", on a phone, to the map. */
     seeOnMap: "See on map",
     /** The button under the locations that are near, when the chain has more (Chain.dc.html): "Show all 74 locations". */
     showAll: (n: number) => `Show all ${locations(n)}`,

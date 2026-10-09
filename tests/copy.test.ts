@@ -190,6 +190,11 @@ describe("copy", () => {
     expect(leaves.filter((leaf) => /\bscor(?:e|es|ed)\b/i.test(leaf.text))).toEqual([]);
   });
 
+  it("never says 'near you' of its own accord: where the places are near is given, and is 'you' only for the device", () => {
+    expect(leavesOf(copy, "").filter((leaf) => /\bnear you\b/i.test(leaf.text))).toEqual([]);
+    expect(copy.explore.near(copy.location.you)).toBe("Near you");
+  });
+
   it("calls the newest reviews' page Trending, and nothing Recent any more (decision 31)", () => {
     expect([copy.nav.recent, copy.pages.recent]).toEqual(["Trending", "Trending"]);
     expect(copy.titles.recent).toBe(`Trending · ${config.appName}`);

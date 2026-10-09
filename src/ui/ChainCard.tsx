@@ -73,8 +73,11 @@ type ChainCardProps = {
  * Places that share a name, as one entry in a list: what the chain is, how many locations it has and
  * how many of them are near, and a chevron, since it opens a list of them.
  *
- * - `card` (Main.dc.html): tinted, with the closest of the places near ("3 near you, the closest 0.6 mi").
- * - `row` (Search.dc.html): a row of the results, its tile dark, with how many are open ("3 near you, 2 open now").
+ * - `card` (Main.dc.html): tinted, with how far the closest of them is ("3 locations, the closest 0.6 mi away").
+ * - `row` (Search.dc.html): a row of the results, its tile dark, with how many are open ("3 locations, 2 open now").
+ *
+ * Neither says "near you": the distance is from where the list is near, which is the person only when
+ * the "Near …" control says so.
  */
 /** The edge and ground of the card variant: tinted with a line, the ink edge when chosen, white with a shadow over the map. */
 function cardEdge(selected: boolean, onMap: boolean): string {

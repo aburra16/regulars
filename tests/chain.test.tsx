@@ -125,8 +125,10 @@ describe("the chain page: header", () => {
 
     // The kind and the count, as Explore's card says them, then how many are near.
     const kind = placeKindLabel("bakery", undefined);
-    expect(header()).toHaveTextContent(`${kind} · 4 locations · 4 near you`);
-    expect(copy.chain.line(kind, 4, 4)).toBe(`${kind} · 4 locations · 4 near you`);
+    // Near the town the "Near …" control names: "near you" only where it is the device.
+    expect(header()).toHaveTextContent(`${kind} · 4 locations · 4 near Funchal`);
+    expect(copy.chain.line(kind, 4, 4, "Funchal")).toBe(`${kind} · 4 locations · 4 near Funchal`);
+    expect(copy.chain.line(kind, 4, 4, copy.location.you)).toBe(`${kind} · 4 locations · 4 near you`);
 
     const order = [heading(), screen.getByText(copy.chain.eachScored)];
     expect(order[0]!.compareDocumentPosition(order[1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -137,17 +139,18 @@ describe("the chain page: header", () => {
   it("counts every location of the chain, and those within the city's reach of here", async () => {
     // Three more in Lisbon: seven locations, four of them near.
     await openApp(confeitariaPath, { events: [...fixtures, ...lisbonConfeitaria(3)] });
-    expect(header()).toHaveTextContent("7 locations · 4 near you");
+    expect(header()).toHaveTextContent("7 locations · 4 near Funchal");
   });
 
-  it("says none are near you, and lists the nearest three, when every location is far away", async () => {
+  it("says none are near the town, and lists the nearest three, when every location is far away", async () => {
     const events = [...fixtures, ...inLisbon("Lisboa Cafe", 5)];
     // The crafted place has no country, so the chain is keyed by the empty one.
     const lisboa = buildIndexes(parsePlaces(events)).chains.get(":lisboa cafe")!;
     await openApp(`/chain/${chainSlug(lisboa)}`, { events });
 
-    expect(header()).toHaveTextContent("5 locations · none near you");
-    expect(copy.chain.nearYou(0)).toBe("none near you");
+    expect(header()).toHaveTextContent("5 locations · none near Funchal");
+    expect(copy.chain.nearCount(0, "Funchal")).toBe("none near Funchal");
+    expect(copy.chain.nearCount(0, copy.location.you)).toBe("none near you");
     expect(rows()).toHaveLength(3);
     expect(rowHrefs()).toEqual(nearestFirst(lisboa).slice(0, 3).map(({ place }) => placeHref(place)));
     expect(screen.getByRole("heading", { level: 2, name: copy.chain.nearest })).toBeInTheDocument();
@@ -191,7 +194,7 @@ describe("the chain page: locations", () => {
     expect(within(name!).getByText("9050-026")).toHaveClass("whitespace-nowrap");
   });
 
-  it("lists the locations near you by street address, nearest first, each a link to its place", async () => {
+  it("lists the locations near the town by street address, nearest first, each a link to its place", async () => {
     await openApp(confeitariaPath, { events: fixtures });
     const expected = nearestFirst(CONFEITARIA);
     expect(rows()).toHaveLength(4);
@@ -202,7 +205,7 @@ describe("the chain page: locations", () => {
     }
     // The distances grow down the list.
     expect(expected.map(({ km }) => km)).toEqual([...expected.map(({ km }) => km)].sort((a, b) => a - b));
-    expect(screen.getByRole("heading", { level: 2, name: copy.chain.near })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: copy.chain.near("Funchal") })).toBeInTheDocument();
   });
 
   it("says how far each is, whether it is open, and that nobody has reviewed it", async () => {
@@ -289,7 +292,7 @@ describe("the chain page: locations", () => {
     const events = [...fixtures, ...lisbonConfeitaria(520)];
     const chain = buildIndexes(parsePlaces(events)).chains.get("PT:a confeitaria coffee & bakery")!;
     await openApp(`/chain/${chainSlug(chain)}`, { events });
-    expect(header()).toHaveTextContent("524 locations · 4 near you");
+    expect(header()).toHaveTextContent("524 locations · 4 near Funchal");
 
     await user.click(screen.getByRole("button", { name: "Show the nearest 500" }));
     expect(copy.chain.showNearest(500)).toBe("Show the nearest 500");
@@ -298,17 +301,17 @@ describe("the chain page: locations", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("lists fifty of the locations near you when there are many, and 'Show all' shows the rest", async () => {
+  it("lists fifty of the locations near the town when there are many, and 'Show all' shows the rest", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     // 4 near already, and 60 more in the middle of Funchal.
     const events = [...fixtures, ...funchalConfeitaria(60)];
     const chain = buildIndexes(parsePlaces(events)).chains.get("PT:a confeitaria coffee & bakery")!;
     await openApp(`/chain/${chainSlug(chain)}`, { events });
 
-    expect(header()).toHaveTextContent("64 locations · 64 near you");
+    expect(header()).toHaveTextContent("64 locations · 64 near Funchal");
     expect(rows()).toHaveLength(50);
     expect(rowHrefs()).toEqual(nearestFirst(chain).slice(0, 50).map(({ place }) => placeHref(place)));
-    expect(screen.getByRole("heading", { level: 2, name: copy.chain.near })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: copy.chain.near("Funchal") })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Show all 64 locations" }));
     expect(rows()).toHaveLength(64);
@@ -392,7 +395,7 @@ describe("the chain page: reached from the map", () => {
 // ---- A phone ----
 
 describe("the chain page on a phone", () => {
-  it("has a link to the map beside 'Near you', underlined as a link, and no map of its own", async () => {
+  it("has a link to the map beside 'Near Funchal', underlined as a link, and no map of its own", async () => {
     await openApp(confeitariaPath, { events: fixtures });
     const link = screen.getByRole("link", { name: copy.chain.seeOnMap });
     expect(link).toHaveAttribute("href", "/map");
@@ -594,7 +597,7 @@ describe("the chain page on a desktop", () => {
     const chain = buildIndexes(parsePlaces(events)).chains.get("PT:a confeitaria coffee & bakery")!;
     await openApp(`/chain/${chainSlug(chain)}`, { events, px: DESKTOP });
     const nearest = nearestFirst(chain)[0]!.place;
-    expect(header()).toHaveTextContent("3 locations · 1 near you");
+    expect(header()).toHaveTextContent("3 locations · 1 near Funchal");
     const map = await waitFor(() => {
       const made = FakeMap.instances.at(-1);
       if (made === undefined || !made.sources.has(PIN_SOURCE)) throw new Error("No map yet");

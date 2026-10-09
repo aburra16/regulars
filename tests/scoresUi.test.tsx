@@ -1028,17 +1028,18 @@ describe("the chain page", () => {
   const path = `/chain/${chainSlug(CONFEITARIA)}`;
   const box = () => screen.getByText(copy.chain.eachScored).closest("section")!;
 
-  it("says the range the house rates the locations near you, when two or more have scores", async () => {
+  it("says the range the house rates the locations near the town, when two or more have scores", async () => {
     const [one, two] = nearest as [Place, Place];
     const reviews = [reviewOf(ALICE, one, 4), reviewOf(BOB, one, 3), reviewOf(ALICE, two, 4), reviewOf(BOB, two, 5)];
     const { readers } = houseNetwork(reviews, HOUSE_RANKS);
     await openApp(path, { events: places, readers });
 
     // (0.8 × 4 + 0.6 × 3) / 1.4 and (0.8 × 4 + 0.6 × 5) / 1.4.
-    await waitFor(() => expect(box()).toHaveTextContent(copy.chain.houseRange("3.6", "4.4")));
-    expect(within(box()).getByText(`${copy.chain.eachScoredDetail} ${copy.chain.houseRange("3.6", "4.4")}`)).toBeInTheDocument();
-    expect(copy.chain.houseRange("3.6", "4.4")).toBe("Near you, the house rates them from 3.6 to 4.4.");
-    expect(copy.chain.houseRange("4.0", "4.0")).toBe("Near you, the house rates them 4.0.");
+    await waitFor(() => expect(box()).toHaveTextContent(copy.chain.houseRange("3.6", "4.4", "Funchal")));
+    expect(within(box()).getByText(`${copy.chain.eachScoredDetail} ${copy.chain.houseRange("3.6", "4.4", "Funchal")}`)).toBeInTheDocument();
+    expect(copy.chain.houseRange("3.6", "4.4", "Funchal")).toBe("Near Funchal, the house rates them from 3.6 to 4.4.");
+    expect(copy.chain.houseRange("4.0", "4.0", "Funchal")).toBe("Near Funchal, the house rates them 4.0.");
+    expect(copy.chain.houseRange("3.6", "4.4", copy.location.you)).toBe("Near you, the house rates them from 3.6 to 4.4.");
 
     // Each location has its own score at the top right of its row, and who it comes from.
     const row = screen.getAllByRole("link").find((link) => link.getAttribute("href") === placePath(one))!;
@@ -1047,16 +1048,16 @@ describe("the chain page", () => {
     expect(row).not.toHaveTextContent(copy.score.noReviewsYet);
   });
 
-  it("says the one score, when one location near you has a score", async () => {
+  it("says the one score, when one location near the town has a score", async () => {
     const [one] = nearest as [Place];
     const { readers } = houseNetwork([reviewOf(ALICE, one, 4)], HOUSE_RANKS);
     await openApp(path, { events: places, readers });
 
-    await waitFor(() => expect(box()).toHaveTextContent(copy.chain.houseOne("4.0")));
-    expect(copy.chain.houseOne("4.2")).toBe("Near you, the house rates one 4.2.");
+    await waitFor(() => expect(box()).toHaveTextContent(copy.chain.houseOne("4.0", "Funchal")));
+    expect(copy.chain.houseOne("4.2", "Funchal")).toBe("Near Funchal, the house rates one 4.2.");
   });
 
-  it("says only M1's line when no location near you has a score", async () => {
+  it("says only M1's line when no location near the town has a score", async () => {
     const [one] = nearest as [Place];
     const { search, readers } = houseNetwork([reviewOf(CAROL, one, 2)], HOUSE_RANKS);
     await openApp(path, { events: places, readers });

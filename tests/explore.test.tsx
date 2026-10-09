@@ -298,7 +298,11 @@ describe("Explore on a phone: the list", () => {
       `Loft Brunch & Cocktails${copy.explore.chainKind(kind, 2)}${copy.explore.chainNearby(2, formatDistance(closest, "en-US"))}`,
     );
     expect(link).toHaveTextContent(`${kind} · 2 locations`);
-    expect(link).toHaveTextContent(/2 near you, the closest \d+(\.\d)? mi/);
+    // How many are in the list, and how far the closest is from where the list is near: no "you".
+    expect(link).toHaveTextContent(/2 locations, the closest \d+(\.\d)? mi away/);
+    expect(copy.explore.chainNearby(12, "0.4 mi")).toBe("12 locations, the closest 0.4 mi away");
+    expect(copy.explore.chainNearby(1, "0.4 mi")).toBe("1 location, the closest 0.4 mi away");
+    expect(link).not.toHaveTextContent(/\byou\b/);
     // Both locations are in the one card.
     expect(screen.getAllByText("Loft Brunch & Cocktails")).toHaveLength(1);
   });
@@ -855,10 +859,10 @@ describe("Explore: the filter chips", () => {
       variant(loft, { d: "tide-3", name: "Tide Pool Bar", lat: "32.653", lon: "-16.91", ...hours("Mo-Su 12:00-23:00") }),
     ];
     await openExplore("/", events);
-    expect(card("Tide Pool Bar")).toHaveTextContent("3 near you");
+    expect(card("Tide Pool Bar")).toHaveTextContent("3 locations, the closest");
 
     await user.click(chip("Open now"));
-    expect(card("Tide Pool Bar")).toHaveTextContent("2 near you");
+    expect(card("Tide Pool Bar")).toHaveTextContent("2 locations, the closest");
     expect(card("Tide Pool Bar")).toHaveTextContent("3 locations");
   });
 

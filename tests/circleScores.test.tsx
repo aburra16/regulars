@@ -772,9 +772,9 @@ describe("the wording follows the view", () => {
     const location = CONFEITARIA.places[0]!;
     const net = network({ reviews: [reviewOf(BOB, location, 4)], house: HOUSE_RANKS, circle: CIRCLE_RANKS });
     await openReady(net, `/chain/${chainSlug(CONFEITARIA)}`);
-    expect(await screen.findByText(copy.chain.circleOne("4.0"), { exact: false })).toBeInTheDocument();
-    expect(copy.chain.circleOne("4.0")).toBe("Near you, your circle rates one 4.0.");
-    expect(copy.chain.circleRange("3.0", "4.5")).toBe("Near you, your circle rates them from 3.0 to 4.5.");
+    expect(await screen.findByText(copy.chain.circleOne("4.0", "Funchal"), { exact: false })).toBeInTheDocument();
+    expect(copy.chain.circleOne("4.0", "Funchal")).toBe("Near Funchal, your circle rates one 4.0.");
+    expect(copy.chain.circleRange("3.0", "4.5", "Funchal")).toBe("Near Funchal, your circle rates them from 3.0 to 4.5.");
   });
 });
 
