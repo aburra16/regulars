@@ -1,4 +1,4 @@
-import type { JSX } from "react";
+import { type JSX, useRef } from "react";
 import { Outlet, ScrollRestoration, useMatches } from "react-router-dom";
 
 import { CircleDoorProvider } from "../circle/CircleDoor.tsx";
@@ -78,6 +78,8 @@ function Frame(): JSX.Element {
   const settling = useHere().settling === true;
   const state = chrome.needsPlaces ? loadState(places, online, settling) : {};
   const fill = chrome.fill === "always" || (chrome.fill === "wide" && wide);
+  // The page: where the focus goes when the bar is put away and what had it before has gone.
+  const main = useRef<HTMLElement>(null);
 
   let content: JSX.Element;
   if (state.page === "failed") {
@@ -97,10 +99,13 @@ function Frame(): JSX.Element {
       <div role="status" className="px-gutter-phone wide:px-gutter-desktop *:mt-3">
         {state.page === undefined && state.banner !== undefined && <Banner>{state.banner}</Banner>}
       </div>
-      <main className={`flex min-w-0 flex-1 flex-col ${fill ? "min-h-0" : ""}`}>{content}</main>
+      {/* No ring: it holds the focus only for a moment, given back from the bar (src/circle/CircleNews.tsx). */}
+      <main ref={main} className={`flex min-w-0 flex-1 flex-col outline-none ${fill ? "min-h-0" : ""}`}>
+        {content}
+      </main>
       {!wide && chrome.tabs && <TabBar />}
       {/* What the person is told of their circle, over the foot of every page; its status always there. */}
-      <CircleBar aboveTabs={!wide && chrome.tabs} />
+      <CircleBar aboveTabs={!wide && chrome.tabs} main={main} />
     </div>
   );
 }

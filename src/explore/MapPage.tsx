@@ -1,6 +1,7 @@
-import { type JSX, useEffect, useId, useMemo, useState } from "react";
+import { type JSX, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
+import { useBarClearOf } from "../circle/CircleNews.tsx";
 import { EmptyCircle } from "../circle/EmptyCircle.tsx";
 import { copy } from "../copy/en.ts";
 import { LocationNotice } from "../location/LocationNotice.tsx";
@@ -54,6 +55,9 @@ export function SearchAreaButton({ onClick, className = "" }: { onClick(): void;
  * asks for the device's location, and goes back to it. Back to this page (from a place) finds the
  * map where it was.
  *
+ * The bar that tells the person of their circle sits at the top, under the search field and the
+ * toggle, clear of the map's buttons and the docked card at its foot.
+ *
  * A desktop shows the map beside the list on Explore, so there this page goes there.
  */
 export function MapPage(): JSX.Element {
@@ -82,6 +86,9 @@ export function MapPage(): JSX.Element {
   useEffect(() => {
     if (focusCard > 0) document.getElementById(cardId)?.querySelector("a")?.focus();
   }, [focusCard, cardId]);
+  // What floats at the top of the map: the bar about the person's circle sits under it.
+  const floating = useRef<HTMLDivElement>(null);
+  useBarClearOf(floating, "under");
   const center = useMemo<LngLat>(() => [here.lon, here.lat], [here.lon, here.lat]);
   const you = useMemo<LngLat | undefined>(
     () => (here.source === "device" ? [here.lon, here.lat] : undefined),
@@ -147,7 +154,7 @@ export function MapPage(): JSX.Element {
         }
       >
         {/* 16 px in from the edges, as the design has them; between them the map can still be dragged. */}
-        <div className="pointer-events-none absolute inset-x-4 top-4 flex flex-col gap-2.5 *:pointer-events-auto">
+        <div ref={floating} className="pointer-events-none absolute inset-x-4 top-4 flex flex-col gap-2.5 *:pointer-events-auto">
           <SearchLink onMap />
           {/* The toggle and the line under it share one block: no gap is kept for a line that is not there. */}
           <div className="flex flex-col">

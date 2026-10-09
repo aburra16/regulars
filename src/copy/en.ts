@@ -297,7 +297,7 @@ export const copy = {
     tryAgain: "Try again",
     // DRAFT for Avi
     /** The bar's ×, for a screen reader: puts the bar away before its time is up. */
-    closeBar: "Close",
+    closeBar: "Close this message",
     // DRAFT for Avi
     /** In the panel My circle's half opens: closes it, asking Brainstorm nothing. */
     notNow: "Not now",

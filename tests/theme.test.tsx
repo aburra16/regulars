@@ -108,6 +108,9 @@ const TEXT: ReadonlyArray<[fg: string, bg: string, where: string]> = [
   ["on-accent", "accent-solid", "the accent buttons and the chosen pin"],
   ["trust", "ground", "words about who you trust"],
   ["trust-ink", "trust-tint", "text on the trust tint"],
+  // Held to text's ratio, in both themes: the check on My circle's half, on the toggle's panel (on the
+  // map's toggle, its ground: the line above).
+  ["trust", "surface", "the check on My circle's half, on the toggle's panel"],
 ];
 
 /** Parts of the interface and graphics, and what they are on: 3 to 1. */
@@ -127,8 +130,6 @@ const GRAPHIC: ReadonlyArray<[fg: string, bg: string, where: string]> = [
   ["muted", "ground", "the ring of a pin with no score"],
   ["you-are-here", "map-land", "where the person is"],
   ["trust", "trust-tint", "a trust mark on the tint"],
-  // On the toggle's ground it is `trust` on `ground`, which TEXT holds to more.
-  ["trust", "surface", "the check on My circle's half, on the toggle's panel"],
   ["line-strong", "ground", "chip and outline-button edges, empty stars"],
   ["line-strong", "surface", "an edge or an empty star on a panel"],
   ["line-dashed", "ground", "dashed 'nothing here yet' edges, the review form's empty stars"],
@@ -208,6 +209,25 @@ describe("the dark theme's colours", () => {
     expect(luminance(colourOf("dark", "line"))).toBeLessThan(luminance(colourOf("dark", "line-strong")));
     // The dashed line is a step clearer than the strong one, as in the light theme.
     expect(luminance(colourOf("dark", "line-dashed"))).toBeGreaterThan(luminance(colourOf("dark", "line-strong")));
+  });
+
+  it("keeps My circle's turning arrow at 3 to 1 at its faintest, for a person who asks for less motion, on every toggle, in both themes", () => {
+    // The arrow's stand-in for turning fades it to this much and back (src/styles/index.css).
+    const faintest = Number(/@keyframes breathe\s*\{\s*50%\s*\{\s*opacity:\s*([\d.]+)/.exec(indexCss)?.[1]);
+    expect(faintest).toBe(0.72);
+    /** `fg` drawn at `alpha` over `bg`, as one colour. */
+    const over = (fg: string, alpha: number, bg: string) =>
+      `#${[1, 3, 5]
+        .map((i) => Math.round(Number.parseInt(fg.slice(i, i + 2), 16) * alpha + Number.parseInt(bg.slice(i, i + 2), 16) * (1 - alpha)))
+        .map((c) => c.toString(16).padStart(2, "0"))
+        .join("")}`;
+    for (const theme of ["light", "dark"] as const) {
+      // The half is off, in the muted colour, on the toggle's panel (or the map's toggle, on the ground).
+      for (const ground of ["surface", "ground"]) {
+        const bg = colourOf(theme, ground);
+        expect(contrast(over(colourOf(theme, "muted"), faintest, bg), bg), `${theme} on ${ground}`).toBeGreaterThanOrEqual(3);
+      }
+    }
   });
 
   it("keeps the map's gesture note at 4.5 to 1 over any map colour, black and white included, in both themes", () => {

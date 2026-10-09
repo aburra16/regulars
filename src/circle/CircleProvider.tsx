@@ -55,10 +55,10 @@ import { forgetToken, readToken } from "./token.ts";
  * store reads the new ranks (a new `edition`), and My circle shows them, wherever the person is.
  *
  * What the person is told as it happens (`news`, Avi, 2026-10-09): that their circle is being worked
- * out, once a run, from the tap or from a reload that carries on following it; and that a run they
- * started (Personalize, Try again, Work out my circle again, Update now) ended in a circle. The
- * returning visitor's look, and a rank found later, tell nothing. The bar at the foot of the screen and
- * the check on My circle's half say it (./CircleNews.tsx).
+ * out, once a run, from the tap, or from a reload once Brainstorm says the run it follows is under way;
+ * and that a run they started (Personalize, Try again, Work out my circle again, Update now) ended in
+ * a circle. The returning visitor's look, and a rank found later, tell nothing. The bar at the foot of
+ * the screen and the check on My circle's half say it (./CircleNews.tsx).
  *
  * Where it is, is kept for the tab (`CIRCLE_KEY`, sessionStorage), so a reload carries on polling the
  * run under way, and starts none (Review Focus 3); an update under way is not kept, and a reload ends
@@ -107,7 +107,8 @@ export type UpdateStep = "idle" | "signing" | "updating" | "started" | "recently
 
 /**
  * What the person is told of a run of theirs, as it happens (Avi, 2026-10-09):
- * - `working`: Brainstorm works their circle out (Personalize's flow, or a reload following its run);
+ * - `working`: Brainstorm works their circle out (Personalize's flow; or a reload's, once the run it
+ *   follows is found under way);
  * - `ready`: the run is done, and the circle can be shown;
  * - `recently`: Brainstorm would not start a run, as one was made lately, and that one is used.
  */
@@ -359,7 +360,8 @@ function settled(next: Shown): Shown {
 
 /**
  * Where `who`'s circle starts on this page: what the tab keeps, else the returning visitor's look. A
- * run the tab was following is followed again, and the person is told it is being worked out.
+ * run the tab was following is followed again; the person is told so once Brainstorm says it is under
+ * way, not before: it may have ended, or never been.
  */
 function shownFor(who: string | undefined): Shown {
   const fresh = { who, update: "idle", edition: 0 } as const;
@@ -369,23 +371,21 @@ function shownFor(who: string | undefined): Shown {
   // the tab looks again, as on the session's first load (ruling R13).
   const stale = kept?.state === "working" && Date.now() - (kept.since ?? 0) >= POLL_CAP_MS;
   if (kept === null || stale) return { ...fresh, state: "checking", flow: newFlow("check") };
-  const flow = kept.state === "working" ? newFlow("resume") : null;
   return {
     ...fresh,
     state: kept.state,
     scorer: kept.scorer,
     since: kept.since,
     before: kept.before,
-    flow,
-    ...(flow === null ? {} : { news: { run: flow.id, what: "working", update: false } }),
+    flow: kept.state === "working" ? newFlow("resume") : null,
   };
 }
 
 /**
- * `next`, a step of the flow under way in `now`, with what it tells the person (`CircleNews`): that
- * their circle is being worked out, the first time the flow works it out (a sign-in that runs out and
- * is asked again tells nothing new); that it ended in a circle; or how Update now's run ended in one.
- * The returning visitor's look tells nothing, and nor does a flow that ends without a circle.
+ * `next`, a step of the flow under way in `now`, with what it tells the person (`CircleNews`) of how it
+ * ended: in a circle, or, Update now's, in one worked out again. The returning visitor's look tells
+ * nothing, and nor does a flow that ends without a circle. That the circle is being worked out is told
+ * by the flows themselves (`Step.tellWorking`).
  */
 function told(now: Shown, next: Shown): Shown {
   const flow = now.flow;
@@ -396,7 +396,6 @@ function told(now: Shown, next: Shown): Shown {
     return next.update === "updated" ? tell("ready") : next.update === "recently" ? tell("recently") : next;
   }
   if (next.state === now.state) return next;
-  if (next.state === "working") return now.news?.run === flow.id ? next : tell("working");
   return next.state === "ready" || next.state === "recently" ? tell(next.state) : next;
 }
 
@@ -404,6 +403,11 @@ function told(now: Shown, next: Shown): Shown {
 interface Step {
   pubkey: string;
   set(change: Partial<Shown>): void;
+  /**
+   * Tells the person their circle is being worked out (`CircleNews`), while it is: once a flow, however
+   * often it is called (a sign-in asked again, each poll that finds the run under way).
+   */
+  tellWorking(): void;
   signal: AbortSignal;
   readers: (url: string) => RelayReader;
 }
@@ -476,6 +480,8 @@ async function follow(client: Client, step: Step, token: string | null, since: n
         if (now === null) return step.set({ state: "off", flow: null });
         const where = client.runState(now);
         if (where === "failed") return step.set({ state: "failed", flow: null });
+        // Under way: what a reload's first poll waits for before it tells the person.
+        if (where !== "done") step.tellWorking();
         // A run that is done has published what it has, which for a circle of one may be nothing.
         const found = where === "done" ? await findScorer(client, step) : null;
         if (found !== null) return step.set({ state: "ready", scorer: found.scorer, flow: null });
@@ -539,6 +545,7 @@ async function start(step: Step, account: Account): Promise<void> {
       }
     }
     step.set({ state: "working" });
+    step.tellWorking();
     try {
       latest = await client.latestRun(token, signal);
       break;
@@ -721,6 +728,14 @@ export function CircleProvider({ children }: { children: ReactNode }): JSX.Eleme
         const fresh = change.state === "ready" || change.state === "recently" || change.edition !== undefined;
         if (fresh || change.update === "started") forgetCircleCount();
         setShown((now) => (now.who === pubkey && now.flow?.id === id ? told(now, settled({ ...now, ...change })) : now));
+      },
+      tellWorking() {
+        if (signal.aborted) return;
+        setShown((now) =>
+          now.who === pubkey && now.flow?.id === id && now.state === "working" && now.news?.run !== id
+            ? { ...now, news: { run: id, what: "working", update: false } }
+            : now,
+        );
       },
     }),
     [readers],

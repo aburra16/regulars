@@ -124,16 +124,38 @@ const closeBar = () => within(barRegion().parentElement!).getByRole("button", { 
 const WORKING = `${copy.circle.workingTitle}${copy.circle.workingBody}`;
 
 /**
- * A run followed since a moment ago, kept for the tab, which Brainstorm has not answered about yet: a
+ * A run followed since a moment ago, kept for the tab, which Brainstorm says is still under way: a
  * reload carries on following it, and My circle is being worked out from the first paint.
  */
 function workingKept(pubkey: string): void {
   window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "working", since: Date.now() }));
   saveToken(pubkey, TOKEN);
-  brainstorm.latestRun.mockImplementation(
-    (_token, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
-  );
+  brainstorm.latestRun.mockResolvedValue(run("running"));
 }
+
+/** Brainstorm's next answer about the person's latest run, held until the test gives it. */
+function heldRun() {
+  let answer!: (run: client.Run | null) => void;
+  let fail!: (error: Error) => void;
+  brainstorm.latestRun.mockImplementationOnce(
+    () =>
+      new Promise((resolve, reject) => {
+        answer = resolve;
+        fail = reject;
+      }),
+  );
+  return { answer: (run: client.Run | null) => act(async () => answer(run)), fail: (error: Error) => act(async () => fail(error)) };
+}
+
+/**
+ * Waits until the returning visitor's look has found the person's circle ready: the half is on before
+ * then too, as a plain view's, while the person's session is restored from the tab.
+ */
+const keptReady = () =>
+  waitFor(() => expect(JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "null")).toMatchObject({ state: "ready" }));
+
+/** The page's `main`: where the focus goes when what had it before the bar's × is gone. */
+const main = () => screen.getByRole("main");
 
 type User = ReturnType<typeof userEvent.setup>;
 /** A person at the screen, on the fake clock. */
@@ -258,7 +280,7 @@ describe("the copy", () => {
     // The bar's two short lines (Avi, 2026-10-09): "Working out your circle. This takes a few minutes."
     expect(copy.circle.workingBody).toBe("This takes a few minutes.");
     expect(copy.view.circleWorking).toBe("My circle, being worked out");
-    expect(copy.circle.closeBar).toBe("Close");
+    expect(copy.circle.closeBar).toBe("Close this message");
     expect(copy.circle.ready).toBe("Your circle is ready.");
     expect(copy.circle.recently).toBe("Your circle was updated recently. We'll use that.");
     expect(copy.circle.busy).toBe("Brainstorm is busy right now. Try again in a little while.");
@@ -482,6 +504,8 @@ describe("the door: My circle's half, while the person's circle is not asked for
       signedIn();
       const user = aUser();
       await openAt(path, px);
+      // The door, once the person's session is restored from the tab: until then the half is a plain view's.
+      await waitFor(() => expect(myCircle()).not.toHaveAttribute("aria-pressed"));
       await waitFor(() => expect(myCircle()).toHaveTextContent(/^My circle$/));
       const half = myCircle();
       act(() => half.focus());
@@ -631,6 +655,8 @@ describe("My circle's half, once the circle is asked for", () => {
     brainstorm.startRun.mockResolvedValue({ run: run("running") });
     const user = aUser();
     await openAt(path, px);
+    // The door, once the person's session is restored from the tab: until then the half is a plain view's.
+    await waitFor(() => expect(myCircle()).not.toHaveAttribute("aria-pressed"));
     const half = myCircle();
     expect(half).toHaveTextContent(/^My circle$/);
     expect(half).toBeEnabled();
@@ -786,6 +812,24 @@ describe("the check on My circle's half, once a run the person started ends in a
     expect(myCircle()).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("carries on fading from where it was on a toggle drawn while it shows: another page's", async () => {
+    const { page } = await tappedAndWorking();
+    brainstorm.latestRun.mockResolvedValue(run("done"));
+    ranks = [rankEvent()];
+    await after(POLL_MS);
+    await waitFor(() => expectChecked(myCircle()));
+    // Drawn as the check came: its fade starts from the start.
+    expect(Number.parseFloat(markOf(myCircle())!.style.animationDelay)).toBeGreaterThan(-500);
+    await after(CHECK_MS / 2);
+    await act(() => page.router.navigate("/map"));
+    // The map's toggle is drawn half way through: its fade starts half way through, not from the start.
+    expectChecked(myCircle());
+    const delay = Number.parseFloat(markOf(myCircle())!.style.animationDelay);
+    expect(delay).toBeLessThanOrEqual(-CHECK_MS / 2);
+    expect(delay).toBeGreaterThan(-CHECK_MS / 2 - 1_000);
+    expect(markOf(myCircle())!.style.animationDelay).toMatch(/ms$/);
+  });
+
   it("shows on the desktop's top bar too, and goes as soon as My circle is chosen", async () => {
     const { user } = await tappedAndWorking(DESKTOP);
     brainstorm.latestRun.mockResolvedValue(run("done"));
@@ -873,11 +917,29 @@ describe("the bar at the foot of the screen (Avi, 2026-10-09)", () => {
     expect(screen.queryByText(copy.circle.workingTitle)).toBeNull();
   });
 
-  it("says it again on a reload that carries on following the run", async () => {
-    workingKept(signedIn());
+  it("says it again on a reload that carries on following the run, once Brainstorm says the run is under way", async () => {
+    const pubkey = signedIn();
+    workingKept(pubkey);
+    const poll = heldRun();
     await open();
+    await waitFor(() => expectWorking(myCircle()));
+    // Until the first poll answers, nothing is said: the run may have ended, or never been.
+    expect(barRegion()).toBeEmptyDOMElement();
+    await poll.answer(run("running"));
     await waitFor(() => expect(barRegion()).toHaveTextContent(WORKING));
     expectWorking(myCircle());
+  });
+
+  it("says nothing on a reload whose first poll finds no run", async () => {
+    workingKept(signedIn());
+    const poll = heldRun();
+    await open();
+    await waitFor(() => expectWorking(myCircle()));
+    expect(barRegion()).toBeEmptyDOMElement();
+    await poll.answer(null);
+    expect(await theDoor()).toBeEnabled();
+    expect(barRegion()).toBeEmptyDOMElement();
+    expect(screen.queryByText(copy.circle.workingTitle)).toBeNull();
   });
 
   it("says nothing on a reload that finds the circle ready", async () => {
@@ -945,51 +1007,97 @@ describe("the bar at the foot of the screen (Avi, 2026-10-09)", () => {
     await waitFor(() => expect(region).toBeEmptyDOMElement());
   });
 
-  it("goes on its ×, leaving the focus on the bar, not on the page", async () => {
+  /** Personalize tapped from the phone's Explore, with Brainstorm working the circle out: the bar says so. */
+  async function barWorking() {
     signedIn();
     const user = aUser();
     brainstorm.latestRun.mockResolvedValue(run("running"));
-    await open();
+    const page = await open();
     await user.click(await openDoor(user));
     const region = barRegion();
     await waitFor(() => expect(region).toHaveTextContent(WORKING));
-    expect(closeBar()).toHaveAccessibleName(copy.circle.closeBar);
+    return { user, region, bar: region.parentElement!, ...page };
+  }
+
+  it("goes on its ×, giving the focus back to what had it before", async () => {
+    const { user, region } = await barWorking();
+    expect(closeBar()).toHaveAccessibleName("Close this message");
+    // Personalize, from the panel under the toggle, left the focus on House picks.
+    expect(housePicks()).toHaveFocus();
     await user.click(closeBar());
     expect(region).toBeEmptyDOMElement();
     expect(within(region.parentElement!).queryByRole("button")).toBeNull();
-    expect(document.activeElement).not.toBe(document.body);
+    expect(housePicks()).toHaveFocus();
     // Closed is closed: its time running out brings nothing back, and the half still says it.
     await after(BAR_MS);
     expect(region).toBeEmptyDOMElement();
     expectWorking(myCircle());
   });
 
-  it("leaves the focus on the bar, not the page, when it goes with the focus on its ×", async () => {
-    signedIn();
-    const user = aUser();
-    brainstorm.latestRun.mockResolvedValue(run("running"));
-    await open();
-    await user.click(await openDoor(user));
-    const region = barRegion();
-    await waitFor(() => expect(region).toHaveTextContent(WORKING));
+  it("gives the focus to the page's main when what had it before the × has gone from the page", async () => {
+    const { user, region, router } = await barWorking();
     act(() => closeBar().focus());
-    await after(BAR_MS);
-    await waitFor(() => expect(region).toBeEmptyDOMElement());
-    expect(document.activeElement).toBe(region.parentElement);
+    // Another page: House picks, which had the focus, is not on it.
+    await act(() => router.navigate("/about"));
+    expect(closeBar()).toHaveFocus();
+    await user.click(closeBar());
+    expect(region).toBeEmptyDOMElement();
+    expect(main()).toHaveFocus();
+    // The main takes the focus for as long as it holds it, and is not in the keyboard's order after.
+    expect(main()).toHaveAttribute("tabindex", "-1");
+    act(() => screen.getAllByRole("link")[0]!.focus());
+    expect(main()).not.toHaveAttribute("tabindex");
   });
 
-  it("stops saying the circle is worked out once working it out ends without one", async () => {
-    signedIn();
-    const user = aUser();
-    brainstorm.latestRun.mockResolvedValue(run("running"));
-    await open();
-    await user.click(await openDoor(user));
-    const region = barRegion();
-    await waitFor(() => expect(region).toHaveTextContent(WORKING));
-    // Brainstorm can't be reached, three polls running, before the bar's time is up.
+  it("gives the focus back when it goes with the focus on its ×, the run ending with no circle", async () => {
+    const { region } = await barWorking();
+    act(() => closeBar().focus());
     brainstorm.latestRun.mockRejectedValue(new client.Unavailable());
     await after(POLL_MS * 3);
     expect(await screen.findByText(copy.circle.unavailable)).toBeInTheDocument();
+    expect(region).toBeEmptyDOMElement();
+    expect(housePicks()).toHaveFocus();
+  });
+
+  it("holds its 10 s while it has the focus, and counts on from where it was once the focus leaves", async () => {
+    const { region } = await barWorking();
+    await after(BAR_MS / 2);
+    act(() => closeBar().focus());
+    await after(BAR_MS * 2);
+    expect(region).toHaveTextContent(WORKING);
+    act(() => housePicks().focus());
+    await after(BAR_MS / 4);
+    expect(region).toHaveTextContent(WORKING);
+    await after(BAR_MS / 2);
+    await waitFor(() => expect(region).toBeEmptyDOMElement());
+  });
+
+  it("holds its 10 s while the pointer is over it", async () => {
+    const { user, region, bar } = await barWorking();
+    await after(BAR_MS / 2);
+    await user.hover(bar);
+    await after(BAR_MS * 2);
+    expect(region).toHaveTextContent(WORKING);
+    await user.unhover(bar);
+    await after(BAR_MS / 4);
+    expect(region).toHaveTextContent(WORKING);
+    await after(BAR_MS / 2);
+    await waitFor(() => expect(region).toBeEmptyDOMElement());
+  });
+
+  it("stops saying the circle is worked out as soon as working it out ends without one, before its 10 s are up", async () => {
+    signedIn();
+    const user = aUser();
+    // Brainstorm's first answer about the run, after the sign-in: held, then a failure to reach it.
+    const poll = heldRun();
+    await open();
+    await user.click(await openDoor(user));
+    const region = barRegion();
+    await waitFor(() => expect(region).toHaveTextContent(WORKING));
+    await after(2_000);
+    await poll.fail(new client.Unavailable());
+    expect(await screen.findByText(copy.circle.unavailable)).toBeInTheDocument();
+    // Well inside the bar's 10 s: it has gone with the run.
     expect(region).toBeEmptyDOMElement();
   });
 
@@ -1011,6 +1119,58 @@ describe("the bar at the foot of the screen (Avi, 2026-10-09)", () => {
     await waitFor(() => expect(screen.queryByText(copy.circle.workingTitle)).toBeNull());
     expect(screen.queryByText(copy.circle.workingBody)).toBeNull();
   });
+
+  /** Makes `node` say it is drawn at `box` (jsdom lays nothing out), and the window say it was resized. */
+  function laidOut(node: HTMLElement, box: { top: number; bottom: number }): void {
+    vi.spyOn(node, "getBoundingClientRect").mockReturnValue({
+      ...box,
+      left: 0,
+      right: window.innerWidth,
+      x: 0,
+      y: box.top,
+      width: window.innerWidth,
+      height: box.bottom - box.top,
+      toJSON: () => box,
+    });
+    act(() => window.dispatchEvent(new Event("resize")));
+  }
+
+  it("sits at the foot of the screen, by its classes, on a page with no controls of its own there", async () => {
+    workingKept(signedIn());
+    await open();
+    await waitFor(() => expect(barRegion()).toHaveTextContent(WORKING));
+    const bar = barRegion().parentElement!;
+    expect(bar).toHaveClass("bottom-[calc(var(--tab-bar-height)+12px)]");
+    expect(bar.style.top).toBe("");
+    expect(bar.style.bottom).toBe("");
+  });
+
+  it("sits 12 px above the Filters page's Clear all and Show places, and back at the foot once that page is left", async () => {
+    workingKept(signedIn());
+    const { router } = await openAt("/filters", undefined);
+    await waitFor(() => expect(barRegion()).toHaveTextContent(WORKING));
+    const footer = screen.getByRole("button", { name: copy.filters.clearAll }).parentElement!;
+    laidOut(footer, { top: window.innerHeight - 100, bottom: window.innerHeight });
+    const bar = barRegion().parentElement!;
+    expect(bar.style.bottom).toBe("112px");
+    expect(bar.style.top).toBe("");
+
+    await act(() => router.navigate("/"));
+    expect(bar.style.bottom).toBe("");
+  });
+
+  it("sits at the top of the phone's map, 12 px under its search field and toggle, clear of its buttons and docked card", async () => {
+    workingKept(signedIn());
+    await openAt("/map", undefined);
+    await waitFor(() => expect(barRegion()).toHaveTextContent(WORKING));
+    // What floats at the top of the map: its search field, and the toggle under it.
+    const floating = toggle().closest(".absolute") as HTMLElement;
+    expect(floating).toHaveClass("top-4");
+    laidOut(floating, { top: 16, bottom: 150 });
+    const bar = barRegion().parentElement!;
+    expect(bar.style.top).toBe("162px");
+    expect(bar.style.bottom).toBe("auto");
+  });
 });
 
 describe("a returning visitor", () => {
@@ -1019,6 +1179,7 @@ describe("a returning visitor", () => {
     brainstorm.scorerOf.mockResolvedValue(SCORER_AT);
     ranks = [rankEvent()];
     await open();
+    await keptReady();
     await waitFor(() => expect(myCircle()).toBeEnabled());
     expect(myCircle()).toHaveTextContent(/^My circle$/);
     expect(brainstorm.scorerOf).toHaveBeenCalledWith(pubkey, expect.any(AbortSignal));
@@ -1628,6 +1789,7 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
     brainstorm.scorerOf.mockResolvedValue(SCORER_AT);
     ranks = [rankEvent()];
     await open();
+    await keptReady();
     await waitFor(() => expect(myCircle()).toBeEnabled());
     expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
     await after(POLL_MS * 2);
@@ -1654,11 +1816,13 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
     brainstorm.scorerOf.mockResolvedValue(SCORER_AT);
     ranks = [rankEvent()];
     const first = await open();
+    await keptReady();
     await waitFor(() => expect(myCircle()).toBeEnabled());
     await user.click(myCircle());
+    expect(myCircle()).toHaveAttribute("aria-pressed", "true");
     first.unmount();
     await open();
-    expect(myCircle()).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(myCircle()).toHaveAttribute("aria-pressed", "true"));
     expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
   });
 });

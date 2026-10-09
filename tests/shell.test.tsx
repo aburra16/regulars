@@ -489,6 +489,10 @@ describe("ViewToggle", () => {
     for (const circleStatus of [undefined, "working", "checked"] as const) {
       const { unmount } = render(<ViewToggle value="house" onChange={() => {}} variant="compact" circleStatus={circleStatus} />);
       const half = within(toggle()).getAllByRole("button")[1]!;
+      // A block that lines its children up by their middles: an inline one would take its baseline from
+      // the empty slot, and draw the words lower than House picks'.
+      expect(half.firstElementChild).toHaveClass("flex", "items-center", "justify-center");
+      expect(half.firstElementChild).not.toHaveClass("inline-flex");
       const slots = [...half.firstElementChild!.children];
       expect(slots).toHaveLength(2);
       for (const slot of slots) expect(slot).toHaveClass("w-[22px]");

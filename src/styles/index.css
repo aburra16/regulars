@@ -273,10 +273,11 @@
 @theme {
   /* The circular arrow on My circle's half and in the bar: one turn every 1.6 s, evenly. */
   --animate-turn: turn 1.6s linear infinite;
-  /* Its stand-in: no movement, a fade from full to 55% and back every 2 s. */
+  /* Its stand-in: no movement, a fade from full to 72% and back every 2 s. At 72% the muted arrow keeps
+     3 to 1 against the toggle in both themes (tests/theme.test.tsx). */
   --animate-breathe: breathe 2s ease-in-out infinite;
   /* The check on My circle's half: it fades in, stays, and fades out over the 4 s it shows
-     (CHECK_MS, src/circle/CircleNews.tsx). */
+     (CHECK_MS, src/circle/CircleNews.tsx). A half drawn while it shows starts it as far in as it has got. */
   --animate-check: check 4s ease-in-out both;
   /* The bar at the foot of the screen, as it comes up. */
   --animate-appear: appear 0.2s ease-out;
@@ -288,7 +289,7 @@
   }
   @keyframes breathe {
     50% {
-      opacity: 0.55;
+      opacity: 0.72;
     }
   }
   @keyframes check {

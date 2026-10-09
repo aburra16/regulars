@@ -1,4 +1,4 @@
-import { type FocusEvent, type JSX, type Ref, useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
+import { type FocusEvent, type JSX, type Ref, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
@@ -55,13 +55,23 @@ export type CircleStatus = "soon" | "waiting" | "working" | "checked";
 const SLOT = "w-[22px] shrink-0";
 
 /**
+ * The check after My circle's words, in the trust colour, fading in and out over the time it shows,
+ * unless the person asks for less motion. Drawn after it came (`since`, a toggle on another page), its
+ * fade starts as far in as the check has got, not from the start: worked out once, as it is drawn.
+ */
+function CheckMark({ since }: { since: number | undefined }): JSX.Element {
+  const [delay] = useState(() => (since === undefined ? 0 : Math.min(0, since - Date.now())));
+  return <CheckIcon size={16} className="text-trust animate-check motion-reduce:animate-none" style={{ animationDelay: `${delay}ms` }} />;
+}
+
+/**
  * The mark after My circle's words, about 16 px, in the line icons' style: the arrow, in the words'
  * colour (muted, as the half is off), turning once every 1.6 s, or for a person who asks for less
- * motion fading instead; the check, in the trust colour, fading in and out unless they ask for less.
+ * motion fading instead; the check (`CheckMark`), from `since`.
  */
-function markOf(status: CircleStatus | undefined): JSX.Element | null {
+function markOf(status: CircleStatus | undefined, since: number | undefined): JSX.Element | null {
   if (status === "working") return <TurningIcon size={16} className="animate-turn motion-reduce:animate-breathe" />;
-  if (status === "checked") return <CheckIcon size={16} className="text-trust animate-check motion-reduce:animate-none" />;
+  if (status === "checked") return <CheckMark since={since} />;
   return null;
 }
 
@@ -84,6 +94,8 @@ export interface ViewToggleProps {
   variant?: ViewToggleVariant;
   /** Where My circle stands, while it can't be chosen yet or has just become ready (`CircleStatus`). */
   circleStatus?: CircleStatus;
+  /** When the check came (`Date.now()`'s time), while My circle's half is checked: its fade goes on from there. */
+  checkSince?: number;
   /**
    * My circle's half is the door to it, before the person's circle is asked for (Avi, 2026-10-08): it
    * opens, or goes to, the panel that offers Personalize. It is not a view to choose yet, so it is not
@@ -100,7 +112,16 @@ export interface ViewToggleProps {
  * its mark while there is one (`circleStatus`): the turning arrow, or the check, which a chosen half
  * does not carry.
  */
-export function ViewToggle({ value, onChange, scores, variant = "bar", circleStatus, circleDoor, halves }: ViewToggleProps): JSX.Element {
+export function ViewToggle({
+  value,
+  onChange,
+  scores,
+  variant = "bar",
+  circleStatus,
+  checkSince,
+  circleDoor,
+  halves,
+}: ViewToggleProps): JSX.Element {
   const look = LOOK[variant];
   const views = [
     { view: "house", label: copy.view.house, score: scores?.house },
@@ -139,10 +160,12 @@ export function ViewToggle({ value, onChange, scores, variant = "bar", circleSta
             }`}
           >
             {slots ? (
-              <span className="inline-flex items-center justify-center">
+              // A block, its children lined up by their middles: inline, it would take its baseline from
+              // the empty slot and draw the words lower than the other half's.
+              <span className="flex items-center justify-center">
                 <span className={SLOT} />
                 {words}
-                <span className={`flex items-center justify-end ${SLOT}`}>{markOf(status)}</span>
+                <span className={`flex items-center justify-end ${SLOT}`}>{markOf(status, checkSince)}</span>
               </span>
             ) : (
               words
@@ -174,12 +197,14 @@ export function ViewToggle({ value, onChange, scores, variant = "bar", circleSta
  * person started ends in a circle, the half is on, with the check after it for a moment
  * (`useCircleNews`). While My circle is not open at all, the half is off and reads "soon".
  */
-export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "circleStatus" | "circleDoor" | "halves">): JSX.Element {
+export function ViewSwitch(
+  props: Omit<ViewToggleProps, "value" | "onChange" | "circleStatus" | "checkSince" | "circleDoor" | "halves">,
+): JSX.Element {
   const { view, setView } = useView();
   const { account } = useAccount();
   const circle = useCircle();
   const door = useCircleDoor();
-  const { checked } = useCircleNews();
+  const { checked, checkedSince } = useCircleNews();
   const navigate = useNavigate();
   const location = useLocation();
   const id = useId();
@@ -252,6 +277,7 @@ export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "
         value={view}
         onChange={choose}
         circleStatus={status}
+        checkSince={checkedSince}
         circleDoor={
           door.door ? { expanded: floating || pageShows, controls: floating ? panelId : pageShows ? page?.id : undefined } : undefined
         }

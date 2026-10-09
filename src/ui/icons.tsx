@@ -1,15 +1,20 @@
-import type { JSX } from "react";
+import type { CSSProperties, JSX } from "react";
 
-/** The line icons of the design: 24-unit, round caps and joins, drawn in the text colour. */
+/**
+ * The line icons of the design: 24-unit, round caps and joins, drawn in the text colour. `style` is for
+ * what is worked out as it is drawn (where the check's fade has got to), never a colour.
+ */
 function Icon({
   size,
   children,
   className,
+  style,
   strokeWidth = 2.2,
 }: {
   size: number;
   children: JSX.Element[] | JSX.Element;
   className?: string;
+  style?: CSSProperties;
   strokeWidth?: number;
 }) {
   return (
@@ -24,13 +29,14 @@ function Icon({
       strokeLinejoin="round"
       aria-hidden="true"
       className={className}
+      style={style}
     >
       {children}
     </svg>
   );
 }
 
-type IconProps = { size: number; className?: string };
+type IconProps = { size: number; className?: string; style?: CSSProperties };
 
 /** The magnifier: the search field, and the Explore tab. */
 export function SearchIcon(props: IconProps): JSX.Element {

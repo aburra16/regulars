@@ -211,12 +211,12 @@ describe("focus and scrolling", () => {
 });
 
 describe("the motion of My circle being worked out (Avi, 2026-10-09)", () => {
-  it("turns the arrow once every 1.6 s, evenly, and in its place fades it to 55% and back every 2 s for a person who asks for less motion", async () => {
+  it("turns the arrow once every 1.6 s, evenly, and in its place fades it to 72% and back every 2 s for a person who asks for less motion", async () => {
     const css = await compileUtilities(["animate-turn", "motion-reduce:animate-breathe"]);
     expect(css).toMatch(/--animate-turn:\s*turn 1\.6s linear infinite;/);
     expect(css).toMatch(/@keyframes turn\s*\{\s*to\s*\{\s*transform:\s*rotate\(360deg\);?\s*\}\s*\}/);
     expect(css).toMatch(/--animate-breathe:\s*breathe 2s ease-in-out infinite;/);
-    expect(css).toMatch(/@keyframes breathe\s*\{\s*50%\s*\{\s*opacity:\s*0\.55;?\s*\}\s*\}/);
+    expect(css).toMatch(/@keyframes breathe\s*\{\s*50%\s*\{\s*opacity:\s*0\.72;?\s*\}\s*\}/);
     expect(declarationsOf(css, "animate-turn")).toEqual(["animation: var(--animate-turn)"]);
     // The fade is the turn's stand-in only where the person asks for less motion.
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.motion-reduce\\:animate-breathe\s*\{\s*animation:\s*var\(--animate-breathe\);/);
