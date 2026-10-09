@@ -292,7 +292,7 @@ describe("the copy", () => {
   it("says what personalizing does beside the button (decision 26), and the states in plain words", () => {
     expect(copy.circle.personalize).toBe("Personalize");
     expect(copy.circle.consent).toBe(
-      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle's scores are public.",
+      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle's ratings are public.",
     );
     expect(copy.circle.workingTitle).toBe("Working out your circle");
     // The bar's two short lines (Avi, 2026-10-09): "Working out your circle. This takes a few minutes."

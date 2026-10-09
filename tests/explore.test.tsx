@@ -160,7 +160,7 @@ describe("Explore on a phone: the top of the page", () => {
   it("has the place the list is near, the search field, the toggle with its line, then the chips", async () => {
     await openExplore();
     const near = screen.getByRole("button", { name: "Near Funchal" });
-    const search = screen.getByRole("link", { name: /Tacos, coffee, a place name/ });
+    const search = screen.getByRole("link", { name: /Tacos, coffee, a restaurant name/ });
     const toggle = screen.getByRole("group", { name: copy.view.label });
     const chips = screen.getByRole("group", { name: copy.explore.filtersLabel });
     const list = screen.getByRole("list");
@@ -179,7 +179,7 @@ describe("Explore on a phone: the top of the page", () => {
 
   it("says whose scores these are, with a link to how that works", async () => {
     await openExplore();
-    expect(copy.explore.houseLine).toBe("Scores from the reviewers that Mise en Place, our house curator, trusts.");
+    expect(copy.explore.houseLine).toBe("Ratings from reviewers our house curator, Mise en Place, trusts.");
     const link = screen.getByRole("link", { name: "How this works" });
     // The Why page (screen 12, D4): tests/why.test.tsx.
     expect(link).toHaveAttribute("href", "/why");
@@ -649,16 +649,16 @@ describe("Explore: the unrated card", () => {
     expect(link()).not.toHaveClass("border-line");
   });
 
-  it("says 'No score yet' at the top right in the dashed variant, as My circle's list does, and not 'No reviews yet'", () => {
+  it("says 'No rating yet' at the top right in the dashed variant, as My circle's list does, and not 'No reviews yet'", () => {
     renderCard({ variant: "unrated-dashed" });
-    expect(copy.score.noScoreYet).toBe("No score yet");
-    const score = within(link()).getByText("No score yet");
+    expect(copy.score.noScoreYet).toBe("No rating yet");
+    const score = within(link()).getByText("No rating yet");
     expect(score.parentElement).toBe(within(link()).getByText(first.name).parentElement);
     expect(score).toHaveClass("text-caption", "font-semibold", "text-muted", "whitespace-nowrap");
     expect(link()).not.toHaveTextContent(copy.score.noReviewsYet);
   });
 
-  it("says 'No reviews yet' under the hours in the normal variant, and not 'No score yet'", () => {
+  it("says 'No reviews yet' under the hours in the normal variant, and not 'No rating yet'", () => {
     renderCard();
     expect(link()).toHaveTextContent(copy.score.noReviewsYet);
     expect(link()).not.toHaveTextContent(copy.score.noScoreYet);

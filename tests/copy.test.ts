@@ -166,6 +166,30 @@ describe("copy", () => {
     }
   });
 
+  it("has the words Avi approved for Explore (his wording pass, 2026-10-09)", () => {
+    expect(copy.search.placeholder).toBe("Tacos, coffee, a restaurant name");
+    expect(copy.explore.houseLine).toBe("Ratings from reviewers our house curator, Mise en Place, trusts.");
+    expect(copy.explore.circleLine).toBe("Ratings from your circle: the people you trust, and the people they trust.");
+    expect(copy.explore.circleEmpty).toBe("Nobody in your circle has rated places yet. House picks still has ratings for you.");
+    expect(copy.explore.circleOnlyYou).toBe("Only you have rated places in your circle so far. House picks still has ratings for you.");
+    expect(copy.score.starless(1)).toBe("1 person the house trusts wrote about it, no stars yet");
+    expect(copy.score.starless(3)).toBe("3 people the house trusts wrote about it, no stars yet");
+    expect(copy.score.starlessCircle(1)).toBe("1 person in your circle wrote about it, no stars yet");
+    expect(copy.score.starlessCircle(2)).toBe("2 people in your circle wrote about it, no stars yet");
+    expect(copy.score.counting).toBe("Loading reviews…");
+    expect(copy.score.houseUnavailable).toBe("House picks aren't available right now.");
+    expect(copy.score.circleUnavailable).toBe("My circle isn't available right now.");
+  });
+
+  it("says My circle is not available in the same words wherever it says so", () => {
+    expect(copy.circle.unavailable).toBe(copy.score.circleUnavailable);
+  });
+
+  it("says rating, never score, in every string a person reads or hears (Avi, 2026-10-09)", () => {
+    const leaves = leavesOf(copy, "");
+    expect(leaves.filter((leaf) => /\bscor(?:e|es|ed)\b/i.test(leaf.text))).toEqual([]);
+  });
+
   it("takes the app name from config.appName, not a second literal", async () => {
     expect(copy.app.name).toBe(config.appName);
 

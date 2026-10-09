@@ -1033,8 +1033,8 @@ describe("HouseName", () => {
   });
 
   it("draws a text that does not name the house as it is, with no badge", () => {
-    const { container } = render(<HouseName text="Scores from the people you trust." size="body" />);
-    expect(container.innerHTML).toBe("Scores from the people you trust.");
+    const { container } = render(<HouseName text="Ratings from the people you trust." size="body" />);
+    expect(container.innerHTML).toBe("Ratings from the people you trust.");
   });
 });
 
@@ -1225,7 +1225,7 @@ describe("the copy", () => {
     ]);
     // Signed out, the account button signs the person in, and is named so (decision 23).
     expect(copy.nav.signIn).toBe("Sign in");
-    expect(copy.search.placeholder).toBe("Tacos, coffee, a place name");
+    expect(copy.search.placeholder).toBe("Tacos, coffee, a restaurant name");
     expect(copy.search.label).toBe("Search places");
     expect([copy.view.house, copy.view.circle]).toEqual(["House picks", "My circle"]);
     expect(copy.load.retry).toBe("Try again");

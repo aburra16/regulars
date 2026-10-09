@@ -690,7 +690,7 @@ describe("Search on a phone: the top of the page", () => {
   it("puts the cursor in the field when the person comes from Explore, to type", async () => {
     const user = userEvent.setup();
     open(["/"], fixtures);
-    await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a place name/ }));
+    await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a restaurant name/ }));
     expect(field()).toHaveFocus();
   });
 
@@ -735,7 +735,7 @@ describe("Search: the way back", () => {
   describe("to the Explore the person left", () => {
     const exploreChip = (name: string) =>
       within(screen.getByRole("group", { name: copy.explore.filtersLabel })).getByRole("button", { name });
-    const searchLink = () => screen.findByRole("link", { name: /Tacos, coffee, a place name/ });
+    const searchLink = () => screen.findByRole("link", { name: /Tacos, coffee, a restaurant name/ });
     const atExplore = async () => {
       const opened = openInBrowser("/");
       await screen.findByRole("heading", { level: 1, name: copy.pages.explore });
@@ -1890,11 +1890,11 @@ describe("Filters", () => {
   });
 
   describe("sort", () => {
-    it("offers House picks' score, which needs no sign in, Distance and Name", async () => {
+    it("offers House picks' rating, which needs no sign in, Distance and Name", async () => {
       await openFilters();
       const sort = groupNamed(copy.filters.sortBy);
       const buttons = within(sort).getAllByRole("button");
-      expect(buttons.map((button) => button.textContent)).toEqual(["House picks' score", "Distance", "Name"]);
+      expect(buttons.map((button) => button.textContent)).toEqual(["House picks' rating", "Distance", "Name"]);
       expect(buttons[0]).toBeEnabled();
       expect(buttons[0]).not.toHaveAccessibleDescription();
     });
@@ -1961,9 +1961,9 @@ describe("Filters", () => {
       expect(pressedSorts()).toEqual([pressed]);
     });
 
-    it("has House picks' score pressed for an address that asks for it", async () => {
+    it("has House picks' rating pressed for an address that asks for it", async () => {
       await openFilters("/filters?sort=score");
-      expect(pressedSorts()).toEqual(["House picks' score"]);
+      expect(pressedSorts()).toEqual(["House picks' rating"]);
     });
 
     it("goes to the results with no sort in the address when none is pressed, and with the one that is", async () => {
@@ -2258,7 +2258,7 @@ describe("Filters", () => {
     it("does put it there when the person comes to search from Explore, as before", async () => {
       const user = userEvent.setup();
       open(["/"], fixtures);
-      await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a place name/ }));
+      await user.click(await screen.findByRole("link", { name: /Tacos, coffee, a restaurant name/ }));
       expect(field()).toHaveFocus();
     });
 

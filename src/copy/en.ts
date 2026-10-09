@@ -102,6 +102,9 @@ const houseName = "Mise en Place";
 /** A link back to the first page. */
 const backToExplore = "Back to Explore";
 
+/** My circle can't be shown: its scorer's ranks can't be read, or the run that works the circle out failed. */
+const circleUnavailable = "My circle isn't available right now.";
+
 /** The name of the page that says how a score is worked out (Trust.dc.html, DeskTrust.dc.html). */
 const whyTitle = "Why you see what you see";
 
@@ -167,7 +170,7 @@ export const copy = {
   search: {
     /** The search field's name, for a screen reader. */
     label: "Search places",
-    placeholder: "Tacos, coffee, a place name",
+    placeholder: "Tacos, coffee, a restaurant name",
     /** The arrow at the top left of the results, for a screen reader. */
     back: backToExplore,
     /** The button at the end of the field, for a screen reader. */
@@ -235,10 +238,10 @@ export const copy = {
     close: "Close filters",
     sortBy: "Sort by",
     /**
-     * The ways to sort. The first is by the scores of the view on screen: House picks', which need no
+     * The ways to sort. The first is by the ratings of the view on screen: House picks', which need no
      * sign in, or My circle's (the design's, Filters.dc.html) while it is the view (DRAFT for Avi).
      */
-    sort: { score: "House picks' score", circleScore: "My circle's score", distance: "Distance", name: "Name" },
+    sort: { score: "House picks' rating", circleScore: "My circle's rating", distance: "Distance", name: "Name" },
     openNow: "Open now",
     openNowNote: "Keeps places with no hours listed.",
     distance: "Distance",
@@ -254,7 +257,7 @@ export const copy = {
   view: {
     // DRAFT for Avi
     /** The toggle's name, for a screen reader. */
-    label: "Whose scores to show",
+    label: "Whose ratings to show",
     house: "House picks",
     circle: "My circle",
     /** A half of the toggle with its score, on the place page: "House picks · 4.5". */
@@ -282,7 +285,7 @@ export const copy = {
     personalize: "Personalize",
     // DRAFT for Avi: decision 26's line, beside the button.
     consent:
-      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle's scores are public.",
+      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle's ratings are public.",
     // DRAFT for Avi
     /** While the person's browser add-on asks them to let Brainstorm know it is them. */
     approveBrowser: "Approve the request in your browser add-on to go on.",
@@ -309,9 +312,9 @@ export const copy = {
     // DRAFT for Avi
     /** Brainstorm would not start a run (too many from this address), and the person has none yet. */
     busy: "Brainstorm is busy right now. Try again in a little while.",
-    // DRAFT for Avi: the brief's § 6.
+    // DRAFT for Avi: the brief's § 6. Avi approved the same words for `score.circleUnavailable` (2026-10-09).
     /** The run failed, or Brainstorm could not be reached. House picks still works. */
-    unavailable: "My circle isn't available right now.",
+    unavailable: circleUnavailable,
     // DRAFT for Avi
     /** Beside `busy` or `unavailable`: personalizes again. */
     tryAgain: "Try again",
@@ -332,8 +335,8 @@ export const copy = {
   score: {
     /** On a card with no score, under the hours, when nobody has reviewed the place (SCREENS.md, wording patterns). */
     noReviewsYet: "No reviews yet",
-    /** At the top right of a dashed card, where the score would be: others have rated the place, the list's view has not (Main.dc.html). */
-    noScoreYet: "No score yet",
+    /** At the top right of a dashed card, where the rating would be: others have rated the place, the list's view has not (Main.dc.html). */
+    noScoreYet: "No rating yet",
     /** A score as it is shown: "4.5", "4.0". */
     value: (n: number) => n.toLocaleString("en", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
     /** The stars, for a screen reader: "4.5 out of 5". */
@@ -379,34 +382,35 @@ export const copy = {
     outsideCircle: (n: number) => `${people(n)} ${outsideYourCircle} ${n === 1 ? "has" : "have"} rated it`,
     // DRAFT for Avi
     /**
-     * The same, first, in the place page's "No score yet" panel, before how many others have rated it
+     * The same, first, in the place page's "No rating yet" panel, before how many others have rated it
      * (the brief's § 5: "No score yet. Nobody in your circle has been here yet. 11 other people have rated it.").
      */
     noneInCircle: "Nobody in your circle has rated it yet",
-    // DRAFT for Avi
-    /** The same as `starless`, while My circle is the view. */
-    starlessCircle: (n: number) => `${people(n)} ${inYourCircle} reviewed it without stars`,
-    // DRAFT for Avi
-    /** The same as `houseUnavailable`, for My circle: its scorer's ranks can't be read. */
-    circleUnavailable: "My circle can't be worked out right now.",
+    /** The same as `starless`, while My circle is the view: "2 people in your circle wrote about it, no stars yet". */
+    starlessCircle: (n: number) => `${people(n)} ${inYourCircle} wrote about it, no stars yet`,
+    /**
+     * The same as `houseUnavailable`, for My circle: its scorer's ranks can't be read. The same words
+     * as `circle.unavailable`, which says the run that works the circle out failed.
+     */
+    circleUnavailable,
     // DRAFT for Avi
     /**
      * A place with no score that the person signed in has reviewed, in place of counting them among
      * the others ("1 other person has rated it"): never whether the house counts their review (ruling R15).
      */
     youRated: "You've rated it",
-    // DRAFT for Avi
-    /** A place with reviews by people inside House picks, none of them with stars: no score, and why. */
-    starless: (n: number) => `${people(n)} ${houseTrusts} reviewed it without stars`,
-    // DRAFT for Avi
-    /** A place with reviews whose reviewers are still being looked up: no score yet, and nothing folded. */
-    counting: "Reviews are being counted",
+    /**
+     * A place with reviews by people inside House picks, none of them with stars: no rating, and why.
+     * "3 people the house trusts wrote about it, no stars yet".
+     */
+    starless: (n: number) => `${people(n)} ${houseTrusts} wrote about it, no stars yet`,
+    /** A place with reviews whose reviewers are still being looked up: no rating yet, and nothing folded. */
+    counting: "Loading reviews…",
     // DRAFT for Avi
     /** No review relay answered for a place: said quietly, on its card and its page (which offers Try again). */
     failed: "Reviews couldn't be loaded",
-    // DRAFT for Avi
-    /** One quiet line, when the house's view can't be read: every review is folded, and nothing is scored. */
-    houseUnavailable: "House picks can't be worked out right now.",
+    /** One quiet line, when the house's view can't be read: every review is folded, and nothing is rated. */
+    houseUnavailable: "House picks aren't available right now.",
   },
   /**
    * The reviews on a place's page (Place.dc.html, DeskPlace.dc.html), worded for House picks, and for
@@ -652,7 +656,7 @@ export const copy = {
     close: "Close",
     headline: "Ratings from people you'd actually ask.",
     intro:
-      "Right now you're seeing House picks. Sign in and every score is worked out from the people you trust, and the people they trust.",
+      "Right now you're seeing House picks. Sign in and every rating is worked out from the people you trust, and the people they trust.",
     /** The three steps. SignIn.dc.html's first step says "follow", which nothing in the app may; DeskSignIn.dc.html says "trust". */
     steps: [
       "Sign in. We read who you already trust.",
@@ -662,7 +666,7 @@ export const copy = {
     /** The second button: go back to where the person was, with the house's scores. */
     keepHousePicks: "Keep House picks",
     /** The notice about what personalizing does (the brief, section 6). */
-    notice: "Nothing is posted without you. Your circle's scores are worked out by our scoring partner and are public.",
+    notice: "Nothing is posted without you. Your circle's ratings are worked out by our scoring partner and are public.",
     howItWorks: "First time? How signing in works",
     // DRAFT for Avi
     /** The numbered list of steps, for a screen reader. */
@@ -731,7 +735,7 @@ export const copy = {
    */
   why: {
     title: whyTitle,
-    intro: "There is no single score for a place. Every score here is worked out from a set of people. You choose which set.",
+    intro: "There is no single rating for a place. Every rating here is worked out from a set of people. You choose which set.",
     /** Over the toggle. */
     lookingThrough: "You're looking through",
     // DRAFT for Avi
@@ -740,7 +744,7 @@ export const copy = {
     // DRAFT for Avi: the signed-out version is not drawn. Signed out, the panel has the sign-in page's
     // words (`signin.intro`) and Sign in; signed in, before the circle is worked out, these and Personalize.
     housePicksNow:
-      "Right now you're seeing House picks. My circle works out every score from the people you trust, and the people they trust.",
+      "Right now you're seeing House picks. My circle works out every rating from the people you trust, and the people they trust.",
     /** The big number: how many people are in the circle, "212". */
     count: (n: number) => n.toLocaleString("en"),
     // DRAFT for Avi
@@ -777,7 +781,7 @@ export const copy = {
     emptyTitle: "Nobody in your circle yet",
     // DRAFT for Avi
     emptyBody:
-      "Your circle is the people you trust and the people they trust, and so far that's nobody. Until it grows, My circle counts only your own reviews, and House picks still has scores for you.",
+      "Your circle is the people you trust and the people they trust, and so far that's nobody. Until it grows, My circle counts only your own reviews, and House picks still has ratings for you.",
     updateNow: "Update now",
     // DRAFT for Avi
     /** After Update now, while Brainstorm works the circle out again. Scores use the circle the person has meanwhile. */
@@ -793,11 +797,11 @@ export const copy = {
     updated: "Your circle is up to date.",
     // DRAFT for Avi
     /** The run failed, took too long, or Brainstorm could not be reached. */
-    updateFailed: "Your circle couldn't be updated right now. Scores still use the one you have.",
-    rulesHeading: "How a score is worked out",
+    updateFailed: "Your circle couldn't be updated right now. Ratings still use the one you have.",
+    rulesHeading: "How a rating is worked out",
     /** The three rules: on a phone, each title is a sentence before its words; on a desktop, a card's heading. */
     rules: {
-      only: { title: "Only your circle counts", body: "A review from someone outside it doesn't move your score at all." },
+      only: { title: "Only your circle counts", body: "A review from someone outside it doesn't move the rating you see at all." },
       closer: { title: "Closer people count for more", body: "Someone you trust outweighs someone a friend of a friend trusts." },
       oneSay: { title: "One say each", body: "A person has one review per place. Writing another replaces it." },
     },
@@ -855,10 +859,10 @@ export const copy = {
     softwareLicences: "Software licences",
     reviewsHeading: "Where the reviews come from",
     reviewsBody:
-      "People write them under their own names. Nobody at Regulars edits or reorders them. The score you see for a place is worked out from the reviewers you trust, so two people can see different scores for the same place.",
+      "People write them under their own names. Nobody at Regulars edits or reorders them. The rating you see for a place is worked out from the reviewers you trust, so two people can see different ratings for the same place.",
     // DRAFT for Avi: the two views in plain words, where House picks are said once. The design links to a "How scores are worked out" page, which is for people who have signed in.
     viewsBody:
-      "House picks are the scores from the reviewers that the house trusts, and everyone starts there. My circle is the same, worked out from the people you trust and the people they trust. You can switch between them whenever you like.",
+      "House picks are the ratings from the reviewers that the house trusts, and everyone starts there. My circle is the same, worked out from the people you trust and the people they trust. You can switch between them whenever you like.",
     houseHeading: "Who the house is",
     // DRAFT for Avi: the design's sentence says what House picks are, which the section above now does.
     houseBody:
@@ -1025,21 +1029,21 @@ export const copy = {
     // DRAFT for Avi
     /** The control at the top of the page. `label` is where the places are near: "Funchal", or "you". */
     near: (label: string) => `Near ${label}`,
-    /** Under the toggle, while it is on House picks (Main.dc.html). "How this works" follows it, as a link. */
-    houseLine: `Scores from the reviewers that ${houseName}, our house curator, trusts.`,
-    // DRAFT for Avi
+    /**
+     * Under the toggle, while it is on House picks (Main.dc.html), with the house's badge before its
+     * name. "How this works" follows it, as a link.
+     */
+    houseLine: `Ratings from reviewers our house curator, ${houseName}, trusts.`,
     /** The same, while it is on My circle. "How this works" follows it, as a link. */
-    circleLine: "Scores from your circle: the people you trust, and the people they trust.",
-    // DRAFT for Avi
+    circleLine: "Ratings from your circle: the people you trust, and the people they trust.",
     /**
      * Under that, while My circle is the view and nobody in the person's circle has rated any place
      * they have seen this session (a circle of one: the brief's § 6, rulings R7 and R8). The toggle
      * above keeps House picks one tap away; nothing switches the view for them.
      */
-    circleEmpty: "Nobody in your circle has rated places yet. House picks still has scores for you.",
-    // DRAFT for Avi
+    circleEmpty: "Nobody in your circle has rated places yet. House picks still has ratings for you.",
     /** The same, when the person signed in has rated places, and nobody else in their circle has (ruling R8). */
-    circleOnlyYou: "Only you have rated places in your circle so far. House picks still has scores for you.",
+    circleOnlyYou: "Only you have rated places in your circle so far. House picks still has ratings for you.",
     howThisWorks: "How this works",
     /** The filter chips, for a screen reader. */
     filtersLabel: "Filter places",
@@ -1071,7 +1075,7 @@ export const copy = {
     line: (kind: string, n: number, near: number) => `${chainKind(kind, n)}${dot}${nearYou(near)}`,
     // DRAFT for Avi: "none near you" is not drawn; the design has a chain with three near.
     nearYou,
-    eachScored: "Each location is scored on its own",
+    eachScored: "Each location is rated on its own",
     eachScoredDetail: "A good one here says little about the one across town.",
     // DRAFT for Avi
     /** After it, when two or more locations near have scores (Chain.dc.html, worded for House picks): the lowest and the highest. */
@@ -1130,12 +1134,12 @@ export const copy = {
     // DRAFT for Avi (ruling R13)
     /** The same, when the person signed in is one of those counted, beside `n` others: "4.3 out of 5, rated by you and 2 other people in your circle". */
     pinScoredYouAnd: (score: string, n: number) => `${score} out of 5, rated by you and ${otherPeople(n)} ${inYourCircle}`,
-    // DRAFT for Avi
+    // DRAFT for Avi: in the words Avi approved for the line under a card's hours (`score.counting`).
     /** The same, for a place whose reviews are being counted. */
-    pinCounting: "reviews being counted",
+    pinCounting: "loading reviews",
     // DRAFT for Avi
     /** The same, for a place with reviews and no score. */
-    pinNoScore: "no score yet",
+    pinNoScore: "no rating yet",
     // DRAFT for Avi
     /** The same, for a place whose reviews couldn't be loaded. */
     pinFailed: "reviews couldn't be loaded",
@@ -1208,10 +1212,10 @@ export const copy = {
     /** The sort menu, by the order the list is in: nearest first, A to Z, or, for words, best match first. */
     sort: {
       // DRAFT for Avi
-      score: "Sort: House picks' score",
+      score: "Sort: House picks' rating",
       // DRAFT for Avi
       /** The same, while My circle is the view. */
-      circleScore: "Sort: My circle's score",
+      circleScore: "Sort: My circle's rating",
       distance: "Sort: distance",
       name: "Sort: name",
       // DRAFT for Avi

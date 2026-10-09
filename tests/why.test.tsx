@@ -183,9 +183,9 @@ describe("the words", () => {
   it("are the design's where it has them (Trust.dc.html, DeskTrust.dc.html)", () => {
     expect(copy.why.title).toBe("Why you see what you see");
     expect(copy.why.intro).toBe(
-      "There is no single score for a place. Every score here is worked out from a set of people. You choose which set.",
+      "There is no single rating for a place. Every rating here is worked out from a set of people. You choose which set.",
     );
-    expect(copy.why.rulesHeading).toBe("How a score is worked out");
+    expect(copy.why.rulesHeading).toBe("How a rating is worked out");
     expect(copy.why.rules.only.title).toBe("Only your circle counts");
     expect(copy.why.rules.closer.title).toBe("Closer people count for more");
     expect(copy.why.rules.oneSay.title).toBe("One say each");

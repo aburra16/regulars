@@ -686,12 +686,12 @@ describe("the wording follows the view", () => {
     expect(copy.reviews.foldedMoreCircle(1)).toBe("1 more review from outside your circle");
     expect(copy.reviews.foldedAllCircle(4)).toBe("4 reviews from outside your circle");
     expect(copy.reviews.foldedNote).toBe("Shown on request, never removed.");
-    expect(copy.filters.sort.circleScore).toBe("My circle's score");
-    expect(copy.deskExplore.sort.circleScore).toBe("Sort: My circle's score");
+    expect(copy.filters.sort.circleScore).toBe("My circle's rating");
+    expect(copy.deskExplore.sort.circleScore).toBe("Sort: My circle's rating");
     expect(copy.search.sortedBy.circleScore).toBe("Best in My circle first");
-    expect(copy.explore.circleLine).toBe("Scores from your circle: the people you trust, and the people they trust.");
-    expect(copy.explore.circleEmpty).toBe("Nobody in your circle has rated places yet. House picks still has scores for you.");
-    expect(copy.explore.circleOnlyYou).toBe("Only you have rated places in your circle so far. House picks still has scores for you.");
+    expect(copy.explore.circleLine).toBe("Ratings from your circle: the people you trust, and the people they trust.");
+    expect(copy.explore.circleEmpty).toBe("Nobody in your circle has rated places yet. House picks still has ratings for you.");
+    expect(copy.explore.circleOnlyYou).toBe("Only you have rated places in your circle so far. House picks still has ratings for you.");
     expect(copy.circle.workOutAgain).toBe("Work out my circle again");
     expect(copy.score.ratedByYou).toBe("Rated by you");
     expect(copy.score.fromYou).toBe("From you");
@@ -705,7 +705,7 @@ describe("the wording follows the view", () => {
     expect(copy.score.outsideCircle(1)).toBe("1 person outside your circle has rated it");
     expect(copy.score.outsideCircle(2)).toBe("2 people outside your circle have rated it");
     expect(copy.score.noneInCircle).toBe("Nobody in your circle has rated it yet");
-    expect(copy.score.circleUnavailable).toBe("My circle can't be worked out right now.");
+    expect(copy.score.circleUnavailable).toBe("My circle isn't available right now.");
   });
 
   it("says whose scores the list shows under the toggle, with How this works", async () => {
@@ -739,7 +739,7 @@ describe("the wording follows the view", () => {
     const net = network({ reviews: jacafeReviews(), house: HOUSE_RANKS, circle: CIRCLE_RANKS });
     const filters = await openReady(net, "/filters");
     const sort = screen.getByRole("group", { name: copy.filters.sortBy });
-    expect(within(sort).getAllByRole("button").map((button) => button.textContent)).toEqual(["My circle's score", "Distance", "Name"]);
+    expect(within(sort).getAllByRole("button").map((button) => button.textContent)).toEqual(["My circle's rating", "Distance", "Name"]);
     filters.unmount();
 
     const desk = await openReady(net, "/?sort=score", DESKTOP);

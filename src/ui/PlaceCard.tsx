@@ -17,7 +17,7 @@ export interface PlaceCardProps {
   km: number;
   /**
    * `unrated-dashed` is a place others have rated, with no score, in a list that has places with
-   * scores: a dashed edge and "No score yet" at the top right, where the score would be
+   * scores: a dashed edge and "No rating yet" at the top right, where the score would be
    * (Main.dc.html). Every other card is `normal`.
    */
   variant: "normal" | "unrated-dashed";

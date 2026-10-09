@@ -118,7 +118,7 @@ afterEach(() => {
 // ---- The header ----
 
 describe("the chain page: header", () => {
-  it("names the chain, counts its locations and the ones near, and says each is scored on its own", async () => {
+  it("names the chain, counts its locations and the ones near, and says each is rated on its own", async () => {
     await openApp(confeitariaPath, { events: fixtures });
     expect(CONFEITARIA.places).toHaveLength(4);
     expect(heading()).toHaveTextContent("A Confeitaria Coffee & Bakery");
@@ -130,7 +130,7 @@ describe("the chain page: header", () => {
 
     const order = [heading(), screen.getByText(copy.chain.eachScored)];
     expect(order[0]!.compareDocumentPosition(order[1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(copy.chain.eachScored).toBe("Each location is scored on its own");
+    expect(copy.chain.eachScored).toBe("Each location is rated on its own");
     expect(screen.getByText(copy.chain.eachScoredDetail)).toBeInTheDocument();
   });
 

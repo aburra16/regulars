@@ -210,7 +210,7 @@ function Counting({ wide }: { wide: boolean }): JSX.Element {
 }
 
 /**
- * A place with reviews and no score: "No score yet", in the dashed panel of a place with none, and
+ * A place with reviews and no score: "No rating yet", in the dashed panel of a place with none, and
  * why, in the view's words: people inside it reviewed it without stars, or how many others have rated
  * it (their reviews are folded below), after "Nobody in your circle has rated it yet" in My circle.
  * When the view can't be worked out, how many have rated it, and one quiet line under the panel says

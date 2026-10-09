@@ -35,7 +35,7 @@ export interface PlaceRowProps {
 
 /**
  * What goes at the top right of a row, where a score goes (Search.dc.html, Chain.dc.html): the
- * score; "No score yet" for a place with reviews and no score; "No reviews yet" for one nobody has;
+ * score; "No rating yet" for a place with reviews and no score; "No reviews yet" for one nobody has;
  * nothing while its reviews are being read or counted, when they couldn't be loaded, or when House
  * picks can't be worked out, which the line under it says.
  */
