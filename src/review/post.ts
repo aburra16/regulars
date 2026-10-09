@@ -14,8 +14,9 @@ import { removalTemplate } from "../reviews/write.ts";
  * soon as a review relay takes it, the others going on. A review relay that is slow to answer, or
  * fails in a way that may pass, is sent it again (ruling P1). Nothing here loads Nostrify: the app's
  * writers load the relay code when a review is first sent (src/nostr/relayCode.ts), so the form can be
- * on the first screen. What the relays answer is logged, when one does not take it (`warnNotTaken`);
- * never what passes through, which is the person's.
+ * on the first screen. What a review relay answers is logged, when it does not take it
+ * (`warnNotTaken`): its address and its own words, which are public. Nothing else is: not what passes
+ * through, which is the person's, nor where their own relays are, which their signer may have said.
  */
 
 /**
@@ -234,11 +235,14 @@ function mayPass(error: unknown): boolean {
 }
 
 /**
- * Logs that the relay at `url` did not take a review or a removal, and what it said, for whoever
- * looks into why it didn't post: "[post] wss://… did not take it: error: …". Only the relay's address
- * and its answer: never the event, what the person wrote, who they are, or anything of their signer's.
+ * Logs that the review relay at `url` did not take a review or a removal, and what it said, for
+ * whoever looks into why it didn't post: "[post] wss://… did not take it: error: …". Only a review
+ * relay's (`isReviewRelay`), and only its address and its answer: never the event, what the person
+ * wrote, who they are, or anything of their signer's, such as the person's own relays.
  */
-const warnNotTaken = (url: string, reason: string) => console.warn(`[post] ${url} did not take it: ${reason}`);
+function warnNotTaken(url: string, reason: string): void {
+  if (isReviewRelay(url)) console.warn(`[post] ${url} did not take it: ${reason}`);
+}
 
 /** A signal that aborts with a TimeoutError once `ms` milliseconds have passed, and `stop`, which clears its timer. */
 function timeLimit(ms: number): { signal: AbortSignal; stop(): void } {
@@ -292,7 +296,7 @@ async function tryToSend(url: string, event: NostrEvent, writers: (url: string) 
 /**
  * Sends `event` to the relay at `url` (`tryToSend`), up to `tries` times while its failures may
  * pass, waiting `REVIEW_RELAY_WAITS_MS` before each try after the first, until `signal` aborts. Null
- * once it has taken it; else why not, the last time. Each try it does not take is logged
+ * once it has taken it; else why not, the last time. Each try a review relay does not take is logged
  * (`warnNotTaken`), unless `left` has aborted: the person stopped it, and the relay said nothing.
  */
 async function sendTo(

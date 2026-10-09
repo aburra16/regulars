@@ -632,33 +632,53 @@ describe("patience with the review relays (ruling P1)", () => {
     expect(search.published).toEqual([removed!.event, removed!.event, removed!.event]);
   });
 
-  it("warns of each try a relay did not take, by its address and what it said, and of nothing the person wrote or who they are", async () => {
+  it("warns of each try a review relay did not take, by its address and what it said, and of nothing the person wrote or who they are", async () => {
     const event = signed();
     const sent = send(
       event,
       [SEARCH, OWN],
       writersOver({
         [SEARCH]: createMemoryWriter({ answers: [{ refuse: "error: vespa feed 503" }, { silent: true }] }),
-        [OWN]: createMemoryWriter({ refuse: "blocked: not on the list" }),
+        [OWN]: createMemoryWriter(),
       }),
     );
 
     await vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[0]! + PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[1]!);
     await vi.waitFor(() => expect(sent.posted).toBeDefined());
-    const said = postWarnings(warnings);
-    expect(said).toHaveLength(3);
-    expect(said).toEqual(
-      expect.arrayContaining([
-        "[post] wss://search.brainstorm.world did not take it: error: vespa feed 503",
-        "[post] wss://nos.example.test did not take it: blocked: not on the list",
-        expect.stringMatching(/^\[post\] wss:\/\/search\.brainstorm\.world did not take it: \S/),
-      ]),
-    );
+    expect(postWarnings(warnings)).toEqual([
+      "[post] wss://search.brainstorm.world did not take it: error: vespa feed 503",
+      "[post] wss://search.brainstorm.world did not take it: The relay did not answer in time",
+    ]);
     // One line each, and nothing else passed with it: never the review, its words, its id, the person's key or the signature.
     expect(warnings.mock.calls.every((args) => args.length === 1)).toBe(true);
-    for (const line of said) {
+    for (const line of postWarnings(warnings)) {
       for (const secret of [event.content, event.id, event.pubkey, event.sig]) expect(line).not.toContain(secret);
     }
+  });
+
+  it("warns of a review relay however its address is written, by the address it was sent to", async () => {
+    config.reviewRelays = ["wss://Search.Brainstorm.world/"];
+    const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: createMemoryWriter({ refuse: "blocked: not on the list" }) }));
+    await vi.waitFor(() => expect(sent.error).toBeInstanceOf(NotPosted));
+    expect(postWarnings(warnings)).toEqual(["[post] wss://search.brainstorm.world did not take it: blocked: not on the list"]);
+  });
+
+  it("never warns of the person's own relays, whatever they say: their addresses may come from the person's signer", async () => {
+    const sent = send(
+      signed(),
+      [SEARCH, OWN, OTHER],
+      writersOver({
+        [SEARCH]: createMemoryWriter(),
+        [OWN]: createMemoryWriter({ refuse: "blocked: not on the list" }),
+        [OTHER]: createMemoryWriter({ silent: true }),
+      }),
+    );
+    await vi.waitFor(() => expect(sent.posted).toBeDefined());
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
+    await sent.posted!.settled;
+    expect(Object.keys(sent.posted!.refused).sort()).toEqual([OTHER, OWN].sort());
+    expect(postWarnings(warnings)).toEqual([]);
+    expect(warnings).not.toHaveBeenCalled();
   });
 
   it("does not warn of a try the person stopped by leaving", async () => {
