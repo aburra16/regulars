@@ -387,7 +387,8 @@ describe("removing a review", () => {
     const me = signedIn(world);
     world.ranks.push(rankOf(me.pubkey, 80));
     world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
-    // No answer to the first try, an error of its own on the second, and the third is taken.
+    // No answer to the first try; the second, beside it at 15 seconds, has an error of its own; the
+    // third, 5 seconds after that, is taken.
     world.writers[SEARCH] = createMemoryWriter({ answers: [{ silent: true }, { refuse: "error: vespa feed 503" }] });
     await open(world, fromExplore(PLACE_PATH));
     const mine = await yourReview();
@@ -397,7 +398,7 @@ describe("removing a review", () => {
 
     await removeIt(user);
     await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
-    await act(() => vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[0]!));
+    await act(() => vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS));
     await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(2));
     expect(within(mine).getByRole("button", { name: copy.reviews.removing })).toBeInTheDocument();
     await act(() => vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[1]!));
@@ -413,7 +414,7 @@ describe("removing a review", () => {
     const me = signedIn(world);
     world.ranks.push(rankOf(me.pubkey, 80));
     world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
-    // Regulars does not answer the first try, and takes the second.
+    // Regulars does not answer the first try; the second, which starts beside it at 15 seconds, is taken.
     world.writers[SEARCH] = createMemoryWriter({ answers: [{ silent: true }] });
     await open(world, fromExplore(PLACE_PATH));
     const mine = await yourReview();
@@ -427,11 +428,11 @@ describe("removing a review", () => {
     const line = within(mine).getByRole("status");
     expect(line).toHaveAttribute("aria-live", "polite");
 
-    await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS - 1_000));
+    await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS / 2));
     expect(line).toBeEmptyDOMElement();
     expect(screen.queryByText(copy.reviews.stillRemoving)).not.toBeInTheDocument();
 
-    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS / 2));
     expect(line).toHaveTextContent(copy.reviews.stillRemoving);
     expect(copy.reviews.stillRemoving).toBe("Still removing. Regulars is slow to answer right now.");
     // A line anyone can see, under the button, which still says Removing… and is still off.
@@ -441,7 +442,7 @@ describe("removing a review", () => {
     expect(button).toHaveAttribute("aria-disabled", "true");
 
     // The second try is taken: the review comes off, the line with it, and the page says it is removed.
-    await act(() => vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[0]!));
+    await act(() => vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS));
     await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
     expect(screen.queryByText(copy.reviews.stillRemoving)).not.toBeInTheDocument();
     expect(screen.getByText(copy.reviews.removed, { selector: '[role="status"]' })).toBeInTheDocument();

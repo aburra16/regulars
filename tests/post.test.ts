@@ -35,7 +35,7 @@ import { postWarnings, quietPostWarnings } from "./support/postWarnings";
  * Posting a review (M2b Task 6, rulings R12 to R14): where it goes, bounded in time; signing it with
  * the person's signer; sending it to every relay at once, posted as soon as a review relay takes it,
  * the others going on; patient with a review relay that is slow or fails for now, and trying it again
- * (ruling P1); and the time it is stamped with. Relays are held in memory; nothing opens a socket.
+ * (rulings P1 and P2); and the time it is stamped with. Relays are held in memory; nothing opens a socket.
  */
 
 const places: NostrEvent[] = raw;
@@ -307,6 +307,7 @@ describe("postReview", () => {
     expect(outcome!.accepted).toEqual([SEARCH]);
     expect(Object.keys(outcome!.refused)).toEqual([OWN]);
     expect(PUBLISH_TIMEOUT_MS).toBe(15_000);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("goes on sending to the others once posted, even when the caller stops: only its limit stops them then", async () => {
@@ -338,7 +339,7 @@ describe("postReview", () => {
     expect(outcome?.accepted).toEqual([SEARCH, OWN]);
   });
 
-  it("sends to every relay at once, each try with the same time: none waits for another", async () => {
+  it("sends to every relay at once: none waits for another", async () => {
     vi.useFakeTimers();
     const first = createMemoryWriter({ silent: true });
     const second = createMemoryWriter({ silent: true });
@@ -350,9 +351,11 @@ describe("postReview", () => {
     expect(second.published).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS - 1);
     expect(first.signals[0]?.aborted || second.signals[0]?.aborted).toBe(false);
+    // The person's own relay's one try is over; the review relay's first goes on, and a second starts beside it.
     await vi.advanceTimersByTimeAsync(1);
-    expect(first.signals[0]?.aborted && second.signals[0]?.aborted).toBe(true);
-    // The review relay is tried again, within its patience; the person's own relay is not.
+    expect(second.signals[0]?.aborted).toBe(true);
+    expect(first.signals[0]?.aborted).toBe(false);
+    expect(first.published).toHaveLength(2);
     await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS - PUBLISH_TIMEOUT_MS);
     await expect(posting).rejects.toBeInstanceOf(NotPosted);
     expect(first.published).toHaveLength(REVIEW_RELAY_TRIES);
@@ -394,7 +397,7 @@ describe("postReview", () => {
   });
 });
 
-describe("patience with the review relays (ruling P1)", () => {
+describe("patience with the review relays (rulings P1 and P2)", () => {
   /** The review, signed already, as Try again sends it. */
   const signed = () => finalizeEvent(template(), KEY);
 
@@ -417,6 +420,25 @@ describe("patience with the review relays (ruling P1)", () => {
     opts: SendOptions = {},
   ) => track(sendReview(event, relays, signal, { writers, ...opts }));
 
+  /**
+   * A relay that answers each try `afterMs` after it is sent, as each of `answers` says (null takes it,
+   * text refuses it), and pays no heed to its connection being closed: a relay whose answer comes all the same.
+   */
+  function heedlessWriter(answers: { afterMs: number; refuse?: string }[]) {
+    const signals: AbortSignal[] = [];
+    const writer: RelayWriter = {
+      publish(_event, signal) {
+        const answer = answers[signals.length];
+        signals.push(signal);
+        if (answer === undefined) return new Promise<never>(() => {});
+        return new Promise<void>((resolve, reject) =>
+          setTimeout(() => (answer.refuse === undefined ? resolve() : reject(new Error(answer.refuse))), answer.afterMs),
+        );
+      },
+    };
+    return { writer, signals };
+  }
+
   beforeEach(() => {
     config.reviewRelays = [SEARCH];
     vi.useFakeTimers();
@@ -430,41 +452,102 @@ describe("patience with the review relays (ruling P1)", () => {
     expect(SLOW_POST_MS).toBe(8_000);
   });
 
-  it("sends the review again to a review relay that did not answer in time, over a new connection, and is posted when it takes it", async () => {
+  it("sends the review again to a review relay that has not answered in 15 seconds, at once, over a new connection, while the first goes on listening", async () => {
     const event = signed();
     const search = createMemoryWriter({ answers: [{ silent: true }] });
     const writers = vi.fn(writersOver({ [SEARCH]: search }));
     const sent = send(event, [SEARCH], writers);
 
-    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
-    expect(search.signals[0]?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS - 1);
     expect(search.published).toHaveLength(1);
-    expect(sent).toEqual({});
-
-    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[0]!);
-    await vi.waitFor(() => expect(sent.posted).toBeDefined());
+    await vi.advanceTimersByTimeAsync(1);
     expect(search.published).toEqual([event, event]);
     // A writer of its own for each try: the app's opens a new connection for each.
     expect(writers).toHaveBeenCalledTimes(2);
+
+    // The second takes it: posted, and the first connection, still listening until then, is closed.
+    await vi.waitFor(() => expect(sent.posted).toBeDefined());
     expect(sent.posted!.accepted).toEqual([SEARCH]);
     expect(sent.posted!.refused).toEqual({});
+    expect(search.signals.every((signal) => signal.aborted)).toBe(true);
+  });
+
+  it("is posted, once, when the first try's answer comes at 30 seconds, after the second started at 15; both connections are closed", async () => {
+    const search = createMemoryWriter({ answers: [{ delayMs: 30_000 }, { silent: true }] });
+    const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: search }));
+
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
+    expect(search.published).toHaveLength(2);
+    expect(search.signals.some((signal) => signal.aborted)).toBe(false);
+    await vi.advanceTimersByTimeAsync(30_000 - PUBLISH_TIMEOUT_MS - 1);
+    expect(sent).toEqual({});
+
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(sent.posted).toBeDefined());
+    await sent.posted!.settled;
+    expect(sent.posted!.accepted).toEqual([SEARCH]);
+    expect(sent.posted!.refused).toEqual({});
+    expect(search.published).toHaveLength(2);
+    expect(search.signals.every((signal) => signal.aborted)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("counts a review relay's taking it once, when a second try's answer (a duplicate:) comes after the first's", async () => {
+    // The first try is answered at 30 s; the second, sent at 15 s, at 30.001 s, connection closed or not.
+    const search = heedlessWriter([{ afterMs: 30_000 }, { afterMs: 15_001 }]);
+    const posted = vi.fn();
+    void sendReview(signed(), [SEARCH], new AbortController().signal, { writers: () => search.writer }).then(posted);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.waitFor(() => expect(posted).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
+    const [outcome] = posted.mock.calls[0] as [Posted];
+    await outcome.settled;
+    expect(posted).toHaveBeenCalledTimes(1);
+    expect(outcome.accepted).toEqual([SEARCH]);
+    expect(outcome.refused).toEqual({});
+    expect(search.signals).toHaveLength(2);
+  });
+
+  it("ends at once on a final refusal from a second try while the first is still open, and closes it", async () => {
+    const search = createMemoryWriter({ answers: [{ silent: true }, { refuse: "blocked: not on the list" }] });
+    const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: search }));
+
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
+    await vi.waitFor(() => expect(sent.error).toBeInstanceOf(NotPosted));
+    expect(sent.error).toMatchObject({ refused: { [SEARCH]: "blocked: not on the list" } });
+    expect(search.signals.every((signal) => signal.aborted)).toBe(true);
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
+    expect(search.published).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it.each([
     ["error:, a fault of its own", { refuse: "error: vespa feed 503" }],
     ["rate-limited:", { refuse: "rate-limited: slow down" }],
     ["its connection closing before it answered", { closes: true }],
-  ])("sends the review again to a review relay after %s, and is posted when it takes it", async (_, first) => {
+  ])("sends the review again to a review relay 2 seconds after %s, and is posted when it takes it", async (_, first) => {
     const event = signed();
     const search = createMemoryWriter({ answers: [first] });
     const sent = send(event, [SEARCH], writersOver({ [SEARCH]: search }));
 
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[0]! - 1);
     expect(search.published).toHaveLength(1);
     expect(sent).toEqual({});
-    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[0]!);
+    await vi.advanceTimersByTimeAsync(1);
     await vi.waitFor(() => expect(sent.posted).toBeDefined());
     expect(search.published).toEqual([event, event]);
+  });
+
+  it("waits 5 seconds before a third try after a second that failed for now", async () => {
+    const search = createMemoryWriter({ answers: [{ refuse: "error: vespa feed 503" }, { refuse: "error: vespa feed 503" }] });
+    const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: search }));
+
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[0]! + REVIEW_RELAY_WAITS_MS[1]! - 1);
+    expect(search.published).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(sent.posted).toBeDefined());
+    expect(search.published).toHaveLength(3);
   });
 
   it.each([
@@ -487,22 +570,36 @@ describe("patience with the review relays (ruling P1)", () => {
     expect(search.published).toHaveLength(1);
   });
 
-  it("is not posted once a review relay has failed a third time, when its patience is up", async () => {
+  it("is not posted when no try has been answered by 50 seconds: tries at 0, 15 and 30, every connection closed, no timer left", async () => {
     const search = createMemoryWriter({ silent: true });
     const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: search }));
 
-    // 15 seconds, 2, 15, 5, and what is left of the 50 for the third.
-    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS - 1);
+    await vi.advanceTimersByTimeAsync(2 * PUBLISH_TIMEOUT_MS);
     expect(search.published).toHaveLength(REVIEW_RELAY_TRIES);
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS - 2 * PUBLISH_TIMEOUT_MS - 1);
     expect(sent).toEqual({});
+    expect(search.signals.some((signal) => signal.aborted)).toBe(false);
+
     await vi.advanceTimersByTimeAsync(1);
     await vi.waitFor(() => expect(sent.error).toBeInstanceOf(NotPosted));
     expect(search.signals.every((signal) => signal.aborted)).toBe(true);
-    expect(Object.keys((sent.error as NotPosted).refused)).toEqual([SEARCH]);
-
+    // No answer was seen: why not is the time running out.
+    expect((sent.error as NotPosted).refused).toEqual({ [SEARCH]: "The relay did not answer in time" });
+    expect(vi.getTimerCount()).toBe(0);
     // And no fourth.
     await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
     expect(search.published).toHaveLength(REVIEW_RELAY_TRIES);
+  });
+
+  it("says why not with the last answer a review relay gave, when it never took it", async () => {
+    // The first try is never answered; the second, at 15 s, fails for now, and the third, 5 s later, is never answered.
+    const search = createMemoryWriter({ answers: [{ silent: true }, { refuse: "error: vespa feed 503" }, { silent: true }] });
+    const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: search }));
+
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
+    await vi.waitFor(() => expect(sent.error).toBeInstanceOf(NotPosted));
+    expect(search.published).toHaveLength(3);
+    expect((sent.error as NotPosted).refused).toEqual({ [SEARCH]: "error: vespa feed 503" });
   });
 
   it("is not posted after a third refusal that may pass, without waiting out its patience", async () => {
@@ -513,6 +610,7 @@ describe("patience with the review relays (ruling P1)", () => {
     await vi.waitFor(() => expect(sent.error).toBeInstanceOf(NotPosted));
     expect(search.published).toHaveLength(REVIEW_RELAY_TRIES);
     expect(sent.error).toMatchObject({ accepted: [], refused: { [SEARCH]: "error: vespa feed 503" } });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("tries the person's own relays once, whatever they say, while the review relay is tried again", async () => {
@@ -528,11 +626,12 @@ describe("patience with the review relays (ruling P1)", () => {
     expect(search.published).toHaveLength(2);
     expect(own.published).toHaveLength(1);
     expect(other.published).toHaveLength(1);
+    expect(other.signals[0]?.aborted).toBe(true);
     expect(sent.posted!.accepted).toEqual([SEARCH]);
     expect(Object.keys(sent.posted!.refused).sort()).toEqual([OTHER, OWN].sort());
   });
 
-  it("stops trying a review relay again when its signal aborts before it is posted: the person has left the form", async () => {
+  it("stops trying a review relay again when its signal aborts during a wait: the person has left the form", async () => {
     const search = createMemoryWriter({ refuse: "error: vespa feed 503" });
     const controller = new AbortController();
     const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: search }), controller.signal);
@@ -543,21 +642,23 @@ describe("patience with the review relays (ruling P1)", () => {
     const reason = new Error("The person closed the form");
     controller.abort(reason);
     await vi.waitFor(() => expect(sent.error).toBe(reason));
+    expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
     expect(search.published).toHaveLength(1);
   });
 
-  it("stops a try under way when its signal aborts, and tries no more", async () => {
+  it("closes every open try when its signal aborts before it is posted, and tries no more", async () => {
     const search = createMemoryWriter({ silent: true });
     const controller = new AbortController();
     const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: search }), controller.signal);
 
-    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[0]! + 1_000);
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + 1_000);
     expect(search.published).toHaveLength(2);
     const reason = new Error("The person closed the form");
     controller.abort(reason);
     await vi.waitFor(() => expect(sent.error).toBe(reason));
-    expect(search.signals[1]?.aborted).toBe(true);
+    expect(search.signals.every((signal) => signal.aborted)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
     expect(search.published).toHaveLength(2);
   });
@@ -572,7 +673,7 @@ describe("patience with the review relays (ruling P1)", () => {
     expect(onSlow).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(onSlow).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[0]!);
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
     await vi.waitFor(() => expect(sent.posted).toBeDefined());
     expect(onSlow).toHaveBeenCalledTimes(1);
   });
@@ -592,6 +693,34 @@ describe("patience with the review relays (ruling P1)", () => {
     await vi.waitFor(() => expect(left.error).toBeDefined());
 
     await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
+    expect(onSlow).not.toHaveBeenCalled();
+  });
+
+  it("does not say it is slow after it failed quickly", async () => {
+    const onSlow = vi.fn();
+    const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: createMemoryWriter({ refuse: "blocked: not on the list" }) }), undefined, {
+      onSlow,
+    });
+    await vi.waitFor(() => expect(sent.error).toBeInstanceOf(NotPosted));
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
+    expect(onSlow).not.toHaveBeenCalled();
+  });
+
+  it("does not say it is slow once no review relay is left trying, while the person's own relays still are", async () => {
+    const onSlow = vi.fn();
+    const sent = send(
+      signed(),
+      [SEARCH, OWN],
+      writersOver({ [SEARCH]: createMemoryWriter({ refuse: "blocked: not on the list" }), [OWN]: createMemoryWriter({ silent: true }) }),
+      undefined,
+      { onSlow },
+    );
+    await vi.advanceTimersByTimeAsync(SLOW_POST_MS);
+    expect(sent).toEqual({});
+    expect(onSlow).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
+    await vi.waitFor(() => expect(sent.error).toBeInstanceOf(NotPosted));
     expect(onSlow).not.toHaveBeenCalled();
   });
 
@@ -620,13 +749,14 @@ describe("patience with the review relays (ruling P1)", () => {
 
   it("gives a removal the same patience: the review relay is sent it again, and it is removed when it takes it", async () => {
     const reviews = [{ id: "1".repeat(64), d: `place:${JACAFE.address}`, createdAt: 1_800_000_000 }];
+    // No answer to the first try; the second, at 15 s, fails for now; the third, 5 s later, is taken.
     const search = createMemoryWriter({ answers: [{ silent: true }, { refuse: "error: vespa feed 503" }] });
     let removed: Posted | undefined;
     void removeReview(reviews, { pubkey: PUBKEY, signer: signer() }, [SEARCH], 1_800_000_500, new AbortController().signal, {
       writers: writersOver({ [SEARCH]: search }),
     }).then((done) => (removed = done));
 
-    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[0]! + REVIEW_RELAY_WAITS_MS[1]!);
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[1]!);
     await vi.waitFor(() => expect(removed).toBeDefined());
     expect(removed!.event).toMatchObject({ kind: 5, pubkey: PUBKEY });
     expect(search.published).toEqual([removed!.event, removed!.event, removed!.event]);
@@ -638,22 +768,51 @@ describe("patience with the review relays (ruling P1)", () => {
       event,
       [SEARCH, OWN],
       writersOver({
-        [SEARCH]: createMemoryWriter({ answers: [{ refuse: "error: vespa feed 503" }, { silent: true }] }),
+        [SEARCH]: createMemoryWriter({ answers: [{ refuse: "error: vespa feed 503" }, { closes: true }] }),
         [OWN]: createMemoryWriter(),
       }),
     );
 
-    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[0]! + PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[1]!);
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[0]! + REVIEW_RELAY_WAITS_MS[1]!);
     await vi.waitFor(() => expect(sent.posted).toBeDefined());
     expect(postWarnings(warnings)).toEqual([
       "[post] wss://search.brainstorm.world did not take it: error: vespa feed 503",
-      "[post] wss://search.brainstorm.world did not take it: The relay did not answer in time",
+      "[post] wss://search.brainstorm.world did not take it: The connection was lost before the relay answered",
     ]);
     // One line each, and nothing else passed with it: never the review, its words, its id, the person's key or the signature.
     expect(warnings.mock.calls.every((args) => args.length === 1)).toBe(true);
     for (const line of postWarnings(warnings)) {
       for (const secret of [event.content, event.id, event.pubkey, event.sig]) expect(line).not.toContain(secret);
     }
+  });
+
+  it("warns of each try still open when the time is up, and of none closed because another try was taken", async () => {
+    const silent = send(signed(), [SEARCH], writersOver({ [SEARCH]: createMemoryWriter({ silent: true }) }));
+    await vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS);
+    await vi.waitFor(() => expect(silent.error).toBeInstanceOf(NotPosted));
+    expect(postWarnings(warnings)).toEqual(Array(REVIEW_RELAY_TRIES).fill(`[post] ${SEARCH} did not take it: The relay did not answer in time`));
+
+    warnings.mockClear();
+    const taken = send(signed(), [SEARCH], writersOver({ [SEARCH]: createMemoryWriter({ answers: [{ silent: true }] }) }));
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
+    await vi.waitFor(() => expect(taken.posted).toBeDefined());
+    expect(postWarnings(warnings)).toEqual([]);
+  });
+
+  it("keeps out of a warning anything that names a person or an event in what a relay said, and keeps it short", async () => {
+    const hex = "ab".repeat(32);
+    const bech32 = ["npub1", "note1", "nevent1", "nprofile1"].map((prefix) => `${prefix}${"qpzry9x8gf2tvdw0s3jn54khce6mua7l".repeat(2)}`);
+    const said = `blocked: ${hex} and ${bech32.join(", ")} are not allowed ${"x".repeat(300)}`;
+    const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: createMemoryWriter({ refuse: said }) }));
+    await vi.waitFor(() => expect(sent.error).toBeInstanceOf(NotPosted));
+
+    const [line] = postWarnings(warnings);
+    const reason = line!.slice(`[post] ${SEARCH} did not take it: `.length);
+    expect(reason.startsWith("blocked: [redacted] and [redacted], [redacted], [redacted], [redacted] are not allowed x")).toBe(true);
+    expect(reason).toHaveLength(200);
+    expect(reason.endsWith("…")).toBe(true);
+    // What it said is kept whole where it is not logged.
+    expect((sent.error as NotPosted).refused[SEARCH]).toBe(said);
   });
 
   it("warns of a review relay however its address is written, by the address it was sent to", async () => {
@@ -677,14 +836,13 @@ describe("patience with the review relays (ruling P1)", () => {
     await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
     await sent.posted!.settled;
     expect(Object.keys(sent.posted!.refused).sort()).toEqual([OTHER, OWN].sort());
-    expect(postWarnings(warnings)).toEqual([]);
     expect(warnings).not.toHaveBeenCalled();
   });
 
   it("does not warn of a try the person stopped by leaving", async () => {
     const controller = new AbortController();
     const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: createMemoryWriter({ silent: true }) }), controller.signal);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + 1_000);
     controller.abort(new Error("The person closed the form"));
     await vi.waitFor(() => expect(sent.error).toBeDefined());
     expect(postWarnings(warnings)).toEqual([]);
