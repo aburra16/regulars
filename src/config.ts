@@ -8,6 +8,12 @@ const houseNpub = "npub1f00dy9eqw53patfe8g96ajw9xq3casvjc25umw78w4963se40djqwxgr
 /** Brainstorm's search relay (NIP-50), which keeps the reviews (docs/decisions.md #16). */
 const searchRelay = "wss://search.brainstorm.world";
 
+/**
+ * Two big public relays that keep the reviews too (docs/decisions.md #29), so that posting and reading
+ * do not hang on one relay: a review is posted once any review relay takes it.
+ */
+const publicReviewRelays = ["wss://nos.lol", "wss://relay.primal.net"];
+
 function npubToHex(npub: string): string {
   const decoded = nip19.decode(npub);
   if (decoded.type !== "npub") throw new Error(`Expected an npub, got ${decoded.type}`);
@@ -74,8 +80,9 @@ interface Config {
    */
   connectRelay: string;
   /**
-   * Where reviews (kind 34259) are read from. In production, Brainstorm's search relay
-   * (docs/decisions.md #16); in development, VITE_REVIEW_RELAYS, and none when it is unset.
+   * Where reviews (kind 34259) are posted to and read from. In production, Brainstorm's search relay
+   * (docs/decisions.md #16) and two public relays (#29); in development, VITE_REVIEW_RELAYS, and none
+   * when it is unset.
    */
   reviewRelays: string[];
   /**
@@ -127,7 +134,7 @@ export const config: Config = {
   features: { signIn: true, circle: true, saved: false },
   connectRelay: "wss://relay.nsec.app",
   // In a production build `import.meta.env.DEV` is false, so neither variable is read there.
-  reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay],
+  reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay, ...publicReviewRelays],
   relayReadExtras: { [searchRelay]: { search: "include:spam" } },
   relayListRelays: ["wss://purplepag.es"],
   houseTrustRelays: ["wss://scores.brainstorm.world"],

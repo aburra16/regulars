@@ -116,10 +116,11 @@ describe("config", () => {
     ]);
   });
 
-  it("reads reviews from the search relay in a production build, whatever VITE_REVIEW_RELAYS says", async () => {
-    expect((await configWith({ production: true })).reviewRelays).toEqual([SEARCH_RELAY]);
+  it("posts and reads reviews at the search relay and two public relays in a production build, whatever VITE_REVIEW_RELAYS says", async () => {
+    const production = [SEARCH_RELAY, "wss://nos.lol", "wss://relay.primal.net"];
+    expect((await configWith({ production: true })).reviewRelays).toEqual(production);
     const reviewRelays = "wss://relay.example.test";
-    expect((await configWith({ reviewRelays, production: true })).reviewRelays).toEqual([SEARCH_RELAY]);
+    expect((await configWith({ reviewRelays, production: true })).reviewRelays).toEqual(production);
   });
 
   it("takes a scorer from VITE_DEV_SCORER in development", async () => {
