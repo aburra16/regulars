@@ -2,15 +2,8 @@
 import { describe, expect, it } from "vitest";
 
 import { readTowns, TOWN_REACH_KM, type TownsFile } from "../src/places/towns";
-import {
-  chooseTowns,
-  formatTownsFile,
-  marginTowns,
-  readCountries,
-  readGeoNames,
-  readPlaces,
-  townsFile,
-} from "../tools/towns";
+import { ABSORBING } from "../tools/towns-absorb";
+import { chooseTowns, formatTownsFile, marginTowns, type PlacePoint, readGeoNames, readPlaces, type TownChoice, townsFile } from "../tools/towns";
 
 /*
  * tools/towns.ts on a few rows in GeoNames' layout (cities1000.txt: 19 columns, apart by tabs) and a
@@ -24,9 +17,9 @@ function geoRow(
   name: string,
   lat: number,
   lon: number,
-  { ascii = name, alternates = "", featureClass = "P", code = "PPL", country = "PT", population = 5000 } = {},
+  { ascii = name, alternates = "", featureClass = "P", code = "PPL", country = "PT", admin1 = "10", population = 5000 } = {},
 ): string {
-  return [id, name, ascii, alternates, lat, lon, featureClass, code, country, "", "10", "3101", "", "", population, "", "50", "Atlantic/Madeira", "2026-01-01"].join("\t");
+  return [id, name, ascii, alternates, lat, lon, featureClass, code, country, "", admin1, "3101", "", "", population, "", "50", "Atlantic/Madeira", "2026-01-01"].join("\t");
 }
 
 /**
@@ -62,6 +55,7 @@ describe("readGeoNames", () => {
       lon: -16.92547,
       code: "PPLA",
       country: "PT",
+      admin1: "10",
       population: 105795,
     });
   });
@@ -112,18 +106,6 @@ describe("readPlaces", () => {
       expect(skipped).toBe(1);
       expect(older).toBe(1);
     }
-  });
-});
-
-describe("readCountries", () => {
-  it("reads each country's code and name, past the comments", () => {
-    const text = [
-      "# GeoNames country info",
-      "#ISO\tISO3\tISO-Numeric\tfips\tCountry",
-      "CZ\tCZE\t203\tEZ\tCzechia\tPrague\t78866\t10625695\tEU",
-      "PT\tPRT\t620\tPO\tPortugal\tLisbon\t92391\t10281762\tEU",
-    ].join("\n");
-    expect(readCountries(text)).toEqual(new Map([["CZ", "Czechia"], ["PT", "Portugal"]]));
   });
 });
 
@@ -191,15 +173,19 @@ describe("chooseTowns", () => {
   });
 
   it("keeps a town whose places name it, or name a smaller town, or are split", () => {
+    // GeoNames' other names, which a locality names a town by for parts, not for step 1.
     const rows = geo(
-      geoRow(1, "Big", 32.7, LON, { population: 100000 }),
-      geoRow(2, "Small", 32.6, LON, { population: 5000 }),
-      geoRow(3, "Tiny", 32.59, LON, { population: 1000 }),
+      geoRow(1, "Big", 32.7, LON, { population: 100000, alternates: "Grande" }),
+      geoRow(2, "Small", 32.6, LON, { population: 5000, alternates: "Pequeno" }),
+      geoRow(3, "Tiny", 32.59, LON, { population: 1000, alternates: "Mini" }),
     );
-    // Small's places: one says Small, one says Big. Half is not most.
-    expect(ids(chooseTowns(rows, places(placeLine(32.6, LON, "Small"), placeLine(32.601, LON, "Big"))).towns)).toEqual([2]);
-    // Its places say Tiny, which is smaller.
-    const tiny = chooseTowns(rows, places(placeLine(32.6, LON, "Tiny"), placeLine(32.601, LON, "Tiny")));
+    const at = (...localities: (string | undefined)[]) => places(...localities.map((locality, i) => placeLine(32.6 + i * 0.001, LON, locality)));
+    // Two say Big and two say Small: half is not most.
+    expect(ids(chooseTowns(rows, at("Grande", "Grande", "Pequeno", "Pequeno")).towns)).toEqual([2]);
+    // Two of three say Big, and one Small: Small is a part of Big.
+    expect(ids(chooseTowns(rows, at("Grande", "Grande", "Pequeno")).towns)).toEqual([1]);
+    // They say Tiny, which is smaller.
+    const tiny = chooseTowns(rows, at("Mini", "Mini"));
     expect(ids(tiny.towns)).toEqual([2]);
     expect(tiny.parts).toEqual([]);
   });
@@ -211,15 +197,159 @@ describe("chooseTowns", () => {
 
   it("puts a part of a part in the town at the end of the chain", () => {
     const rows = geo(
-      geoRow(1, "City", 32.7, LON, { population: 500000 }),
-      geoRow(2, "Borough", 32.665, LON, { population: 50000 }),
+      geoRow(1, "City", 32.7, LON, { population: 500000, alternates: "Metropolis" }),
+      geoRow(2, "Borough", 32.665, LON, { population: 50000, alternates: "Burgh" }),
       geoRow(3, "Street", 32.62, LON, { population: 2000 }),
       geoRow(4, "Other", 32.6, LON, { population: 3000 }),
     );
-    // Borough's place says City; Street's says Borough. Without Street, its place would be Other's.
-    const choice = chooseTowns(rows, places(placeLine(32.665, LON, "City"), placeLine(32.62, LON, "Borough"), placeLine(32.59, LON, "Other")));
+    // Borough's places say City; Street's say Borough. Without Street, the bare place by it would be Other's.
+    const bare = { lat: 32.618, lon: LON };
+    const choice = chooseTowns(rows, [
+      ...places(placeLine(32.665, LON, "Metropolis"), placeLine(32.666, LON, "Metropolis")),
+      ...places(placeLine(32.62, LON, "Burgh"), placeLine(32.621, LON, "Burgh")),
+      bare,
+      ...places(placeLine(32.59, LON, "Other")),
+    ]);
     expect(ids(choice.towns)).toEqual([1, 4]);
     expect(choice.parts.map(({ part, of }) => [part.id, of.id])).toEqual([[3, 1]]);
+    expect(runtimeTown(choice, bare)).toBe("City");
+    expect(choice.astray).toBe(0);
+  });
+});
+
+/** The town the app puts a place in, with the file the choice makes. */
+function runtimeTown(choice: TownChoice, place: PlacePoint) {
+  return readTowns(townsFile(choice, { date: "2026-10-09", places: 1 })).townAt(place.lat, place.lon, place.locality)?.name;
+}
+
+describe("chooseTowns: a locality that names a town", () => {
+  // Los Angeles, and around it Glendale and Burbank, with GeoNames' points and people.
+  const losAngeles = geoRow(5368361, "Los Angeles", 34.0522, -118.2437, { code: "PPLA2", country: "US", admin1: "CA", population: 3820914 });
+  const glendale = geoRow(5352423, "Glendale", 34.1425, -118.2551, { country: "US", admin1: "CA", population: 201020 });
+  const burbank = geoRow(5331835, "Burbank", 34.1808, -118.309, { country: "US", admin1: "CA", population: 107337 });
+  // Phoenix's Glendale, far from these.
+  const glendaleAZ = geoRow(5295985, "Glendale", 33.5387, -112.186, { country: "US", admin1: "AZ", population: 240126 });
+
+  it("puts the place in the town its locality names, within reach, before the nearest town", () => {
+    // Nearer Burbank's point than Glendale's, and it says Glendale.
+    const place = { lat: 34.17, lon: -118.29, locality: "Glendale" };
+    const choice = chooseTowns(geo(losAngeles, glendale, burbank, glendaleAZ), [place, { lat: 34.05, lon: -118.24, locality: "Los Angeles" }]);
+    expect(ids(choice.towns)).toEqual([5352423, 5368361]);
+    expect(runtimeTown(choice, place)).toBe("Glendale");
+    expect(choice.astray).toBe(0);
+  });
+
+  it("reads the locality as the town's name or ASCII name, folded, and goes by the nearest when it names none", () => {
+    const rows = geo(
+      geoRow(3067696, "Prague", 50.088, 14.4208, { code: "PPLC", country: "CZ", population: 1165581, alternates: "Praha" }),
+      geoRow(3066636, "Říčany", 49.9917, 14.6543, { ascii: "Ricany", country: "CZ", population: 15000 }),
+    );
+    const ricany = { lat: 50.05, lon: 14.5, locality: "RICANY" };
+    // "Praha" is another name of Prague, not its name: the place goes by the nearest town.
+    const praha = { lat: 50.0, lon: 14.62, locality: "Praha" };
+    const choice = chooseTowns(rows, [ricany, praha]);
+    expect(runtimeTown(choice, ricany)).toBe("Říčany");
+    expect(runtimeTown(choice, praha)).toBe("Říčany");
+    expect(choice.astray).toBe(0);
+  });
+
+  it("does not take a town of the name beyond reach", () => {
+    const place = { lat: 34.17, lon: -118.29, locality: "Glendale" };
+    const choice = chooseTowns(geo(losAngeles, burbank, glendaleAZ), [place]);
+    expect(runtimeTown(choice, place)).toBe("Burbank");
+  });
+});
+
+describe("chooseTowns: parts", () => {
+  it("judges a town's own places by its name or ASCII name before another name: the City of London's places that say London are London's", () => {
+    const rows = geo(
+      geoRow(2643743, "London", 51.5085, -0.1257, { code: "PPLC", country: "GB", admin1: "ENG", population: 8961989 }),
+      // GeoNames gives the City of London "London" among its other names.
+      geoRow(2643741, "City of London", 51.5128, -0.0918, { code: "PPLA3", country: "GB", admin1: "ENG", population: 8072, alternates: "City,London,The City" }),
+      geoRow(2643744, "Shoreditch", 51.5262, -0.078, { country: "GB", admin1: "ENG", population: 20000 }),
+    );
+    const bare = { lat: 51.5125, lon: -0.09 };
+    const choice = chooseTowns(rows, [
+      { lat: 51.513, lon: -0.092, locality: "London" },
+      { lat: 51.512, lon: -0.091, locality: "London" },
+      bare,
+      { lat: 51.526, lon: -0.078, locality: "Shoreditch" },
+    ]);
+    expect(ids(choice.towns)).toEqual([2643743, 2643744]);
+    expect(runtimeTown(choice, bare)).toBe("London");
+    expect(choice.astray).toBe(0);
+  });
+
+  it("makes a town a part only when at least two of its places name the bigger town, and most of them do", () => {
+    const rows = geo(
+      geoRow(2886242, "Köln", 50.9333, 6.95, { ascii: "Koeln", code: "PPLA2", country: "DE", admin1: "07", population: 1075935 }),
+      geoRow(2878234, "Leverkusen", 51.0303, 6.9843, { code: "PPLA3", country: "DE", admin1: "07", population: 162738 }),
+    );
+    const one = chooseTowns(rows, [{ lat: 51.03, lon: 6.985, locality: "Köln" }, { lat: 51.031, lon: 6.984 }]);
+    expect(ids(one.towns)).toEqual([2878234, 2886242]);
+    expect(one.parts).toEqual([]);
+    // Two places of three, in Leverkusen's reach, say Köln: Leverkusen is part of it.
+    const two = chooseTowns(rows, [{ lat: 51.03, lon: 6.985, locality: "Köln" }, { lat: 51.031, lon: 6.984, locality: "Koeln" }, { lat: 51.029, lon: 6.986 }]);
+    expect(ids(two.towns)).toEqual([2886242]);
+  });
+});
+
+describe("chooseTowns: a capital that takes in its districts", () => {
+  // Bangkok, two of its districts (in its own province, 40), and Pak Kret (Nonthaburi, 38).
+  const bangkok = geoRow(1609350, "Bangkok", 13.754, 100.5014, { code: "PPLC", country: "TH", admin1: "40", population: 5104476 });
+  const bangKapi = geoRow(1619650, "Bang Kapi", 13.7657, 100.6475, { country: "TH", admin1: "40", population: 140000 });
+  const saiMai = geoRow(1607725, "Sai Mai", 13.9198, 100.6457, { country: "TH", admin1: "40", population: 190000 });
+  const pakKret = geoRow(1608048, "Pak Kret", 13.9118, 100.4977, { code: "PPLA2", country: "TH", admin1: "38", population: 190272 });
+  const rows = geo(bangkok, bangKapi, saiMai, pakKret);
+  const absorbing = [{ id: 1609350, withinKm: 25 }];
+
+  it("puts the places of its districts, which name none, in it, and keeps a town of another province separate", () => {
+    const inBangKapi = { lat: 13.766, lon: 100.646 };
+    const inSaiMai = { lat: 13.92, lon: 100.645 };
+    const inPakKret = { lat: 13.912, lon: 100.498 };
+    const choice = chooseTowns(rows, [inBangKapi, inSaiMai, inPakKret], absorbing);
+    expect(ids(choice.towns)).toEqual([1608048, 1609350]);
+    expect(runtimeTown(choice, inBangKapi)).toBe("Bangkok");
+    expect(runtimeTown(choice, inSaiMai)).toBe("Bangkok");
+    expect(runtimeTown(choice, inPakKret)).toBe("Pak Kret");
+    expect(choice.astray).toBe(0);
+  });
+
+  it("does so only for the capitals on the list", () => {
+    const choice = chooseTowns(rows, [{ lat: 13.766, lon: 100.646 }]);
+    expect(ids(choice.towns)).toEqual([1619650]);
+  });
+
+  it("lists Bangkok, each entry with its GeoNames id and a reach of 25 km", () => {
+    expect(ABSORBING.find((entry) => entry.id === 1609350)).toMatchObject({ name: "Bangkok", withinKm: 25 });
+    expect(new Set(ABSORBING.map((entry) => entry.id)).size).toBe(ABSORBING.length);
+    for (const entry of ABSORBING) expect(entry.withinKm).toBe(25);
+  });
+});
+
+describe("chooseTowns: localities of their own", () => {
+  // La Libertad, El Salvador, and St. Louis, Missouri, which GeoNames also calls Saint Louis.
+  const laLibertad = geoRow(3585157, "La Libertad", 13.4883, -89.3222, { country: "SV", admin1: "05", population: 16855 });
+  const stLouis = geoRow(4407066, "St. Louis", 38.6273, -90.1979, { code: "PPLA2", country: "US", admin1: "MO", population: 279695, alternates: "Saint Louis,STL" });
+  const at = (lat: number, lon: number, locality: string, country: string, n = 3) =>
+    Array.from({ length: n }, (_, i) => ({ lat: lat + i * 0.001, lon, locality, country }));
+
+  it("lists a locality that three places name, close together, more than 5 km from their town's point, that no town in reach is called", () => {
+    // El Zonte, 13 km west of La Libertad's point.
+    const choice = chooseTowns(geo(laLibertad), at(13.495, -89.441, "El Zonte", "SV"));
+    expect(townsFile(choice, { date: "2026-10-09", places: 3 }).localities).toEqual({ SV: ["el zonte"] });
+  });
+
+  it("does not list one that is another name of a town in reach, one too few, or one close to its town's point", () => {
+    // Saint Louis is St. Louis's other name in GeoNames.
+    expect(chooseTowns(geo(stLouis), at(38.62, -90.266, "Saint Louis", "US")).localities).toEqual([]);
+    // Two places.
+    expect(chooseTowns(geo(laLibertad), at(13.495, -89.441, "El Zonte", "SV", 2)).localities).toEqual([]);
+    // 1 km from La Libertad's point.
+    expect(chooseTowns(geo(laLibertad), at(13.49, -89.33, "Malecón", "SV")).localities).toEqual([]);
+    // A district's number off, the name of the town: Praha 10 is in Praha, which is Prague.
+    const prague = geoRow(3067696, "Prague", 50.088, 14.4208, { code: "PPLC", country: "CZ", population: 1165581, alternates: "Praha" });
+    expect(chooseTowns(geo(prague), at(50.068, 14.484, "Praha 10", "CZ")).localities).toEqual([]);
   });
 });
 
@@ -251,22 +381,17 @@ describe("the file", () => {
     placeLine(51.76, 19.46),
     placeLine(32.655, LON, "Funchal"),
     placeLine(32.656, LON, "Funchal"),
+    // With no locality, nearest Santa Luzia: Funchal's, through the part, where Camacha is nearer.
+    placeLine(32.654, LON),
     placeLine(32.668, -16.88, "Camacha"),
     placeLine(42.46, 1.49),
   ];
-  const countries = new Map([
-    ["AD", "Andorra"],
-    ["CZ", "Czechia"],
-    ["PL", "Poland"],
-    ["PT", "Portugal"],
-    ["US", "United States"],
-  ]);
   /** The file's text, from the rows and the places in the order `order` puts them. */
   const write = (order: (list: string[]) => string[]) =>
-    formatTownsFile(townsFile(chooseTowns(geo(...order(rowsText)), places(...order(lines))), countries, { date: "2026-10-09", places: 6 }));
+    formatTownsFile(townsFile(chooseTowns(geo(...order(rowsText)), places(...order(lines))), { date: "2026-10-09", places: 7 }));
 
   it("has each town's id, name, point to four decimals, and ASCII name only where it is not the name without accents, by country", () => {
-    const file = townsFile(chooseTowns(geo(...rowsText), places(...lines)), countries, { date: "2026-10-09", places: 6 });
+    const file = townsFile(chooseTowns(geo(...rowsText), places(...lines)), { date: "2026-10-09", places: 7 });
     expect(file.towns).toEqual({
       AD: [[3039163, "Sant Julià de Lòria", 42.4637, 1.4913]],
       CZ: [[3067696, "Prague", 50.088, 14.4208]],
@@ -277,8 +402,9 @@ describe("the file", () => {
       ],
     });
     expect(file.parts).toEqual([[2264131, 32.655, LON, 2267827]]);
-    // The names of the countries that have towns, and no others.
-    expect(file.countries).toEqual({ AD: "Andorra", CZ: "Czechia", PL: "Poland", PT: "Portugal" });
+    // No country names: the app names countries itself.
+    expect(Object.keys(file)).toEqual(["source", "licence", "date", "regenerate", "towns", "parts", "localities"]);
+    expect(file.localities).toEqual({});
     expect(file).toMatchObject({ date: "2026-10-09" });
     expect(file.licence).toMatch(/CC BY 4\.0/);
     expect(file.source).toMatch(/GeoNames/);
@@ -304,10 +430,47 @@ describe("the file", () => {
 
     const list = readTowns(file);
     expect(list.towns.map((town) => town.name).sort()).toEqual(["Camacha", "Funchal", "Prague", "Sant Julià de Lòria", "Łódź"]);
-    expect(list.countryName("CZ")).toBe("Czechia");
     // A point nearest Santa Luzia is in Funchal, which Santa Luzia is part of; one beyond reach is in none.
     expect(list.townAt(32.655, LON)?.name).toBe("Funchal");
     expect(list.townAt(32.668, -16.88)?.name).toBe("Camacha");
     expect(list.townAt(36, LON)).toBeUndefined();
   });
+
+  it("groups the towns of the United States and Canada by their state or province, which the app labels them by", () => {
+    const rows = geo(
+      geoRow(4393217, "Kansas City", 39.0997, -94.5786, { country: "US", admin1: "MO", population: 475378 }),
+      geoRow(4273837, "Kansas City", 39.1142, -94.6275, { country: "US", admin1: "KS", population: 152933 }),
+      geoRow(6167865, "Toronto", 43.7064, -79.3986, { code: "PPLA", country: "CA", admin1: "08", population: 2600000 }),
+      geoRow(6173331, "Vancouver", 49.2497, -123.1193, { country: "CA", admin1: "02", population: 600000 }),
+    );
+    const file = townsFile(
+      chooseTowns(rows, places(placeLine(39.0997, -94.5786), placeLine(39.1142, -94.6275), placeLine(43.7064, -79.3986), placeLine(49.2497, -123.1193))),
+      { date: "2026-10-09", places: 4 },
+    );
+    expect(Object.keys(file.towns).sort()).toEqual(["CA-BC", "CA-ON", "US-KS", "US-MO"]);
+    const list = readTowns(file);
+    expect(list.towns.map((town) => [town.name, town.country, town.region]).sort()).toEqual([
+      ["Kansas City", "US", "KS"],
+      ["Kansas City", "US", "MO"],
+      ["Toronto", "CA", "ON"],
+      ["Vancouver", "CA", "BC"],
+    ]);
+  });
+});
+
+describe("the tool, run as the README says", () => {
+  it("runs in Node as it is, reads the two files, and writes the file", async () => {
+    const { execFileSync } = await import("node:child_process");
+    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "towns-"));
+    writeFileSync(join(dir, "cities1000.txt"), [geoRow(2267827, "Funchal", 32.66568, -16.92547, { code: "PPLA", population: 105795 })].join("\n"));
+    writeFileSync(join(dir, "places.jsonl"), [placeLine(32.66, -16.92, "Funchal")].join("\n"));
+    const out = join(dir, "towns.json");
+    execFileSync(process.execPath, ["--no-warnings", "tools/towns.ts", join(dir, "cities1000.txt"), join(dir, "places.jsonl"), "--date", "2026-10-09", "--out", out]);
+    const file = JSON.parse(readFileSync(out, "utf8")) as TownsFile;
+    rmSync(dir, { recursive: true });
+    expect(file.towns).toEqual({ PT: [[2267827, "Funchal", 32.6657, -16.9255]] });
+  }, 30_000);
 });

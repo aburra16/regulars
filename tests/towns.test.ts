@@ -86,16 +86,29 @@ describe("towns from the file", () => {
   });
 
   it("never makes another town of the file's name another name of a town: two real towns stay two", () => {
-    // Two places in Prague with an odd tag: one names Říčany, a town 13 km away, the other Funchal.
+    // Places in Prague with an odd tag: one names Říčany, a town 13 km away, which is in reach and is
+    // its town; one names Funchal, which is not, and stays in Prague.
     const odd = [inPrague("A", "Praha"), inPrague("B", "Říčany"), inPrague("C", "funchal")];
     const inRicany = make("In Říčany", { lat: RICANY.lat, lon: RICANY.lon, locality: "Říčany" });
-    const { cities } = buildIndexes([...odd, inRicany], towns);
-    expect(byName(cities, "Prague")).toMatchObject({ count: 3, aliases: ["praha"] });
-    expect(byName(cities, "Říčany")).toMatchObject({ count: 1, aliases: [] });
+    const { cities, townOf } = buildIndexes([...odd, inRicany], towns);
+    expect(byName(cities, "Prague")).toMatchObject({ count: 2, aliases: ["praha"] });
+    expect(byName(cities, "Říčany")).toMatchObject({ count: 2, aliases: [] });
+    expect(townOf(odd[1]!)?.name).toBe("Říčany");
 
     const find = townFinder(cities, (city) => city.name);
     expect(find("Říčany", 3).map((city) => city.name)).toEqual(["Říčany"]);
     expect(find("funchal", 3)).toEqual([]);
+  });
+
+  it("does not take another town's name with its country after a comma as another name", () => {
+    const sanSalvador = townsOf([
+      { id: 3583361, name: "San Salvador", country: "SV", lat: 13.6894, lon: -89.1872 },
+      { id: 3587362, name: "Antiguo Cuscatlán", ascii: "Antiguo Cuscatlan", country: "SV", lat: 13.6733, lon: -89.2401 },
+    ]);
+    const tagged = make("A", { lat: 13.674, lon: -89.24, locality: "San Salvador, El Salvador" });
+    const plain = make("B", { lat: 13.674, lon: -89.241, locality: "Santa Elena" });
+    const { cities } = buildIndexes([tagged, plain], sanSalvador);
+    expect(byName(cities, "Antiguo Cuscatlán")?.aliases).toEqual(["antiguo cuscatlan", "santa elena"]);
   });
 
   it("keeps a place more than 30 km from every town in the town of its locality, as before", () => {
@@ -147,10 +160,58 @@ describe("towns from the file", () => {
     expect(cities.map(label)).toEqual(["Lexington, KY", "Lexington, MA"]);
   });
 
-  it("names each country of the file, and none without it", () => {
-    expect(buildIndexes([inPrague("A")], towns).countryName("CZ")).toBe("Czechia");
-    expect(buildIndexes([inPrague("A")], towns).countryName("ZZ")).toBeUndefined();
-    expect(buildIndexes([inPrague("A")]).countryName("CZ")).toBeUndefined();
+  it("labels a town of the United States or Canada by its state or province from the file, so two of one name differ", () => {
+    const kansasCities = townsOf([
+      { id: 4393217, name: "Kansas City", country: "US", region: "MO", lat: 39.0997, lon: -94.5786 },
+      { id: 4273837, name: "Kansas City", country: "US", region: "KS", lat: 39.1142, lon: -94.6275 },
+    ]);
+    // The places name no region, or another one.
+    const { cities } = buildIndexes(
+      [make("M", { lat: 39.1, lon: -94.578 }), make("K", { lat: 39.114, lon: -94.627, region: "Missouri" })],
+      kansasCities,
+    );
+    expect(cities.map(cityLabeller(cities)).sort()).toEqual(["Kansas City, KS", "Kansas City, MO"]);
+  });
+
+  it("puts a place in the town its locality names within reach, though another is nearer", () => {
+    const losAngeles = townsOf([
+      { id: 5368361, name: "Los Angeles", country: "US", region: "CA", lat: 34.0522, lon: -118.2437 },
+      { id: 5352423, name: "Glendale", country: "US", region: "CA", lat: 34.1425, lon: -118.2551 },
+      { id: 5331835, name: "Burbank", country: "US", region: "CA", lat: 34.1808, lon: -118.309 },
+    ]);
+    const glendale = make("A cafe", { lat: 34.17, lon: -118.29, locality: "GLENDALE" });
+    const near = make("Another", { lat: 34.17, lon: -118.29 });
+    const { townOf, cities } = buildIndexes([glendale, near], losAngeles);
+    expect(townOf(glendale)?.name).toBe("Glendale");
+    expect(townOf(near)?.name).toBe("Burbank");
+    // Glendale is the name of a town: no other town is found by it.
+    expect(cities.find((city) => city.name === "Burbank")?.aliases).toEqual([]);
+  });
+
+  it("keeps a locality that three places name, close together, more than 5 km from their town's point, as a town of its own", () => {
+    // El Zonte, a beach 13 km west of La Libertad's point, which the file lists as a locality of its own.
+    const laLibertad = townsOf([{ id: 3585157, name: "La Libertad", country: "SV", lat: 13.4883, lon: -89.3222 }], [], { SV: ["el zonte"] });
+    const zonte = [0, 1, 2].map((i) => make(`Zonte ${i}`, { lat: 13.494 + i * 0.001, lon: -89.441, locality: "El Zonte", country: "SV" }));
+    const port = [make("Port", { lat: 13.489, lon: -89.322, locality: "La Libertad", country: "SV" }), make("Bare", { lat: 13.49, lon: -89.32, country: "SV" })];
+    const { cities, townOf } = buildIndexes([...zonte, ...port], laLibertad);
+    expect(cities.map((city) => [city.name, city.count, city.geonameId])).toEqual([
+      ["El Zonte", 3, undefined],
+      ["La Libertad", 2, 3585157],
+    ]);
+    const elZonte = cities.find((city) => city.name === "El Zonte")!;
+    // At the middle of its places, and La Libertad is not found by its name.
+    expect(elZonte).toMatchObject({ lat: 13.495, lon: -89.441, country: "SV" });
+    expect(townOf(zonte[0]!)).toBe(elZonte);
+    expect(cities.find((city) => city.name === "La Libertad")?.aliases).toEqual([]);
+  });
+
+  it("leaves in the town a locality the file does not list, and one with fewer than three places", () => {
+    const laLibertad = townsOf([{ id: 3585157, name: "La Libertad", country: "SV", lat: 13.4883, lon: -89.3222 }], [], { SV: ["el zonte"] });
+    const two = [0, 1].map((i) => make(`Zonte ${i}`, { lat: 13.494 + i * 0.001, lon: -89.441, locality: "El Zonte", country: "SV" }));
+    const tunco = [0, 1, 2].map((i) => make(`Tunco ${i}`, { lat: 13.494 + i * 0.001, lon: -89.384, locality: "El Tunco", country: "SV" }));
+    const { cities } = buildIndexes([...two, ...tunco], laLibertad);
+    expect(cities.map((city) => [city.name, city.count])).toEqual([["La Libertad", 5]]);
+    expect(cities[0]!.aliases).toEqual(["el tunco", "el zonte"]);
   });
 
   it("groups the places by locality, as before, when the towns could not be loaded", () => {
@@ -166,7 +227,8 @@ describe("towns from the file", () => {
 describe("the app's towns", () => {
   const app = file as unknown as TownsFile;
 
-  it("are a GeoNames file with its licence, and its date", () => {
+  it("are a GeoNames file with its licence, and its date, and no country names", () => {
+    expect(Object.keys(app)).not.toContain("countries");
     expect(app.source).toMatch(/GeoNames/);
     expect(app.licence).toMatch(/CC BY 4\.0/);
     expect(app.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -175,9 +237,9 @@ describe("the app's towns", () => {
 
   it("have the shape the app reads: rows of an id, a name, a point and maybe an ASCII name, parts that name a town of the file", () => {
     const ids = new Set<number>();
-    for (const [country, rows] of Object.entries(app.towns)) {
-      expect(country).toMatch(/^[A-Z]{2}$/);
-      expect(app.countries[country]).toEqual(expect.any(String));
+    for (const [key, rows] of Object.entries(app.towns)) {
+      // A country, and in the United States and Canada its state or province.
+      expect(key).toMatch(/^(?:[A-Z]{2}|US-[A-Z]{2}|CA-[A-Z]{2})$/);
       for (const row of rows) {
         const [id, name, lat, lon, ascii] = row;
         expect(row.length === 4 || (row.length === 5 && typeof ascii === "string")).toBe(true);
@@ -264,61 +326,20 @@ describe("townFinder", () => {
 });
 
 describe("pickerMatches", () => {
-  const prague: City = { name: "Prague", country: "CZ", lat: 0, lon: 0, count: 31, aliases: ["praha", "praha 10"] };
+  const prague: City = { name: "Prague", country: "CZ", lat: 0, lon: 0, count: 31, aliases: ["hlavni mesto praha", "praha", "praha 10"] };
 
-  it("matches the text anywhere in the label, or in another name", () => {
+  it("matches the text anywhere in the label", () => {
     expect(pickerMatches(prague, "prague", "")).toBe(true);
     expect(pickerMatches(prague, "prague", "ague")).toBe(true);
-    expect(pickerMatches(prague, "prague", foldName("Praha"))).toBe(true);
-    expect(pickerMatches(prague, "prague", foldName("praha 10"))).toBe(true);
     expect(pickerMatches(prague, "prague", "lisboa")).toBe(false);
   });
-});
 
-describe("elsewhere", () => {
-  // Here is New York; the places matched are in Prague, 6,600 km away.
-  const here = { lat: NEW_YORK.lat, lon: NEW_YORK.lon, beyondKm: 25, limit: 5 };
-  const names = (rows: { place: Place }[]) => rows.map((row) => row.place.name);
-
-  it("lists the places beyond the distance whose names have the words, with how far each is", () => {
-    const vltava = inPrague("Kavárna Vltava", "Praha");
-    const nearby = make("Vltava Deli", { lat: NEW_YORK.lat + 0.05, lon: NEW_YORK.lon });
-    const idx = buildIndexes([vltava, nearby, inPrague("Other")], towns);
-    const rows = idx.elsewhere("vltava", here);
-    expect(names(rows)).toEqual(["Kavárna Vltava"]);
-    expect(rows[0]!.km).toBeGreaterThan(6000);
-    // The one within the distance is a result near, not elsewhere.
-    expect(names(idx.search("vltava", { lat: here.lat, lon: here.lon, radiusKm: 25 }))).toEqual(["Vltava Deli"]);
-  });
-
-  it("goes by the name alone: a place whose locality, kind or cuisine has the words is not listed", () => {
-    const idx = buildIndexes([inPrague("Kavárna", "Praha"), inPrague("U Fleků", undefined), inPrague("Praha Bistro")], towns);
-    expect(names(idx.elsewhere("praha", here))).toEqual(["Praha Bistro"]);
-    // A word a letter away is not the word.
-    expect(idx.elsewhere("prahq", here)).toEqual([]);
-  });
-
-  it("lists nothing for a kind of place, or for no words", () => {
-    const cafes = [0, 1, 2, 3, 4, 5].map((i) => inPrague(`Cafe ${i}`, "Praha", i + 1));
-    const idx = buildIndexes(cafes.map((place) => ({ ...place, category: "cafe" })), towns);
-    expect(idx.isKindQuery("cafe")).toBe(true);
-    expect(idx.elsewhere("cafe", here)).toEqual([]);
-    expect(idx.elsewhere("  ", here)).toEqual([]);
-    expect(idx.elsewhere("vltava", { ...here, lat: Number.NaN })).toEqual([]);
-  });
-
-  it("puts the best match first, the nearer of two as good, and lists at most the limit", () => {
-    const places = [
-      inPrague("Golden Tiger", "Praha", 9),
-      inPrague("Golden Tiger Too", "Praha", 2),
-      ...[1, 2, 3, 4, 5].map((i) => inPrague(`The Tiger Room ${i}`, "Praha", i)),
-      make("Golden Tiger Lisboa", { lat: 38.72, lon: -9.14 }),
-    ];
-    const idx = buildIndexes(places, towns);
-    const rows = idx.elsewhere("golden tiger", here);
-    // Lisbon is nearer New York than Prague is.
-    expect(names(rows)).toEqual(["Golden Tiger Lisboa", "Golden Tiger Too", "Golden Tiger"]);
-    expect(idx.elsewhere("tiger", here)).toHaveLength(5);
-    expect(idx.elsewhere("tiger", { ...here, limit: 2 })).toHaveLength(2);
+  it("matches another name by the start of its words, not the middle of one", () => {
+    expect(pickerMatches(prague, "prague", foldName("Praha"))).toBe(true);
+    expect(pickerMatches(prague, "prague", foldName("praha 10"))).toBe(true);
+    expect(pickerMatches(prague, "prague", foldName("mesto"))).toBe(true);
+    expect(pickerMatches(prague, "prague", foldName("město pr"))).toBe(true);
+    expect(pickerMatches(prague, "prague", "aha")).toBe(false);
+    expect(pickerMatches(prague, "prague", "esto")).toBe(false);
   });
 });

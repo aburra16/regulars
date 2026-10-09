@@ -1,5 +1,5 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, StrictMode, useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -696,6 +696,68 @@ describe("where a first visit starts", () => {
       const write = vi.spyOn(Storage.prototype, "setItem");
       override.cities = [prague];
       expect(renderHere().result.current).toMatchObject({ label: "Prague", lat: prague.lat });
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it("is not moved through a name its places give two towns within reach: New York stays New York", () => {
+      const newYork = { name: "New York", country: "US", lat: 40.7586, lon: -73.9855 };
+      keep(newYork);
+      override.cities = [
+        { name: "New York City", country: "US", region: "NY", lat: 40.7143, lon: -74.006, count: 3, geonameId: 5128581, aliases: ["new york"] },
+        { name: "Weehawken", country: "US", region: "NJ", lat: 40.7695, lon: -74.0204, count: 1, geonameId: 5106184, aliases: ["new york"] },
+      ];
+      expect(renderHere().result.current).toMatchObject({ label: "New York", lat: newYork.lat, lon: newYork.lon });
+      expect(JSON.parse(saved()!)).toEqual(newYork);
+    });
+
+    it("is not moved through a name its places give a town more than 10 km away", () => {
+      // Praha 10, kept at the middle of its places; the one town that has the name is 15 km off.
+      const kept = { name: "Praha 10", country: "CZ", lat: 50.07, lon: 14.48 };
+      keep(kept);
+      override.cities = [{ ...prague, lat: 50.2, lon: 14.4 }];
+      expect(renderHere().result.current).toMatchObject({ label: "Praha 10", lat: kept.lat });
+      expect(JSON.parse(saved()!)).toEqual(kept);
+    });
+
+    it("is not moved to a town of its name in another country", () => {
+      const kept = { name: "Valença", country: "PT", lat: 42.028, lon: -8.642 };
+      keep(kept);
+      // Valença do Minho's neighbour across the river, as if it had the name.
+      override.cities = [{ name: "Valença", country: "ES", lat: 42.047, lon: -8.645, count: 2, geonameId: 1, aliases: [] }];
+      // Told apart from the other Valença by its country, as the picker tells them apart.
+      expect(renderHere().result.current).toMatchObject({ label: "Valença, PT", lat: kept.lat, lon: kept.lon });
+      override.cities = [{ name: "Valença", country: "PT", lat: 42.047, lon: -8.645, count: 2, geonameId: 1, aliases: [] }];
+      cleanup();
+      expect(renderHere().result.current).toMatchObject({ label: "Valença", lat: 42.047, lon: -8.645 });
+    });
+
+    it("goes to the town of its own name before a nearer one whose places give it that name: Glendale stays Glendale", () => {
+      keep({ name: "Glendale", country: "US", lat: 34.15, lon: -118.26 });
+      override.cities = [
+        { name: "Los Angeles", country: "US", region: "CA", lat: 34.149, lon: -118.259, count: 75, geonameId: 5368361, aliases: ["glendale"] },
+        { name: "Glendale", country: "US", region: "CA", lat: 34.1425, lon: -118.2551, count: 4, geonameId: 5352423, aliases: [] },
+      ];
+      expect(renderHere().result.current).toMatchObject({ label: "Glendale", lat: 34.1425, lon: -118.2551 });
+    });
+
+    it("moves only to a town of the file: El Zonte, a locality of its own, stays El Zonte", () => {
+      const elZonte = { name: "El Zonte", country: "SV", lat: 13.495, lon: -89.441 };
+      keep(elZonte);
+      override.cities = [
+        { name: "El Zonte", country: "SV", lat: 13.4955, lon: -89.4405, count: 9 },
+        { name: "La Libertad", country: "SV", lat: 13.4883, lon: -89.3222, count: 60, geonameId: 3585157, aliases: ["el zonte"] },
+      ];
+      expect(renderHere().result.current).toMatchObject({ label: "El Zonte", lat: elZonte.lat, lon: elZonte.lon });
+      expect(JSON.parse(saved()!)).toEqual(elZonte);
+    });
+
+    it("is rewritten not at all while the towns could not be loaded and the towns are the localities", () => {
+      const praha = { name: "Praha", country: "CZ", lat: 50.0835, lon: 14.4341 };
+      keep(praha);
+      const write = vi.spyOn(Storage.prototype, "setItem");
+      // As the indexes are without the towns of the file: towns by locality, with no GeoNames id.
+      override.cities = [{ name: "Praha", country: "CZ", lat: 50.081, lon: 14.43, count: 12 }];
+      expect(renderHere().result.current).toMatchObject({ label: "Praha", lat: praha.lat, lon: praha.lon });
       expect(write).not.toHaveBeenCalled();
     });
 
@@ -1500,8 +1562,8 @@ describe("NearButton", () => {
 
     await user.click(nearButton("Near Funchal"));
     const row = within(screen.getByRole("dialog")).getByRole("button", { name: /^Funchal/ });
-    // Funchal is GeoNames' town: 42 of the 43 places are nearest it, those whose locality is a parish
-    // of it or that have none among them. The other is in São Roque, a town nearer it.
-    expect(row).toHaveTextContent(copy.location.count(42));
+    // Funchal is GeoNames' town: 37 of the 43 places. Three name a parish that GeoNames lists as a town
+    // (São Martinho, São Roque, São Gonçalo), and three with no locality are nearer such a parish.
+    expect(row).toHaveTextContent(copy.location.count(37));
   });
 });

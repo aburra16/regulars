@@ -108,16 +108,16 @@ export interface Indexes {
   chains: Map<string, Chain>;
   /**
    * The towns the places are in, those with the most places first. A place is in the town of
-   * src/data/towns.json nearest to it within 30 km (`TOWN_REACH_KM`; a part of a town stands for the
-   * town). The places no such town is near are grouped by their locality, as are all the places when
+   * src/data/towns.json that its locality names within 30 km (`TOWN_REACH_KM`), else the one nearest to
+   * it within 30 km (a part of a town stands for the town); but a locality the file lists as one of
+   * its own, that three or more places name, close together, is a town of its own, as El Zonte is.
+   * The places no town of the file is near are grouped by their locality, as are all the places when
    * the towns could not be loaded: a locality that three or more of them name, close together, is a
    * town. A town with no places is not here.
    */
   cities: City[];
   /** The town of `cities` a place is in; undefined for a place in none. */
   townOf(place: Place): City | undefined;
-  /** A country's name in English ("Czechia") by its upper-case code; undefined when the towns could not be loaded, or name no such country. */
-  countryName(code: string): string | undefined;
   /**
    * The places farther than `beyondKm` from a point whose names have every word of `q` (each word the
    * start of a word of the name), best match first and, among matches that are about as good, nearest
@@ -247,6 +247,20 @@ function busiestCluster(group: readonly Place[]): Place[] {
     .map((id) => group[id]!);
 }
 
+/** A town named by its places' locality: those of `cluster`, which share one, close together. */
+function localityCity(cluster: readonly Place[]): City {
+  const regions = cluster.flatMap((place) => (place.region?.trim() ? [place.region.trim()] : []));
+  const city: City = {
+    name: commonest(cluster.map((place) => place.locality!.trim())),
+    country: countryOf(cluster[0]!),
+    lat: median(cluster.map((place) => place.lat)),
+    lon: median(cluster.map((place) => place.lon)),
+    count: cluster.length,
+  };
+  if (regions.length > 0) city.region = commonest(regions);
+  return city;
+}
+
 /**
  * Towns by locality. Places are grouped by locality, region and country, since many towns share a
  * name; of each group only its busiest cluster counts, since a group can be spread over a continent.
@@ -266,15 +280,7 @@ function localityTowns(places: readonly Place[], townOf: Map<Place, City>): City
     if (group.length < 3) continue;
     const cluster = busiestCluster(group);
     if (cluster.length < 3) continue;
-    const regions = cluster.flatMap((place) => (place.region?.trim() ? [place.region.trim()] : []));
-    const city: City = {
-      name: commonest(cluster.map((place) => place.locality!.trim())),
-      country: countryOf(cluster[0]!),
-      lat: median(cluster.map((place) => place.lat)),
-      lon: median(cluster.map((place) => place.lon)),
-      count: cluster.length,
-    };
-    if (regions.length > 0) city.region = commonest(regions);
+    const city = localityCity(cluster);
     cities.push(city);
     for (const place of cluster) townOf.set(place, city);
   }
@@ -282,10 +288,50 @@ function localityTowns(places: readonly Place[], townOf: Map<Place, City>): City
 }
 
 /**
+ * Localities that stay towns of their own, as they were before the towns of the file: those the file
+ * lists (`TownList.ownLocality`; tools/towns.ts lists El Zonte, a beach whose places are nearest La
+ * Libertad's point, 13 km away). Their places in the towns of the file are grouped by locality and
+ * country, and three or more close together are a town as a locality is (`localityCity`); they are
+ * taken out of the towns they were in (`inTown`, which this changes) and put in `townOf`.
+ */
+function ownLocalities(inTown: Map<Town, Place[]>, towns: TownList, townOf: Map<Place, City>): City[] {
+  const groups = new Map<string, Place[]>();
+  for (const own of inTown.values()) {
+    for (const place of own) {
+      const locality = place.locality?.trim() ?? "";
+      if (locality !== "" && towns.ownLocality(countryOf(place), locality)) push(groups, `${foldName(locality)}\n${countryOf(place)}`, place);
+    }
+  }
+
+  const cities: City[] = [];
+  const moved = new Set<Place>();
+  for (const group of groups.values()) {
+    if (group.length < 3) continue;
+    const cluster = busiestCluster(group);
+    if (cluster.length < 3) continue;
+    const city = localityCity(cluster);
+    cities.push(city);
+    for (const place of cluster) {
+      townOf.set(place, city);
+      moved.add(place);
+    }
+  }
+  if (moved.size > 0) {
+    for (const [town, own] of inTown) {
+      const left = own.filter((place) => !moved.has(place));
+      if (left.length > 0) inTown.set(town, left);
+      else inTown.delete(town);
+    }
+  }
+  return cities;
+}
+
+/**
  * The town of src/data/towns.json that `own` are in: called by GeoNames' name, at GeoNames' point,
- * with the region most of them name, and the other names it is found by (see `City.aliases`). A
- * locality that is the name of another town of the file is that town's, never this one's: one odd
- * tag does not make two towns one.
+ * with its state or province in the United States and Canada, else the region most of its places name,
+ * and the other names it is found by (see `City.aliases`). A locality that is the name of another town
+ * of the file, or that name and more after a comma, is that town's, never this one's: one odd tag does
+ * not make two towns one.
  */
 function fileTown(town: Town, own: readonly Place[], towns: TownList): City {
   const names = new Set([foldName(town.name)]);
@@ -297,18 +343,23 @@ function fileTown(town: Town, own: readonly Place[], towns: TownList): City {
   }
   for (const place of own) {
     const locality = foldName(place.locality ?? "");
-    if (locality !== "" && !names.has(locality) && !towns.names.has(locality)) aliases.add(locality);
+    if (locality === "" || names.has(locality)) continue;
+    // Another town's name, or one with its country after a comma ("San Salvador, El Salvador"), is that town's.
+    const beforeComma = locality.split(",")[0]!.trim();
+    if (!towns.names.has(locality) && !towns.names.has(beforeComma)) aliases.add(locality);
   }
   const city: City = { name: town.name, country: town.country, lat: town.lat, lon: town.lon, count: own.length, geonameId: town.id };
   const regions = own.flatMap((place) => (place.region?.trim() ? [place.region.trim()] : []));
-  if (regions.length > 0) city.region = commonest(regions);
+  if (town.region !== undefined) city.region = town.region;
+  else if (regions.length > 0) city.region = commonest(regions);
   city.aliases = [...aliases].sort();
   return city;
 }
 
 /**
  * The towns the places are in, and the town of each place that is in one (see `Indexes.cities`):
- * with `towns`, each place's nearest town of the file, and towns by locality for the places none is
+ * with `towns`, each place's town of the file (`TownList.townAt`), but for the localities that are
+ * towns of their own (`ownLocalities`), and towns by locality for the places no town of the file is
  * near; without, towns by locality for all of them.
  */
 function buildCities(places: readonly Place[], towns: TownList | null | undefined): { cities: City[]; townOf: Map<Place, City> } {
@@ -319,10 +370,11 @@ function buildCities(places: readonly Place[], towns: TownList | null | undefine
     const inTown = new Map<Town, Place[]>();
     const far: Place[] = [];
     for (const place of places) {
-      const town = towns.townAt(place.lat, place.lon);
+      const town = towns.townAt(place.lat, place.lon, place.locality);
       if (town === undefined) far.push(place);
       else push(inTown, town, place);
     }
+    cities.push(...ownLocalities(inTown, towns, townOf));
     for (const [town, own] of inTown) {
       const city = fileTown(town, own, towns);
       cities.push(city);
@@ -582,7 +634,6 @@ export function buildIndexes(places: readonly Place[], towns?: TownList | null):
     chains,
     cities,
     townOf: (place) => townOf.get(place),
-    countryName: (code) => towns?.countryName(code),
     byD,
     byAddress,
   };

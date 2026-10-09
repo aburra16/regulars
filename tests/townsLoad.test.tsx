@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RelayReader } from "../src/nostr/events";
 import { CACHE_KEY } from "../src/places/cache";
 import { PlacesProvider, usePlaces } from "../src/places/store";
-import { loadTowns, type TownList } from "../src/places/towns";
+import { loadTowns, readTowns, type TownList, townsLoader } from "../src/places/towns";
 import { useIndexes } from "../src/places/useIndexes";
 import raw from "./fixtures/funchal-items.json";
 import { createMemoryReader } from "./support/memoryReader";
@@ -62,13 +62,34 @@ function later<T>() {
   return { promise, settle };
 }
 
+describe("townsLoader", () => {
+  const file = { default: { source: "", licence: "", date: "", regenerate: "", towns: { PT: [[2267827, "Funchal", 32.6657, -16.9255]] }, parts: [], localities: {} } };
+
+  it("gives null when the chunk cannot be loaded, loads again at the next call, and keeps what loaded", async () => {
+    const load = vi.fn<() => Promise<{ default: unknown }>>().mockRejectedValueOnce(new TypeError("Failed to fetch")).mockResolvedValue(file);
+    const read = townsLoader(load);
+    expect(await read()).toBeNull();
+    const list = await read();
+    expect(list?.towns.map((town) => town.name)).toEqual(["Funchal"]);
+    expect(read()).toBe(read());
+    expect(await read()).toBe(list);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives null for a file it cannot read, and never rejects", async () => {
+    const read = townsLoader(async () => ({ default: { towns: 5 } }));
+    await expect(read()).resolves.toBeNull();
+    expect(readTowns(file.default as never).towns).toHaveLength(1);
+  });
+});
+
 describe("loadTowns", () => {
   it("reads the app's towns from their chunk, once, however many ask", async () => {
     const first = loadTowns();
     expect(loadTowns()).toBe(first);
     const list = await first;
     expect(list?.towns.find((town) => town.name === "Prague")).toMatchObject({ id: 3067696, country: "CZ" });
-    expect(list?.countryName("PT")).toBe("Portugal");
+    expect(list?.towns.filter((town) => town.name === "Kansas City").map((town) => town.region).sort()).toEqual(["KS", "MO"]);
   });
 });
 

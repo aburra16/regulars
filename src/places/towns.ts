@@ -1,7 +1,8 @@
 import KDBush from "kdbush";
 
 import { foldText } from "./fold.ts";
-import { nearestWithin } from "./geo.ts";
+// geo.ts's distance, not distance.ts's: this module is tools/towns.ts's too, which runs in Node, where the copy and the config do not load.
+import { distance, nearestWithin } from "./geo.ts";
 
 /*
  * The towns the places are put in: src/data/towns.json, which tools/towns.ts cuts down from GeoNames'
@@ -24,9 +25,10 @@ export const foldName = (name: string): string => foldText(name).replace(/\s+/g,
 export type TownRow = [id: number, name: string, lat: number, lon: number, ascii?: string];
 
 /**
- * A part of a town: a GeoNames town that most of its places say is in a bigger one, by their
- * locality ("Santa Luzia", whose places say Funchal). Its GeoNames id, its point, and the id of the
- * town it is part of. A place nearest a part is counted in that town.
+ * A part of a town: a GeoNames town that its places say is in a bigger one, by their locality
+ * ("Santa Luzia", whose places say Funchal), or a district of a capital that takes its districts in
+ * (Chatuchak, in Bangkok). Its GeoNames id, its point, and the id of the town it is part of. A place
+ * nearest a part is counted in that town.
  */
 export type PartRow = [id: number, lat: number, lon: number, of: number];
 
@@ -36,11 +38,18 @@ export interface TownsFile {
   licence: string;
   date: string;
   regenerate: string;
-  /** Each country's name in English, by its upper-case code, for the countries that have towns here. */
-  countries: Record<string, string>;
-  /** The towns, by the upper-case code of their country. */
+  /**
+   * The towns, by the upper-case code of their country, and in the United States and Canada by the
+   * code of their state or province after a hyphen: "PT", "US-MO", "CA-ON".
+   */
   towns: Record<string, TownRow[]>;
   parts: PartRow[];
+  /**
+   * Localities that are towns of their own, folded (`foldName`), by the upper-case code of their
+   * places' country ("" for none): places whose locality is one of these, three or more close
+   * together, are a town by their locality (El Zonte), not in the town of the file around them.
+   */
+  localities: Record<string, string[]>;
 }
 
 /** A town of the file. */
@@ -52,6 +61,8 @@ export interface Town {
   ascii?: string;
   /** An upper-case country code. */
   country: string;
+  /** In the United States and Canada, its state or province: "MO", "ON". */
+  region?: string;
   lat: number;
   lon: number;
 }
@@ -62,22 +73,27 @@ export interface TownList {
   towns: readonly Town[];
   /** Every town's name and ASCII name, folded (`foldName`): the words that name a town of the list. */
   names: ReadonlySet<string>;
-  /** A country's name in English ("Czechia"), or undefined for a code the file has no name for. */
-  countryName(code: string): string | undefined;
+  /** Whether a place's locality, in its country (upper case, "" for none), is one of its own (`TownsFile.localities`). */
+  ownLocality(country: string, locality: string): boolean;
   /**
-   * The town a point is counted in: the town, or part of one, nearest to it, within `TOWN_REACH_KM`;
-   * a part stands for its town. Undefined when none is that near, or for a point that is not one.
+   * The town a place at a point is counted in, as tools/towns.ts puts it there: the town within
+   * `TOWN_REACH_KM` whose name or ASCII name, folded, is the place's locality, the nearest of them;
+   * else the town, or part of one, nearest to the point within that reach, a part standing for its
+   * town. Undefined when none is that near, or for a point that is not one.
    */
-  townAt(lat: number, lon: number): Town | undefined;
+  townAt(lat: number, lon: number, locality?: string): Town | undefined;
 }
 
 /** The towns of a file. The parts are found only through the towns they belong to. */
 export function readTowns(file: TownsFile): TownList {
   const towns: Town[] = [];
   const byId = new Map<number, Town>();
-  for (const [country, rows] of Object.entries(file.towns)) {
+  for (const [key, rows] of Object.entries(file.towns)) {
+    const [country = "", region] = key.split("-");
     for (const [id, name, lat, lon, ascii] of rows) {
-      const town: Town = ascii === undefined ? { id, name, country, lat, lon } : { id, name, ascii, country, lat, lon };
+      const town: Town = { id, name, country, lat, lon };
+      if (ascii !== undefined) town.ascii = ascii;
+      if (region !== undefined) town.region = region;
       towns.push(town);
       byId.set(id, town);
     }
@@ -95,18 +111,30 @@ export function readTowns(file: TownsFile): TownList {
   for (const part of parts) tree.add(part.lon, part.lat);
   tree.finish();
 
-  const names = new Set<string>();
+  // The towns by each of their names, folded, for a place's locality to find.
+  const named = new Map<string, Town[]>();
   for (const town of towns) {
-    names.add(foldName(town.name));
-    if (town.ascii !== undefined) names.add(foldName(town.ascii));
+    for (const name of new Set([foldName(town.name), ...(town.ascii === undefined ? [] : [foldName(town.ascii)])])) {
+      const list = named.get(name);
+      if (list === undefined) named.set(name, [town]);
+      else list.push(town);
+    }
   }
-  const countries = new Map(Object.entries(file.countries));
+
+  const own = new Set(Object.entries(file.localities ?? {}).flatMap(([country, names]) => names.map((name) => `${country}\n${name}`)));
 
   return {
     towns,
-    names,
-    countryName: (code) => countries.get(code),
-    townAt(lat, lon) {
+    names: new Set(named.keys()),
+    ownLocality: (country, locality) => own.has(`${country}\n${foldName(locality)}`),
+    townAt(lat, lon, locality) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
+      let byName: { town: Town; km: number } | undefined;
+      for (const town of named.get(foldName(locality ?? "")) ?? []) {
+        const km = distance(lon, lat, town.lon, town.lat);
+        if (km <= TOWN_REACH_KM && (byName === undefined || km < byName.km)) byName = { town, km };
+      }
+      if (byName !== undefined) return byName.town;
       // The nearest as tools/towns.ts finds it (`around`), by a cheaper walk: about 8,000 places are put in towns at each load.
       const nearest = nearestWithin(tree, lon, lat, TOWN_REACH_KM);
       return nearest === undefined ? undefined : standsFor[nearest];
@@ -114,22 +142,28 @@ export function readTowns(file: TownsFile): TownList {
   };
 }
 
-/** The towns once read, or the read under way: one for the app, however many ask. */
-let loading: Promise<TownList | null> | undefined;
+/**
+ * A reader of the towns that `load` gives (a module whose default export is the file), once, however
+ * many ask: what it gives is the towns, or null when `load` failed or its file could not be read. A
+ * call after a failure loads again. It never rejects.
+ */
+export function townsLoader(load: () => Promise<{ default: unknown }>): () => Promise<TownList | null> {
+  let loading: Promise<TownList | null> | undefined;
+  return () => {
+    loading ??= load()
+      // The file is the tool's, and tests/towns.test.ts checks its shape: TypeScript reads JSON's arrays as lists, not rows.
+      .then((module) => readTowns(module.default as TownsFile))
+      .catch(() => {
+        loading = undefined;
+        return null;
+      });
+    return loading;
+  };
+}
 
 /**
  * The towns of src/data/towns.json, from its own chunk, fetched the first time this is called and
  * read once. Null when the chunk could not be loaded or read: the places then keep the towns their
  * localities name (see `buildIndexes`), and the next call tries again. It never rejects.
  */
-export function loadTowns(): Promise<TownList | null> {
-  loading ??= import("../data/towns.json")
-    // The file is the tool's, and tests/towns.test.ts checks its shape: TypeScript reads JSON's arrays as lists, not rows.
-    .then((module) => readTowns(module.default as unknown as TownsFile))
-    .catch(() => {
-      // The next places to load try again.
-      loading = undefined;
-      return null;
-    });
-  return loading;
-}
+export const loadTowns: () => Promise<TownList | null> = townsLoader(() => import("../data/towns.json"));

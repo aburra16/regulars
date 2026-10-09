@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import { useHere } from "../location/useLocation.ts";
+import { countryName } from "../places/countries.ts";
 import { type City, cityLabeller, type Indexes, type PlaceDistance } from "../places/indexes.ts";
 import type { Place } from "../places/place.ts";
 import { townFinder } from "../places/townSearch.ts";
@@ -25,24 +26,24 @@ export interface PlaceElsewhere extends PlaceDistance {
   where: string;
 }
 
-/** A country's name, or its code when the towns name none ("" for none). */
-const countryOf = (indexes: Indexes, code: string | undefined) => {
+/** A country's name, or its code when the browser names none ("" for none). */
+const countryOf = (code: string | undefined) => {
   const upper = (code ?? "").trim().toUpperCase();
-  return upper === "" ? "" : (indexes.countryName(upper) ?? upper);
+  return upper === "" ? "" : (countryName(upper) ?? upper);
 };
 
 /** A town and its country: "Prague, Czechia", or "Lexington, KY, United States" where its name alone is another town's too. */
-function townWhere(indexes: Indexes, city: City, label: string): string {
+function townWhere(city: City, label: string): string {
   const parts = [city.name];
   if (label !== city.name && city.region !== undefined) parts.push(city.region);
-  parts.push(countryOf(indexes, city.country));
+  parts.push(countryOf(city.country));
   return parts.filter((part) => part !== "").join(", ");
 }
 
 /** Where a place is: its town and that town's country, or its own locality and country when it is in no town. */
 function placeWhere(indexes: Indexes, place: Place): string {
   const town = indexes.townOf(place);
-  const parts = town === undefined ? [place.locality?.trim() ?? "", countryOf(indexes, place.country)] : [town.name, countryOf(indexes, town.country)];
+  const parts = town === undefined ? [place.locality?.trim() ?? "", countryOf(place.country)] : [town.name, countryOf(town.country)];
   return parts.filter((part) => part !== "").join(", ");
 }
 
@@ -69,7 +70,7 @@ export function useBeyond(q: string): { towns: TownFound[]; elsewhere: PlaceElse
   const words = q.trim() !== "" && indexes !== undefined && !indexes.isKindQuery(q);
   const towns = useMemo<TownFound[]>(() => {
     if (!words || indexes === undefined || finder === undefined) return [];
-    return finder.find(q, TOWNS_SHOWN).map((city) => ({ city, where: townWhere(indexes, city, finder.label(city)) }));
+    return finder.find(q, TOWNS_SHOWN).map((city) => ({ city, where: townWhere(city, finder.label(city)) }));
   }, [words, indexes, finder, q]);
 
   const beyondKm = widestKm(locale);

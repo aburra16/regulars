@@ -13,12 +13,15 @@ const wordsOf = (text: string) => text.split(/[^\p{L}\p{N}]+/u).filter((word) =>
 
 /**
  * Whether the picker lists a town for what is typed (`typed`, folded as `foldName` folds it): the
- * text is anywhere in the label it shows (`label`, folded the same way), or in one of the town's other
- * names. Typing nothing lists every town.
+ * text is anywhere in the label it shows (`label`, folded the same way), or each of its words starts a
+ * word of one of the town's other names ("praha 10" is Prague's; "aha" is not). Typing nothing lists
+ * every town.
  */
 export function pickerMatches(city: City, label: string, typed: string): boolean {
   if (typed === "") return true;
-  return label.includes(typed) || (city.aliases ?? []).some((alias) => alias.includes(typed));
+  if (label.includes(typed)) return true;
+  const typedWords = wordsOf(typed);
+  return typedWords.length > 0 && (city.aliases ?? []).some((alias) => nameScore(alias, typed, typedWords) > 0);
 }
 
 /**
