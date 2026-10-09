@@ -607,19 +607,32 @@ describe("removing a review", () => {
     expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
   });
 
-  it("puts the focus on where the reviews were when the person's was the only one", async () => {
-    const world = newWorld();
-    const me = signedIn(world);
-    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
-    world.writers[SEARCH] = createMemoryWriter();
-    const user = userEvent.setup();
-    await open(world, fromExplore(PLACE_PATH));
+  it.each([
+    ["a phone", PHONE],
+    ["a desktop", DESKTOP],
+  ])(
+    "puts the focus on Rate this place, without scrolling, when the person's review was the only one, on %s: nothing is left where the reviews were",
+    async (_, px) => {
+      const world = newWorld();
+      const me = signedIn(world);
+      world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+      world.writers[SEARCH] = createMemoryWriter();
+      const user = userEvent.setup();
+      await open(world, fromExplore(PLACE_PATH), px);
+      const focus = vi.spyOn(HTMLElement.prototype, "focus");
 
-    await removeIt(user);
-    await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
-    expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement).toHaveAttribute("tabindex", "-1");
-  });
+      await removeIt(user);
+      await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
+      const rate = document.activeElement as HTMLElement;
+      // A control with a name, and what the person may do next: not an empty place with none.
+      expect(rate).toHaveAccessibleName(copy.place.rate);
+      expect(rate).toHaveAttribute("href", REVIEW_PATH);
+      expect(screen.getByRole("link", { name: copy.place.rate })).toBe(rate);
+      expect(focus.mock.contexts.at(-1)).toBe(rate);
+      expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
+      expect(screen.getByText(copy.reviews.removed, { selector: '[role="status"]' })).toBeInTheDocument();
+    },
+  );
 
   it("sends the removal to a relay the review was sent to that did not take it in time, which may have kept it", async () => {
     const world = newWorld();
