@@ -1607,6 +1607,47 @@ describe("recently", () => {
   });
 });
 
+describe("Try again on a desktop, once (decision 27)", () => {
+  it.each(
+    (["failed", "busy", "unavailable"] as const).flatMap((state) =>
+      (
+        [
+          ["Explore", "/"],
+          ["Trending", "/trending"],
+        ] as const
+      ).map(([page, path]) => [state, page, path] as const),
+    ),
+  )("is offered once when the circle is %s, on the desktop's %s: in the page, or in the top bar's panel while that is open", async (state, _, path) => {
+    const pubkey = signedIn();
+    window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state }));
+    const user = aUser();
+    await openAt(path, DESKTOP);
+    await waitFor(() => expect(myCircle()).not.toHaveAttribute("aria-pressed"));
+    const line = state === "busy" ? copy.circle.busy : copy.circle.unavailable;
+    const tryAgains = () => screen.queryAllByRole("button", { name: copy.circle.tryAgain });
+
+    // The panel closed: the page says it, under the top bar, with Try again.
+    expect(tryAgains()).toHaveLength(1);
+    expect(screen.getByRole("main")).toContainElement(tryAgains()[0]!);
+    expect(screen.getAllByText(line)).toHaveLength(1);
+
+    // Open: the panel says it, and the page says nothing, its status kept for when the panel goes.
+    await user.click(myCircle());
+    const panel = panelOf(myCircle())!;
+    expect(tryAgains()).toHaveLength(1);
+    expect(within(panel).getByRole("button", { name: copy.circle.tryAgain })).toHaveFocus();
+    expect(screen.getAllByText(line)).toHaveLength(1);
+    expect(within(panel).getByText(line)).toBeInTheDocument();
+
+    // Closed again: back in the page.
+    await user.keyboard("{Escape}");
+    expect(panel).not.toBeInTheDocument();
+    expect(tryAgains()).toHaveLength(1);
+    expect(screen.getByRole("main")).toContainElement(tryAgains()[0]!);
+    expect(screen.getAllByText(line)).toHaveLength(1);
+  });
+});
+
 describe("when it goes wrong (Review Focus 4)", () => {
   it("says My circle isn't available, with Try again, when the run fails; House picks keeps working", async () => {
     signedIn();
