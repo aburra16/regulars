@@ -489,22 +489,32 @@ describe("a floating panel through the sign-in (ruling F1)", () => {
     expect(brainstorm.startRun).not.toHaveBeenCalled();
   });
 
-  it.each(FLOATING)("goes back to Personalize in the panel on Cancel, on %s, with the focus on it", async (_, path, px) => {
+  it.each(FLOATING)("goes back to Personalize in the panel on Cancel, on %s, with the focus on the panel", async (_, path, px) => {
     const { panel, addOn, user } = await signingFrom(path, px);
     await user.click(within(panel).getByRole("button", { name: copy.circle.cancel }));
     expect(addOn.asked()?.aborted).toBe(true);
     expect(within(panel).getByText(copy.circle.consent)).toBeInTheDocument();
-    expect(within(panel).getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    expect(panel).toHaveFocus();
     expect(myCircle()).toHaveTextContent(/^My circle$/);
     expect(myCircle()).toHaveAttribute("aria-expanded", "true");
     expect(brainstorm.startRun).not.toHaveBeenCalled();
   });
 
-  it.each(FLOATING)("shows Personalize again when the add-on says no, on %s, with the focus on it", async (_, path, px) => {
+  it.each(FLOATING)("asks once when Enter is pressed twice on Cancel, on %s", async (_, path, px) => {
+    const { panel, addOn, user } = await signingFrom(path, px);
+    within(panel).getByRole("button", { name: copy.circle.cancel }).focus();
+    await user.keyboard("{Enter}{Enter}");
+    expect(addOn.asked()?.aborted).toBe(true);
+    expect(within(panel).getByText(copy.circle.consent)).toBeInTheDocument();
+    expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+  });
+
+  it.each(FLOATING)("shows Personalize again when the add-on says no, on %s, with the focus on the panel", async (_, path, px) => {
     const { panel, addOn } = await signingFrom(path, px);
     await addOn.answer(false);
     expect(await within(panel).findByText(copy.circle.consent)).toBeInTheDocument();
-    expect(within(panel).getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    expect(panel).toHaveFocus();
     expect(within(panel).queryByRole("button", { name: copy.circle.cancel })).toBeNull();
     expect(screen.queryByText(copy.circle.unavailable)).toBeNull();
     expect(brainstorm.startRun).not.toHaveBeenCalled();

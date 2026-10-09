@@ -313,14 +313,17 @@ export function DoorPanel({
   const panel = useRef<HTMLDivElement>(null);
   const lineId = useId();
 
-  // Opened, the focus goes to its first button; and back to its first button when the sign-in ends in an
-  // offer again, if the focus was in the panel, or went with a button that went.
+  // Opened, the focus goes to its first button. When the sign-in ends in an offer again (Cancel, or the
+  // add-on said no), the focus stays on the panel, where the tap put it: on Personalize, a second press
+  // of the key that pressed Cancel would ask again. It goes to the first button only if it went with a
+  // button that went.
   const opening = useRef(true);
   useEffect(() => {
     const node = panel.current;
     if (node === null || !offers(state)) return;
     const at = document.activeElement;
-    if (opening.current || at === null || at === document.body || node.contains(at)) node.querySelector("button")?.focus();
+    const lost = at === null || at === document.body || (at !== node && node.contains(at));
+    if (opening.current || lost) node.querySelector("button")?.focus();
     opening.current = false;
   }, [state]);
 
