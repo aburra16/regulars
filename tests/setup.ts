@@ -20,6 +20,17 @@ import { noFetch, takeReached } from "./support/noFetch";
 // map's part (tests/support/fakeMaplibre.ts).
 vi.mock("maplibre-gl", () => import("./support/fakeMaplibre"));
 
+// The fixtures' signatures are fakes (tests/fixtures/README.md), so the check of a sample of a fresh
+// list's signatures (src/places/signatures.ts) gives every list back as it came, checking none. A mock,
+// not a setting, so that it holds for a test that loads the store afresh. The tests of the check sign
+// their own places and take the real one (tests/signatures.test.tsx). Vitest gives a mock only to the
+// first of two imports of it made at once (the second gets the real module), so the store loads the
+// check once (loadSignatureCheck), and a strict mode's second run of its effect waits on that load.
+vi.mock("../src/places/signatures", () => ({
+  SLICE_MS: 8,
+  checkSignatures: async (events: unknown[]) => ({ events, checked: 0, failed: 0 }),
+}));
+
 // The house's trust relays, the relay-list relays, the scoring constants and the relays' read extras as the config module sets them.
 const defaults = structuredClone({
   relayListRelays: config.relayListRelays,

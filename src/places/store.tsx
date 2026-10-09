@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 
+import { config } from "../config.ts";
 import type { RelayReader } from "../nostr/events.ts";
 import { readSaved, writeSaved } from "./cache.ts";
 import { debug, fetchHouseEvents, parsePlaces, sameStamps, savedEvents, type Stamps, stampsOf } from "./load.ts";
@@ -91,6 +92,32 @@ async function placesRelayReader(): Promise<RelayReader> {
   return (await import("./relayReader.ts")).relayReader;
 }
 
+/** The check of a fresh list's signatures: a chunk of its own, with nostr-tools' signature code, out of the first screen's. */
+type SignatureModule = typeof import("./signatures.ts");
+
+let signatureCode: Promise<SignatureModule> | undefined;
+
+/** The check of a fresh list's signatures (./signatures.ts), loaded once. A load that fails is tried again next time. */
+function loadSignatureCheck(): Promise<SignatureModule> {
+  signatureCode ??= import("./signatures.ts").catch((error: unknown) => {
+    signatureCode = undefined;
+    throw error;
+  });
+  return signatureCode;
+}
+
+/**
+ * `events`, a fresh list from the relay, less any whose signature fails a check of a sample of them
+ * (`check`, ./signatures.ts, as it loads). A failure is noted once in the console, as a count. Rejects
+ * as the check does when `signal` aborts, and when its chunk could not be loaded.
+ */
+async function withGoodSignatures(events: NostrEvent[], signal: AbortSignal, check: Promise<SignatureModule>): Promise<NostrEvent[]> {
+  const { checkSignatures } = await check;
+  const { events: good, failed } = await checkSignatures(events, { sample: config.placesSignatureSample, signal });
+  if (failed > 0) console.warn(`[places] ${failed} of ${events.length} signatures failed`);
+  return good;
+}
+
 /** The saved copy, or null when there is none, it holds no places, or it cannot be read. */
 async function readSavedCopy(): Promise<SavedCopy | null> {
   try {
@@ -122,7 +149,8 @@ function mayReplace(count: number, complete: boolean, saved: { count: number } |
 /**
  * Loads the places for the screens below it. On mount it reads the copy saved on the device
  * and loads the list from the relay, side by side. The saved copy shows as soon as it is read,
- * unless the relay's places are on screen already; the relay's places replace it when they come.
+ * unless the relay's places are on screen already; the relay's places replace it when they come,
+ * once a sample of their signatures has been checked, less any place whose signature fails.
  * A load that fails keeps the saved copy on screen; with no saved copy, it is an error.
  * `reader` is read once, on mount; without one, the provider reads the places relay.
  *
@@ -223,15 +251,21 @@ export function PlacesProvider({
       );
     });
 
-    // Load from the relay at the same time. Its code loads while the saved copy is read.
+    // Load from the relay at the same time. Its code loads while the saved copy is read, and so does
+    // the check of its signatures.
     const readerReady = givenReader === undefined ? placesRelayReader() : Promise.resolve(givenReader);
     readerReady.catch(() => {});
+    const checkReady = loadSignatureCheck();
+    checkReady.catch(() => {});
 
     void (async () => {
       let loaded: { events: NostrEvent[]; complete: boolean; places: Place[] };
       try {
-        const { events, complete } = await fetchHouseEvents(await readerReady, { signal });
-        loaded = { events, complete, places: parsePlaces(events) };
+        const fetched = await fetchHouseEvents(await readerReady, { signal });
+        // The places shown and saved are those whose signatures pass: the sample's, or, when one of it
+        // fails, each one's. A list of fewer places is still complete: those left out are not the house's.
+        const events = await withGoodSignatures(fetched.events, signal, checkReady);
+        loaded = { events, complete: fetched.complete, places: parsePlaces(events) };
       } catch {
         if (!signal.aborted) fail();
         return;

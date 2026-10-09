@@ -50,10 +50,10 @@ class Latest {
    * Takes one value from a relay or from the device. Returns true when it is the first event
    * seen at its address.
    *
-   * TODO(follow-up "Verify place signatures", Ruling R12): events are checked for shape and
-   * author, not signature, so the places relay is trusted. Checking the signatures of 7,954
-   * events took 6.7 s on a desktop (nostr-tools verifyEvent); measure on phones and move the
-   * check off the main thread before adding it, here and in ./relayReader.ts.
+   * Events are checked here for shape and author, not signature: checking all 7,954 took 6.7 s on a
+   * desktop. A fresh list from the relay has a sample of its signatures checked once it is in, and
+   * every one when one of the sample fails (./signatures.ts, from ./store.tsx), before it is shown
+   * or saved.
    */
   add(value: unknown): boolean {
     const ev = asEvent(value);
