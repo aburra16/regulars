@@ -210,6 +210,22 @@ export const copy = {
     noResultsFilteredHint: "Take off a filter to see more.",
     /** At the foot of the results, a link to add a place that is missing. */
     addMissing: "Can't find it? Add a missing place",
+    // DRAFT for Avi
+    /** Over the towns the words name, above the places (the towns brief's "Towns"). */
+    townsHeading: "Towns",
+    // DRAFT for Avi
+    /**
+     * A town the words name, as its row is named for a screen reader: "Prague, Czechia, 42 places". The
+     * row reads "Prague, Czechia · 42 places", with the joiner and the town picker's count. `where` is
+     * the town and its country.
+     */
+    townRowName: (where: string, n: number) => `${where}, ${places(n)}`,
+    // DRAFT for Avi
+    /** Over the places farther away whose names have the words, below the places near. */
+    elsewhereHeading: "Elsewhere",
+    // DRAFT for Avi
+    /** Under that heading, while a filter or a sort is on: they are for the places near, not these. */
+    elsewhereUnfiltered: (near: string) => `Filters and sorting apply to the places near ${near} only.`,
   },
   filters: {
     /** The cross at the top right, for a screen reader. */
@@ -816,6 +832,12 @@ export const copy = {
     /** Where the details come from: the one place in the app that names BTC Map, in fine print (decisions.md #7). */
     source: "Place details from OpenStreetMap, gathered for us by BTC Map",
     licence: "© OpenStreetMap contributors. Place data is available under the Open Database Licence.",
+    // DRAFT for Avi
+    /** Where the towns' names come from (src/data/towns.json), in fine print, as `source` is. */
+    townsSource: "Town names from GeoNames (geonames.org), CC BY 4.0.",
+    // DRAFT for Avi
+    /** The link to the terms of that licence, under the link to OpenStreetMap's. */
+    townsLicenceLink: "Town names licence",
     licenceLink: "Licence and copyright",
     // DRAFT for Avi
     /** The link to the licences of the software the site is built from (a text file the build writes). */

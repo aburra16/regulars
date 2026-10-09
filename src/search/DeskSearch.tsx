@@ -8,20 +8,25 @@ import { useHere } from "../location/useLocation.ts";
 import { boundsOf } from "../map/area.ts";
 import { useListScores } from "../score/useListScores.ts";
 import { useLocale } from "../shell/useLocale.ts";
+import { useNow } from "../shell/useNow.ts";
+import { Elsewhere, TownsFound } from "./Beyond.tsx";
 import { type Filters, filterCount, filtersFromParams, withFilters } from "./filters.ts";
 import { AddMissingLink, EmptyHint, emptyMessage, HiddenClosedNote, ResultsLine } from "./ResultsParts.tsx";
+import { useBeyond } from "./useBeyond.ts";
 import { isChain, useResults } from "./useResults.ts";
 
 /**
  * The search results on a desktop (the brief's D1: the phone's Explore, map, search and filters are
- * one page there). It is Explore's layout in results mode: the filters as menus above the list, the
- * line of how many in its live region, the results as cards (a chain as one), the note on the closed
- * places Open now left out, and the map beside them with a pin for each, fitted to them. The top bar
- * has the search field. Everything is in the address, as on the phone's page.
+ * one page there). It is Explore's layout in results mode: the towns the words name (`TownsFound`), the
+ * filters as menus above the list, the line of how many in its live region, the results as cards (a
+ * chain as one), the note on the closed places Open now left out, the places elsewhere whose names have
+ * the words (`Elsewhere`), and the map beside them with a pin for each place near, fitted to them. The
+ * top bar has the search field. Everything is in the address, as on the phone's page.
  */
 export function DeskSearch(): JSX.Element {
   const here = useHere();
   const locale = useLocale();
+  const now = useNow();
   const [params, setParams] = useSearchParams();
   const { key: historyKey } = useLocation();
 
@@ -31,6 +36,7 @@ export function DeskSearch(): JSX.Element {
   const { count, hiddenClosed, order } = results;
   // The scores of every result, asked for in one go for the cards and the pins; best first when asked.
   const { entries, scores } = useListScores(results.entries, order === "score");
+  const beyond = useBeyond(query);
 
   // A filter is a step the Back button undoes, as on Explore.
   const setFilters = (next: Filters) => setParams((current) => withFilters(current, next, locale));
@@ -60,6 +66,7 @@ export function DeskSearch(): JSX.Element {
       list={`search|${query}|${params.toString()}|${here.lat}|${here.lon}`}
       head={
         <>
+          <TownsFound towns={beyond.towns} />
           <FilterMenus filters={filters} order={order} onChange={setFilters} locale={locale} />
           <ResultsLine empty={empty} count={count} near={here.label} order={order} />
         </>
@@ -68,7 +75,17 @@ export function DeskSearch(): JSX.Element {
       scores={scores}
       instead={empty === undefined ? undefined : empty.hint !== undefined && <EmptyHint hint={empty.hint} />}
       after={
-        hiddenClosed > 0 && <HiddenClosedNote count={hiddenClosed} onShowClosed={() => setFilters({ ...filters, open: false })} />
+        <>
+          {hiddenClosed > 0 && <HiddenClosedNote count={hiddenClosed} onShowClosed={() => setFilters({ ...filters, open: false })} />}
+          <Elsewhere
+            rows={beyond.elsewhere}
+            near={here.label}
+            unfiltered={filterCount(filters, locale) > 0 || filters.sort !== undefined}
+            locale={locale}
+            now={now}
+            className="pt-2"
+          />
+        </>
       }
       foot={<AddMissingLink />}
       mapKey={`search:${historyKey}`}

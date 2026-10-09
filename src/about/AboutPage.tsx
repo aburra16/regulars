@@ -15,6 +15,9 @@ import { NOTICES_FILE } from "./notices.ts";
 /** Where OpenStreetMap says how its data may be used. */
 const OSM_COPYRIGHT = "https://www.openstreetmap.org/copyright";
 
+/** The licence of GeoNames' data, which the towns' names are from (src/data/towns.json). */
+const CC_BY = "https://creativecommons.org/licenses/by/4.0/";
+
 /** A paragraph of the page's words. */
 const BODY = "m-0 max-w-measure text-body leading-[1.5] text-ink-soft";
 
@@ -87,15 +90,18 @@ function FineLink({ href, children }: { href: string; children: string }): JSX.E
 
 /**
  * The fine print under the figures: where the details come from, the licence, and a link to its
- * terms; then the licences of the software the site is built from, a file at the root of the site.
+ * terms; where the towns' names come from, and a link to their licence; then the licences of the
+ * software the site is built from, a file at the root of the site.
  */
 function FinePrint(): JSX.Element {
   return (
     <>
       <p className="m-0 max-w-measure text-caption leading-[1.5] text-muted">{copy.about.source}</p>
       <p className="m-0 max-w-measure text-secondary leading-[1.5] text-muted">{copy.about.licence}</p>
+      <p className="m-0 max-w-measure text-caption leading-[1.5] text-muted">{copy.about.townsSource}</p>
       <div className="flex flex-col">
         <FineLink href={OSM_COPYRIGHT}>{copy.about.licenceLink}</FineLink>
+        <FineLink href={CC_BY}>{copy.about.townsLicenceLink}</FineLink>
         <FineLink href={`/${NOTICES_FILE}`}>{copy.about.softwareLicences}</FineLink>
       </div>
     </>

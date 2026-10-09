@@ -667,6 +667,33 @@ describe("where a first visit starts", () => {
       expect(view.result.current.settling).toBe(false);
     });
 
+    it("starts in the town of GeoNames near the place the device's zone is named for", async () => {
+      override.cities = undefined;
+      zoneIs("Europe/Prague");
+      /** Places in the middle of Prague, as OpenStreetMap names its districts, beside the fixtures in Funchal. */
+      const inPrague = ["Praha", "Praha 10", undefined].map((locality, i) => ({
+        ...fixtures[i]!,
+        id: `${i + 1}`.padStart(64, "b"),
+        tags: [
+          ...fixtures[i]!.tags.filter(([name]) => !["d", "locality", "lat", "lon", "country"].includes(name!)),
+          ["d", `prague-${i}`],
+          ...(locality === undefined ? [] : [["locality", locality]]),
+          ["country", "CZ"],
+          ["lat", String(50.088 + i * 0.001)],
+          ["lon", "14.4208"],
+        ],
+      }));
+      render(
+        <PlacesProvider reader={createMemoryReader([...fixtures, ...inPrague])}>
+          <HereProvider>
+            <NearButton />
+          </HereProvider>
+        </PlacesProvider>,
+      );
+      // Prague has fewer places than Funchal, and is the town near the zone's place: GeoNames' name, not Praha.
+      expect(await screen.findByRole("button", { name: "Near Prague" })).toBeInTheDocument();
+    });
+
     it("never shows Funchal before the guess, with the places loading from the relay", async () => {
       override.cities = undefined;
       zoneIs("Europe/Lisbon");

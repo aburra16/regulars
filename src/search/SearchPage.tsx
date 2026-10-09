@@ -16,6 +16,7 @@ import { BackIcon, FilterIcon } from "../ui/icons.tsx";
 import { PlaceRow } from "../ui/PlaceRow.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
 import { type ShownPage, shownMemory, shownPageOf, useShownCount } from "../ui/shown.ts";
+import { Elsewhere, TownsFound } from "./Beyond.tsx";
 import { DeskSearch } from "./DeskSearch.tsx";
 import {
   cameFromFilters,
@@ -28,6 +29,7 @@ import {
 } from "./filters.ts";
 import { QueryField, type QueryFieldHandle } from "./QueryField.tsx";
 import { AddMissingLink, EmptyHint, emptyMessage, HiddenClosedNote, ResultsLine } from "./ResultsParts.tsx";
+import { useBeyond } from "./useBeyond.ts";
 import { type Entry, isChain, useResults } from "./useResults.ts";
 
 /** How many rows the results show at first, and how many more each time "Show more" is pressed. */
@@ -129,11 +131,12 @@ function Rows({
 }
 
 /**
- * The search results on a phone (Search.dc.html; screen 3): the way back, the search field, the
- * Filters chip with a chip for each filter that is on, the line of how many and in what order, the
- * rows (a chain as one), a note on the closed places Open now left out, and, at the foot, a link to
- * add a place that is missing and where the details come from. Everything the page is showing is in
- * the address (`?q=&open=&kinds=&within=&sort=`), so a link to it, and Back, show the same.
+ * The search results on a phone (Search.dc.html; screen 3): the way back, the search field, the towns
+ * the words name (`TownsFound`), the Filters chip with a chip for each filter that is on, the line of
+ * how many and in what order, the rows (a chain as one), a note on the closed places Open now left
+ * out, the places elsewhere whose names have the words (`Elsewhere`), and, at the foot, a link to add a
+ * place that is missing and where the details come from. Everything the page is showing is in the
+ * address (`?q=&open=&kinds=&within=&sort=`), so a link to it, and Back, show the same.
  *
  * The line, or the sentence that says there is nothing, is in one live region that is always on the
  * page, so a screen reader announces each change to it.
@@ -153,6 +156,7 @@ function PhoneSearch(): JSX.Element {
   const { count, hiddenClosed, order } = results;
   // The scores of every result, asked for in one go; best first when the person asked for that.
   const { entries, scores } = useListScores(results.entries, order === "score");
+  const beyond = useBeyond(query);
   const chips = activeChips(filters, locale);
 
   // The cursor goes to the field when the person arrives to search, or to an address typed in. Not when
@@ -220,6 +224,8 @@ function PhoneSearch(): JSX.Element {
           <QueryField ref={field} value={query} onSearch={setQuery} autoFocus={focusField} />
         </div>
 
+        <TownsFound towns={beyond.towns} className="pl-3" />
+
         <div ref={chipGroup} role="group" aria-label={copy.explore.filtersLabel} className="flex flex-wrap gap-2 pl-3">
           <Link
             to={filtersPath(params)}
@@ -263,6 +269,15 @@ function PhoneSearch(): JSX.Element {
           <HiddenClosedNote count={hiddenClosed} onShowClosed={() => takeOff(0, { ...filters, open: false })} />
         </div>
       )}
+
+      <Elsewhere
+        rows={beyond.elsewhere}
+        near={here.label}
+        unfiltered={filterCount(filters, locale) > 0 || filters.sort !== undefined}
+        locale={locale}
+        now={now}
+        className="px-gutter-phone pt-5"
+      />
 
       <footer className="mt-auto flex flex-col gap-0.5 px-gutter-phone pt-[18px] pb-[22px]">
         <AddMissingLink />
