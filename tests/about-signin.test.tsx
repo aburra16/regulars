@@ -159,6 +159,23 @@ describe("the about page: where the places come from", () => {
     expect(licence).toHaveClass("min-h-touch");
   });
 
+  it.each([390, 1360])("credits GeoNames for the towns' names in fine print, and links to their licence in a new tab, at %s px", async (px) => {
+    await openApp("/about", { events: fixtures, px });
+    const credit = screen.getByText(copy.about.townsSource);
+    expect(copy.about.townsSource).toBe("Town names adapted from GeoNames (geonames.org), CC BY 4.0.");
+    expect(credit).toHaveClass("text-caption", "text-muted");
+    // In the section on where the places come from, after OpenStreetMap's licence.
+    expect(credit.closest("section")).toHaveAccessibleName(copy.about.placesHeading);
+    expect(screen.getByText(copy.about.licence).compareDocumentPosition(credit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const licence = link(new RegExp(`^${copy.about.townsLicenceLink}`));
+    expect(licence).toHaveAttribute("href", "https://creativecommons.org/licenses/by/4.0/");
+    expect(licence).toHaveAttribute("target", "_blank");
+    expect(licence).toHaveAttribute("rel", "noopener noreferrer");
+    expect(licence).toHaveAccessibleName(`${copy.about.townsLicenceLink} ${copy.common.newTab}`);
+    expect(licence).toHaveClass("min-h-touch");
+  });
+
   it.each([390, 1360])("links to the licences of the software the site is built from, at %s px", async (px) => {
     await openApp("/about", { events: fixtures, px });
     const software = link(new RegExp(`^${copy.about.softwareLicences}`));

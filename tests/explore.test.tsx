@@ -25,10 +25,12 @@ import { useNow } from "../src/shell/useNow";
 import { PlaceCard } from "../src/ui/PlaceCard";
 import raw from "./fixtures/funchal-items.json";
 import { createMemoryReader } from "./support/memoryReader";
+import { appTowns } from "./support/towns";
 
 const fixtures: NostrEvent[] = raw;
 const fixturePlaces = parsePlaces(fixtures);
-const idx = buildIndexes(fixturePlaces);
+// With the towns the app loads with the places, so the town it starts at is the app's.
+const idx = buildIndexes(fixturePlaces, appTowns);
 const HERE = config.defaultCity;
 const PAGE = 30;
 
@@ -887,10 +889,11 @@ describe("Explore: no place is near", () => {
     await user.click(screen.getByRole("button", { name: copy.explore.chooseTown }));
 
     const dialog = screen.getByRole("dialog", { name: copy.location.pickTitle });
-    await user.click(within(dialog).getByRole("button", { name: /^Lisboa/ }));
+    // The places say Lisboa; the town is GeoNames' Lisbon.
+    await user.click(within(dialog).getByRole("button", { name: /^Lisbon/ }));
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Near Lisboa" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Near Lisbon" })).toBeInTheDocument();
     expect(cards().length).toBeGreaterThan(0);
     expect(screen.queryByText(/No places listed near/)).not.toBeInTheDocument();
   });
@@ -963,10 +966,10 @@ describe("Explore: a place moves with the person", () => {
     ];
     await openExplore("/", elsewhere);
     await user.click(screen.getByRole("button", { name: "Near Funchal" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Lisboa/ }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Lisbon/ }));
 
-    // The town's centre is the middle place; the other two are the same distance from it.
-    expect(names()[0]).toBe("Lisbon place 2");
+    // The town's centre is GeoNames' point for Lisbon, north of the three: the third is the nearest.
+    expect(names()).toEqual(["Lisbon place 3", "Lisbon place 2", "Lisbon place 1"]);
     expect([...names()].sort()).toEqual(["Lisbon place 1", "Lisbon place 2", "Lisbon place 3"]);
     expect(screen.queryByRole("link", { name: "Jacafé" })).not.toBeInTheDocument();
   });

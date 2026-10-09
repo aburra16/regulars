@@ -2,8 +2,9 @@ import { type JSX, type MouseEvent, type PointerEvent, useEffect, useId, useMemo
 import { createPortal } from "react-dom";
 
 import { copy } from "../copy/en.ts";
-import { foldText } from "../places/fold.ts";
 import { type City, cityLabeller } from "../places/indexes.ts";
+import { foldName } from "../places/towns.ts";
+import { pickerMatches } from "../places/townSearch.ts";
 import { useIndexes } from "../places/useIndexes.ts";
 import { lockPage } from "../ui/lockPage.ts";
 import { useHere } from "./useLocation.ts";
@@ -62,14 +63,19 @@ function LocateIcon({ size = 20 }: { size?: number }) {
 interface Row {
   city: City;
   label: string;
-  /** The label as the filter reads it: lower case, without accents. */
+  /** The label as the filter reads it: lower case, without accents (`foldName`). */
   folded: string;
 }
 
+/** What tells a town in the list from every other: its GeoNames id, or for a town of a locality, its name, region and country. */
+const rowKey = (city: City) => (city.geonameId === undefined ? `${city.name}|${city.region ?? ""}|${city.country}` : `geonames:${city.geonameId}`);
+
 /**
  * Where to look for places: a full-screen sheet on a phone and a dialog on a desktop. It lists
- * the towns of the places that loaded, the biggest first, and a field filters them. "Use my
- * location" is above them. It calls back and leaves the choice, and closing, to its parent.
+ * the towns of the places that loaded, the biggest first, and a field filters them: a town stays
+ * when what is typed is anywhere in its label, or in another name it is found by ("Praha" for
+ * Prague; see `City.aliases`). "Use my location" is above them. It calls back and leaves the
+ * choice, and closing, to its parent.
  */
 export function CityPicker({
   onPick,
@@ -95,12 +101,12 @@ export function CityPicker({
       .sort((a, b) => b.count - a.count)
       .map((city) => {
         const name = label(city);
-        return { city, label: name, folded: foldText(name) };
+        return { city, label: name, folded: foldName(name) };
       });
   }, [cities]);
   const shown = useMemo(() => {
-    const wanted = foldText(query.trim());
-    return (wanted === "" ? rows : rows.filter((row) => row.folded.includes(wanted))).slice(0, MAX_ROWS);
+    const wanted = foldName(query);
+    return rows.filter((row) => pickerMatches(row.city, row.folded, wanted)).slice(0, MAX_ROWS);
   }, [rows, query]);
 
   // The page behind can be neither scrolled nor reached while this is open. This effect comes
@@ -221,7 +227,7 @@ export function CityPicker({
           {shown.length > 0 ? (
             <ul className="m-0 flex list-none flex-col gap-1 p-0">
               {shown.map(({ city, label }) => (
-                <li key={`${city.name}|${city.region ?? ""}|${city.country}`}>
+                <li key={rowKey(city)}>
                   <button
                     type="button"
                     onClick={() => onPick(city)}

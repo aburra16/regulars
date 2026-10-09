@@ -30,6 +30,9 @@ const saoPaulo = city("São Paulo", 300, { country: "BR" });
 const zurich = city("Zürich", 40, { country: "CH" });
 const lexingtonKY = city("Lexington", 50, { country: "US", region: "KY" });
 const lexingtonMA = city("Lexington", 9, { country: "US", region: "MA" });
+// Towns of GeoNames, with the other names their places give them (folded, as the indexes keep them).
+const prague = city("Prague", 31, { country: "CZ", geonameId: 3067696, aliases: ["hlavni mesto praha", "praha", "praha 10", "praha 8"] });
+const lisbonGeo = city("Lisbon", 9, { geonameId: 2267057, aliases: ["lisboa"] });
 
 afterEach(() => {
   override.cities = [];
@@ -359,6 +362,39 @@ describe("CityPicker", () => {
       await user.clear(filterField());
       await user.type(filterField(), "lex");
       expect(rowNames()).toEqual(["Lexington, KY 50 places", "Lexington, MA 9 places"]);
+    });
+
+    it("finds Prague by its name and by Praha, and leads praha 10 to Prague, showing only its name", async () => {
+      const user = userEvent.setup();
+      renderPicker([lisbonGeo, prague, porto]);
+      for (const typed of ["Prague", "praha", "PRAHA 10", "praha  10"]) {
+        await user.clear(filterField());
+        await user.type(filterField(), typed);
+        expect(rowNames()).toEqual(["Prague 31 places"]);
+      }
+    });
+
+    it("finds Lisbon by Lisbon and by Lisboa", async () => {
+      const user = userEvent.setup();
+      const { onPick } = renderPicker([lisbonGeo, prague, porto]);
+      await user.type(filterField(), "Lisbon");
+      expect(rowNames()).toEqual(["Lisbon 9 places"]);
+      await user.clear(filterField());
+      await user.type(filterField(), "lisboa");
+      expect(rowNames()).toEqual(["Lisbon 9 places"]);
+      await user.click(cityRows()[0]!);
+      expect(onPick).toHaveBeenCalledWith(lisbonGeo);
+    });
+
+    it("lists two towns of one name and country, told apart by nothing else, as two rows of their own", () => {
+      // React says so on the console when two rows of a list have the same key.
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const sanJose = city("San José", 12, { country: "CR", geonameId: 3621849 });
+      const otherSanJose = city("San José", 3, { country: "CR", geonameId: 3621841 });
+      renderPicker([sanJose, otherSanJose]);
+      expect(cityRows()).toHaveLength(2);
+      expect(errors).not.toHaveBeenCalled();
+      errors.mockRestore();
     });
 
     it("says so when nothing matches, and lists nothing", async () => {

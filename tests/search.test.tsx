@@ -1,5 +1,5 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createBrowserRouter, createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +9,7 @@ import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { forgetExploreIdx, setExploreIdx, stepsBackToExplore } from "../src/explore/returnPoint";
 import { HereProvider } from "../src/location/HereProvider";
-import { HereContext, type HereValue } from "../src/location/useLocation";
+import { HERE_STORAGE_KEY, HereContext, type HereValue } from "../src/location/useLocation";
 import { PIN_SOURCE } from "../src/map/pins";
 import { osmNoteUrl } from "../src/place/osmLinks";
 import { distanceKm, formatDistance } from "../src/places/distance";
@@ -22,6 +22,7 @@ import { PlacesProvider } from "../src/places/store";
 import { ScoresProvider } from "../src/score/ScoresProvider";
 import { routes } from "../src/routes";
 import { SearchPage } from "../src/search/SearchPage";
+import { ELSEWHERE_SHOWN, TOWNS_SHOWN } from "../src/search/useBeyond";
 import {
   applyFilters,
   type Filters,
@@ -40,10 +41,12 @@ import { PlaceRow } from "../src/ui/PlaceRow";
 import raw from "./fixtures/funchal-items.json";
 import { FakeMap } from "./support/fakeMaplibre";
 import { createMemoryReader } from "./support/memoryReader";
+import { appTowns } from "./support/towns";
 
 const fixtures: NostrEvent[] = raw;
 const fixturePlaces = parsePlaces(fixtures);
-const idx = buildIndexes(fixturePlaces);
+// With the towns the app loads with the places, so the town it starts at is the app's.
+const idx = buildIndexes(fixturePlaces, appTowns);
 const HERE = config.defaultCity;
 const PAGE = 50;
 
@@ -1054,7 +1057,8 @@ describe("Search: the results", () => {
   it("shows distances in kilometres where the browser's language does", async () => {
     vi.spyOn(navigator, "language", "get").mockReturnValue("pt-PT");
     await openSearch("/search?q=pizza");
-    expect(rowFor("Ciao Pizzeria").textContent).toMatch(/\d+ m|\d\.\d km/);
+    // Portuguese writes a decimal comma: "2,3 km".
+    expect(rowFor("Ciao Pizzeria").textContent).toMatch(/\d+ m|\d[.,]\d km/);
     expect(rowFor("Ciao Pizzeria").textContent).not.toMatch(/ mi\b/);
   });
 
@@ -2324,3 +2328,174 @@ describe("Filters", () => {
     expect(router.state.location.search).toBe("?q=pizza");
   });
 });
+
+// =====================================================================================
+// Beyond the places near: the towns the words name, and the places elsewhere
+// =====================================================================================
+
+describe("Search: towns, and places elsewhere", () => {
+  /** Places a few hundred metres from GeoNames' point for Prague, as OpenStreetMap names their towns. */
+  const prague = [
+    variant(nameOnly, { d: "prague-1", name: "Kavárna Vltava", category: "cafe", lat: "50.0880", lon: "14.4210", locality: "Praha 10", country: "CZ" }),
+    variant(nameOnly, { d: "prague-2", name: "Lokál U Bílé kuželky", category: "pub", lat: "50.0885", lon: "14.4215", locality: "Praha", country: "CZ" }),
+    variant(nameOnly, { d: "prague-3", name: "Prague Beer Hall", category: "bar", lat: "50.0875", lon: "14.4200", locality: "Praha", country: "CZ" }),
+    variant(nameOnly, { d: "prague-4", name: "Bistro bez adresy", category: "restaurant", lat: "50.0890", lon: "14.4205", country: "CZ" }),
+  ];
+  /** A place at GeoNames' point for New York City. */
+  const newYork = variant(nameOnly, { d: "nyc-1", name: "Little Funchal Café", category: "cafe", lat: "40.7143", lon: "-74.0060", locality: "New York", country: "US" });
+  const world = [...fixtures, ...prague, newYork];
+
+  /** Makes a town the one this device picked last, so the search is near it. */
+  const hereIs = (town: { name: string; country: string; lat: number; lon: number }) =>
+    window.localStorage.setItem(HERE_STORAGE_KEY, JSON.stringify(town));
+  const hereIsNewYork = () => hereIs({ name: "New York City", country: "US", lat: 40.7143, lon: -74.006 });
+
+  const region = (name: string) => screen.getByRole("region", { name });
+  const towns = () => region(copy.search.townsHeading);
+  const elsewhere = () => region(copy.search.elsewhereHeading);
+  const precedes = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+  /** The row of a place in Elsewhere, by its name. */
+  const elsewhereRow = (name: string) => within(elsewhere()).getByRole("link", { name });
+
+  describe.each([
+    ["on a phone", () => {}],
+    ["on a desktop", wideWindow],
+  ])("%s", (_where, layout) => {
+    beforeEach(() => layout());
+
+    it("lists the town the words name above the places, as its row reads, named for a screen reader", async () => {
+      await openSearch("/search?q=Prague", world);
+      const list = towns();
+      expect(within(list).getByRole("heading", { level: 2, name: copy.search.townsHeading })).toBeInTheDocument();
+      const row = within(list).getByRole("button", { name: "Prague, Czechia, 4 places" });
+      expect(row).toHaveTextContent("Prague, Czechia · 4 places");
+      expect(row).toHaveClass("min-h-touch");
+      expect(copy.search.townRowName("Prague, Czechia", 4)).toBe("Prague, Czechia, 4 places");
+      // Only the town that matches.
+      expect(within(list).getAllByRole("button")).toHaveLength(1);
+    });
+
+    it("finds Prague by the names its places give it: Praha, and Praha 10", async () => {
+      await openSearch("/search?q=praha", world);
+      expect(within(towns()).getByRole("button", { name: "Prague, Czechia, 4 places" })).toBeInTheDocument();
+      cleanupAndClear();
+      await openSearch("/search?q=praha%2010", world);
+      expect(within(towns()).getByRole("button", { name: "Prague, Czechia, 4 places" })).toBeInTheDocument();
+    });
+
+    it("moves here to the town that is tapped, keeps it on the device, and opens Explore at its places", async () => {
+      const user = userEvent.setup();
+      const { router } = await openSearch("/search?q=Prague", world);
+      await user.click(within(towns()).getByRole("button", { name: "Prague, Czechia, 4 places" }));
+
+      await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+      // Explore names the town, and lists its places.
+      expect(await screen.findByRole("button", { name: "Near Prague" })).toBeInTheDocument();
+      expect(await screen.findByRole("link", { name: "Kavárna Vltava" })).toBeInTheDocument();
+      expect(JSON.parse(window.localStorage.getItem(HERE_STORAGE_KEY)!)).toMatchObject({ name: "Prague", country: "CZ", lat: 50.088, lon: 14.4208 });
+      // The search is behind, in the history.
+      await act(() => router.navigate(-1));
+      expect(router.state.location.search).toBe("?q=Prague");
+    });
+
+    it("lists a place in Prague by its name when here is New York, with its town and country, under the line that none is near", async () => {
+      hereIsNewYork();
+      await openSearch("/search?q=vltava", world);
+      const none = screen.getByText(copy.search.noResults("vltava", "New York City"));
+      const section = elsewhere();
+      expect(within(section).getByRole("heading", { level: 2, name: copy.search.elsewhereHeading })).toBeInTheDocument();
+      expect(precedes(none, section)).toBe(true);
+      const row = elsewhereRow("Kavárna Vltava");
+      // Where it is, in place of how far: 6,600 km says nothing.
+      expect(row).toHaveAccessibleDescription(/^Cafe · Prague, Czechia/);
+      expect(row).toHaveAttribute("href", `/place/prague-1`);
+      // No filter is on: no word about them.
+      expect(within(section).queryByText(copy.search.elsewhereUnfiltered("New York City"))).not.toBeInTheDocument();
+    });
+
+    it("shows the towns, then the places near, then the places elsewhere", async () => {
+      // Here is Funchal; a café in New York has Funchal in its name.
+      hereIs({ name: "Funchal", country: "PT", lat: 32.6657, lon: -16.9255 });
+      await openSearch("/search?q=funchal", world);
+      const nearPlace = screen.getByRole("link", { name: "Loja Coral Funchal - Flagship Store" });
+      expect(precedes(towns(), nearPlace)).toBe(true);
+      expect(precedes(nearPlace, elsewhere())).toBe(true);
+      expect(within(towns()).getByRole("button", { name: /^Funchal, Portugal, \d+ places$/ })).toBeInTheDocument();
+      expect(elsewhereRow("Little Funchal Café")).toHaveAccessibleDescription(/^Cafe · New York City, United States/);
+      // The places near are what they were: the café in New York is not one of them.
+      expect(within(elsewhere()).getAllByRole("link")).toHaveLength(1);
+    });
+
+    it("says the filters are for the places near, when one is on, and leaves them off the places elsewhere", async () => {
+      hereIsNewYork();
+      // Open now, at a time the café is closed: it is still listed elsewhere.
+      await openSearch("/search?q=vltava&open=1", world);
+      expect(within(elsewhere()).getByText(copy.search.elsewhereUnfiltered("New York City"))).toBeInTheDocument();
+      expect(copy.search.elsewhereUnfiltered("New York City")).toBe("Filters and sorting apply to the places near New York City only.");
+      expect(elsewhereRow("Kavárna Vltava")).toBeInTheDocument();
+    });
+
+    it("heads the places near, for a screen reader, between the towns and the places elsewhere", async () => {
+      hereIs({ name: "Funchal", country: "PT", lat: 32.6657, lon: -16.9255 });
+      await openSearch("/search?q=funchal", world);
+      const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+      expect(headings).toEqual([copy.search.townsHeading, copy.search.nearHeading("Funchal"), copy.search.elsewhereHeading]);
+      expect(screen.getByRole("heading", { level: 2, name: "Places near Funchal" })).toHaveClass("sr-only");
+    });
+
+    it("lists three towns at most, and five places elsewhere at most", async () => {
+      // Six towns of a name, each with a place, and six places of a name far from here.
+      const many = [
+        ...[0, 1, 2, 3, 4, 5].map((i) =>
+          variant(nameOnly, { d: `san-${i}`, name: `Spot ${i}`, lat: String(13.7 + i * 0.4), lon: "-89.2", locality: `San Test ${i}`, country: "SV" }),
+        ),
+        ...[0, 1, 2, 3, 4, 5].map((i) => variant(nameOnly, { d: `far-${i}`, name: `Faraway Diner ${i}`, lat: String(50.0 + i * 0.01), lon: "14.4", country: "CZ" })),
+      ];
+      hereIs({ name: "Funchal", country: "PT", lat: 32.6657, lon: -16.9255 });
+      await openSearch("/search?q=san%20test", [...world, ...many]);
+      expect(within(towns()).getAllByRole("button")).toHaveLength(TOWNS_SHOWN);
+      expect(TOWNS_SHOWN).toBe(3);
+      cleanupAndClear();
+      await openSearch("/search?q=faraway", [...world, ...many]);
+      expect(within(elsewhere()).getAllByRole("link")).toHaveLength(ELSEWHERE_SHOWN);
+      expect(ELSEWHERE_SHOWN).toBe(5);
+    });
+
+    it("shows no towns for a kind of place that is also how a town's name starts", async () => {
+      // "bar" is a kind of place; Barcelona starts with it.
+      const barcelona = [0, 1].map((i) =>
+        variant(nameOnly, { d: `bcn-${i}`, name: `Can ${i}`, lat: String(41.38 + i * 0.001), lon: "2.17", locality: "Barcelona", country: "ES" }),
+      );
+      await openSearch("/search?q=bar", [...world, ...barcelona]);
+      expect(screen.queryByRole("region", { name: copy.search.townsHeading })).not.toBeInTheDocument();
+      cleanupAndClear();
+      await openSearch("/search?q=barc", [...world, ...barcelona]);
+      expect(within(towns()).getByRole("button", { name: /^Barcelona, Spain/ })).toBeInTheDocument();
+    });
+
+    it("shows neither for a kind of place, which is a search of the places near", async () => {
+      hereIsNewYork();
+      await openSearch("/search?q=cafe", world);
+      // The café in New York is near; the one in Prague is a cafe too, and is not listed.
+      expect(screen.getByRole("link", { name: "Little Funchal Café" })).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: copy.search.elsewhereHeading })).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: copy.search.townsHeading })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Kavárna Vltava" })).not.toBeInTheDocument();
+    });
+
+    it("shows no towns for one letter, nor for words no town has", async () => {
+      await openSearch("/search?q=p", world);
+      expect(screen.queryByRole("region", { name: copy.search.townsHeading })).not.toBeInTheDocument();
+      cleanupAndClear();
+      await openSearch("/search?q=zzzz", world);
+      expect(screen.queryByRole("region", { name: copy.search.townsHeading })).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: copy.search.elsewhereHeading })).not.toBeInTheDocument();
+    });
+  });
+});
+
+/** Takes the page off the screen and forgets what it kept, between two pages of one test. */
+function cleanupAndClear() {
+  cleanup();
+  window.localStorage.removeItem("regulars.search.shown");
+}

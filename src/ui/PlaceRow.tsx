@@ -21,6 +21,11 @@ export interface PlaceRowProps {
    * the row is on, which the row says ("Cafe · 0.3 mi from here", PlaceNew.dc.html). Default `list`.
    */
   from?: "list" | "place";
+  /**
+   * Where the place is, said in place of how far: "Prague, Czechia", for the search's places from
+   * elsewhere, where a distance across an ocean says nothing. Default: the distance.
+   */
+  where?: string;
   /** The browser's language: it decides miles or kilometres, and the 12- or 24-hour clock. */
   locale: string;
   now: Date;
@@ -50,16 +55,17 @@ export const hasRowScore = (score: ShownScore): boolean =>
 
 /**
  * A place in the search results (Search.dc.html): the compact form of the card, a row with a line
- * under it. Its kind on a small tile, its name (two lines at most), what it is, how far and whether
- * it is open on one line, at the top right where a score goes its score (or that it has none), and
- * under it who the score comes from. The whole row is one link to the place; the link is named by
- * the place's name, and the rest is its description. It is `memo`: a list drawn again for another
- * place's score does not draw this row again unless its own changed.
+ * under it. Its kind on a small tile, its name (two lines at most), what it is, how far (or where it
+ * is) and whether it is open on one line, at the top right where a score goes its score (or that it
+ * has none), and under it who the score comes from. The whole row is one link to the place; the link
+ * is named by the place's name, and the rest is its description. It is `memo`: a list drawn again for
+ * another place's score does not draw this row again unless its own changed.
  */
 export const PlaceRow = memo(function PlaceRow({
   place,
   km,
   from = "list",
+  where,
   locale,
   now,
   score = NO_SCORE,
@@ -69,7 +75,7 @@ export const PlaceRow = memo(function PlaceRow({
   const distance = formatDistance(km, locale);
   const kindLine = copy.explore.kindLine(
     placeKindLabel(place.category, place.cuisine),
-    from === "place" && distance !== "" ? copy.place.fromHere(distance) : distance,
+    where ?? (from === "place" && distance !== "" ? copy.place.fromHere(distance) : distance),
   );
   const hoursLine = openLine(state, locale, "card");
   // Hours the app could not read are the text as written, which can be any length: they get a line to be cut off on.
