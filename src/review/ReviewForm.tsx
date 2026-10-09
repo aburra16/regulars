@@ -154,8 +154,9 @@ const PHONE_POST =
  * they have one. What they type is kept for the tab as they type it, for the place and for them
  * (`saveDraft`), until it is posted or closed. Post is off until a star is chosen. Posting is
  * `posting`'s, kept above the form by its route (`usePost`), so that a form drawn again shows a post
- * under way, and how it ended: Posting…, then the place, or why it didn't post, with Try again. `wide`
- * lays it out for the desktop's dialog.
+ * under way, and how it ended: Posting… (and, when Regulars is slow to take it, a line under Post that
+ * says so), then the place, or why it didn't post, with Try again. `wide` lays it out for the desktop's
+ * dialog.
  */
 export function ReviewForm({ place, wide, posting }: { place: Place; wide: boolean; posting: Posting }): JSX.Element {
   const { account, restoring } = useAccount();
@@ -164,6 +165,8 @@ export function ReviewForm({ place, wide, posting }: { place: Place; wide: boole
   const { reviews } = useScore(place.address);
   const own = account === undefined ? undefined : reviews.find((review) => review.reviewer === account.pubkey);
   const { status } = posting;
+  /** Whether a review relay is slow to take the post under way: said under Post, for everyone. */
+  const slow = status === "posting" && posting.slow;
 
   const [draft] = useState(() => readDraft(place.address, me));
   const [stars, setStars] = useState<WholeStars | undefined>(() => draft?.stars ?? wholeStarsOf(own));
@@ -253,10 +256,6 @@ export function ReviewForm({ place, wide, posting }: { place: Place; wide: boole
           wide ? "flex flex-wrap items-center gap-x-5 gap-y-3.5" : `mt-auto flex flex-col gap-3 ${pad} pt-6 pb-[26px]`
         }
       >
-        {/* Said politely while it posts: the button says it too, which a screen reader does not hear change. */}
-        <p role="status" aria-live="polite" className="sr-only">
-          {status === "posting" ? copy.review.posting : ""}
-        </p>
         {(status === "failed" || status === "not on Regulars") && (
           <p role="alert" className={`m-0 text-body font-semibold text-accent ${wide ? "basis-full" : ""}`}>
             {status === "failed" ? copy.review.failed : copy.review.notOnRegulars}
@@ -272,6 +271,17 @@ export function ReviewForm({ place, wide, posting }: { place: Place; wide: boole
         >
           {status === "posting" ? copy.review.posting : status === "editing" ? copy.review.post : copy.review.tryAgain}
         </button>
+        {/*
+          Said politely while it posts: the button says it too, which a screen reader does not hear
+          change. Once Regulars is slow to take it, the same line says so, under the button, for everyone.
+        */}
+        <p
+          role="status"
+          aria-live="polite"
+          className={slow ? `m-0 text-caption leading-[1.45] text-muted ${wide ? "basis-full text-right" : "text-center"}` : "sr-only"}
+        >
+          {slow ? copy.review.stillPosting : status === "posting" ? copy.review.posting : ""}
+        </p>
       </section>
     </form>
   );

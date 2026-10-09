@@ -26,6 +26,11 @@ export type PostStatus = "editing" | "posting" | "failed" | "not on Regulars";
 /** The form's post: where it stands, and how to post. */
 export interface Posting {
   status: PostStatus;
+  /**
+   * Whether the post under way is slow: no review relay has taken it `SLOW_POST_MS` after it was sent
+   * (ruling P1). The form says so, under Post. False whenever nothing is being posted.
+   */
+  slow: boolean;
   /** Posts a review of `stars` with the words `text`; nothing while one is under way. */
   post(stars: WholeStars, text: string): void;
 }
@@ -47,9 +52,11 @@ interface Unposted {
  * person's signer (an add-on within `SIGN_TIMEOUT_MS`) and sends it where they publish (`whereToPost`,
  * `postReview`); once a relay Regulars reads reviews from has taken it, the place shows it at once,
  * held until the relays send it back (`noteOwnReview`), the draft is forgotten, and `onPosted` takes
- * the person back to the place, while their own relays may still be answering. When no such relay
- * takes it, the status says so (and whether the person's own relays did); Try again sends the same
- * signed review again while the stars and words are the same, and signs a new one when they are not.
+ * the person back to the place, while their own relays may still be answering. Such a relay that is
+ * slow, or fails for now, is sent it again (`sendReview`), and while none has taken it after
+ * `SLOW_POST_MS`, `slow` says so. When none takes it, the status says so (and whether the person's own
+ * relays did); Try again sends the same signed review again, as patiently, while the stars and words
+ * are the same, and signs a new one when they are not.
  * A person who is signed out, or whose add-on or phone app now signs as someone else (they are signed
  * out, `AccountChanged`), is sent to sign in, and back to the form with what they typed.
  */
@@ -60,6 +67,7 @@ export function usePost(place: Place, onPosted: () => void): Posting {
   const navigate = useNavigate();
   const location = useLocation();
   const [status, setStatus] = useState<PostStatus>("editing");
+  const [slow, setSlow] = useState(false);
   /** Aborts what is under way when the form's route goes. */
   const life = useRef<AbortController | null>(null);
   /** Whether a post is under way: a second press before the page has redrawn posts nothing more. */
@@ -94,11 +102,12 @@ export function usePost(place: Place, onPosted: () => void): Posting {
     /** Where it is sent, and where it was taken already (by an earlier try). */
     let relays: readonly string[] = [];
     const before = resend ? again.accepted : [];
+    const onSlow = () => setSlow(true);
     try {
       let posted: Posted;
       if (resend) {
         relays = again.relays;
-        posted = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers });
+        posted = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers, onSlow });
       } else {
         unposted.current = null;
         relays = await whereToPost(account.pubkey, account.signer, readers, signal);
@@ -107,6 +116,7 @@ export function usePost(place: Place, onPosted: () => void): Posting {
         posted = await postReview(reviewTemplate(place, stars, words, stamp), account.signer, [...relays], signal, {
           writers,
           signWithin: signTimeFor(account.how),
+          onSlow,
         });
       }
       unposted.current = null;
@@ -125,11 +135,13 @@ export function usePost(place: Place, onPosted: () => void): Posting {
       setStatus(taken.length > 0 ? "not on Regulars" : "failed");
     } finally {
       busy.current = false;
+      setSlow(false);
     }
   };
 
   return {
     status,
+    slow,
     post: (stars, text) => {
       void post(stars, text);
     },

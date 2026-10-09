@@ -6,13 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ADD_ON_TIMEOUT_MS } from "../src/account/connect";
 import { readSession, SESSION_KEY } from "../src/account/session";
 import { DRAFT_KEY } from "../src/review/draft";
-import { SIGN_TIMEOUT_MS } from "../src/review/post";
+import { PUBLISH_TIMEOUT_MS, REVIEW_RELAY_PATIENCE_MS, REVIEW_RELAY_TRIES, REVIEW_RELAY_WAITS_MS, SIGN_TIMEOUT_MS, SLOW_POST_MS } from "../src/review/post";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { reviewTemplate } from "../src/reviews/write";
 import { DESKTOP, openApp, PHONE, resetWidth, resizeTo } from "./support/app";
 import { createSignerApp, MemoryConnectRelay } from "./support/connectRelay";
 import { createMemoryWriter } from "./support/memoryWriter";
+import { postWarnings, quietPostWarnings } from "./support/postWarnings";
 import {
   fromExplore,
   heldRelays,
@@ -84,10 +85,14 @@ function backLikeABrowser(router: Awaited<ReturnType<typeof open>>["router"]) {
   };
 }
 
+/** What the relays said of each try they did not take, kept off the output (src/review/post.ts). */
+let warnings: ReturnType<typeof quietPostWarnings>;
+
 beforeEach(() => {
   config.reviewRelays = [SEARCH];
   // The clock stands still at NOW_S: what a review is stamped with is known.
   vi.useFakeTimers({ toFake: ["Date"], now: NOW_S * 1000 });
+  warnings = quietPostWarnings();
 });
 
 afterEach(() => {
@@ -246,7 +251,8 @@ describe("posting a review", () => {
     const world = newWorld();
     const me = signedIn(world);
     world.directory.push(listOf(me.pubkey, [OWN]));
-    world.writers[SEARCH] = createMemoryWriter({ refuse: "rate-limited" });
+    // Regulars refuses it for good (blocked:, not a failure that may pass): it is not tried again.
+    world.writers[SEARCH] = createMemoryWriter({ refuse: "blocked: not on the list" });
     world.writers[OWN] = createMemoryWriter();
     const user = userEvent.setup();
     const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
@@ -258,6 +264,7 @@ describe("posting a review", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.notOnRegulars);
     expect(copy.review.notOnRegulars).toBe("Saved to your own places, but not to Regulars yet. Try again.");
+    expect(sentTo(world, SEARCH)).toHaveLength(1);
     expect(sentTo(world, OWN)).toHaveLength(1);
     expect(router.state.location.pathname).toBe(REVIEW_PATH);
     expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Worth it");
@@ -441,6 +448,99 @@ describe("posting a review", () => {
     await user.click(postButton());
     await waitFor(() => expect(live).toHaveTextContent(copy.review.posting));
     expect(copy.review.posting).toBe("Posting…");
+  });
+
+  it("says under Post, politely, that it is still posting once Regulars has not taken it in 8 seconds; the line goes once it is posted", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    // Regulars does not answer the first try, and takes the second.
+    world.writers[SEARCH] = createMemoryWriter({ answers: [{ silent: true }] });
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+
+    await user.click((await starButtons())[3]!);
+    const button = postButton();
+    const form = button.closest("form")!;
+    await user.click(button);
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+    const live = within(form).getByRole("status");
+
+    await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS - 1_000));
+    expect(live).toHaveTextContent(copy.review.posting);
+    expect(screen.queryByText(copy.review.stillPosting)).not.toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    expect(live).toHaveTextContent(copy.review.stillPosting);
+    expect(copy.review.stillPosting).toBe("Still posting. Regulars is slow to answer right now.");
+    expect(live).toHaveAttribute("aria-live", "polite");
+    // A line anyone can see, under the button, which still says Posting… and is still off.
+    expect(live).not.toHaveClass("sr-only");
+    expect(button.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(button).toHaveAccessibleName(copy.review.posting);
+    expect(button).toHaveAttribute("aria-disabled", "true");
+
+    // The second try is taken: back at the place, and the line went with the form.
+    await act(() => vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS + REVIEW_RELAY_WAITS_MS[0]!));
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(screen.queryByText(copy.review.stillPosting)).not.toBeInTheDocument();
+    expect(sentTo(world, SEARCH)).toHaveLength(2);
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+    expect(postWarnings(warnings)).toEqual([`[post] ${SEARCH} did not take it: The relay did not answer in time`]);
+  });
+
+  it("tries Regulars again with the same patience on Try again, sending the same review", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.directory.push(listOf(me.pubkey, [OWN]));
+    world.writers[SEARCH] = createMemoryWriter({ refuse: "error: vespa feed 503" });
+    world.writers[OWN] = createMemoryWriter();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+
+    await user.click((await starButtons())[3]!);
+    await user.click(postButton());
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+    // Three tries, 2 and then 5 seconds apart, and then it is not on Regulars, as before.
+    await act(() => vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[0]! + REVIEW_RELAY_WAITS_MS[1]!));
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.notOnRegulars);
+    expect(sentTo(world, SEARCH)).toHaveLength(REVIEW_RELAY_TRIES);
+    expect(screen.queryByText(copy.review.stillPosting)).not.toBeInTheDocument();
+
+    // Try again: the same review, to Regulars alone, which fails once more and takes the next try.
+    const first = sentTo(world, SEARCH)[0]!;
+    world.writers[SEARCH] = createMemoryWriter({ answers: [{ refuse: "error: vespa feed 503" }] });
+    await user.click(tryAgainButton());
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+    await act(() => vi.advanceTimersByTimeAsync(REVIEW_RELAY_WAITS_MS[0]!));
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(sentTo(world, SEARCH)).toEqual([first, first]);
+    expect(sentTo(world, OWN)).toEqual([first]);
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops trying Regulars again when the person leaves the form before it is posted, and holds nothing", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.writers[SEARCH] = createMemoryWriter({ refuse: "error: vespa feed 503" });
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+
+    await user.click((await starButtons())[3]!);
+    await user.click(postButton());
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+
+    // While it waits to try again, the person goes back to the place.
+    await user.click(screen.getByRole("link", { name: copy.review.back }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    await act(() => vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS));
+    expect(sentTo(world, SEARCH)).toHaveLength(1);
+    expect(heldText()).toBeNull();
   });
 
   it("stamps an edit made in the same second one second after the review it replaces, so it replaces it", async () => {

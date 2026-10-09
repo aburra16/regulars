@@ -788,6 +788,12 @@ export const copy = {
     /** The same button while the review is being posted. */
     posting: "Posting…",
     // DRAFT for Avi
+    /**
+     * Under the button, said politely, while Regulars has not taken the review 8 seconds after it was
+     * sent (ruling P1): it is still trying, and the button still says Posting… (a state the design does not draw).
+     */
+    stillPosting: "Still posting. Regulars is slow to answer right now.",
+    // DRAFT for Avi
     /** No relay took the review, or there was nowhere to send it; what was typed stays (a state the design does not draw). */
     failed: "Your review didn't post. Try again.",
     // DRAFT for Avi
