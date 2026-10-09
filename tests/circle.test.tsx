@@ -1152,6 +1152,36 @@ describe("the bar at the foot of the screen (Avi, 2026-10-09)", () => {
     expect(screen.queryByText(copy.circle.workingBody)).toBeNull();
   });
 
+  it.each([
+    ["the phone's map", "/map", undefined],
+    ["the desktop's Trending", "/trending", DESKTOP],
+    ["a desktop's place page", `/place/${encodeURIComponent(fixtures[0]!.tags.find((tag) => tag[0] === "d")![1]!)}`, DESKTOP],
+    ["the desktop's About", "/about", DESKTOP],
+  ] as const)(
+    "says the circle is being worked out once the floating panel closes, on %s: the bar, then the half's arrow for as long as it is",
+    async (_, path, px) => {
+      signedIn();
+      const user = aUser();
+      brainstorm.latestRun.mockResolvedValue(run("running"));
+      await openAt(path, px);
+      const half = await theDoor();
+      await user.click(half);
+      const panel = panelOf(half)!;
+      await user.click(within(panel).getByRole("button", { name: copy.circle.personalize }));
+
+      // The panel goes once the circle is being worked out, and the bar and the half say so.
+      await waitFor(() => expect(barRegion()).toHaveTextContent(WORKING));
+      expect(panel).not.toBeInTheDocument();
+      expectWorking(myCircle());
+      // The bar goes after its time; the half goes on saying it while the circle is worked out.
+      await after(BAR_MS);
+      await waitFor(() => expect(barRegion()).toBeEmptyDOMElement());
+      expectWorking(myCircle());
+      await after(POLL_MS);
+      expectWorking(myCircle());
+    },
+  );
+
   /** Makes `node` say it is drawn at `box` (jsdom lays nothing out), and the window say it was resized. */
   function laidOut(node: HTMLElement, box: { top: number; bottom: number }): void {
     vi.spyOn(node, "getBoundingClientRect").mockReturnValue({
