@@ -29,16 +29,20 @@ function geoRow(
   return [id, name, ascii, alternates, lat, lon, featureClass, code, country, "", "10", "3101", "", "", population, "", "50", "Atlantic/Madeira", "2026-01-01"].join("\t");
 }
 
-/** A line of the importer's signed.jsonl: a place event with these coordinates and, if given, a locality. */
-function placeLine(lat: number, lon: number, locality?: string): string {
+/**
+ * A line of the live list as the places relay gives it (one event to a line): a place event with these
+ * coordinates and, if given, a locality. `d`, `createdAt` and `kind` make another version of a place, or
+ * an event that is no place.
+ */
+function placeLine(lat: number, lon: number, locality?: string, { d = `osm-node-${lat}-${lon}`, createdAt = 1, kind = 39999 } = {}): string {
   const tags = [
-    ["d", `osm-node-${lat}-${lon}`],
+    ["d", d],
     ["name", "A place"],
     ["lat", String(lat)],
     ["lon", String(lon)],
     ...(locality === undefined ? [] : [["locality", locality]]),
   ];
-  return JSON.stringify({ kind: 39999, tags, content: "", created_at: 1, pubkey: "a".repeat(64), id: "b".repeat(64), sig: "c".repeat(128) });
+  return JSON.stringify({ kind, tags, content: "", created_at: createdAt, pubkey: "a".repeat(64), id: "b".repeat(64), sig: "c".repeat(128) });
 }
 
 const LON = -16.9;
@@ -90,6 +94,24 @@ describe("readPlaces", () => {
     );
     expect(read).toEqual([{ lat: 32.65, lon: LON, locality: "Funchal" }, { lat: 32.7, lon: LON }]);
     expect(skipped).toBe(2);
+  });
+
+  it("reads only places, and of a place given twice, its newest version, whatever the order", () => {
+    const lines = [
+      placeLine(32.6, LON, "Old", { d: "osm-node-1", createdAt: 100 }),
+      placeLine(32.7, LON, "New", { d: "osm-node-1", createdAt: 200 }),
+      placeLine(32.8, LON, "A note, not a place", { kind: 1 }),
+      placeLine(32.9, LON, "Other", { d: "osm-node-2" }),
+    ];
+    for (const order of [lines, [...lines].reverse()]) {
+      const { places: read, skipped, older } = readPlaces(order.join("\n"));
+      expect(read.sort((a, b) => a.lat - b.lat)).toEqual([
+        { lat: 32.7, lon: LON, locality: "New" },
+        { lat: 32.9, lon: LON, locality: "Other" },
+      ]);
+      expect(skipped).toBe(1);
+      expect(older).toBe(1);
+    }
   });
 });
 
@@ -261,6 +283,10 @@ describe("the file", () => {
     expect(file.licence).toMatch(/CC BY 4\.0/);
     expect(file.source).toMatch(/GeoNames/);
     expect(file.regenerate).toMatch(/tools\/towns\.ts/);
+    // The places are the live list, read from the places relay.
+    expect(file.source).toMatch(/the live list/);
+    expect(file.regenerate).toMatch(/places relay/);
+    expect(file.regenerate).toMatch(/nak req -k 39999/);
   });
 
   it("is the same text, byte for byte, whatever order the rows and places come in", () => {

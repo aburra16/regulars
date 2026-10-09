@@ -2,14 +2,17 @@
  * Writes src/data/towns.json: the towns the places are put in, cut down from GeoNames' list of
  * towns of a thousand people or more (cities1000, under CC BY 4.0) to the ones the places need.
  *
- *   node tools/towns.ts <cities1000.txt> <countryInfo.txt> <signed.jsonl> [--date YYYY-MM-DD]
+ *   node tools/towns.ts <cities1000.txt> <countryInfo.txt> <places-live.jsonl> [--date YYYY-MM-DD]
  *     cities1000.txt and countryInfo.txt are from https://download.geonames.org/export/dump/ (unzip
- *     cities1000.zip first); signed.jsonl is the importer's run of the places (mise-en-place's
- *     out/<run>/signed.jsonl). `--date` is the day the GeoNames files were downloaded; without it,
- *     today in Greenwich. Node 22.18 or later runs the file as it is.
+ *     cities1000.zip first). places-live.jsonl is the live list, the places the app loads, read from
+ *     the places relay one event to a line, as `nak req` prints them (`REGENERATE` says how). `--date`
+ *     is the day the GeoNames files were downloaded; without it, today in Greenwich. Node 22.18 or
+ *     later runs the file as it is. The tool itself reads only these files: it asks no relay and no
+ *     server anything.
  *
  * Every file is read as text: the GeoNames files as rows of tab-separated fields, the places as one
- * JSON event to a line. Nothing in them is run.
+ * JSON event to a line. Nothing in them is run. Of the events, only places count (kind 39999), and of
+ * two versions of one place, the newer.
  *
  * Which towns: the populated places of GeoNames (feature class P), leaving out districts (PPLX) and
  * abandoned, destroyed, historical and religious places (PPLQ, PPLW, PPLH, PPLCH). Each place's town is the
@@ -25,8 +28,10 @@ import { fileURLToPath } from "node:url";
 
 import KDBush from "kdbush";
 
+import { isNewer } from "../src/nostr/events.ts";
 import { foldText } from "../src/places/fold.ts";
 import { around } from "../src/places/geo.ts";
+import { PLACE_KIND } from "../src/places/place.ts";
 import { type PartRow, TOWN_REACH_KM, type TownRow, type TownsFile } from "../src/places/towns.ts";
 
 /** Kinds of populated place that are no town: districts, and abandoned, destroyed, historical and religious places. */
@@ -110,22 +115,26 @@ export function readCountries(text: string): Map<string, string> {
 }
 
 /**
- * The places in the text of the importer's signed.jsonl: one event to a line, its point and its
- * locality from its tags. A line that is not JSON, or an event without a point, is skipped and counted.
+ * The places in the text of the live list: one event to a line, each place's point and locality from
+ * its tags. A line that is not JSON, an event that is not a place (kind 39999), and a place without a
+ * point are skipped and counted (`skipped`). Of two versions of one place (its author and `d`), the
+ * newer counts, as NIP-01 says and the app reads them; the older are counted (`older`).
  */
-export function readPlaces(text: string): { places: PlacePoint[]; skipped: number } {
-  const places: PlacePoint[] = [];
+export function readPlaces(text: string): { places: PlacePoint[]; skipped: number; older: number } {
+  const newest = new Map<string, { id: string; created_at: number; place: PlacePoint }>();
   let skipped = 0;
-  for (const line of text.split("\n")) {
-    if (line.trim() === "") continue;
+  let older = 0;
+  text.split("\n").forEach((line, at) => {
+    if (line.trim() === "") return;
     let event: unknown;
     try {
       event = JSON.parse(line);
     } catch {
       skipped += 1;
-      continue;
+      return;
     }
-    const tags = typeof event === "object" && event !== null ? (event as { tags?: unknown }).tags : undefined;
+    const fields = typeof event === "object" && event !== null ? (event as Record<string, unknown>) : {};
+    const tags = fields.tags;
     const tag = (name: string): string | undefined => {
       if (!Array.isArray(tags)) return undefined;
       const found = tags.find((each): each is string[] => Array.isArray(each) && each[0] === name && typeof each[1] === "string");
@@ -133,14 +142,25 @@ export function readPlaces(text: string): { places: PlacePoint[]; skipped: numbe
     };
     const lat = degrees(tag("lat"), 90);
     const lon = degrees(tag("lon"), 180);
-    if (lat === undefined || lon === undefined) {
+    if (fields.kind !== PLACE_KIND || lat === undefined || lon === undefined) {
       skipped += 1;
-      continue;
+      return;
     }
     const locality = tag("locality")?.trim();
-    places.push(locality === undefined || locality === "" ? { lat, lon } : { lat, lon, locality });
-  }
-  return { places, skipped };
+    const place = locality === undefined || locality === "" ? { lat, lon } : { lat, lon, locality };
+    const version = {
+      id: typeof fields.id === "string" ? fields.id : "",
+      created_at: typeof fields.created_at === "number" ? fields.created_at : 0,
+      place,
+    };
+    // A place with no `d` is no version of another: its line stands for it.
+    const d = tag("d");
+    const address = d === undefined ? `line ${at}` : `${String(fields.pubkey)}:${d}`;
+    const kept = newest.get(address);
+    if (kept !== undefined) older += 1;
+    if (kept === undefined || isNewer(version, kept)) newest.set(address, version);
+  });
+  return { places: [...newest.values()].map(({ place }) => place), skipped, older };
 }
 
 /** The names a town answers to, folded: its name, its ASCII name and GeoNames' other names for it. */
@@ -297,6 +317,14 @@ export function marginTowns(rows: readonly GeoTown[], places: readonly PlacePoin
   return [...margin];
 }
 
+/**
+ * How to make the file again, as it says it. The house's key and the list's coordinate are
+ * `config.houseHex` and `config.headerCoordinate` in src/config.ts; the places relay is
+ * `config.placesRelay`, which sends up to 10,000 events to a request.
+ */
+export const REGENERATE =
+  "Read the live list from the places relay, one event to a line: nak req -k 39999 -a <house key> -t z=<list coordinate> -l 10000 wss://dcosl.brainstorm.world > places-live.jsonl (the key and the coordinate are config.houseHex and config.headerCoordinate in src/config.ts). Download and unzip cities1000.zip, and countryInfo.txt, from GeoNames. Then: node tools/towns.ts cities1000.txt countryInfo.txt places-live.jsonl --date <download day>. Do not edit this file by hand.";
+
 /** Degrees to four decimals, about eleven metres. */
 const round4 = (value: number) => Math.round(value * 1e4) / 1e4;
 
@@ -320,11 +348,10 @@ export function townsFile(choice: TownChoice, countries: ReadonlyMap<string, str
     .sort((a, b) => byId(a.part, b.part))
     .map(({ part, of }) => [part.id, round4(part.lat), round4(part.lon), of.id]);
   return {
-    source: `GeoNames' towns of 1,000 people or more (cities1000.txt and countryInfo.txt, https://download.geonames.org/export/dump/), cut down by tools/towns.ts to the towns of ${places.toLocaleString("en")} places.`,
+    source: `GeoNames' towns of 1,000 people or more (cities1000.txt and countryInfo.txt, https://download.geonames.org/export/dump/), cut down by tools/towns.ts to the towns of the ${places.toLocaleString("en")} places of the live list, the food and drink places the app loads, read from the places relay.`,
     licence: "Town names from GeoNames (geonames.org), CC BY 4.0: https://creativecommons.org/licenses/by/4.0/",
     date,
-    regenerate:
-      "Download and unzip cities1000.zip, and countryInfo.txt, from GeoNames, then: node tools/towns.ts cities1000.txt countryInfo.txt <importer run>/signed.jsonl --date <download day>. Do not edit this file by hand.",
+    regenerate: REGENERATE,
     countries: named,
     towns,
     parts,
@@ -361,13 +388,13 @@ function main(args: string[]): void {
   const files = at < 0 ? args : [...args.slice(0, at), ...args.slice(at + 2)];
   const date = at < 0 ? new Date().toISOString().slice(0, 10) : args[at + 1]!;
   if (files.length !== 3 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throw new Error("Usage: node tools/towns.ts <cities1000.txt> <countryInfo.txt> <signed.jsonl> [--date YYYY-MM-DD]");
+    throw new Error("Usage: node tools/towns.ts <cities1000.txt> <countryInfo.txt> <places-live.jsonl> [--date YYYY-MM-DD]");
   }
   const [geoPath, countriesPath, placesPath] = files as [string, string, string];
 
   const rows = readGeoNames(readFileSync(geoPath, "utf8"));
   const countries = readCountries(readFileSync(countriesPath, "utf8"));
-  const { places, skipped } = readPlaces(readFileSync(placesPath, "utf8"));
+  const { places, skipped, older } = readPlaces(readFileSync(placesPath, "utf8"));
   const choice = chooseTowns(rows, places);
   const text = formatTownsFile(townsFile(choice, countries, { date, places: places.length }));
 
@@ -377,7 +404,7 @@ function main(args: string[]): void {
   const margin = marginTowns(rows, places, choice, MARGIN_POPULATION);
   const marginText = formatTownsFile(townsFile({ ...choice, towns: [...choice.towns, ...margin] }, countries, { date, places: places.length }));
   const kb = (n: number) => `${(n / 1024).toFixed(1)} KB`;
-  console.log(`Read ${rows.length} towns from GeoNames and ${places.length} places (${skipped} lines skipped).`);
+  console.log(`Read ${rows.length} towns from GeoNames and ${places.length} places (${skipped} lines skipped, ${older} older versions of a place left out).`);
   console.log(`Wrote ${out}: ${choice.towns.length} towns and ${choice.parts.length} parts, ${kb(Buffer.byteLength(text))}.`);
   console.log(`${choice.placed} places have a town within ${TOWN_REACH_KM} km; ${choice.unplaced} have none.`);
   console.log(
