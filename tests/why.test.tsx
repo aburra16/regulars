@@ -538,7 +538,8 @@ describe("your circle, once it is ready", () => {
     ranks = circleOf(me);
     await openWhy();
     await waitFor(() => expect(circlePanel()).toHaveTextContent(`4 ${copy.why.inYourCircle(4)}`));
-    expect(window.sessionStorage.getItem(COUNT_KEY)).not.toBeNull();
+    // The count is kept for the tab once it is read, which may be a moment after it shows.
+    await waitFor(() => expect(window.sessionStorage.getItem(COUNT_KEY)).not.toBeNull());
     forgetCircle();
     expect(window.sessionStorage.getItem(COUNT_KEY)).toBeNull();
   });
@@ -814,7 +815,8 @@ describe("Update now", () => {
     const jacafe = () => screen.getByRole("link", { name: "Jacafé" });
     await waitFor(() => expect(jacafe()).toHaveTextContent(copy.score.ratedByCircle(2)));
     await after(POLL_MS);
-    expect(brainstorm.latestRun).toHaveBeenLastCalledWith(TOKEN, expect.any(AbortSignal));
+    // The poll that the timer starts asks Brainstorm when it gets to it.
+    await waitFor(() => expect(brainstorm.latestRun).toHaveBeenLastCalledWith(TOKEN, expect.any(AbortSignal)));
 
     // Brainstorm publishes the new circle, with Ben under the line now.
     const at = nowS();
@@ -826,7 +828,7 @@ describe("Update now", () => {
 
     // Back on the page: it says so, and counts the new circle.
     await act(() => router.navigate(WHY_PATH));
-    expect(updateStatus()).toHaveTextContent(copy.why.updated);
+    await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updated));
     await waitFor(() => expect(circlePanel()).toHaveTextContent(`1 ${copy.why.inYourCircle(1)}`));
   });
 
