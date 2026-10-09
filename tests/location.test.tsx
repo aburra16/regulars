@@ -724,7 +724,8 @@ describe("where a first visit starts", () => {
       // While the places load, the town as it was kept.
       expect(screen.getByRole("button", { name: "Near Praha" })).toBeInTheDocument();
       expect(await screen.findByRole("button", { name: "Near Prague" })).toBeInTheDocument();
-      expect(JSON.parse(saved()!)).toMatchObject({ name: "Prague", country: "CZ" });
+      // The device keeps it in an effect, after the header has said it.
+      await waitFor(() => expect(JSON.parse(saved()!)).toMatchObject({ name: "Prague", country: "CZ" }));
     });
   });
 
