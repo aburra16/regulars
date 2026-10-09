@@ -146,6 +146,8 @@ const toggle = () => screen.getByRole("group", { name: copy.view.label });
 const updateNow = () => screen.getByRole("button", { name: copy.why.updateNow });
 /** The panel with the circle's count in it. */
 const circlePanel = () => screen.getByRole("region", { name: copy.why.circleHeading });
+/** The panel once it is on the page: on a slow machine the page may not have drawn it yet. */
+const findCirclePanel = () => screen.findByRole("region", { name: copy.why.circleHeading });
 /** The polite status beside Update now: the panel's one. */
 const updateStatus = () => within(circlePanel()).getByRole("status");
 
@@ -352,7 +354,7 @@ describe("your circle, once it is ready", () => {
     }
     await openWhy(px);
     if (version === "counted") await waitFor(() => expect(circlePanel()).toHaveTextContent(copy.why.inYourCircle(4)));
-    if (version === "empty") await within(circlePanel()).findByRole("heading", { name: copy.why.emptyTitle });
+    if (version === "empty") await within(await findCirclePanel()).findByRole("heading", { name: copy.why.emptyTitle });
     if (version === "floor") await waitFor(() => expect(circlePanel()).toHaveTextContent(`6,400+ ${copy.why.inYourCircle(6400)}`));
     if (version === "signedOut") expect(screen.getByRole("link", { name: copy.signin.button })).toBeInTheDocument();
     // "Closer people count for more" is a rule about the sums, the design's own words, not a number on anyone.
@@ -474,7 +476,7 @@ describe("your circle, once it is ready", () => {
     const me = signedIn();
     window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey: me, state: "unconfirmed", scorer: SCORER_AT, notice: false }));
     const { router } = await openWhy();
-    expect(await within(circlePanel()).findByRole("heading", { name: copy.why.emptyTitle })).toBeInTheDocument();
+    expect(await within(await findCirclePanel()).findByRole("heading", { name: copy.why.emptyTitle })).toBeInTheDocument();
     await waitFor(() => expect(window.sessionStorage.getItem(COUNT_KEY)).not.toBeNull());
 
     // Brainstorm has published since: the store finds ranks for the reviewers on Explore.
@@ -495,7 +497,7 @@ describe("your circle, once it is ready", () => {
     const at = nowS() - DAY_S;
     ranks = Array.from({ length: RANK_PAGE }, (_, n) => rankOf((n + 1).toString(16).padStart(64, "0"), 3, { hops: 2, at }));
     await openWhy();
-    expect(await within(circlePanel()).findByText(copy.why.countFailed)).toBeInTheDocument();
+    expect(await within(await findCirclePanel()).findByText(copy.why.countFailed)).toBeInTheDocument();
     expect(window.sessionStorage.getItem(COUNT_KEY)).toBeNull();
 
     const reads = rankReads.length;
@@ -570,7 +572,7 @@ describe("your circle, once it is ready", () => {
     ready(me);
     ranks = [rankOf(me, 100, { hops: 0 }), rankOf(DAN, 4.38, { hops: 1 })];
     await openWhy();
-    expect(await within(circlePanel()).findByRole("heading", { name: copy.why.emptyTitle })).toBeInTheDocument();
+    expect(await within(await findCirclePanel()).findByRole("heading", { name: copy.why.emptyTitle })).toBeInTheDocument();
     expect(within(circlePanel()).getByText(copy.why.emptyBody)).toBeInTheDocument();
     expect(within(circlePanel()).queryByText(copy.why.youTrust)).not.toBeInTheDocument();
     expect(updateNow()).toBeInTheDocument();
@@ -588,7 +590,7 @@ describe("your circle, once it is ready", () => {
     });
     ranks = circleOf(me);
     await openApp(WHY_PATH, { events: fixtures, readers: failing });
-    expect(await within(circlePanel()).findByText(copy.why.countFailed)).toBeInTheDocument();
+    expect(await within(await findCirclePanel()).findByText(copy.why.countFailed)).toBeInTheDocument();
     down = false;
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     await user.click(within(circlePanel()).getByRole("button", { name: copy.load.retry }));
@@ -834,7 +836,7 @@ describe("Update now", () => {
     window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey: me, state: "unconfirmed", scorer: SCORER_AT, notice: false }));
     const kept = () => JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "{}") as { state?: string };
     await openWhy();
-    expect(await within(circlePanel()).findByRole("heading", { name: copy.why.emptyTitle })).toBeInTheDocument();
+    expect(await within(await findCirclePanel()).findByRole("heading", { name: copy.why.emptyTitle })).toBeInTheDocument();
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     await user.click(updateNow());
     await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updating));
