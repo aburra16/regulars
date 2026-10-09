@@ -450,12 +450,10 @@ export const copy = {
     // DRAFT for Avi
     /** The same box when no review is inside the circle: "4 reviews from outside your circle". */
     foldedAllCircle: (n: number) => `${reviewCount(n)} from ${outsideYourCircle}`,
-    // DRAFT for Avi
-    /** The same box while House picks can't be worked out: "4 reviews, not counted right now". */
-    uncounted: (n: number) => `${reviewCount(n)}, not counted right now`,
-    // DRAFT for Avi
-    /** Under it: the folded reviews are not a verdict on the people who wrote them. */
-    foldedNote: "Shown on request, never removed.",
+    /** The same box while House picks can't be worked out (Avi, 2026-10-09): "2 more reviews, loading". */
+    uncounted: (n: number) => `${n.toLocaleString("en")} more ${n === 1 ? "review" : "reviews"}, loading`,
+    /** Under it: the folded reviews are not a verdict on the people who wrote them (Avi, 2026-10-09). */
+    foldedNote: "Folded away, never deleted.",
     /** The button that opens the folded reviews, and closes them again. */
     show: "Show them",
     // DRAFT for Avi
@@ -470,9 +468,8 @@ export const copy = {
     // DRAFT for Avi
     /** Under it: asks whether to remove it (`removeQuestion`). */
     remove: "Remove",
-    // DRAFT for Avi
-    /** What Remove asks, with the two buttons below. */
-    removeQuestion: "Remove your review? It comes off Regulars and the places it was sent to.",
+    /** What Remove asks, with the two buttons below (Avi, 2026-10-09). */
+    removeQuestion: "Remove your review? It comes off Regulars and everywhere else it was posted.",
     // DRAFT for Avi
     /** The button that removes it, once asked. */
     removeConfirm: "Remove",
@@ -494,12 +491,11 @@ export const copy = {
     // DRAFT for Avi
     /** No review relay took the removal: the review stays, and says so (a state the design does not draw). */
     removeFailed: "Your review didn't come off. Try again.",
-    // DRAFT for Avi
     /**
      * Only the person's own relays took the removal, not the ones Regulars reads reviews from (ruling
-     * R17): it is gone from their places, and still on Regulars. There is no keeping it then.
+     * R17): it is gone from their account, and still on Regulars. There is no keeping it then (Avi, 2026-10-09).
      */
-    removePartial: "Removed from your own places, but not from Regulars yet. Try again.",
+    removePartial: "Removed from your account, but not from Regulars yet. Try again.",
     // DRAFT for Avi
     /** The button that removes it again, after either. */
     removeAgain: "Try again",
@@ -970,11 +966,14 @@ export const copy = {
     beFirst: "Be the first in your circle",
     nobodyYet: (name: string) => `Nobody has reviewed ${name} yet. Yours is the one the people who trust you will see.`,
     rate: "Rate this place",
-    /** The buttons under it: directions, a call, the website. One on its own is "Get directions". */
-    go: "Go",
+    /**
+     * The buttons under it: directions, a call, the website (Avi, 2026-10-09). Directions, beside the
+     * others, is "Get directions" to a screen reader; on its own, it says so to the eye too.
+     */
+    go: "Directions",
     directions: "Get directions",
     call: "Call",
-    site: "Site",
+    site: "Website",
     /** The labels of the facts. */
     facts: { address: "Address", hours: "Hours", phone: "Phone", payment: "Payment" },
     /** The hours fact, for a place with none (PlaceNew.dc.html). */
@@ -1026,6 +1025,12 @@ export const copy = {
     inlineJoiner: comma,
     openNowClosesInline: (time: string) => `Open now${comma}closes ${time}`,
     closedOpensInline: (time: string) => `Closed${comma}opens ${time}`,
+    /** The words of an open place that closes within 45 minutes, before its closing time (Avi, 2026-10-09). */
+    closingSoonWords: "Closing soon",
+    /** Such a place's line, on a card, a row and the place page: "Closing soon · 4 pm". */
+    closingSoon: (time: string) => `Closing soon${dot}${time}`,
+    /** The same inside a line that dots join already, on the desktop's place page: "Closing soon, 4 pm". */
+    closingSoonInline: (time: string) => `Closing soon${comma}${time}`,
     open24: "Open 24 hours",
     closed: "Closed",
     notListed: "Hours not listed",

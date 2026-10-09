@@ -685,7 +685,7 @@ describe("the wording follows the view", () => {
     expect(copy.reviews.foldedMoreCircle(4)).toBe("4 more reviews from outside your circle");
     expect(copy.reviews.foldedMoreCircle(1)).toBe("1 more review from outside your circle");
     expect(copy.reviews.foldedAllCircle(4)).toBe("4 reviews from outside your circle");
-    expect(copy.reviews.foldedNote).toBe("Shown on request, never removed.");
+    expect(copy.reviews.foldedNote).toBe("Folded away, never deleted.");
     expect(copy.filters.sort.circleScore).toBe("My circle's rating");
     expect(copy.deskExplore.sort.circleScore).toBe("Sort: My circle's rating");
     expect(copy.search.sortedBy.circleScore).toBe("Best in My circle first");

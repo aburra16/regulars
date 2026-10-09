@@ -48,19 +48,20 @@ function edge(variant: PlaceCardProps["variant"], selected: boolean, onMap: bool
 }
 
 /**
- * The words about the hours, as part of a line. An open or closed place has that word first, in
- * bold and in its colour (`stateColour`: "Closed" red, "Open" green, or amber when it closes soon);
- * the copy puts it first in every line of those two states. Any other line is as it is.
+ * The words about the hours, as part of a line. An open or closed place has the words that say so
+ * first, in bold and in their colour (`stateColour`): "Closed" red, "Open" green, "Closing soon" amber;
+ * the copy puts them first in every line of those states. Any other line is as it is.
  */
 export function HoursText({ state, line }: { state: OpenState; line: string }): JSX.Element {
   const colour = stateColour(state);
   if (colour === undefined) return <>{line}</>;
-  const space = line.indexOf(" ");
-  const word = space === -1 ? line : line.slice(0, space);
+  const soon = copy.hours.closingSoonWords;
+  const end = state.kind === "open" && state.closingSoon === true && line.startsWith(soon) ? soon.length : line.indexOf(" ");
+  const words = end === -1 ? line : line.slice(0, end);
   return (
     <>
-      <span className={`font-bold ${colour}`}>{word}</span>
-      {space === -1 ? "" : line.slice(space)}
+      <span className={`font-bold ${colour}`}>{words}</span>
+      {end === -1 ? "" : line.slice(end)}
     </>
   );
 }

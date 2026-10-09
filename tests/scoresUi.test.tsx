@@ -640,7 +640,7 @@ describe("the place page, scored", () => {
     const title = await screen.findByText(copy.reviews.foldedMore(1));
     expect(copy.reviews.foldedMore(1)).toBe("1 more review from outside House picks");
     expect(copy.reviews.foldedMore(4)).toBe("4 more reviews from outside House picks");
-    expect(copy.reviews.foldedNote).toBe("Shown on request, never removed.");
+    expect(copy.reviews.foldedNote).toBe("Folded away, never deleted.");
     const box = title.closest("section")!;
     expect(box).toHaveClass("border-dashed", "border-line-dashed");
     expect(within(box).getByText(copy.reviews.foldedNote)).toBeInTheDocument();
@@ -974,7 +974,7 @@ describe("the place page, not scored", () => {
     expect(screen.getByText(`${copy.score.peopleRated(2)}.`)).toBeInTheDocument();
 
     const box = screen.getByText(copy.reviews.uncounted(2)).closest("section")!;
-    expect(copy.reviews.uncounted(2)).toBe("2 reviews, not counted right now");
+    expect(copy.reviews.uncounted(2)).toBe("2 more reviews, loading");
     await user.click(within(box).getByRole("button", { name: copy.reviews.show }));
     const shown = await screen.findAllByRole("article");
     expect(shown).toHaveLength(2);

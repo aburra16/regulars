@@ -119,6 +119,8 @@ interface Action {
   kind: "go" | "call" | "site";
   href: string;
   words: string;
+  /** What a screen reader hears in place of `words`, when it says more: "Get directions" for "Directions". */
+  heard?: string;
   /** Said to a screen reader after the words: where the link goes. */
   more?: string;
   /** The link leaves the app, for a page that is not ours: a new tab, telling it nothing of where it came from. */
@@ -128,7 +130,8 @@ interface Action {
 function actionList(actions: PlaceActions, alone: boolean): Action[] {
   const list: Action[] = [];
   if (actions.go !== "") {
-    list.push({ kind: "go", href: actions.go, words: alone ? copy.place.directions : copy.place.go, out: "noopener noreferrer" });
+    const go = alone ? { words: copy.place.directions } : { words: copy.place.go, heard: copy.place.directions };
+    list.push({ kind: "go", href: actions.go, ...go, out: "noopener noreferrer" });
   }
   if (actions.call !== undefined) list.push({ kind: "call", href: actions.call, words: copy.place.call });
   if (actions.site !== undefined) {
@@ -139,7 +142,17 @@ function actionList(actions: PlaceActions, alone: boolean): Action[] {
 }
 
 function ActionLink({ action, className, icon }: { action: Action; className: string; icon: boolean }): JSX.Element {
-  const words: ReactNode[] = [action.words];
+  const words: ReactNode[] =
+    action.heard === undefined
+      ? [action.words]
+      : [
+          <span key="words" aria-hidden="true">
+            {action.words}
+          </span>,
+          <span key="heard" className="sr-only">
+            {action.heard}
+          </span>,
+        ];
   if (action.more !== undefined) words.push(<Unseen key="more" text={action.more} />);
   // The link leaves the app.
   if (action.out !== undefined) words.push(<NewTabHint key="out" />);
@@ -184,7 +197,7 @@ const railButton =
   "flex h-12 min-w-0 items-center justify-center gap-1.5 rounded-tile border-token border-ink px-2 text-secondary font-bold text-ink no-underline";
 
 /**
- * The desktop's actions, in the rail (DeskPlace.dc.html): Go, Call and Site, those the place has,
+ * The desktop's actions, in the rail (DeskPlace.dc.html): Directions, Call and Website, those the place has,
  * and Save, which asks the person to sign in first, once saved lists open (`config.features.saved`).
  * As many to a row as fit.
  */

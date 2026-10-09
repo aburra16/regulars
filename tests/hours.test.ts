@@ -162,12 +162,24 @@ describe("openState", () => {
       expect(stateOf(ELEVEN, "2026-10-08T09:50:00Z")).toEqual({ kind: "closed", opensAt: new Date(2026, 9, 8, 11, 0) });
     });
 
-    it("keeps its words: closing soon still reads 'Open until 11 pm', and 'Open now · closes 11 pm' on the place page", () => {
+    it("says so in its own words (Avi, 2026-10-09): 'Closing soon · 11 pm', and 'Closing soon, 11 pm' inside a line", () => {
       const soon = stateOf(ELEVEN, "2026-10-07T21:30:00Z");
       expect(soon).toHaveProperty("closingSoon", true);
-      expect(openLine(soon, "en-US", "card")).toBe("Open until 11 pm");
-      expect(openLine(soon, "en-US", "place")).toBe("Open now · closes 11 pm");
-      expect(openLine(soon, "en-US", "placeInline")).toBe("Open now, closes 11 pm");
+      expect(openLine(soon, "en-US", "card")).toBe("Closing soon · 11 pm");
+      expect(openLine(soon, "en-US", "place")).toBe("Closing soon · 11 pm");
+      expect(openLine(soon, "en-US", "placeInline")).toBe("Closing soon, 11 pm");
+      expect(openLine(soon, "pt-PT", "card")).toBe("Closing soon · 23:00");
+    });
+
+    it("says it from 45 minutes left, and 'Open until' with 46", () => {
+      for (const [form, open, soon] of [
+        ["card", "Open until 11 pm", "Closing soon · 11 pm"],
+        ["place", "Open now · closes 11 pm", "Closing soon · 11 pm"],
+        ["placeInline", "Open now, closes 11 pm", "Closing soon, 11 pm"],
+      ] as const) {
+        expect(lineOf(ELEVEN, "2026-10-07T21:14:00Z", "en-US", form)).toBe(open);
+        expect(lineOf(ELEVEN, "2026-10-07T21:15:00Z", "en-US", form)).toBe(soon);
+      }
     });
   });
 

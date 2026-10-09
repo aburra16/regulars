@@ -322,10 +322,11 @@ function formatTime(at: Date, twelveHour: boolean, withWeekday: boolean): string
 
 /**
  * The line a card or the place page shows for a state: "Open until 11 pm", "Closed · opens 7 am",
- * "Hours not listed", or the hours as written when they cannot be read. The time follows the
- * locale's 12- or 24-hour clock. `where` matters for an open place, and on the desktop's place page
- * for a closed one: the page says "Open now · closes 11 pm"; `placeInline`, inside the desktop's
- * line that dots join already, says "Open now, closes 11 pm" and "Closed, opens 7 am".
+ * "Closing soon · 11 pm" within 45 minutes of closing (`closingSoon`), "Hours not listed", or the hours
+ * as written when they cannot be read. The time follows the locale's 12- or 24-hour clock. `where`
+ * matters for an open place, and on the desktop's place page for a closed one or one closing soon: the
+ * page says "Open now · closes 11 pm"; `placeInline`, inside the desktop's line that dots join already,
+ * says "Open now, closes 11 pm", "Closed, opens 7 am" and "Closing soon, 11 pm".
  */
 export function openLine(state: OpenState, locale: string, where: "card" | "place" | "placeInline"): string {
   switch (state.kind) {
@@ -336,6 +337,7 @@ export function openLine(state: OpenState, locale: string, where: "card" | "plac
     case "open": {
       if (state.closesAt === undefined) return copy.hours.open24;
       const time = formatTime(state.closesAt, usesTwelveHour(locale), state.closesAfterADay === true);
+      if (state.closingSoon === true) return where === "placeInline" ? copy.hours.closingSoonInline(time) : copy.hours.closingSoon(time);
       if (where === "card") return copy.hours.openUntil(time);
       return where === "place" ? copy.hours.openNowCloses(time) : copy.hours.openNowClosesInline(time);
     }

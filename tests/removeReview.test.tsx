@@ -180,7 +180,7 @@ describe("removing a review", () => {
     await user.click(await removeButton(mine));
 
     expect(within(mine).getByText(copy.reviews.removeQuestion)).toBeInTheDocument();
-    expect(copy.reviews.removeQuestion).toBe("Remove your review? It comes off Regulars and the places it was sent to.");
+    expect(copy.reviews.removeQuestion).toBe("Remove your review? It comes off Regulars and everywhere else it was posted.");
     expect(copy.reviews.removeConfirm).toBe("Remove");
     expect(copy.reviews.keep).toBe("Keep it");
     // The way out is where the focus goes.
@@ -339,7 +339,7 @@ describe("removing a review", () => {
     await removeIt(user);
     const mine = await yourReview();
     expect(await within(mine).findByRole("alert")).toHaveTextContent(copy.reviews.removePartial);
-    expect(copy.reviews.removePartial).toBe("Removed from your own places, but not from Regulars yet. Try again.");
+    expect(copy.reviews.removePartial).toBe("Removed from your account, but not from Regulars yet. Try again.");
     expect(within(mine).getByText("Get the bolo")).toBeInTheDocument();
     const again = within(mine).getByRole("button", { name: copy.reviews.removeAgain });
     expect(again).toHaveFocus();

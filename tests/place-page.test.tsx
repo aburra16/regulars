@@ -321,9 +321,13 @@ describe("the place page: the score panel, before anyone has reviewed it", () =>
 // ---- The actions ----
 
 describe("the place page: actions", () => {
-  it("has Go, Call and Site for a place with a phone and a website", async () => {
+  it("has Directions, Call and Website for a place with a phone and a website", async () => {
     await openPlace(`/place/${JACAFE.d}`);
-    const go = link(newTab(copy.place.go));
+    // "Directions" to the eye, "Get directions" to a screen reader (Avi, 2026-10-09).
+    const go = link(newTab(copy.place.directions));
+    expect(go).toHaveTextContent(copy.place.go);
+    expect(copy.place.go).toBe("Directions");
+    expect(copy.place.site).toBe("Website");
     expect(go).toHaveAttribute("href", goUrl(JACAFE));
     expect(go).toHaveAttribute("target", "_blank");
     expect(go).toHaveAttribute("rel", "noopener noreferrer");
@@ -342,9 +346,9 @@ describe("the place page: actions", () => {
     expect(go.parentElement).toHaveClass("grid", "grid-cols-3");
   });
 
-  it("leaves out Site for a place with no website", async () => {
+  it("leaves out Website for a place with no website", async () => {
     await openPlace(`/place/${LOFT.d}`);
-    expect(link(newTab(copy.place.go))).toBeInTheDocument();
+    expect(link(newTab(copy.place.directions))).toBeInTheDocument();
     expect(link(copy.place.call)).toHaveAttribute("href", "tel:+351291640513");
     expect(queryLink(new RegExp(`^${copy.place.site}`))).not.toBeInTheDocument();
     expect(link(copy.place.call).parentElement).toHaveClass("grid", "grid-cols-2");
@@ -973,13 +977,13 @@ describe("the place page at 1360 px (D2)", () => {
     expect(panel.className).not.toMatch(/\[/);
   });
 
-  it("puts Rate this place, Go, Call and Site, the map, the facts with the chip, Suggest a fix and the attribution in the rail", async () => {
+  it("puts Rate this place, Directions, Call and Website, the map, the facts with the chip, Suggest a fix and the attribution in the rail", async () => {
     await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP });
     const rail = screen.getByRole("complementary");
     const inRail = within(rail);
 
     expect(inRail.getByRole("link", { name: "Rate this place" })).toHaveAttribute("href", "/signin");
-    expect(inRail.getByRole("link", { name: newTab(copy.place.go) })).toHaveAttribute("href", goUrl(JACAFE));
+    expect(inRail.getByRole("link", { name: newTab(copy.place.directions) })).toHaveAttribute("href", goUrl(JACAFE));
     expect(inRail.getByRole("link", { name: copy.place.call })).toHaveAttribute("href", "tel:+351926958673");
     expect(inRail.getByRole("link", { name: new RegExp(`^${copy.place.site}`) })).toHaveAttribute("href", JACAFE.website!);
     await waitFor(() => expect(rail.querySelector("canvas")).not.toBeNull());
@@ -1000,8 +1004,8 @@ describe("the place page at 1360 px (D2)", () => {
     const rail = within(screen.getByRole("complementary"));
     expect(rail.queryByRole("link", { name: copy.place.saveShort })).not.toBeInTheDocument();
     expect(rail.queryByText(copy.place.saveShort)).not.toBeInTheDocument();
-    // Go, Call and Site, each place at the row's grid, and nothing else in it.
-    const go = rail.getByRole("link", { name: newTab(copy.place.go) });
+    // Directions, Call and Website, each place at the row's grid, and nothing else in it.
+    const go = rail.getByRole("link", { name: newTab(copy.place.directions) });
     const row = go.parentElement!;
     expect([...row.children].map((child) => child.textContent)).toEqual([
       expect.stringContaining(copy.place.go),
@@ -1012,7 +1016,7 @@ describe("the place page at 1360 px (D2)", () => {
     cleanup();
     // A place with directions only: the one button, and no Save beside it.
     await openPlace(`/place/${NAME_ONLY.d}`, { px: DESKTOP });
-    const only = within(screen.getByRole("complementary")).getByRole("link", { name: newTab(copy.place.go) });
+    const only = within(screen.getByRole("complementary")).getByRole("link", { name: newTab(copy.place.directions) });
     expect(only.parentElement!.children).toHaveLength(1);
   });
 

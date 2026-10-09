@@ -186,6 +186,17 @@ describe("copy", () => {
     expect(copy.filters.openNowNote).toBe("Places with no hours listed stay in.");
   });
 
+  it("has the words Avi approved for the place page (his wording pass, 2026-10-09)", () => {
+    expect(copy.hours.closingSoon("4 pm")).toBe("Closing soon · 4 pm");
+    expect(copy.hours.closingSoonInline("4 pm")).toBe("Closing soon, 4 pm");
+    expect([copy.place.go, copy.place.site, copy.place.directions]).toEqual(["Directions", "Website", "Get directions"]);
+    expect(copy.reviews.foldedNote).toBe("Folded away, never deleted.");
+    expect(copy.reviews.uncounted(1)).toBe("1 more review, loading");
+    expect(copy.reviews.uncounted(2)).toBe("2 more reviews, loading");
+    expect(copy.reviews.removeQuestion).toBe("Remove your review? It comes off Regulars and everywhere else it was posted.");
+    expect(copy.reviews.removePartial).toBe("Removed from your account, but not from Regulars yet. Try again.");
+  });
+
   it("says My circle is not available in the same words wherever it says so", () => {
     expect(copy.circle.unavailable).toBe(copy.score.circleUnavailable);
   });

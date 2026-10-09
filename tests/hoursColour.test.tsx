@@ -15,10 +15,10 @@ import raw from "./fixtures/funchal-items.json";
 import { DESKTOP, openApp, PHONE, resetWidth } from "./support/app";
 
 /*
- * Opening hours in colour (Avi, 2026-10-09), wherever the hours are a line: the word that says whether
- * a place is open, and only it, is red when it is closed (the accent), green when it is open, and amber
- * when it closes within 45 minutes. The words do not change, and they already say Open or Closed, so
- * the colour is never the only sign. The week's table on the place page stays as it is.
+ * Opening hours in colour (Avi, 2026-10-09), wherever the hours are a line: the words that say whether
+ * a place is open, and only they, are red when it is closed (the accent), green when it is open, and
+ * amber when it closes within 45 minutes, which they say too: "Closing soon · 11 pm". The words say
+ * which already, so the colour is never the only sign. The week's table on the place page stays as it is.
  */
 
 const fixtures: NostrEvent[] = raw;
@@ -87,10 +87,11 @@ describe("the hours on a card, a row and a chain's location row", () => {
       expect(stateWord("Open").parentElement).toHaveTextContent("Open until 11 pm");
     });
 
-    it("is amber for Open with 45 minutes to go, in the same words", () => {
+    it("is amber for Closing soon, with 45 minutes to go", () => {
       show(drawn(withHours(ELEVEN), MINUTES_45));
-      expectColour(stateWord("Open"), COLOUR.soon);
-      expect(stateWord("Open").parentElement).toHaveTextContent("Open until 11 pm");
+      expectColour(stateWord("Closing soon"), COLOUR.soon);
+      expect(stateWord("Closing soon").parentElement).toHaveTextContent("Closing soon · 11 pm");
+      expect(screen.queryByText("Open", { selector: "span" })).not.toBeInTheDocument();
     });
 
     it("is green for a place open all day, which never closes soon", () => {
@@ -123,11 +124,11 @@ describe("the hours on a place's page", () => {
   const header = () => screen.getByRole("heading", { level: 1, name: jacafe.name }).parentElement!;
 
   it.each([
-    ["phone", PHONE, " · closes 11 pm"],
-    ["desktop", DESKTOP, ", closes 11 pm"],
-  ])("colours 'Open now' amber on a %s when it closes within 45 minutes, and leaves the rest of the line grey", async (_, px, rest) => {
+    ["phone", PHONE, " · 11 pm"],
+    ["desktop", DESKTOP, ", 11 pm"],
+  ])("says 'Closing soon' in amber on a %s when it closes within 45 minutes, and leaves the time grey", async (_, px, rest) => {
     await openPlace(MINUTES_45, px);
-    const lead = stateWord("Open now", header());
+    const lead = stateWord("Closing soon", header());
     expectColour(lead, COLOUR.soon);
     const after = lead.nextElementSibling!;
     expect(after.textContent).toBe(rest);
@@ -155,8 +156,9 @@ describe("the hours on a place's page", () => {
       const place = places.find((each) => `/place/${encodeURIComponent(each.d)}` === link.getAttribute("href"))!;
       const state = openState(place, MINUTES_45);
       if (state.kind !== "open" && state.kind !== "closed") continue;
-      const word = within(link).getByText(state.kind === "open" ? "Open" : "Closed", { selector: "span" });
-      expectColour(word, state.kind === "closed" ? COLOUR.closed : state.closingSoon === true ? COLOUR.soon : COLOUR.open);
+      const soon = state.kind === "open" && state.closingSoon === true;
+      const word = within(link).getByText(soon ? "Closing soon" : state.kind === "open" ? "Open" : "Closed", { selector: "span" });
+      expectColour(word, state.kind === "closed" ? COLOUR.closed : soon ? COLOUR.soon : COLOUR.open);
       coloured += 1;
     }
     expect(coloured).toBeGreaterThan(0);
