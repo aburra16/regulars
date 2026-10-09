@@ -28,7 +28,8 @@ export interface RelayReader {
 export interface RelayWriter {
   /**
    * Sends `event`, and resolves once the relay has taken it (NIP-01's `OK` true). Throws with the
-   * relay's reason when it refuses it, or with the signal's reason when `signal` aborts.
+   * relay's reason when it refuses it, a `NetworkError` (a DOMException) when its connection closes or
+   * fails before it answers, or the signal's reason when `signal` aborts.
    */
   publish(event: NostrEvent, signal: AbortSignal): Promise<void>;
 }
