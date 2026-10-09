@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { useOwnPubkey } from "../account/useOwnPubkey.ts";
 import type { Place } from "../places/place.ts";
@@ -28,8 +28,10 @@ export interface RecentEntry {
 /**
  * Where the list stands:
  * - `loading`: the first page is being read, or nothing is listed yet while the view's scorer is asked
- *   about the reviewers, or while older pages are read by themselves;
- * - `failed`: no review relay answered for the first page;
+ *   about the reviewers, or while older pages are read by themselves (not while one the person asked
+ *   for is read: the page stays as it was, with the button they pressed);
+ * - `failed`: no review relay answered for the first page; or nothing is listed, and the view's scorer
+ *   could not be asked about some of the reviewers read (`ranksFailed`);
  * - `unavailable`: the view can't be worked out right now, so nobody can be listed;
  * - `ready`: the list is what it is, perhaps empty, perhaps with more on its way.
  */
@@ -46,6 +48,11 @@ export interface Recent {
   view: View;
   /** Whether some reviewers are still to be answered for in the view: their reviews are not listed yet. */
   counting: boolean;
+  /**
+   * Whether some of those reviewers could not be asked about: a read of the view's ranks failed, and
+   * nothing asks again until Try again (`retry`) does.
+   */
+  ranksFailed: boolean;
   /** The next page back in time: not asked for, being read, or failed. */
   older: FeedRead;
   /** The newest page again, over the list: not asked for, being read, or failed. */
@@ -54,7 +61,7 @@ export interface Recent {
   end: boolean;
   /** Reads the next page back in time. */
   showOlder(): void;
-  /** Reads again what failed. */
+  /** Reads again what failed: the reviews, or whose they are (the scores store's `refresh`). */
   retry(): void;
 }
 
@@ -67,7 +74,8 @@ const newestFirst = (a: { review: Review }, b: { review: Review }) =>
  * each visit, the feed is opened (`RecentFeed.open`), which reads the first page, or the newest page
  * again once it is no longer fresh. While fewer than `FEED_ENOUGH` reviews count in the view, and the
  * view's scorer has answered for every reviewer, it reads older pages by itself, up to
- * `FEED_AUTO_PAGES` pages in all; then it waits for `showOlder`.
+ * `FEED_AUTO_PAGES` pages back in time in all, for the session and across views, those the person
+ * asked for among them; then it waits for `showOlder`. A switch of the view reads none of them again.
  */
 export function useRecent(): Recent {
   const feed = useRecentFeed();
@@ -86,7 +94,9 @@ export function useRecent(): Recent {
     void version; // The person's own reviews, and those they removed, change with it.
     if (indexes === undefined) return [];
     const byPlace = new Map<string, { review: Review; place: Place }[]>();
-    for (const review of latestReviews(store.withOwn(snapshot.events, me))) {
+    // The person's own reviews read for a place's page, no older than the feed has read back to.
+    const since = snapshot.oldest ?? Number.POSITIVE_INFINITY;
+    for (const review of latestReviews(store.withOwn(snapshot.events, me, since))) {
       const place = indexes.byAddress.get(review.address);
       if (place === undefined) continue;
       // One place filed twice (the same OSM id under two addresses, brief § 4.3) gives each reviewer one review.
@@ -103,7 +113,7 @@ export function useRecent(): Recent {
       }
     }
     return kept.sort(newestFirst);
-  }, [store, snapshot.events, version, me, indexes]);
+  }, [store, snapshot.events, snapshot.oldest, version, me, indexes]);
 
   const reviewers = useMemo(() => [...new Set(reviews.map(({ review }) => review.reviewer))], [reviews]);
   useEffect(() => store.wantRanks(reviewers), [store, reviewers]);
@@ -142,19 +152,28 @@ export function useRecent(): Recent {
   }, [store, reviewers, version, me]);
 
   const unavailable = store.stateOf(view) === "unavailable";
+  const ranksFailed = counting && store.rankReadFailed(view);
   const { first, older, newer, pages, end } = snapshot;
-  // Fewer than enough count, and every reviewer read has been answered for: the next page, by itself.
+  // Fewer than enough count, every reviewer read has been answered for, and the budget is not spent:
+  // the next page, by itself.
   const readOn =
     first === "read" && !end && older === "idle" && pages < FEED_AUTO_PAGES && !unavailable && !counting && entries.length < FEED_ENOUGH;
   useEffect(() => {
     if (readOn) void feed.readOlder();
   }, [readOn, feed]);
 
+  // The view the person asked for an older page in ("Show older reviews"), until it is read and whose
+  // its reviews are is known, or the view changes: meanwhile the page stays as it was, with the button.
+  const [askedIn, setAskedIn] = useState<View | null>(null);
+  if (askedIn !== null && (askedIn !== view || (older !== "reading" && !counting))) setAskedIn(null);
+  const asked = askedIn === view && (older === "reading" || counting);
+
   let state: RecentState;
   if (first === "failed") state = "failed";
   else if (first !== "read") state = "loading";
   else if (unavailable) state = "unavailable";
-  else if (entries.length === 0 && (counting || readOn || older === "reading")) state = "loading";
+  else if (entries.length === 0 && ranksFailed) state = "failed";
+  else if (entries.length === 0 && !asked && (counting || readOn || older === "reading")) state = "loading";
   else state = "ready";
 
   return {
@@ -163,10 +182,17 @@ export function useRecent(): Recent {
     state,
     view,
     counting,
+    ranksFailed,
     older,
     newer,
     end,
-    showOlder: () => void feed.readOlder(),
-    retry: feed.retry,
+    showOlder: () => {
+      setAskedIn(view);
+      void feed.readOlder();
+    },
+    retry: () => {
+      if (ranksFailed) store.refresh();
+      feed.retry();
+    },
   };
 }

@@ -307,9 +307,10 @@ describe("the layout, by width", () => {
     expect(saved).toHaveAttribute("aria-current", "page");
     const account = within(bar).getByRole("link", { name: copy.nav.signIn });
     expect(saved.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // After Recent, the other page the top bar links to.
+    // After Recent, the other page the top bar links to, in the top bar's navigation of pages.
     const recent = within(bar).getByRole("link", { name: copy.nav.recent });
     expect(recent.compareDocumentPosition(saved) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(bar).getByRole("navigation", { name: copy.nav.pages })).toContainElement(saved);
   });
 
   it("switches between the two as the window is resized", () => {

@@ -38,6 +38,8 @@ vi.mock("../src/circle/brainstorm", async (importOriginal) => {
 const brainstorm = vi.mocked(client);
 
 const SEARCH = "wss://search.brainstorm.world";
+/** A second review relay, for the tests that read two. */
+const SECOND = "wss://second.example.test";
 /** The house's trust relay, which holds its list, and where Brainstorm's scorers publish a circle's ranks. */
 const SCORES = "wss://scores.brainstorm.world";
 /** The house's scorer and its relay, made up: the real one is never written into the app or its tests. */
@@ -50,6 +52,8 @@ const CIRCLE_AT = { pubkey: CIRCLE_SCORER, relay: SCORES };
 /** Thursday 8 October 2026, 12:00 UTC, in seconds: where the clock stands. */
 const NOW_S = 1_791_460_800;
 const HOUR = 3_600;
+/** The time of the `i`th newest of reviews written a minute apart, the newest a minute ago. */
+const at = (i: number) => NOW_S - 60 * (i + 1);
 
 /** Jacafé's place event under another d: the same place, filed twice (brief § 4.3). */
 const jacafeAgainEvent = (): NostrEvent => {
@@ -118,6 +122,8 @@ function orAbort(promise: Promise<void>, signal: AbortSignal): Promise<void> {
 /** What the relays hold, and every request made of them, in order. A test changes them between reads. */
 interface Network {
   reviews: NostrEvent[];
+  /** The second review relay's reviews. */
+  second: NostrEvent[];
   house: NostrEvent[];
   circle: NostrEvent[];
   profiles: NostrEvent[];
@@ -128,6 +134,10 @@ interface Network {
   holdRanksOf: Set<string>;
   /** While true, reads of the newest reviews wait until `release`. */
   holdFeed: boolean;
+  /** While true, reads of older reviews (with `until`) wait until `release`. */
+  holdOlder: boolean;
+  /** The next read of the house's ranks that names any of these fails, once: they are taken out of it. */
+  failRanksOnceFor: Set<string>;
   release(): void;
   readers(url: string): RelayReader;
 }
@@ -139,6 +149,7 @@ function network({ reviews = [], house = HOUSE, circle = CIRCLE }: { reviews?: N
   });
   const net: Network = {
     reviews: [...reviews],
+    second: [],
     house: [...house],
     circle: [...circle],
     profiles: [...PROFILES],
@@ -146,6 +157,8 @@ function network({ reviews = [], house = HOUSE, circle = CIRCLE }: { reviews?: N
     searchDown: false,
     holdRanksOf: new Set(),
     holdFeed: false,
+    holdOlder: false,
+    failRanksOnceFor: new Set(),
     release: () => open(),
     readers: (url) => ({
       async *req(filter, signal) {
@@ -154,11 +167,19 @@ function network({ reviews = [], house = HOUSE, circle = CIRCLE }: { reviews?: N
         if (url === SEARCH) {
           if (filter.kinds?.includes(REVIEW_KIND) && net.searchDown) throw new Error("The relay answered 503");
           if (filter["#m"] !== undefined && net.holdFeed) await orAbort(gate, signal);
+          if (filter["#m"] !== undefined && filter.until !== undefined && net.holdOlder) await orAbort(gate, signal);
           events = [...net.reviews, ...net.profiles];
+        } else if (url === SECOND) {
+          events = net.second;
         } else if (url === SCORES) {
           events = [trustList(), ...net.circle];
         } else if (url === HOUSE_RELAY) {
           if (filter["#d"]?.some((pubkey) => net.holdRanksOf.has(pubkey))) await orAbort(gate, signal);
+          const failing = filter["#d"]?.filter((pubkey) => net.failRanksOnceFor.has(pubkey)) ?? [];
+          if (failing.length > 0) {
+            for (const pubkey of failing) net.failRanksOnceFor.delete(pubkey);
+            throw new Error("The relay answered 503");
+          }
           events = net.house;
         }
         yield* createMemoryReader(events).req(filter, signal);
@@ -195,11 +216,24 @@ function keptCircle(pubkey: string): void {
   window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "ready", scorer: CIRCLE_AT, notice: false }));
 }
 
-/** Recent, at the end of `entries`, reading `net`, and sending reviews with `writers`. */
+/** Recent, at the end of `entries`, reading `net`, and sending reviews with `writers`; in React's strict mode when `strict`. */
 const openRecent = (
   net: Network,
-  { px = PHONE, entries = ["/recent"], writers }: { px?: number; entries?: string[]; writers?: (url: string) => RelayWriter } = {},
-) => openApp(String(entries.at(-1)), { events: placeEvents, entries, px, readers: net.readers, ...(writers === undefined ? {} : { writers }) });
+  {
+    px = PHONE,
+    entries = ["/recent"],
+    writers,
+    strict = false,
+  }: { px?: number; entries?: string[]; writers?: (url: string) => RelayWriter; strict?: boolean } = {},
+) =>
+  openApp(String(entries.at(-1)), {
+    events: placeEvents,
+    entries,
+    px,
+    strict,
+    readers: net.readers,
+    ...(writers === undefined ? {} : { writers }),
+  });
 
 const theList = () => screen.getByRole("list", { name: copy.pages.recent });
 const entryLinks = () => within(theList()).getAllByRole("link");
@@ -292,6 +326,14 @@ describe("Recent: the list", () => {
     expectNoNumbersAboutPeople(RANKS);
   });
 
+  it("reads the newest reviews once under StrictMode, which mounts everything twice", async () => {
+    const net = network({ reviews: [reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR)] });
+    await openRecent(net, { strict: true });
+    await listsExactly([ALICE_AT_JACAFE]);
+    await settle();
+    expect(feedReads(net)).toHaveLength(1);
+  });
+
   it("names a reviewer as the place's page does, Someone when their profile has no name, and is a list of links", async () => {
     const net = network({ reviews: [reviewOf(ERIN, JACAFE, null, "", NOW_S - 3 * 60)] });
     net.profiles = net.profiles.filter((profile) => profile.pubkey !== ERIN);
@@ -343,40 +385,103 @@ describe("Recent: the list", () => {
 });
 
 describe("Recent: whose reviews", () => {
-  it("lists the circle's reviewers and the person's own in My circle, and switching reads no review", async () => {
+  it("lists the circle's reviewers and the person's own in My circle; once three pages are read, switching reads no review", async () => {
     const net = network();
     const me = signedIn(net);
     keptCircle(me);
+    // 310 reviews, a minute apart: the newest four by Carol, Alice, the person and Bob, then people
+    // nobody ranks. Two count in House picks: it reads three pages by itself, its whole budget.
     net.reviews.push(
-      reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR),
-      reviewOf(BOB, MAIA, 5, "Fresh fish.", NOW_S - 25 * HOUR),
-      reviewOf(CAROL, MUSEU, 2, "Too sweet.", NOW_S - HOUR),
+      reviewOf(CAROL, MUSEU, 2, "Too sweet.", at(0)),
+      reviewOf(ALICE, JACAFE, 4, "Get the bolo.", at(1)),
       // The house does not rank the person: their review counts in My circle only.
-      reviewOf(me, NOVO, 3, "Good value.", NOW_S - 3 * HOUR),
+      reviewOf(me, NOVO, 3, "Good value.", at(2)),
+      reviewOf(BOB, MAIA, 5, "Fresh fish.", at(3)),
+      ...Array.from({ length: 306 }, (_, k) => reviewOf(stranger(k + 4), JACAFE, 3, `Review ${k + 4}.`, at(k + 4))),
     );
+    const house = ["Alice Bento's review of Jacafé, 2 minutes ago", "Bob's review of Maia, 4 minutes ago"];
     const user = userEvent.setup();
     await openRecent(net);
-    await listsExactly([ALICE_AT_JACAFE, BOB_AT_MAIA]);
-    const reads = reviewReads(net).length;
+    await waitFor(() => expect(feedReads(net)).toHaveLength(3));
+    await listsExactly(house);
     // The names of the circle's reviewers are read too, though House picks does not list them.
     await waitFor(() => expect(net.log.some(({ filter }) => filter.kinds?.includes(0) && filter.authors?.includes(CAROL))).toBe(true));
     await settle();
+    const reads = reviewReads(net).length;
 
     await user.click(myCircle());
     expect(myCircle()).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(copy.recent.circleLine)).toBeInTheDocument();
     expect(copy.recent.circleLine).toBe("From your circle.");
-    // At once, and by name: switching reads nothing.
-    expect(listed()).toEqual(["Carol's review of Museu Café, 1 hour ago", "Your review of Novo Tahiti, 3 hours ago", BOB_AT_MAIA]);
+    // At once, and by name.
+    expect(listed()).toEqual([
+      "Carol's review of Museu Café, 1 minute ago",
+      "Your review of Novo Tahiti, 3 minutes ago",
+      "Bob's review of Maia, 4 minutes ago",
+    ]);
     expect(within(entryLinks()[1]!).getByText(copy.recent.you)).toBeInTheDocument();
     expect(within(entryLinks()[1]!).queryByText("Maya")).not.toBeInTheDocument();
     expectNoNumbersAboutPeople(RANKS);
+    // The budget is spent: not one more read of reviews.
+    await settle();
+    expect(reviewReads(net)).toHaveLength(reads);
 
     await user.click(housePicks());
-    await listsExactly([ALICE_AT_JACAFE, BOB_AT_MAIA]);
-    // Switching filters the reviews already read: not one more read of reviews.
+    await listsExactly(house);
+    await settle();
     expect(reviewReads(net)).toHaveLength(reads);
     expectNoNumbersAboutPeople(RANKS);
+  });
+
+  it("reads the rest of the budget for a view with fewer than 20, after a switch: one page in House picks, two more in My circle, then none", async () => {
+    const net = network({
+      // The house trusts the people who wrote the newest 25; the circle has Bob alone, 31st.
+      house: Array.from({ length: 25 }, (_, i) => houseRank(stranger(i), 72.5)),
+      circle: [circleRank(BOB, 93.5)],
+      reviews: Array.from({ length: 350 }, (_, i) =>
+        i === 30 ? reviewOf(BOB, MAIA, 5, "Fresh fish.", at(i)) : reviewOf(stranger(i), JACAFE, 4, `Review ${i}.`, at(i)),
+      ),
+    });
+    const me = signedIn(net);
+    keptCircle(me);
+    const user = userEvent.setup();
+    await openRecent(net);
+    await waitFor(() => expect(listed()).toHaveLength(25));
+    await settle();
+    expect(feedReads(net)).toHaveLength(1);
+
+    await user.click(myCircle());
+    await listsExactly(["Bob's review of Maia, 31 minutes ago"]);
+    await waitFor(() => expect(feedReads(net)).toHaveLength(3));
+    expect(feedReads(net).map(({ filter }) => filter.until)).toEqual([undefined, at(99) - 1, at(199) - 1]);
+    await settle();
+    expect(feedReads(net)).toHaveLength(3);
+    expect(screen.getByText(copy.recent.showOlder)).toBeInTheDocument();
+  });
+
+  it("reads nothing on a switch once the budget is spent, and says none of the latest count, with Show older", async () => {
+    const net = network({
+      // The circle has Bob alone, 31st: My circle reads three pages by itself. The house trusts nobody.
+      house: [],
+      circle: [circleRank(BOB, 93.5)],
+      reviews: Array.from({ length: 350 }, (_, i) =>
+        i === 30 ? reviewOf(BOB, MAIA, 5, "Fresh fish.", at(i)) : reviewOf(stranger(i), JACAFE, 4, `Review ${i}.`, at(i)),
+      ),
+    });
+    const me = signedIn(net);
+    keptCircle(me);
+    window.sessionStorage.setItem(VIEW_STORAGE_KEY, "circle");
+    const user = userEvent.setup();
+    await openRecent(net);
+    await listsExactly(["Bob's review of Maia, 31 minutes ago"]);
+    await waitFor(() => expect(feedReads(net)).toHaveLength(3));
+    await settle();
+
+    await user.click(housePicks());
+    expect(await screen.findByText(copy.recent.noneLatestHouse)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.recent.showOlder })).toBeInTheDocument();
+    await settle();
+    expect(feedReads(net)).toHaveLength(3);
   });
 
   it("lists nobody before the house has said who counts, then lists them", async () => {
@@ -411,6 +516,32 @@ describe("Recent: whose reviews", () => {
     await listsExactly(["Alice Bento's review of Jacafé, 1 minute ago", "Erin's review of Maia, 5 hours ago"]);
   });
 
+  it("says so, with Try again, when a reviewer's rank could not be read, rather than reading for ever; Try again asks again", async () => {
+    // A full first page by people nobody ranks, whose ranks are read; Erin, whom the house trusts, is on
+    // the page after it, and the first read of her rank fails.
+    const net = network({
+      reviews: [
+        ...Array.from({ length: FEED_PAGE }, (_, i) => reviewOf(stranger(i), JACAFE, 3, `Stranger ${i}.`, at(i))),
+        reviewOf(ERIN, MAIA, 5, "Fresh fish.", NOW_S - 5 * HOUR),
+      ],
+    });
+    net.failRanksOnceFor.add(ERIN);
+    const user = userEvent.setup();
+    await openRecent(net);
+    await waitFor(() => expect(feedReads(net)).toHaveLength(2));
+    expect(await saidPolitely(copy.recent.failed)).not.toBeNull();
+    // The failure, and not the loading line beside it.
+    expect(screen.queryByText(copy.recent.loading)).not.toBeInTheDocument();
+    expect(listed()).toEqual([]);
+    expect(net.failRanksOnceFor.size).toBe(0);
+
+    await user.click(screen.getByRole("button", { name: copy.load.retry }));
+    await listsExactly(["Erin's review of Maia, 5 hours ago"]);
+    expect(screen.queryByText(copy.recent.failed)).not.toBeInTheDocument();
+    // Whose the reviews are was asked again; the reviews were not read again.
+    expect(feedReads(net)).toHaveLength(2);
+  });
+
   it("says when House picks can't be worked out, with Try again, and lists nobody", async () => {
     const net = network({ reviews: [reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR)], house: [] });
     const readers = net.readers;
@@ -431,8 +562,6 @@ describe("Recent: whose reviews", () => {
 });
 
 describe("Recent: paging", () => {
-  /** The `i`th newest of 350 reviews, a minute apart. */
-  const at = (i: number) => NOW_S - 60 * (i + 1);
   /** 350 reviews, by people nobody ranks but Alice (10th), Bob (50th), Erin (220th) and Frank (320th). */
   const longFeed = () =>
     Array.from({ length: 350 }, (_, i) => {
@@ -475,6 +604,51 @@ describe("Recent: paging", () => {
     await openRecent(net);
     await waitFor(() => expect(listed()).toHaveLength(25));
     expect(feedReads(net)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: copy.recent.showOlder })).toBeInTheDocument();
+  });
+
+  it("keeps the focus from the empty list's Show older reviews, which stays while it reads, through to the end", async () => {
+    // 350 reviews by people nobody ranks: three pages are read by themselves, and none counts.
+    const net = network({ reviews: Array.from({ length: 350 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `Review ${i}.`, at(i))) });
+    const user = userEvent.setup();
+    await openRecent(net);
+    expect(await screen.findByText(copy.recent.noneLatestHouse)).toBeInTheDocument();
+    expect(feedReads(net)).toHaveLength(3);
+
+    net.holdOlder = true;
+    const older = screen.getByRole("button", { name: copy.recent.showOlder });
+    await user.click(older);
+    // While it reads: the same button, busy, with the focus; no loading line in place of the page.
+    await waitFor(() => expect(older).toHaveAttribute("aria-busy", "true"));
+    expect(older).toHaveFocus();
+    expect(screen.queryByText(copy.recent.loading)).not.toBeInTheDocument();
+    expect(screen.getByText(copy.recent.noneLatestHouse)).toBeInTheDocument();
+
+    net.release();
+    // The last page brings no one who counts, and there are no more: the button goes, and the focus stays on the page.
+    expect(await screen.findByText(copy.recent.emptyHouse)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.recent.showOlder })).not.toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+    expect(screen.getByRole("main")).toContainElement(document.activeElement as HTMLElement);
+  });
+
+  it("keeps one budget for the session: a fresh start of the feed after two minutes reads no more pages by itself", async () => {
+    // 350 reviews by people nobody ranks: the first visit reads three pages by itself, its whole budget.
+    const net = network({ reviews: Array.from({ length: 350 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `Review ${i}.`, at(i))) });
+    const { router } = await openRecent(net);
+    expect(await screen.findByText(copy.recent.noneLatestHouse)).toBeInTheDocument();
+    expect(feedReads(net)).toHaveLength(3);
+
+    // 150 new ones, and a visit two minutes on: the newest page does not reach the reviews held, and the
+    // feed starts again from it. Still nobody counts; the budget is spent.
+    net.reviews.push(...Array.from({ length: 150 }, (_, i) => reviewOf(stranger(500 + i), JACAFE, 4, `New ${i}.`, NOW_S + 60 * (i + 1))));
+    vi.setSystemTime(NOW_S * 1000 + FEED_FRESH_MS + 1_000);
+    await act(() => router.navigate("/you"));
+    await act(() => router.navigate("/recent"));
+    await waitFor(() => expect(feedReads(net)).toHaveLength(4));
+    await settle();
+    expect(feedReads(net)).toHaveLength(4);
+    expect(screen.getByText(copy.recent.noneLatestHouse)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: copy.recent.showOlder })).toBeInTheDocument();
   });
 
@@ -577,6 +751,32 @@ describe("Recent: the person's own review, and coming back", () => {
     expect(feedReads(net)).toHaveLength(1);
   });
 
+  it("leaves out the person's own review read for a place's page when it is older than the reviews read, until a page reaches it", async () => {
+    // A full first page, 25 of it by people the house trusts; the person's old review is on the page after.
+    const net = network({
+      house: Array.from({ length: 25 }, (_, i) => houseRank(stranger(i), 72.5)),
+      reviews: Array.from({ length: 120 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `Review ${i}.`, at(i))),
+    });
+    const me = signedIn(net);
+    net.house.push(houseRank(me, 72.5));
+    net.reviews.push(reviewOf(me, JACAFE, 4, "An old visit.", NOW_S - 100 * HOUR));
+    const user = userEvent.setup();
+    const { router } = await openRecent(net);
+    await waitFor(() => expect(listed()).toHaveLength(25));
+
+    // Jacafé's page reads its reviews, the person's old one among them.
+    await act(() => router.navigate(placePath(JACAFE)));
+    expect(await screen.findByText("An old visit.", { selector: "article p" })).toBeInTheDocument();
+    await act(() => router.navigate(-1));
+    await settle();
+    expect(listed()).toHaveLength(25);
+    expect(listed().some((name) => name?.startsWith("Your review"))).toBe(false);
+
+    // The next page reaches it.
+    await user.click(screen.getByRole("button", { name: copy.recent.showOlder }));
+    await waitFor(() => expect(listed().at(-1)).toBe("Your review of Jacafé, 4 days ago"));
+  });
+
   it("finds the list as it was on Back from a place, reading nothing; after two minutes it reads the newest and puts it on top", async () => {
     const net = network({
       reviews: [reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR), reviewOf(BOB, MAIA, 5, "Fresh fish.", NOW_S - 25 * HOUR)],
@@ -655,6 +855,9 @@ describe("Recent: getting there", () => {
     const bar = screen.getByRole("banner");
     const link = within(bar).getByRole("link", { name: copy.nav.recent });
     expect(link).toHaveAttribute("href", "/recent");
+    // In the top bar's own navigation, named apart from the phone's tabs.
+    expect(within(bar).getByRole("navigation", { name: copy.nav.pages })).toContainElement(link);
+    expect(copy.nav.pages).not.toBe(copy.nav.label);
     expect(link).toHaveAttribute("aria-current", "page");
     expect(within(bar).getByRole("group", { name: copy.view.label }).compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(link.compareDocumentPosition(within(bar).getByRole("link", { name: copy.nav.signIn })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -708,11 +911,12 @@ describe("the scores store, for Recent", () => {
     // Asked again, nobody is read again.
     const reads = net.log.length;
     store.wantRanks([ALICE, CAROL]);
+    await settle();
     expect(net.log).toHaveLength(reads);
     store.stop();
   });
 
-  it("gives a page's reviews with the person's own held ones, less those they removed", () => {
+  it("gives a page's reviews with the person's own held ones, however old, less those they removed", () => {
     const store = new ScoresStore(network().readers);
     const me = hex64("1");
     const mine = reviewOf(me, JACAFE, 4, "Mine.", NOW_S - 10);
@@ -720,8 +924,33 @@ describe("the scores store, for Recent", () => {
     const removed = reviewOf(me, MAIA, 2, "Gone.", NOW_S - 30);
     store.noteOwnReview(mine);
     store.noteRemoval(`${REVIEW_KIND}:${me}:place:${MAIA.address}`, NOW_S - 5);
-    expect(store.withOwn([theirs, removed], me).map((ev) => ev.id)).toEqual([theirs.id, mine.id]);
-    expect(store.withOwn([theirs], undefined).map((ev) => ev.id)).toEqual([theirs.id]);
+    expect(store.withOwn([theirs, removed], me, NOW_S - 100).map((ev) => ev.id)).toEqual([theirs.id, mine.id]);
+    // Held this session: given whatever the page has read back to.
+    expect(store.withOwn([theirs], me, NOW_S).map((ev) => ev.id)).toEqual([theirs.id, mine.id]);
+    expect(store.withOwn([theirs], undefined, NOW_S - 100).map((ev) => ev.id)).toEqual([theirs.id]);
+  });
+
+  it("says yes or no whether a read of a view's ranks failed, until those people are asked about again", async () => {
+    const net = network();
+    net.failRanksOnceFor.add(BOB);
+    const store = new ScoresStore(net.readers);
+    store.start();
+    store.wantRanks([ALICE]);
+    await vi.waitFor(() => expect(store.countsIn(ALICE, "house")).toBe(true));
+    expect(store.rankReadFailed("house")).toBe(false);
+
+    store.wantRanks([BOB]);
+    await vi.waitFor(() => expect(store.rankReadFailed("house")).toBe(true));
+    expect(store.countsIn(BOB, "house")).toBeUndefined();
+    // The view stands: the ranks it has are kept.
+    expect(store.stateOf("house")).toBe("ready");
+    expect(store.rankReadFailed("circle")).toBe(false);
+
+    store.refresh();
+    expect(store.rankReadFailed("house")).toBe(false);
+    await vi.waitFor(() => expect(store.countsIn(BOB, "house")).toBe(true));
+    expect(store.rankReadFailed("house")).toBe(false);
+    store.stop();
   });
 });
 
@@ -751,5 +980,111 @@ describe("the feed", () => {
     expect(feed.snapshot().events).toHaveLength(200);
     expect(feed.snapshot()).toMatchObject({ pages: 2, end: false });
     feed.stop();
+  });
+
+  it("lets go of a review the newest page no longer sends, from as far back as that page reaches", async () => {
+    const reviews = Array.from({ length: 150 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `Review ${i}.`, at(i)));
+    const net = network({ reviews });
+    const feed = new RecentFeed(net.readers);
+    feed.start();
+    feed.open();
+    await vi.waitFor(() => expect(feed.snapshot().first).toBe("read"));
+    expect(feed.snapshot().events).toHaveLength(FEED_PAGE);
+
+    // The 11th is removed from the relay, and five new ones come. The newest page now reaches back to
+    // the 96th: the 11th, held and no longer sent, goes; the 97th to the 100th, older than that, stay.
+    const gone = reviews[10]!;
+    net.reviews.splice(net.reviews.indexOf(gone), 1);
+    net.reviews.push(...Array.from({ length: 5 }, (_, k) => reviewOf(stranger(900 + k), JACAFE, 4, `New ${k}.`, NOW_S + 10 * (k + 1))));
+    vi.setSystemTime(NOW_S * 1000 + FEED_FRESH_MS + 1_000);
+    feed.open();
+    await vi.waitFor(() => expect(feed.snapshot().events.some((ev) => ev.content === "New 4.")).toBe(true));
+    const ids = new Set(feed.snapshot().events.map((ev) => ev.id));
+    expect(ids.has(gone.id)).toBe(false);
+    for (const i of [96, 97, 98, 99]) expect(ids.has(reviews[i]!.id)).toBe(true);
+    expect(ids.size).toBe(FEED_PAGE + 4);
+    feed.stop();
+  });
+
+  it("drops an older page that was on its way when the newest page started the feed again", async () => {
+    const old = Array.from({ length: 150 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `Old ${i}.`, at(i)));
+    const net = network({ reviews: old });
+    const feed = new RecentFeed(net.readers);
+    feed.start();
+    feed.open();
+    await vi.waitFor(() => expect(feed.snapshot().first).toBe("read"));
+
+    net.holdOlder = true;
+    const older = feed.readOlder();
+    await vi.waitFor(() => expect(feed.snapshot().older).toBe("reading"));
+    // Meanwhile, 150 new reviews, and a visit two minutes on: the newest page starts the feed again.
+    net.reviews.push(...Array.from({ length: 150 }, (_, i) => reviewOf(stranger(500 + i), JACAFE, 4, `New ${i}.`, NOW_S + 60 * (i + 1))));
+    vi.setSystemTime(NOW_S * 1000 + FEED_FRESH_MS + 1_000);
+    feed.open();
+    await vi.waitFor(() => expect(feed.snapshot().events.every((ev) => ev.content.startsWith("New"))).toBe(true));
+
+    // The older page, from before, comes: it is not the feed's any more.
+    net.release();
+    await older;
+    expect(feed.snapshot().events).toHaveLength(FEED_PAGE);
+    expect(feed.snapshot().events.every((ev) => ev.content.startsWith("New"))).toBe(true);
+    expect(feed.snapshot()).toMatchObject({ pages: 1, older: "idle", end: false });
+    feed.stop();
+  });
+
+  describe("from two review relays", () => {
+    /** 150 reviews on the search relay, a minute apart; 30 on the second, ten minutes apart, and three of the first's. */
+    const twoRelays = () => {
+      config.reviewRelays = [SEARCH, SECOND];
+      const first = Array.from({ length: 150 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `First ${i}.`, at(i)));
+      const second = Array.from({ length: 30 }, (_, j) => reviewOf(stranger(300 + j), MAIA, 4, `Second ${j}.`, NOW_S - 600 * (j + 1) + 30));
+      const net = network({ reviews: first });
+      net.second = [...second, ...first.slice(0, 3)];
+      return { net, first, second };
+    };
+    const olderReads = (net: Network) => net.log.filter(({ filter }) => filter["#m"] !== undefined && filter.until !== undefined);
+
+    it("pages from the newest of the full relays' oldest review, keeping everything read once, to the end", async () => {
+      const { net, first, second } = twoRelays();
+      const feed = new RecentFeed(net.readers);
+      feed.start();
+      feed.open();
+      await vi.waitFor(() => expect(feed.snapshot().first).toBe("read"));
+      // The search relay's page was full; the second's was not, and reaches much further back.
+      expect(feed.snapshot().events).toHaveLength(FEED_PAGE + 30);
+      expect(feed.snapshot()).toMatchObject({ pages: 1, end: false });
+
+      await feed.readOlder();
+      // Each relay is asked for what is older than the full relay's oldest, not the second relay's.
+      expect(olderReads(net).map(({ url, filter }) => [url, filter.until])).toEqual([
+        [SEARCH, first[99]!.created_at - 1],
+        [SECOND, first[99]!.created_at - 1],
+      ]);
+      const ids = new Set(feed.snapshot().events.map((ev) => ev.id));
+      expect(ids.size).toBe(150 + 30);
+      for (const ev of [...first, ...second]) expect(ids.has(ev.id)).toBe(true);
+      // Neither came back full: every review there is has been read.
+      expect(feed.snapshot()).toMatchObject({ pages: 2, end: true });
+      feed.stop();
+    });
+
+    it("merges the newest page after two minutes from the newest full relay's oldest review, keeping what is older", async () => {
+      const { net, first, second } = twoRelays();
+      const feed = new RecentFeed(net.readers);
+      feed.start();
+      feed.open();
+      await vi.waitFor(() => expect(feed.snapshot().first).toBe("read"));
+      await feed.readOlder();
+      expect(feed.snapshot().events).toHaveLength(180);
+
+      net.reviews.push(reviewOf(stranger(999), JACAFE, 5, "Newest.", NOW_S + 60));
+      vi.setSystemTime(NOW_S * 1000 + FEED_FRESH_MS + 1_000);
+      feed.open();
+      await vi.waitFor(() => expect(feed.snapshot().events.some((ev) => ev.content === "Newest.")).toBe(true));
+      const ids = new Set(feed.snapshot().events.map((ev) => ev.id));
+      expect(ids.size).toBe(181);
+      for (const ev of [first[149]!, first[100]!, second[29]!]) expect(ids.has(ev.id)).toBe(true);
+      feed.stop();
+    });
   });
 });

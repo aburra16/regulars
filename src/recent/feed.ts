@@ -22,7 +22,12 @@ export const FEED_PAGE = 100;
 /** How many reviews that count in the view are enough: with fewer, Recent reads older pages by itself. */
 export const FEED_ENOUGH = 20;
 
-/** How many pages Recent reads by itself, the first among them, before it waits for "Show older reviews". */
+/**
+ * Recent's budget of pages read by itself, for the session and across both views (ruling R1): while
+ * fewer than this many pages back in time have been read (`FeedSnapshot.pages`, the first among them),
+ * a view with fewer than `FEED_ENOUGH` reviews reads the next by itself; then it waits for "Show older
+ * reviews". Switching the view never reads again a page already read.
+ */
 export const FEED_AUTO_PAGES = 3;
 
 /** How long the newest page read stays the newest: a visit to Recent after that reads it again. */
@@ -43,23 +48,39 @@ export interface FeedSnapshot {
   events: readonly NostrEvent[];
   /** The first page: not asked for yet, being read, read, or failed with nothing read. */
   first: FeedRead | "read";
-  /** The next page back in time ("Show older reviews"). */
+  /** The next page back in time ("Show older reviews", or read by itself). */
   older: FeedRead;
   /** The newest page again, read on a visit once the last one is no longer fresh (`FEED_FRESH_MS`). */
   newer: FeedRead;
-  /** How many pages back in time have been read: the first, and each older one. */
+  /**
+   * How many pages back in time have been read this session: the first, and each older one, whoever
+   * asked for it. A fresh start from the newest page (`FEED_FRESH_MS`) counts none, and takes none back:
+   * it is the budget of pages read by itself (`FEED_AUTO_PAGES`).
+   */
   pages: number;
-  /** Whether the relays have sent every review there is: a page came back less than full. */
+  /**
+   * How far back the reviews held reach for every review relay (`Page.reach`): the next page back asks
+   * for what is older. Undefined until there is a review.
+   */
+  oldest: number | undefined;
+  /** Whether the relays have sent every review there is: no relay came back full. */
   end: boolean;
 }
 
 /** One page, as the relays that answered sent it. */
 interface Page {
+  /** What every relay sent, a review sent by two of them twice. */
   events: NostrEvent[];
   /** Whether a relay sent as many as were asked for: there may be more, further back. */
   full: boolean;
   /** Whether every review relay answered. */
   complete: boolean;
+  /**
+   * How far back the page holds every review of every relay that answered: a relay that came back
+   * full may hold more below its own oldest review, so it is the newest of those relays' oldest; when
+   * none came back full, the oldest review of all. Undefined for a page with no review.
+   */
+  reach: number | undefined;
 }
 
 /** The oldest time among `events`; undefined for none. */
@@ -90,9 +111,14 @@ export class RecentFeed {
   #older: FeedRead = "idle";
   #newer: FeedRead = "idle";
   #pages = 0;
-  /** The oldest time read back to; the next page asks for what is older. */
+  /** How far back what is held reaches for every relay (`Page.reach`); the next page asks for what is older. */
   #oldest: number | undefined;
   #end = false;
+  /**
+   * Which run of reading back this is: a fresh start from the newest page begins another, and an older
+   * page asked for before it, read after, is not this run's, and is let go of.
+   */
+  #epoch = 0;
   /** When the newest page was last read (`Date.now()`). */
   #readAt: number | undefined;
   #snapshot: FeedSnapshot | null = null;
@@ -118,6 +144,7 @@ export class RecentFeed {
       older: this.#older,
       newer: this.#newer,
       pages: this.#pages,
+      oldest: this.#oldest,
       end: this.#end,
     };
     return this.#snapshot;
@@ -161,8 +188,9 @@ export class RecentFeed {
   };
 
   /**
-   * Reads the next page back in time: the reviews older than the oldest read so far (`until` is that
-   * time less a second). Nothing once the relays have sent every review there is.
+   * Reads the next page back in time: the reviews older than what is held reaches back to for every
+   * relay (`until` is that time less a second). Nothing once the relays have sent every review there
+   * is. A page that comes after the feed has started again from the newest page is let go of.
    */
   readonly readOlder = async (): Promise<void> => {
     const signal = this.#life?.signal;
@@ -173,10 +201,17 @@ export class RecentFeed {
       this.#changed();
       return;
     }
+    const epoch = this.#epoch;
     this.#older = "reading";
     this.#changed();
     const page = await this.#page(this.#oldest - 1, signal);
     if (signal.aborted) return;
+    if (epoch !== this.#epoch) {
+      // The feed started again meanwhile: this page is not below what it holds now.
+      this.#older = "idle";
+      this.#changed();
+      return;
+    }
     if (page === null) {
       this.#older = "failed";
       this.#changed();
@@ -184,7 +219,7 @@ export class RecentFeed {
     }
     this.#keep(page.events);
     this.#pages += 1;
-    this.#oldest = Math.min(this.#oldest, oldestOf(page.events) ?? this.#oldest);
+    this.#oldest = page.reach ?? this.#oldest;
     this.#end = !page.full && page.complete;
     this.#older = "idle";
     this.#changed();
@@ -211,7 +246,7 @@ export class RecentFeed {
     }
     this.#keep(page.events);
     this.#pages = 1;
-    this.#oldest = oldestOf(page.events);
+    this.#oldest = page.reach;
     this.#end = !page.full && page.complete;
     this.#readAt = Date.now();
     this.#first = "read";
@@ -220,9 +255,11 @@ export class RecentFeed {
 
   /**
    * Reads the newest page again, for the top of the list. Where every review relay answered, what the
-   * page reaches back to is as it says: a review held from that time on that it no longer sends is gone
-   * (removed since). A page that is not full holds every review there is. A full page that does not
-   * reach back to the newest review held would leave a gap below it: the feed starts again from it.
+   * page reaches back to for every relay (`Page.reach`) is as it says: a review held from that time on
+   * that it no longer sends is gone (removed since). A page with no relay full holds every review there
+   * is. A full page that does not reach back to the newest review held would leave a gap below it: the
+   * feed starts again from it. Starting again, or holding every review, an older page on its way is let
+   * go of. Neither counts a page against the budget of pages read by itself, nor takes one back.
    */
   async #readNewer(): Promise<void> {
     const signal = this.#life?.signal;
@@ -237,15 +274,16 @@ export class RecentFeed {
       return;
     }
     if (page.complete) {
-      const from = oldestOf(page.events);
+      const from = page.reach;
       const newestHeld = newestOf(this.#events.values());
       if (!page.full) {
         this.#events.clear();
+        this.#epoch += 1;
         this.#oldest = from;
         this.#end = true;
       } else if (from !== undefined && newestHeld !== undefined && from > newestHeld) {
         this.#events.clear();
-        this.#pages = 1;
+        this.#epoch += 1;
         this.#oldest = from;
         this.#end = false;
       } else if (from !== undefined) {
@@ -278,15 +316,20 @@ export class RecentFeed {
     const answered = reads.flatMap((read) => (read.status === "fulfilled" ? [read.value] : []));
     if (answered.length === 0) return null;
     const events: NostrEvent[] = [];
-    for (const value of answered.flat()) {
-      const ev = asEvent(value);
-      if (ev !== null && ev.kind === REVIEW_KIND) events.push(ev);
+    // The newest of the oldest reviews of the relays that came back full.
+    let fullReach: number | undefined;
+    for (const values of answered) {
+      const sent: NostrEvent[] = [];
+      for (const value of values) {
+        const ev = asEvent(value);
+        if (ev !== null && ev.kind === REVIEW_KIND) sent.push(ev);
+      }
+      events.push(...sent);
+      const oldest = oldestOf(sent);
+      if (values.length >= FEED_PAGE && oldest !== undefined && (fullReach === undefined || oldest > fullReach)) fullReach = oldest;
     }
-    return {
-      events,
-      full: answered.some((values) => values.length >= FEED_PAGE),
-      complete: answered.length === reads.length,
-    };
+    const full = answered.some((values) => values.length >= FEED_PAGE);
+    return { events, full, complete: answered.length === reads.length, reach: (full ? fullReach : undefined) ?? oldestOf(events) };
   }
 
   /** Holds `events`, once each. */

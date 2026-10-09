@@ -1,4 +1,4 @@
-import { type JSX, memo, useEffect, useId, useRef } from "react";
+import { type JSX, memo, useEffect, useId, useLayoutEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 import { Personalize } from "../circle/Personalize.tsx";
@@ -120,17 +120,19 @@ const RecentItem = memo(function RecentItem({
  * its place. No number about a person, and no order but time (decision 19).
  *
  * The list is the session's (`useRecent`): Back from a place finds it as it was, scrolled where it was.
- * Where the reading stands is said in a polite status above the list: the loading line, or that it
- * could not be read, with Try again. Under the list, "Show older reviews" reads the next page; the
- * focus then moves to the first review it brings, or stays on the button when it brings none, or goes
- * to the line that says there are no more (the top of the page, when there is no list). Nobody counting,
- * the page says so in the view's words; in My circle, with the way back to House picks.
+ * Where the reading stands is said in a polite status above the list: the loading line, or that the
+ * reviews, or whose they are, could not be read, with Try again; never both. Under the list, or under
+ * the line that says none counts, "Show older reviews" reads the next page, and stays, busy, while it
+ * does; the focus then moves to the first review it brings, or stays on the button when it brings none,
+ * or goes to the line that says there are no more (the top of the page, when there is no list). The
+ * focus is never left on nothing when the button goes. Nobody counting, the page says so in the view's
+ * words; in My circle, with the way back to House picks.
  */
 export function RecentPage(): JSX.Element {
   useDocumentTitle(copy.titles.recent);
   const wide = useWide();
   const recent = useRecent();
-  const { entries, named, state, view, older, newer, end } = recent;
+  const { entries, named, state, view, older, newer, end, ranksFailed } = recent;
   const { setView } = useView();
   const { refresh } = useScoreActions();
   const here = useHere();
@@ -146,6 +148,10 @@ export function RecentPage(): JSX.Element {
   const endLine = useRef<HTMLParagraphElement>(null);
   // The reviews listed when "Show older reviews" was pressed, until those it brings are listed.
   const before = useRef<ReadonlySet<string> | null>(null);
+  // Where the page last put the focus itself, when the button that had it went.
+  const placed = useRef<HTMLElement | null>(null);
+  // Whether "Show older reviews" had the focus when the page was last drawn.
+  const olderHadFocus = useRef(false);
 
   // The names of those who count in either view, so that a switch of the view lists them by name at once.
   const names = useNames(named);
@@ -156,10 +162,10 @@ export function RecentPage(): JSX.Element {
   const { counting } = recent;
   useEffect(() => {
     const listed = before.current;
-    if (listed === null || older === "reading" || (counting && older !== "failed")) return;
+    if (listed === null || older === "reading" || (counting && older !== "failed" && !ranksFailed)) return;
     before.current = null;
     const active = document.activeElement;
-    if (active !== button.current && active !== document.body && active !== null) return;
+    if (active !== button.current && active !== document.body && active !== null && active !== placed.current) return;
     let last = -1;
     entries.forEach((entry, i) => {
       if (listed.has(entry.review.id)) last = i;
@@ -167,7 +173,18 @@ export function RecentPage(): JSX.Element {
     const next = entries.findIndex((entry, i) => i > last && !listed.has(entry.review.id));
     if (next >= 0) list.current?.children[next]?.querySelector("a")?.focus();
     else if (button.current === null) (endLine.current ?? top.current)?.focus();
-  }, [entries, older, counting]);
+  }, [entries, older, counting, ranksFailed]);
+
+  // "Show older reviews" gone with the focus on it (the page read to the end, or became another): the
+  // focus goes to the line that says there are no more, or the top of the page, never to nothing.
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    if (button.current === null && olderHadFocus.current && (active === document.body || active === null)) {
+      placed.current = endLine.current ?? top.current;
+      placed.current?.focus({ preventScroll: true });
+    }
+    olderHadFocus.current = button.current !== null && document.activeElement === button.current;
+  });
 
   const showOlder = () => {
     if (older === "reading") return;
@@ -180,11 +197,12 @@ export function RecentPage(): JSX.Element {
     recent.retry();
   };
 
+  // One line at most: the loading line, or a failure with Try again.
   let status: JSX.Element | null = null;
   if (state === "loading") status = <p className={quietLine}>{copy.recent.loading}</p>;
-  else if (state === "failed") status = <p className={quietLine}>{copy.recent.failed}</p>;
-  else if (newer === "failed") status = <p className={quietLine}>{copy.recent.newerFailed}</p>;
-  const failed = state === "failed" || (state === "ready" && newer === "failed");
+  else if (state === "failed" || (state === "ready" && ranksFailed)) status = <p className={quietLine}>{copy.recent.failed}</p>;
+  else if (state === "ready" && newer === "failed") status = <p className={quietLine}>{copy.recent.newerFailed}</p>;
+  const failed = state === "failed" || (state === "ready" && (ranksFailed || newer === "failed"));
 
   let body: JSX.Element | null = null;
   if (state === "ready" && entries.length === 0) {

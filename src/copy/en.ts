@@ -146,6 +146,9 @@ export const copy = {
     // DRAFT for Avi
     /** The tab, and the desktop top bar's link, to the newest reviews from the people behind the scores. */
     recent: "Recent",
+    // DRAFT for Avi
+    /** The desktop top bar's links to pages (Recent, Saved), for a screen reader: not `label`, the phone's tabs. */
+    pages: "Pages",
     saved: "Saved",
     you: "You",
     // DRAFT for Avi

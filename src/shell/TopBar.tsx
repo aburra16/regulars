@@ -214,7 +214,7 @@ const pageLink = ({ isActive }: { isActive: boolean }) =>
  * panel under it, before the person's circle is asked for), the dark mode switch, the links to pages
  * (Recent, the newest reviews; Saved once saved lists open, `config.features.saved`), and the account
  * button. The links sit with the account button, past the switch, as the way to other pages, apart
- * from the toggle that changes the scores. Under it, the lines of the account button signing the
+ * from the toggle that changes the scores, in a navigation of their own (`copy.nav.pages`). Under it, the lines of the account button signing the
  * person in, and the region that says when the person's location could not be used.
  */
 export function TopBar(): JSX.Element {
@@ -229,14 +229,17 @@ export function TopBar(): JSX.Element {
         <div className="ml-auto flex flex-wrap items-center gap-x-[18px] gap-y-3">
           <ViewSwitch variant="compact" />
           <ThemeToggle />
-          <NavLink to="/recent" className={pageLink}>
-            {copy.nav.recent}
-          </NavLink>
-          {config.features.saved && (
-            <NavLink to="/saved" className={pageLink}>
-              {copy.nav.saved}
+          {/* Named apart from the phone's tabs ("Main"), which a desktop never has. */}
+          <nav aria-label={copy.nav.pages} className="flex items-center gap-x-[18px]">
+            <NavLink to="/recent" className={pageLink}>
+              {copy.nav.recent}
             </NavLink>
-          )}
+            {config.features.saved && (
+              <NavLink to="/saved" className={pageLink}>
+                {copy.nav.saved}
+              </NavLink>
+            )}
+          </nav>
           <AccountLink size="desktop" signIn={signIn} />
         </div>
       </header>
