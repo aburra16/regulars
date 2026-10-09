@@ -7,7 +7,7 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 **Live checks**
 - **My circle:** Personalize from your account, wait for "Your circle is ready", toggle, compare a place's score, then Update now (M3 Task 5).
 - **Reviews:** a first real review from a phone app and from a browser add-on. Check that it reads back, is replaced on a re-post, renders in Brainstorm-UI, and is gone after removal (M2b Task 8).
-- **Benjamin:** re-posts his Casper Fermentables review. His first one never reached Regulars' relay.
+- **Benjamin:** done. His review is live (decision 29); the review relay had run out of memory.
 
 **Copy**
 - The UI wording marked DRAFT in `src/copy/en.ts` needs a pass.
@@ -24,7 +24,7 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 - **Korean font:** keep the coverage, or drop it to save about 57 KB per visitor.
 
 **For the team**
-- **NosFabrica relay team:** search.brainstorm.world never took event `b0d56230…` (around 01:15 UTC on Oct 9). Check the IngestQueue logs and whether the FTS reindex was running.
+- **NosFabrica relay team:** search.brainstorm.world refused every write from about 22:20 UTC on Oct 8 (`NO_SPACE`: its Vespa content node's memory over the feed-block limit). More machines are coming; nothing to change in the app when it is back (decision 29).
 - **Brainstorm:** a count of a person's circle at rank 5 would make "N people in your circle" exact; today it is a floor.
 
 **Housekeeping**
@@ -66,6 +66,16 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 **Posting** (P1, P2)
 - "Still posting…" can linger up to 7 s after a refusal while an own relay hangs.
 - Up to 3 copies of a review are queued at the review relay.
+
+**Towns** (GeoNames, decision 30)
+- English names GeoNames lacks: "Cologne" finds nothing (GeoNames says Köln). English preferred names from `alternateNamesV2` would fix it.
+- Review the US parts: "Zionsville" finds Indianapolis, "Chapel Hill" Durham, "Daly City" San Francisco, "Inglewood" Los Angeles.
+- Odd GeoNames names among the aliases ("Gare" for Paris, a bus barn for Washington): harmless, noisy.
+- Pairs that are one place: El Zonte and Playa El Zonte, Masimba and "Masimba ward".
+- Antiguo Cuscatlán (88 places) outnumbers San Salvador (84); the first visit still starts in San Salvador.
+- Bangkok's Lat Krabang and Min Buri, and Tokyo's outer wards (Ōta, Katsushika), sit past the absorb reach and stay their own towns.
+- `towns.json` is 159 KB raw (73 KB gzip) and grows at each refresh; regenerate it with each monthly import (README).
+- The `townsWaitMs` prop has no test of its own.
 
 **Recent** (decision 28)
 - The list is rebuilt on every store change (fine at today's scale).
