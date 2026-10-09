@@ -292,15 +292,15 @@ describe("the copy", () => {
   it("says what personalizing does beside the button (decision 26), and the states in plain words", () => {
     expect(copy.circle.personalize).toBe("Personalize");
     expect(copy.circle.consent).toBe(
-      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle is public.",
+      "Personalizing asks Brainstorm, our scoring partner, to build your circle. It sets up a public scoring profile for you, and your circle is public.",
     );
-    expect(copy.circle.workingTitle).toBe("Working out your circle");
-    // The bar's two short lines (Avi, 2026-10-09): "Working out your circle. This takes a few minutes."
+    expect(copy.circle.workingTitle).toBe("Building your circle");
+    // The bar's two short lines (Avi, 2026-10-09): "Building your circle. This takes a few minutes."
     expect(copy.circle.workingBody).toBe("This takes a few minutes.");
-    expect(copy.view.circleWorking).toBe("My circle, being worked out");
+    expect(copy.view.circleWorking).toBe("My circle, being built");
     expect(copy.circle.closeBar).toBe("Close this message");
     expect(copy.circle.ready).toBe("Your circle is ready.");
-    expect(copy.circle.recently).toBe("Your circle was updated recently. We'll use that.");
+    expect(copy.circle.recently).toBe("Your circle was updated recently, so we're using that.");
     expect(copy.circle.busy).toBe("Brainstorm is busy right now. Try again in a little while.");
     expect(copy.circle.unavailable).toBe("My circle isn't available right now.");
     expect(copy.circle.notNow).toBe("Not now");

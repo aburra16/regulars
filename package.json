@@ -2,7 +2,7 @@
   "name": "regulars",
   "private": true,
   "version": "0.0.0",
-  "description": "Restaurant ratings from people you'd actually ask.",
+  "description": "Places to eat and drink, rated by people you'd actually ask.",
   "license": "MIT",
   "type": "module",
   "engines": {

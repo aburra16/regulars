@@ -531,8 +531,8 @@ describe("ViewToggle", () => {
     expect(half.querySelector("svg")).toBeNull();
   });
 
-  it("hints 'Working out your circle' over My circle's half while the circle is worked out, on every look, its name as it was", () => {
-    expect(copy.circle.workingTitle).toBe("Working out your circle");
+  it("hints 'Building your circle' over My circle's half while the circle is built, on every look, its name as it was", () => {
+    expect(copy.circle.workingTitle).toBe("Building your circle");
     for (const variant of ["bar", "compact", "panel", "map"] as const) {
       const { unmount } = render(<ViewToggle value="house" onChange={() => {}} variant={variant} circleStatus="working" />);
       const half = within(toggle()).getByRole("button", { name: copy.view.circleWorking });

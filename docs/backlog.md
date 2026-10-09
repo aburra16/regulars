@@ -10,7 +10,7 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 - **Benjamin:** done. His review is live (decision 29); the review relay had run out of memory.
 
 **Copy**
-- The UI wording marked DRAFT in `src/copy/en.ts` needs a pass.
+- Avi walked through every screen's wording on 2026-10-09. One string is still marked DRAFT in `src/copy/en.ts`: `reviews.uncounted` ("2 reviews, shown without a rating for now"), reworded after his pass.
 
 **Product calls**
 - **Trending on the phone has no "Near …" line,** so its distances are from wherever Explore last looked. Add one?

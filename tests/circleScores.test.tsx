@@ -692,7 +692,7 @@ describe("the wording follows the view", () => {
     expect(copy.explore.circleLine).toBe("Ratings from your circle: the people you trust, and the people they trust.");
     expect(copy.explore.circleEmpty).toBe("Nobody in your circle has rated places yet. House picks still has ratings for you.");
     expect(copy.explore.circleOnlyYou).toBe("Only you have rated places in your circle so far. House picks still has ratings for you.");
-    expect(copy.circle.workOutAgain).toBe("Work out my circle again");
+    expect(copy.circle.workOutAgain).toBe("Build my circle again");
     expect(copy.score.ratedByYou).toBe("Rated by you");
     expect(copy.score.fromYou).toBe("From you");
     expect(copy.map.pinScoredYou("4.0")).toBe("4.0 out of 5, rated by you");

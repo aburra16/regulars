@@ -182,10 +182,8 @@ afterEach(() => {
 describe("the words", () => {
   it("are the design's where it has them (Trust.dc.html, DeskTrust.dc.html)", () => {
     expect(copy.why.title).toBe("Why you see what you see");
-    expect(copy.why.intro).toBe(
-      "There is no single rating for a place. Every rating here is worked out from a set of people. You choose which set.",
-    );
-    expect(copy.why.rulesHeading).toBe("How a rating is worked out");
+    expect(copy.why.intro).toBe("There is no single rating for a place. Every rating here comes from a set of people. You choose which set.");
+    expect(copy.why.rulesHeading).toBe("How ratings work");
     expect(copy.why.rules.only.title).toBe("Only your circle counts");
     expect(copy.why.rules.closer.title).toBe("Closer people count for more");
     expect(copy.why.rules.oneSay.title).toBe("One say each");
@@ -193,7 +191,7 @@ describe("the words", () => {
     expect(copy.why.houseHeading).toBe("And House picks?");
     expect(copy.why.updateNow).toBe("Update now");
     expect(copy.why.inYourCircle(212)).toBe("people in your circle");
-    expect(copy.why.workedOut(2, 0)).toBe("Worked out 2 days ago");
+    expect(copy.why.workedOut(2, 0)).toBe("Updated 2 days ago");
   });
 
   it("point at nothing the app does not have yet (ruling R11): trusting people is done in their own apps today", () => {
