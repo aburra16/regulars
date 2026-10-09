@@ -87,6 +87,8 @@ export interface OpenOptions {
   entries?: InitialEntry[];
   /** How long the relay waits before it answers, in milliseconds. Default: no wait. */
   delayMs?: number;
+  /** The places relay's reader, in place of one over `events` (which may then be empty): one the test holds, say. */
+  placesReader?: RelayReader;
   /**
    * The reader of each relay the scores store reads (reviews, the house's ranks, names). Default:
    * the app's own, as main.tsx has it; tests open no socket (tests/setup.ts), so pass readers to read.
@@ -113,13 +115,13 @@ export interface OpenOptions {
  */
 export async function openApp(
   path: string,
-  { px = PHONE, device: on, events, entries, delayMs, readers, writers, relays, strict = false }: OpenOptions,
+  { px = PHONE, device: on, events, entries, delayMs, placesReader, readers, writers, relays, strict = false }: OpenOptions,
 ) {
   setWidth(px, on);
   const initialEntries = entries ?? [path];
   const router = createMemoryRouter(routes, { initialEntries, initialIndex: initialEntries.length - 1 });
   const app = (
-    <PlacesProvider reader={createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
+    <PlacesProvider reader={placesReader ?? createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
       <ScoresProvider readers={readers} writers={writers}>
         <ForgetCircleOnSignOut>
           <AccountProvider relays={relays}>

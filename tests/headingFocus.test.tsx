@@ -1,11 +1,12 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
+import type { RelayReader } from "../src/nostr/events";
 import { parsePlaces } from "../src/places/load";
 import raw from "./fixtures/funchal-items.json";
 import { DESKTOP, openApp, resetWidth } from "./support/app";
@@ -49,12 +50,22 @@ const fixtures: NostrEvent[] = raw;
 const PLACES = parsePlaces(fixtures);
 /** Every relay the scores store reads, empty: no reviews, ranks or names. */
 const readers = () => createMemoryReader([]);
-const open = (path: string, px?: number) => openApp(path, { events: fixtures, readers, ...(px === undefined ? {} : { px }) });
+const open = (path: string, px?: number, entries?: string[]) =>
+  openApp(path, { events: fixtures, readers, ...(px === undefined ? {} : { px }), ...(entries === undefined ? {} : { entries }) });
 
 /** The page's main heading. */
 const pageHeading = () => within(screen.getByRole("main")).getByRole("heading", { level: 1 });
 /** The cards Explore lists, each a link to its place. */
 const cards = () => [...screen.getByRole("main").querySelectorAll<HTMLAnchorElement>('a[href^="/place/"]')];
+/** A promise the test settles. */
+function later<T>() {
+  let settle!: (value: T) => void;
+  const promise = new Promise<T>((resolve) => {
+    settle = resolve;
+  });
+  return { promise, settle };
+}
+
 /** The name of the place a link to its page opens. */
 const placeOf = (link: HTMLAnchorElement) => PLACES.find((place) => link.getAttribute("href") === `/place/${encodeURIComponent(place.d)}`)!;
 
@@ -99,6 +110,35 @@ describe("the focus after going to another page", () => {
     expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
     // Back puts the page where it was, and nothing scrolls it after.
     expect(scrollTo).toHaveBeenLastCalledWith(0, 640);
+  });
+
+  it("goes to Explore's heading on the browser's own Back, though the person has pressed nothing on the page", async () => {
+    const { router } = await open("/about", undefined, ["/", "/about"]);
+    expect(document.body).toHaveFocus();
+    await act(() => router.navigate(-1));
+    expect(router.state.historyAction).toBe("POP");
+    expect(await screen.findByRole("heading", { level: 1, name: copy.pages.explore })).toHaveFocus();
+  });
+
+  it("waits for the page to come in when the places are still loading, and then goes to its heading", async () => {
+    const places = later<void>();
+    const memory = createMemoryReader(fixtures);
+    const placesReader: RelayReader = {
+      async *req(filter, signal) {
+        await places.promise;
+        yield* memory.req(filter, signal);
+      },
+    };
+    const user = userEvent.setup();
+    const { router } = await openApp("/about", { events: [], placesReader, readers, px: DESKTOP });
+    await user.click(within(screen.getByRole("banner")).getByRole("link", { name: copy.nav.recent }));
+    expect(router.state.location.pathname).toBe("/trending");
+    // The frame says the places are loading: the page, and its heading, are not in yet.
+    expect(screen.getByText(copy.load.loading)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+
+    await act(async () => places.settle());
+    expect(await screen.findByRole("heading", { level: 1, name: copy.pages.recent })).toHaveFocus();
   });
 
   it("goes to the heading of a tab's page, from the tab, which stays", async () => {
