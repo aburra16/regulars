@@ -1,6 +1,7 @@
-import { type JSX, type ReactNode, useId, useState } from "react";
+import { type JSX, type ReactNode, useId, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
+import { useBarClearOf } from "../circle/CircleNews.tsx";
 import { copy } from "../copy/en.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useLocale } from "../shell/useLocale.ts";
@@ -46,7 +47,7 @@ function Section({
  *
  * A desktop has these same controls (FilterControls) as menus above its results, so there this page
  * gives its place in the history to the search with the same address, as the map's page gives its to
- * Explore.
+ * Explore. The bar that tells the person of their circle sits above Clear all and Show places.
  */
 export function FiltersPage(): JSX.Element {
   useDocumentTitle(copy.titles.filters);
@@ -64,6 +65,9 @@ export function FiltersPage(): JSX.Element {
   });
   const change = (part: Partial<Filters>) => setDraft((current) => ({ ...current, ...part }));
   const { count, order } = useResults(query, draft);
+  // Clear all and Show places, at the foot of the screen: the bar about the person's circle sits above them.
+  const footer = useRef<HTMLDivElement>(null);
+  useBarClearOf(footer, "above");
 
   const apply = () =>
     void navigate(searchPath(withFilters(params, draft, locale).toString()), { replace: true, state: FROM_FILTERS });
@@ -123,7 +127,10 @@ export function FiltersPage(): JSX.Element {
         {copy.filters.countStatus(count)}
       </p>
 
-      <div className="sticky bottom-0 mt-auto flex items-center gap-3 border-t-token border-line bg-ground px-gutter-phone pt-4 pb-[26px]">
+      <div
+        ref={footer}
+        className="sticky bottom-0 mt-auto flex items-center gap-3 border-t-token border-line bg-ground px-gutter-phone pt-4 pb-[26px]"
+      >
         <button
           type="button"
           onClick={() => setDraft(noFilters(locale))}

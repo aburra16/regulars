@@ -167,7 +167,7 @@ function signedIn(): string {
  * "unconfirmed" when its scorer had no ranks): a reload of the tab finds it, and asks Brainstorm nothing.
  */
 function keptCircle(pubkey: string, state: "ready" | "unconfirmed" = "ready"): void {
-  window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state, scorer: CIRCLE_AT, notice: false }));
+  window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state, scorer: CIRCLE_AT }));
 }
 
 /** The same, and they chose My circle: a reload of the tab finds both. */

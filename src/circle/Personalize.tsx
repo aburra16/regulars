@@ -15,7 +15,6 @@ import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { useCircleEmptiness } from "../score/useScore.ts";
 import { retryButton } from "../ui/Banner.tsx";
-import { WorkingIcon } from "../ui/icons.tsx";
 import { DOOR_STATES, useCircleDoor } from "./CircleDoor.tsx";
 import { type CircleState, type CircleValue, useCircle } from "./CircleProvider.tsx";
 import { emptyCircleLine } from "./EmptyCircle.tsx";
@@ -24,7 +23,7 @@ import { emptyCircleLine } from "./EmptyCircle.tsx";
 const personalizeButton =
   "h-11 shrink-0 cursor-pointer rounded-chip border-0 bg-emphasis px-5 font-text text-[15px] font-bold text-on-emphasis";
 
-/** A quiet button in words, 44 px tall: Cancel, Dismiss, Not now. */
+/** A quiet button in words, 44 px tall: Cancel, Not now. */
 const wordButton =
   "inline-flex min-h-touch cursor-pointer items-center border-0 bg-transparent p-0 font-text text-secondary font-semibold text-ink underline hover:text-accent";
 
@@ -101,12 +100,12 @@ function offered(
 /**
  * Personalize, and the circle getting ready, under the toggle (decisions 8 and 26): for a person signed
  * in whose circle is not ready, the button, with the line under it that says what it does; once tapped,
- * while their add-on or phone app asks them, a line that says so, with Cancel; then the banner while
- * Brainstorm works it out (the brief's screen 11); then a quiet notice that it is ready, which never
- * switches the view. When Brainstorm is busy, the run failed or Brainstorm could not be reached, a quiet
- * line with Try again; House picks works all along. When the returning visitor's look found a scorer
- * with no ranks (unconfirmed), the line that says nobody in their circle has rated places yet, with Work
- * out my circle again, in either view (ruling R10).
+ * while their add-on or phone app asks them, a line that says so, with Cancel. While Brainstorm works it
+ * out, and once it is ready, it says nothing: My circle's half, and the bar at the foot of the screen,
+ * say it (Avi, 2026-10-09; ./CircleNews.tsx). When Brainstorm is busy, the run failed or Brainstorm
+ * could not be reached, a quiet line with Try again; House picks works all along. When the returning
+ * visitor's look found a scorer with no ranks (unconfirmed), the line that says nobody in their circle
+ * has rated places yet, with Work out my circle again, in either view (ruling R10).
  *
  * Where Personalize is offered (`offer`), before the circle is asked for (Avi, 2026-10-08):
  * - `always`: here, always (the Why page, which explains My circle);
@@ -117,12 +116,13 @@ function offered(
  * Unless the toggle has its own, this is the page's panel, which My circle's half opens or goes to.
  *
  * What it says is in a polite status that is always there while the panel is, so a screen reader hears
- * each change. A button that goes leaves the focus on the panel, or, where the panel can go with it
- * (asking for the circle can end in off, which it may not offer), on `holdFocus`, the part of the page
- * the panel sits in; Dismiss, which puts the panel away, leaves it there too. Opened from the half, the
- * focus goes to its first button; Not now and Escape close it, and Personalize or Try again too, which
- * leave the focus on the half and on House picks. A key held down from the half presses nothing in
- * it. `className` spaces it from what is around it, while it shows something.
+ * each change: saying nothing while the circle is worked out, it stays, for the line that comes if that
+ * ends with no circle. A button that goes leaves the focus on the panel, or, where the panel can go with
+ * it (asking for the circle can end in off, which it may not offer), on `holdFocus`, the part of the
+ * page the panel sits in. Opened from the half, the focus goes to its first button; Not now and Escape
+ * close it, and Personalize or Try again too, which leave the focus on the half and on House picks. A
+ * key held down from the half presses nothing in it. `className` spaces it from what is around it,
+ * while it shows something.
  */
 export function Personalize({
   holdFocus,
@@ -215,36 +215,9 @@ export function Personalize({
       );
       break;
     case "working":
-      message = (
-        <div className="flex flex-col gap-3 rounded-card bg-trust-tint p-4 text-trust-ink">
-          <p className="m-0 flex items-center gap-2.5 text-body font-bold">
-            <WorkingIcon size={22} className="shrink-0 text-trust" />
-            {copy.circle.workingTitle}
-          </p>
-          <p className="m-0 text-secondary leading-[1.45]">{copy.circle.workingBody}</p>
-        </div>
-      );
-      break;
     case "ready":
     case "recently":
-      if (!circle.notice) return null;
-      message = (
-        <p className="m-0 text-secondary font-semibold leading-[1.4] text-trust">
-          {circle.state === "recently" ? copy.circle.recently : copy.circle.ready}
-        </p>
-      );
-      actions = (
-        <button
-          type="button"
-          onClick={() => {
-            holdFocus.current?.focus({ preventScroll: true });
-            circle.dismissReady();
-          }}
-          className={wordButton}
-        >
-          {copy.circle.dismiss}
-        </button>
-      );
+      // My circle's half and the bar say it. The panel says nothing, and stays, for its status.
       break;
     case "unconfirmed":
       message = (

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SESSION_KEY } from "../src/account/session";
 import * as client from "../src/circle/brainstorm";
+import { CHECK_MS } from "../src/circle/CircleNews";
 import { CIRCLE_KEY, forgetCircle, POLL_CAP_MS, POLL_MS } from "../src/circle/CircleProvider";
 import { COUNT_KEY, countRanks, floorFromRun, RANK_PAGE, RANK_PAGES } from "../src/circle/circleSize";
 import { readToken, saveToken } from "../src/circle/token";
@@ -18,7 +19,7 @@ import { parsePlaces } from "../src/places/load";
 import { REVIEW_KIND } from "../src/reviews/review";
 import { VIEW_STORAGE_KEY } from "../src/view/ViewProvider";
 import raw from "./fixtures/funchal-items.json";
-import { DESKTOP, openApp, resetWidth, resizeTo } from "./support/app";
+import { barRegion, DESKTOP, openApp, resetWidth, resizeTo } from "./support/app";
 import { hex64, shapedEvent } from "./support/events";
 import { createMemoryReader } from "./support/memoryReader";
 import { expectNoNumbersAboutPeople } from "./support/noNumbers";
@@ -137,7 +138,7 @@ function signedIn(): string {
 
 /** Earlier this session the circle of the person with `pubkey` was ready: the tab kept it, and asks Brainstorm nothing. */
 function ready(pubkey: string): void {
-  window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "ready", scorer: SCORER_AT, notice: false }));
+  window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "ready", scorer: SCORER_AT }));
 }
 
 const openWhy = (px?: number) => openApp(WHY_PATH, { events: fixtures, readers, ...(px === undefined ? {} : { px }) });
@@ -474,7 +475,7 @@ describe("your circle, once it is ready", () => {
   it("counts again once an unconfirmed circle is confirmed by ranks the scores store finds", async () => {
     config.reviewRelays = [SEARCH];
     const me = signedIn();
-    window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey: me, state: "unconfirmed", scorer: SCORER_AT, notice: false }));
+    window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey: me, state: "unconfirmed", scorer: SCORER_AT }));
     const { router } = await openWhy();
     expect(await within(await findCirclePanel()).findByRole("heading", { name: copy.why.emptyTitle })).toBeInTheDocument();
     await waitFor(() => expect(window.sessionStorage.getItem(COUNT_KEY)).not.toBeNull());
@@ -823,17 +824,24 @@ describe("Update now", () => {
     await after(POLL_MS);
     await waitFor(() => expect(jacafe()).toHaveTextContent(copy.score.ratedByCircle(1)));
     expect(brainstorm.startRun).toHaveBeenCalledTimes(1);
+    // Away from the Why page, the bar says so. My circle is the view: its half carries no check.
+    await waitFor(() => expect(barRegion()).toHaveTextContent(copy.why.updated));
+    expect(within(screen.getByRole("group", { name: copy.view.label })).getByRole("button", { name: copy.view.circle }).querySelector("svg")).toBeNull();
 
-    // Back on the page: it says so, and counts the new circle.
+    // Back on the page: it says so, and counts the new circle; the bar, which would say it twice, goes.
     await act(() => router.navigate(WHY_PATH));
     expect(updateStatus()).toHaveTextContent(copy.why.updated);
+    expect(barRegion()).toBeEmptyDOMElement();
     await waitFor(() => expect(circlePanel()).toHaveTextContent(`1 ${copy.why.inYourCircle(1)}`));
+    // Said there, it is not said again on the next page.
+    await act(() => router.navigate("/"));
+    expect(barRegion()).toBeEmptyDOMElement();
   });
 
   it("leaves an unconfirmed circle unconfirmed while it is updated, and confirms it once the run is done", async () => {
     const me = signedIn();
     saveToken(me, TOKEN);
-    window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey: me, state: "unconfirmed", scorer: SCORER_AT, notice: false }));
+    window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey: me, state: "unconfirmed", scorer: SCORER_AT }));
     const kept = () => JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "{}") as { state?: string };
     await openWhy();
     expect(await within(await findCirclePanel()).findByRole("heading", { name: copy.why.emptyTitle })).toBeInTheDocument();
@@ -871,6 +879,50 @@ describe("Update now", () => {
     await waitFor(() => expect(circlePanel()).toHaveTextContent(copy.why.inYourCircle(4)));
     expect(updateStatus()).toHaveTextContent("");
     expect(updateNow()).toBeEnabled();
+  });
+
+  it.each([
+    // Done at the first poll.
+    ["done", copy.why.updated, true, () => brainstorm.latestRun.mockResolvedValue(run("done"))],
+    // Brainstorm would not start one: at once.
+    ["one Brainstorm made lately", copy.circle.recently, false, () => brainstorm.startRun.mockResolvedValue({ recently: true })],
+  ] as const)(
+    "shows the check on My circle's half for a moment once the run is %s, and says it on the page, not again in the bar",
+    async (_, line, polled, setUp) => {
+      const me = signedIn();
+      saveToken(me, TOKEN);
+      await openCounted(me);
+      setUp();
+      const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+      const half = within(toggle()).getByRole("button", { name: copy.view.circle });
+      expect(half.querySelector("svg")).toBeNull();
+      await user.click(updateNow());
+      if (polled) await after(POLL_MS);
+      await waitFor(() => expect(updateStatus()).toHaveTextContent(line));
+      // The check, in the trust green; the half's name stays as it is, and the page's status says it, once.
+      expect(half.querySelector("svg")).toHaveClass("text-trust", "animate-check", "motion-reduce:animate-none");
+      expect(half).toHaveAccessibleName(copy.view.circle);
+      expect(half).toBeEnabled();
+      expect(barRegion()).toBeEmptyDOMElement();
+      expect(screen.getAllByText(line)).toHaveLength(1);
+      await after(CHECK_MS);
+      await waitFor(() => expect(half.querySelector("svg")).toBeNull());
+      expect(half).toHaveTextContent(/^My circle$/);
+    },
+  );
+
+  it("says nothing in the bar, nor on the half, while the run is followed: the page says it", async () => {
+    const me = signedIn();
+    saveToken(me, TOKEN);
+    await openCounted(me);
+    brainstorm.latestRun.mockResolvedValue(run("running"));
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(updateNow());
+    await waitFor(() => expect(updateStatus()).toHaveTextContent(copy.why.updating));
+    const half = within(toggle()).getByRole("button", { name: copy.view.circle });
+    expect(half).toBeEnabled();
+    expect(half.querySelector("svg")).toBeNull();
+    expect(barRegion()).toBeEmptyDOMElement();
   });
 
   it("starts one run for one tap of Update now in React's strict mode (ruling R13)", async () => {
