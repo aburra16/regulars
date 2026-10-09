@@ -568,7 +568,8 @@ describe("a place row", () => {
     const kind = `${placeKindLabel("cafe", "coffee_shop")} · 0.2 mi · Closed · opens 9:30 am`;
     expect(link).toHaveAccessibleDescription(`${kind} ${copy.score.noReviewsYet}`);
     // The word that says whether it is open is bold.
-    expect(within(link).getByText("Closed")).toHaveClass("font-bold", "text-ink");
+    // Closed, in bold and in red (Avi, 2026-10-09; tests/hoursColour.test.tsx).
+    expect(within(link).getByText("Closed")).toHaveClass("font-bold", "text-accent");
     expect(link.textContent).toContain("Coffee shop · 0.2 mi · Closed · opens 9:30 am");
   });
 

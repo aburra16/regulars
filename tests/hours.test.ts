@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
-import { type OpenState, PARSE_CACHE_LIMIT, openLine, openState, timeZoneOf, weekTable } from "../src/places/hours";
+import { CLOSING_SOON_MINUTES, type OpenState, PARSE_CACHE_LIMIT, openLine, openState, timeZoneOf, weekTable } from "../src/places/hours";
 import { parsePlace } from "../src/places/place";
 import raw from "./fixtures/funchal-items.json";
 
@@ -106,7 +106,68 @@ describe("openState", () => {
       expect(stateOf("Mo-Su 09:30-24:00", WED_23_30)).toEqual({
         kind: "open",
         closesAt: new Date(2026, 9, 8, 0, 0),
+        closingSoon: true,
       });
+    });
+  });
+
+  describe("closing soon (Avi, 2026-10-09)", () => {
+    // Wed 7 Oct, Madeira on summer time (UTC+1): open until 23:00 there, 22:00Z.
+    const ELEVEN = "Mo-Su 11:00-23:00";
+
+    it("is 45 minutes", () => {
+      expect(CLOSING_SOON_MINUTES).toBe(45);
+    });
+
+    it("is open with 46 minutes left, and closing soon with 45, on the place's clock", () => {
+      // 22:14 and 22:15 in Madeira.
+      expect(stateOf(ELEVEN, "2026-10-07T21:14:00Z")).toEqual({ kind: "open", closesAt: new Date(2026, 9, 7, 23, 0) });
+      expect(stateOf(ELEVEN, "2026-10-07T21:15:00Z")).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 7, 23, 0),
+        closingSoon: true,
+      });
+    });
+
+    it("counts the seconds: 45 minutes and a second left is not yet soon, 44 minutes and 59 seconds is", () => {
+      expect(stateOf(ELEVEN, "2026-10-07T21:14:59Z")).not.toHaveProperty("closingSoon");
+      expect(stateOf(ELEVEN, "2026-10-07T21:15:01Z")).toHaveProperty("closingSoon", true);
+      expect(stateOf(ELEVEN, "2026-10-07T21:59:00Z")).toHaveProperty("closingSoon", true);
+    });
+
+    it("is soon for hours that close after midnight, across it and after it", () => {
+      // Fri 9 Oct 23:20 Madeira: open until 02:00, 2 h 40 min away.
+      const late = "Mo-Sa 11:00-24:00, Fr-Sa 11:00-02:00";
+      expect(stateOf(late, "2026-10-09T22:20:00Z")).toEqual({ kind: "open", closesAt: new Date(2026, 9, 10, 2, 0) });
+      // Sat 10 Oct 01:20: 40 minutes.
+      expect(stateOf(late, "2026-10-10T00:20:00Z")).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 10, 2, 0),
+        closingSoon: true,
+      });
+      // Wed 23:50, open until 00:30 Thursday: 40 minutes, across midnight.
+      expect(stateOf("Mo-Su 17:00-00:30", "2026-10-07T22:50:00Z")).toEqual({
+        kind: "open",
+        closesAt: new Date(2026, 9, 8, 0, 30),
+        closingSoon: true,
+      });
+    });
+
+    it("is never soon for a place open all day, or with no closing time this week, or closed", () => {
+      expect(stateOf("24/7", "2026-10-07T21:30:00Z")).toEqual({ kind: "open" });
+      expect(stateOf("Mo-Su 00:00-24:00", "2026-10-07T22:50:00Z")).toEqual({ kind: "open" });
+      expect(stateOf("24/7; Dec 25 off", "2026-10-07T22:50:00Z")).toEqual({ kind: "open" });
+      expect(stateOf(ELEVEN, "2026-10-07T22:30:00Z")).not.toHaveProperty("closingSoon");
+      // Ten minutes before it opens: closed, not soon to anything.
+      expect(stateOf(ELEVEN, "2026-10-08T09:50:00Z")).toEqual({ kind: "closed", opensAt: new Date(2026, 9, 8, 11, 0) });
+    });
+
+    it("keeps its words: closing soon still reads 'Open until 11 pm', and 'Open now · closes 11 pm' on the place page", () => {
+      const soon = stateOf(ELEVEN, "2026-10-07T21:30:00Z");
+      expect(soon).toHaveProperty("closingSoon", true);
+      expect(openLine(soon, "en-US", "card")).toBe("Open until 11 pm");
+      expect(openLine(soon, "en-US", "place")).toBe("Open now · closes 11 pm");
+      expect(openLine(soon, "en-US", "placeInline")).toBe("Open now, closes 11 pm");
     });
   });
 
@@ -165,18 +226,21 @@ describe("openState", () => {
     });
 
     it("follows summer and winter time", () => {
-      // The same 22:30Z in December: Madeira is on UTC+0, so it reads 22:30 and the place is open.
+      // The same 22:30Z in December: Madeira is on UTC+0, so it reads 22:30 and the place is open,
+      // for half an hour more.
       expect(stateOf("Mo-Su 11:00-23:00", "2026-12-07T22:30:00Z")).toEqual({
         kind: "open",
         closesAt: new Date(2026, 11, 7, 23, 0),
+        closingSoon: true,
       });
     });
 
     it("works for a place far from the runtime's zone", () => {
-      // Tokyo is UTC+9: 13:59Z is 22:59 there, 14:00Z is 23:00.
+      // Tokyo is UTC+9: 13:59Z is 22:59 there, a minute before it closes, 14:00Z is 23:00.
       expect(stateOf("Mo-Su 11:00-23:00", "2026-10-07T13:59:00Z", TOKYO)).toEqual({
         kind: "open",
         closesAt: new Date(2026, 9, 7, 23, 0),
+        closingSoon: true,
       });
       expect(stateOf("Mo-Su 11:00-23:00", "2026-10-07T14:00:00Z", TOKYO)).toEqual({
         kind: "closed",
@@ -449,11 +513,12 @@ describe("openState", () => {
         opensAfterADay: true,
       });
 
-      // "Mo-Fr 07:30-20:00; Sa, Su 07:30-19:00": Sunday 11 Oct, 18:30 and 19:30 Madeira.
+      // "Mo-Fr 07:30-20:00; Sa, Su 07:30-19:00": Sunday 11 Oct, 18:30 (half an hour before it closes) and 19:30 Madeira.
       const weekend = "Mo-Fr 07:30-20:00; Sa, Su 07:30-19:00";
       expect(stateOf(weekend, "2026-10-11T17:30:00Z")).toEqual({
         kind: "open",
         closesAt: new Date(2026, 9, 11, 19, 0),
+        closingSoon: true,
       });
       expect(stateOf(weekend, "2026-10-11T18:30:00Z")).toEqual({
         kind: "closed",
@@ -635,7 +700,7 @@ describe("a viewer whose clock skipped the place's time", () => {
     // Funchal reads 02:30 (summer time began there at 01:00Z): it exists there, not in Rome.
     const hours = "Mo-Su 02:00-03:00";
     const now = "2027-03-28T01:30:00Z";
-    expect(stateOf(hours, now)).toEqual({ kind: "open", closesAt: new Date(2027, 2, 28, 3, 0) });
+    expect(stateOf(hours, now)).toEqual({ kind: "open", closesAt: new Date(2027, 2, 28, 3, 0), closingSoon: true });
 
     vi.stubEnv("TZ", ROME);
     expect(stateOf(hours, now)).toEqual({ kind: "unparsed", raw: hours });
@@ -686,6 +751,7 @@ describe("a viewer whose clock skipped the place's time", () => {
     expect(stateOf("Mo-Su 00:00-03:00", "2026-10-25T02:30:00Z")).toEqual({
       kind: "open",
       closesAt: new Date(2026, 9, 25, 3, 0),
+      closingSoon: true,
     });
   });
 });

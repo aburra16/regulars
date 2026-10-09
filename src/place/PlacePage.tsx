@@ -31,6 +31,7 @@ import { NewTabHint } from "../ui/NewTab.tsx";
 import { NotListedOrLoading } from "../ui/NotListed.tsx";
 import { PlaceRow } from "../ui/PlaceRow.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
+import { stateColour } from "../ui/stateColour.ts";
 import type { View as ScoresView } from "../view/ViewProvider.tsx";
 import { actionsOf, PhoneActions, type PlaceActions, RailActions } from "./Actions.tsx";
 import { Facts } from "./Facts.tsx";
@@ -68,10 +69,11 @@ function SaveLink(): JSX.Element {
 }
 
 /**
- * Whether the place is open, as the page says it (Place.dc.html): "Open now" or "Closed" in bold,
- * then the rest in grey (" · closes 10 pm", or ", closes 10 pm" on a desktop, after `joiner`);
- * "Hours not listed" in grey. Hours the app cannot read are the text as written, which can be any
- * length: one line here, cut off, and the whole of it in the facts.
+ * Whether the place is open, as the page says it (Place.dc.html): "Open now" or "Closed" in bold and
+ * in its colour (`stateColour`: red when closed, green when open, amber when it closes soon), then the
+ * rest in grey (" · closes 10 pm", or ", closes 10 pm" on a desktop, after `joiner`); "Hours not
+ * listed" in grey. Hours the app cannot read are the text as written, which can be any length: one
+ * line here, cut off, and the whole of it in the facts.
  */
 function OpenLine({ state, line, joiner }: { state: OpenState; line: string; joiner: string }): JSX.Element {
   if (state.kind === "unknown") return <span className="text-muted">{line}</span>;
@@ -86,7 +88,7 @@ function OpenLine({ state, line, joiner }: { state: OpenState; line: string; joi
   const lead = split === -1 ? line : line.slice(0, split);
   return (
     <>
-      <span className="font-bold text-ink">{lead}</span>
+      <span className={`font-bold ${stateColour(state) ?? ""}`}>{lead}</span>
       {split !== -1 && <span className="text-muted">{line.slice(split)}</span>}
     </>
   );

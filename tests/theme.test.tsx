@@ -111,6 +111,12 @@ const TEXT: ReadonlyArray<[fg: string, bg: string, where: string]> = [
   // Held to text's ratio, in both themes: the check on My circle's half, on the toggle's panel (on the
   // map's toggle, its ground: the line above).
   ["trust", "surface", "the check on My circle's half, on the toggle's panel"],
+  // The word that says whether a place is open (Avi, 2026-10-09): Closed in the accent (above), Open in
+  // green, and Open in amber when it closes within 45 minutes, on the page and on a tinted card.
+  ["open-now", "ground", "Open, in the hours"],
+  ["open-now", "surface", "Open, in the hours on a panel"],
+  ["closing-soon", "ground", "Open, in the hours of a place that closes soon"],
+  ["closing-soon", "surface", "Open, in the hours of a place that closes soon, on a panel"],
 ];
 
 /** Parts of the interface and graphics, and what they are on: 3 to 1. */
@@ -162,7 +168,16 @@ describe("the dark theme's colours", () => {
     const kept = ["night", "on-night-soft", "wordmark-on-night"];
     const changed = [...darkDeclared.keys()].filter((name) => /^--/.test(name) && /^#/.test(darkDeclared.get(name)!));
     expect(changed.map((name) => name.slice(2)).sort()).toEqual(
-      [...tokenColours.filter((name) => !kept.includes(name)), "accent-solid", "shade", "float-edge", "emphasis", "on-emphasis"].sort(),
+      [
+        ...tokenColours.filter((name) => !kept.includes(name)),
+        "accent-solid",
+        "shade",
+        "float-edge",
+        "emphasis",
+        "on-emphasis",
+        "open-now",
+        "closing-soon",
+      ].sort(),
     );
     // The shadows darken too, to black.
     for (const shadow of ["--shadow-float", "--shadow-card-over-map", "--shadow-dialog"]) {
@@ -202,6 +217,27 @@ describe("the dark theme's colours", () => {
     expect(contrast(colourOf("dark", "emphasis"), colourOf("dark", "ground"))).toBeLessThan(
       contrast(colourOf("dark", "ink"), colourOf("dark", "ground")) * 0.75,
     );
+  });
+
+  it("tells the hours' three states apart by hue, and keeps the trust colour for trust alone", () => {
+    for (const theme of ["light", "dark"] as const) {
+      const hue = (token: string) => {
+        const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(colourOf(theme, token).slice(i, i + 2), 16) / 255) as [number, number, number];
+        const max = Math.max(r, g, b);
+        const span = max - Math.min(r, g, b);
+        const degrees = max === r ? ((g - b) / span) % 6 : max === g ? (b - r) / span + 2 : (r - g) / span + 4;
+        return (degrees * 60 + 360) % 360;
+      };
+      // Closed is the accent's red, open a green, closing soon an amber between them.
+      expect(hue("accent"), theme).toBeLessThan(20);
+      expect(hue("closing-soon"), theme).toBeGreaterThan(30);
+      expect(hue("closing-soon"), theme).toBeLessThan(50);
+      expect(hue("open-now"), theme).toBeGreaterThan(100);
+      expect(hue("open-now"), theme).toBeLessThan(150);
+      // The trust colour is a teal, and only for who the person trusts (tokens.css): open is not it.
+      expect(colourOf(theme, "open-now")).not.toBe(colourOf(theme, "trust"));
+      expect(hue("trust") - hue("open-now"), theme).toBeGreaterThan(30);
+    }
   });
 
   it("keeps the dividers quiet in the dark: the plain line stays under the strong one", () => {
@@ -283,7 +319,7 @@ describe("the stylesheet, compiled", () => {
   });
 
   it("draws each colour utility from its variable, never from a value fixed when it was compiled", async () => {
-    const names = ["ground", "ink", "muted", "surface", "accent", "accent-solid", "on-accent", "map-land", "line"];
+    const names = ["ground", "ink", "muted", "surface", "accent", "accent-solid", "on-accent", "map-land", "line", "open-now", "closing-soon"];
     const css = await compiled(names.flatMap((name) => [`bg-${name}`, `text-${name}`, `border-${name}`, `fill-${name}`]));
     for (const name of names) {
       expect(css).toMatch(new RegExp(`\\.bg-${name}\\s*\\{\\s*background-color:\\s*var\\(--${name}\\);`));

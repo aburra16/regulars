@@ -107,6 +107,12 @@
      the brightest thing on the page. */
   --emphasis: #16202E;
   --on-emphasis: #FFFFFF;
+  /* The word that says whether a place is open, wherever the hours are a line (Avi, 2026-10-09): Closed
+     in the accent, Open in this green, and Open in this amber when the place closes within 45 minutes.
+     The green is its own, not the trust colour, which tokens.css keeps for who the person trusts. Each
+     reads at 4.5 to 1 on the ground and on a panel, in both themes (tests/theme.test.tsx). */
+  --open-now: #1E7A34;
+  --closing-soon: #8A5A00;
   /* Form controls and scroll bars in the light theme's colours, until the dark theme says otherwise. */
   color-scheme: light;
 }
@@ -146,6 +152,8 @@
     --float-edge: #334050;
     --emphasis: #A3AEBB;
     --on-emphasis: #10161F;
+    --open-now: #4FAE68;
+    --closing-soon: #CC9535;
     --shadow-float: 0 0 0 1px var(--float-edge), 0 2px 10px rgba(0, 0, 0, 0.4);
     --shadow-card-over-map: 0 0 0 1px var(--float-edge), 0 4px 18px rgba(0, 0, 0, 0.45);
     --shadow-dialog: 0 0 0 1px var(--float-edge), 0 24px 60px rgba(0, 0, 0, 0.6);
@@ -177,6 +185,8 @@
   --float-edge: #334050;
   --emphasis: #A3AEBB;
   --on-emphasis: #10161F;
+  --open-now: #4FAE68;
+  --closing-soon: #CC9535;
   --shadow-float: 0 0 0 1px var(--float-edge), 0 2px 10px rgba(0, 0, 0, 0.4);
   --shadow-card-over-map: 0 0 0 1px var(--float-edge), 0 4px 18px rgba(0, 0, 0, 0.45);
   --shadow-dialog: 0 0 0 1px var(--float-edge), 0 24px 60px rgba(0, 0, 0, 0.6);
@@ -211,6 +221,8 @@
   --float-edge: transparent;
   --emphasis: #16202E;
   --on-emphasis: #FFFFFF;
+  --open-now: #1E7A34;
+  --closing-soon: #8A5A00;
   --shadow-float: 0 2px 10px rgba(22, 32, 46, 0.14);
   --shadow-card-over-map: 0 4px 18px rgba(22, 32, 46, 0.18);
   --shadow-dialog: 0 24px 60px rgba(0, 0, 0, 0.35);
@@ -234,6 +246,8 @@
   --color-shade: var(--shade);
   --color-emphasis: var(--emphasis);
   --color-on-emphasis: var(--on-emphasis);
+  --color-open-now: var(--open-now);
+  --color-closing-soon: var(--closing-soon);
   --color-trust: var(--trust);
   --color-trust-ink: var(--trust-ink);
   --color-trust-tint: var(--trust-tint);

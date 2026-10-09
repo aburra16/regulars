@@ -10,6 +10,7 @@ import type { ShownScore } from "../score/shown.ts";
 import { KindTile } from "./KindTile.tsx";
 import { NO_SCORE, ScoreFigure, WhoLine, whoLine } from "./ScoreSlot.tsx";
 import { scriptLang } from "./scriptLang.ts";
+import { stateColour } from "./stateColour.ts";
 
 export interface PlaceCardProps {
   place: Place;
@@ -48,16 +49,17 @@ function edge(variant: PlaceCardProps["variant"], selected: boolean, onMap: bool
 
 /**
  * The words about the hours, as part of a line. An open or closed place has that word first, in
- * bold ("Open until 11 pm"); the copy puts it first in every line of those two states. Any other
- * line is as it is.
+ * bold and in its colour (`stateColour`: "Closed" red, "Open" green, or amber when it closes soon);
+ * the copy puts it first in every line of those two states. Any other line is as it is.
  */
 export function HoursText({ state, line }: { state: OpenState; line: string }): JSX.Element {
-  if (state.kind !== "open" && state.kind !== "closed") return <>{line}</>;
+  const colour = stateColour(state);
+  if (colour === undefined) return <>{line}</>;
   const space = line.indexOf(" ");
   const word = space === -1 ? line : line.slice(0, space);
   return (
     <>
-      <span className="font-bold text-ink">{word}</span>
+      <span className={`font-bold ${colour}`}>{word}</span>
       {space === -1 ? "" : line.slice(space)}
     </>
   );
