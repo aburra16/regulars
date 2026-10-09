@@ -342,8 +342,11 @@ describe("the place page: actions", () => {
     expect(site).toHaveAttribute("rel", "noopener noreferrer nofollow ugc");
     expect(site).toHaveAccessibleName(`${copy.place.site} www.jacahostel.com ${copy.common.newTab}`);
 
-    // Three side by side (Place.dc.html).
-    expect(go.parentElement).toHaveClass("grid", "grid-cols-3");
+    // Side by side (Place.dc.html) as far as they fit, each at least 104 px wide, so "Directions" stays
+    // inside its edge: three across from 375 px, two and one at 320 (the screenshots check the widths).
+    expect(go.parentElement).toHaveClass("grid", "grid-cols-[repeat(auto-fit,minmax(min(104px,100%),1fr))]");
+    expect(go.parentElement).not.toHaveClass("grid-cols-3");
+    for (const button of [go, call, site]) expect(button).toHaveClass("h-13");
   });
 
   it("leaves out Website for a place with no website", async () => {
@@ -351,7 +354,7 @@ describe("the place page: actions", () => {
     expect(link(newTab(copy.place.directions))).toBeInTheDocument();
     expect(link(copy.place.call)).toHaveAttribute("href", "tel:+351291640513");
     expect(queryLink(new RegExp(`^${copy.place.site}`))).not.toBeInTheDocument();
-    expect(link(copy.place.call).parentElement).toHaveClass("grid", "grid-cols-2");
+    expect(link(copy.place.call).parentElement).toHaveClass("grid", "grid-cols-[repeat(auto-fit,minmax(min(104px,100%),1fr))]");
   });
 
   it("has only Get directions, the width of the page, for a place with neither", async () => {

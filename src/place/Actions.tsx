@@ -176,7 +176,9 @@ const phoneButton =
 
 /**
  * The phone's actions, only those the place has. Two or three sit side by side, each an icon and a
- * word (Place.dc.html); directions on their own fill the width and say so (PlaceNew.dc.html).
+ * word (Place.dc.html), as many to a row as fit at 104 px or more, the widest a button's words and
+ * icon need ("Directions"): three across from 375 px wide, two and one at 320. Directions on their own
+ * fill the width and say so (PlaceNew.dc.html).
  */
 export function PhoneActions({ actions }: { actions: PlaceActions }): JSX.Element | null {
   const alone = actions.call === undefined && actions.site === undefined;
@@ -184,7 +186,7 @@ export function PhoneActions({ actions }: { actions: PlaceActions }): JSX.Elemen
   if (list.length === 0) return null;
   if (alone) return <ActionLink action={list[0]!} icon className={`${phoneButton} w-full`} />;
   return (
-    <div className={`grid gap-2.5 ${list.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(104px,100%),1fr))] gap-2.5">
       {list.map((action) => (
         <ActionLink key={action.kind} action={action} icon className={phoneButton} />
       ))}
