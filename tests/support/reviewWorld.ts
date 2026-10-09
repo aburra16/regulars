@@ -48,8 +48,9 @@ const trustList = () => shapedEvent({ kind: 10040, pubkey: config.houseHex, tags
 export const rankOf = (subject: string, rank: number) =>
   shapedEvent({ kind: 30382, pubkey: SCORER, tags: [["d", subject], ["rank", String(rank)]] });
 
-/** `pubkey`'s profile (kind 0) naming them `name`. */
-export const profileOf = (pubkey: string, name: string) => shapedEvent({ kind: 0, pubkey, content: JSON.stringify({ name }) });
+/** `pubkey`'s profile (kind 0) naming them `name`, with `picture` when one is given. */
+export const profileOf = (pubkey: string, name: string, picture?: string) =>
+  shapedEvent({ kind: 0, pubkey, content: JSON.stringify(picture === undefined ? { name } : { name, picture }) });
 
 /** `pubkey`'s relay list (kind 10002), writing to `urls`. */
 export const listOf = (pubkey: string, urls: string[]) => shapedEvent({ kind: 10002, pubkey, tags: urls.map((url) => ["r", url]) });
@@ -134,15 +135,18 @@ export function installAddOn(key: Uint8Array) {
 
 /**
  * The person, signed in with this browser in this tab before the page was opened, named `name` on
- * the search relay. `signsWith` is the key their add-on signs with now: another person's when it
- * has changed accounts since.
+ * the search relay, with `picture` in their profile when one is given. `signsWith` is the key their
+ * add-on signs with now: another person's when it has changed accounts since.
  */
-export function signedIn(world: World, { name = "Maya", signsWith }: { name?: string; signsWith?: Uint8Array } = {}) {
+export function signedIn(
+  world: World,
+  { name = "Maya", picture, signsWith }: { name?: string; picture?: string; signsWith?: Uint8Array } = {},
+) {
   const key = generateSecretKey();
   const pubkey = getPublicKey(key);
   const addOn = installAddOn(signsWith ?? key);
   window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({ how: "browser", pubkey }));
-  world.search.push(profileOf(pubkey, name));
+  world.search.push(profileOf(pubkey, name, picture));
   return { key, pubkey, addOn, name };
 }
 

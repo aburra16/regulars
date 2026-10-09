@@ -4,6 +4,7 @@ import { type JSX, memo, type ReactNode, StrictMode, useContext } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ForgetOnSignOut } from "../src/account/forgetOnSignOut";
+import { useOwnProfile } from "../src/account/useOwnName";
 import { SESSION_KEY } from "../src/account/session";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
@@ -14,7 +15,7 @@ import { REVIEW_KIND } from "../src/reviews/review";
 import { ScoresProvider, useScoresStore } from "../src/score/ScoresProvider";
 import { FLUSH_WINDOW_MS, HELD_REVIEWS_KEY, REMOVED_REVIEWS_KEY } from "../src/score/store";
 import { useListScores } from "../src/score/useListScores";
-import { useNames, useOwnPicture, useScore, useScoreActions, useScores } from "../src/score/useScore";
+import { useNames, usePictures, useScore, useScoreActions, useScores } from "../src/score/useScore";
 import raw from "./fixtures/funchal-items.json";
 import { DESKTOP, PHONE, resetWidth } from "./support/app";
 import { hex64, shapedEvent } from "./support/events";
@@ -946,11 +947,11 @@ describe("ScoresProvider: scores", () => {
     const shown = JSON.stringify(result.current);
     for (const number of ["73.25", "0.7325", "7325"]) expect(shown).not.toContain(number);
     // What the hooks give: reviews, place scores, names, whether the person's circle is empty (yes or no),
-    // and the person's own picture, an address, no number (useOwnPicture).
+    // and people's pictures, each an address, no number (usePictures).
     expect(Object.keys(await import("../src/score/useScore")).sort()).toEqual([
       "useCircleEmptiness",
       "useNames",
-      "useOwnPicture",
+      "usePictures",
       "useScore",
       "useScoreActions",
       "useScores",
@@ -1462,7 +1463,7 @@ describe("useNames", () => {
   });
 });
 
-describe("useOwnPicture: only the picture of the person signed in is kept", () => {
+describe("usePictures: each reviewer's picture, read with their name", () => {
   const ALICE_PICTURE = "https://img.example.test/alice.jpg";
   const BOB_PICTURE = "https://img.example.test/bob.jpg";
 
@@ -1476,41 +1477,48 @@ describe("useOwnPicture: only the picture of the person signed in is kept", () =
     profileOf(BOB, { name: "Bob", picture: BOB_PICTURE }),
   ];
 
-  it("keeps the picture of the person signed in, and of no one else whose profile was read with it", async () => {
+  it("gives each reviewer's picture by public key, in the same read as their name, whoever is signed in", async () => {
     config.reviewRelays = [SEARCH];
-    signInAs(ALICE);
-    const { readers } = network({ [SEARCH]: createMemoryReader(bothPictured()) });
-    const { result } = renderStore(() => ({ names: useNames([ALICE, BOB]), store: useScoresStore("the test") }), { readers });
-    await waitFor(() => expect(result.current.names.get(BOB)).toBe("Bob"));
-    expect(result.current.names.get(ALICE)).toBe("Alice");
+    const search = createMemoryReader([
+      ...bothPictured(),
+      profileOf(CAROL, { name: "Carol" }),
+      // Only an https address is a picture to load (src/nostr/profiles.ts).
+      profileOf(DAVE, { name: "Dave", picture: "http://img.example.test/dave.jpg" }),
+    ]);
+    const { readers } = network({ [SEARCH]: search });
+    const { result } = renderStore(
+      () => ({ pictures: usePictures([ALICE, BOB, CAROL, DAVE, ERIN]), store: useScoresStore("the test") }),
+      { readers },
+    );
 
+    await waitFor(() => expect(result.current.pictures.get(BOB)).toBe(BOB_PICTURE));
+    expect(result.current.pictures.get(ALICE)).toBe(ALICE_PICTURE);
+    // No picture, no picture that may be loaded, or no profile: not in the map, and no stand-in.
+    expect([...result.current.pictures.keys()].sort()).toEqual([ALICE, BOB].sort());
+    expect(search.requests).toHaveLength(1);
+    expect(search.requests[0]).toMatchObject({ kinds: [0], authors: [ALICE, BOB, CAROL, DAVE, ERIN] });
+
+    // The same whether anyone is signed in, and whoever it is.
+    signInAs(CAROL);
     expect(result.current.store.pictureOf(ALICE)).toBe(ALICE_PICTURE);
-    expect(result.current.store.pictureOf(BOB)).toBeUndefined();
-
-    // Bob's was not kept for a time he signs in: nothing shows of it until his own profile is read for him.
-    signInAs(BOB);
-    expect(result.current.store.pictureOf(BOB)).toBeUndefined();
-    // And the store answers for the person signed in alone: Alice's, read while she was, is not shown to Bob.
-    expect(result.current.store.pictureOf(ALICE)).toBeUndefined();
+    signOut();
+    expect(result.current.store.pictureOf(BOB)).toBe(BOB_PICTURE);
   });
 
-  it("answers for no one when no one is signed in, and again for the person once they are", async () => {
+  it("asks once for a person whose name is asked for too: names and pictures are one read", async () => {
     config.reviewRelays = [SEARCH];
-    signInAs(ALICE);
-    const { readers } = network({ [SEARCH]: createMemoryReader(bothPictured()) });
-    const { result } = renderStore(() => ({ names: useNames([ALICE]), store: useScoresStore("the test") }), { readers });
-    await waitFor(() => expect(result.current.names.get(ALICE)).toBe("Alice"));
-    expect(result.current.store.pictureOf(ALICE)).toBe(ALICE_PICTURE);
-
-    signOut();
-    expect(result.current.store.pictureOf(ALICE)).toBeUndefined();
-    signInAs(ALICE);
-    expect(result.current.store.pictureOf(ALICE)).toBe(ALICE_PICTURE);
+    const search = createMemoryReader(bothPictured());
+    const { readers } = network({ [SEARCH]: search });
+    const { result } = renderStore(() => ({ names: useNames([ALICE, BOB]), pictures: usePictures([BOB, ALICE]) }), { readers });
+    await waitFor(() => expect(result.current.pictures.get(ALICE)).toBe(ALICE_PICTURE));
+    expect(result.current.names.get(BOB)).toBe("Bob");
+    await settle();
+    expect(search.requests).toHaveLength(1);
   });
 
   /**
    * A page that asks for Alice's name, as every page does for a reviewer, and, once `signedIn`, has her
-   * account button: the one thing that asks for her picture.
+   * account button, which shows her picture.
    */
   function Page({ signedIn }: { signedIn: boolean }): JSX.Element {
     const name = useNames([ALICE]).get(ALICE);
@@ -1522,7 +1530,7 @@ describe("useOwnPicture: only the picture of the person signed in is kept", () =
     );
   }
   function Button(): JSX.Element {
-    return <p data-testid="own">{useOwnPicture(ALICE) ?? "none"}</p>;
+    return <p data-testid="own">{useOwnProfile(ALICE).picture ?? "none"}</p>;
   }
   const treeOf = (readers: (url: string) => RelayReader, signedIn: boolean) => (
     <PlacesProvider reader={createMemoryReader(places)}>
@@ -1532,7 +1540,7 @@ describe("useOwnPicture: only the picture of the person signed in is kept", () =
     </PlacesProvider>
   );
 
-  it("gives the picture of someone who signs in after their profile was read as a reviewer's, with one more read of it", async () => {
+  it("gives the picture of someone who signs in after their profile was read as a reviewer's, with no second read of it", async () => {
     config.reviewRelays = [SEARCH];
     const search = createMemoryReader(bothPictured());
     const { readers } = network({ [SEARCH]: search });
@@ -1543,9 +1551,9 @@ describe("useOwnPicture: only the picture of the person signed in is kept", () =
 
     signInAs(ALICE);
     rerender(treeOf(readers, true));
-    await waitFor(() => expect(screen.getByTestId("own")).toHaveTextContent(ALICE_PICTURE));
-    expect(search.requests).toHaveLength(2);
-    expect(search.requests[1]).toMatchObject({ kinds: [0], authors: [ALICE] });
+    expect(screen.getByTestId("own")).toHaveTextContent(ALICE_PICTURE);
+    await settle();
+    expect(search.requests).toHaveLength(1);
   });
 
   it("reads the profile of the person signed in once, whether or not it gives a picture, however often the button is drawn", async () => {

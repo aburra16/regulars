@@ -1,5 +1,5 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -604,19 +604,6 @@ describe("the place page, scored", () => {
     expect(screen.queryByRole("button", { name: copy.reviews.show })).not.toBeInTheDocument();
   });
 
-  it("draws no reviewer's picture, even one their profile gives: the app shows no one's picture but the person's own", async () => {
-    const pictured = [
-      shapedEvent({ kind: 0, pubkey: ALICE, content: JSON.stringify({ name: "Alice Bento", picture: "https://img.example.test/alice.jpg" }) }),
-      shapedEvent({ kind: 0, pubkey: BOB, content: JSON.stringify({ name: "Bob", picture: "https://img.example.test/bob.jpg" }) }),
-    ];
-    const { readers } = houseNetwork(jacafeScored(), HOUSE_RANKS, { [SEARCH]: createMemoryReader([...jacafeScored(), ...pictured]) });
-    await openApp(placePath(JACAFE), { events: places, readers });
-
-    await screen.findByText("Alice Bento");
-    expect(insideReviews()).toHaveLength(2);
-    expect(document.querySelector('img[src^="https://img.example.test/"]')).toBeNull();
-  });
-
   it("puts every reviewer's name in a <bdi>, kept apart from the text around it", async () => {
     const { readers } = houseNetwork([...jacafeScored(), reviewOf(DAVE, JACAFE, 3, "Fine.", 1)], HOUSE_RANKS);
     await openApp(placePath(JACAFE), { events: places, readers });
@@ -753,6 +740,125 @@ describe("the place page, scored", () => {
     const heading = await screen.findByRole("heading", { level: 2, name: copy.reviews.heading });
     expect(within(heading.parentElement!).getByRole("link", { name: copy.place.rate })).toHaveAttribute("href", "/signin");
     expect(screen.getAllByRole("link", { name: copy.place.rate })).toHaveLength(1);
+  });
+});
+
+describe("the reviewers' pictures on the place page", () => {
+  const ALICE_PICTURE = "https://img.example.test/alice.jpg";
+  const BOB_PICTURE = "https://img.example.test/bob.jpg";
+  const CAROL_PICTURE = "https://img.example.test/carol.jpg";
+
+  /** `pubkey`'s profile (kind 0), naming them `name`, with `picture` in it when one is given. */
+  const pictured = (pubkey: string, name: string, picture?: string) =>
+    shapedEvent({ kind: 0, pubkey, content: JSON.stringify(picture === undefined ? { name } : { name, picture }) });
+
+  /** Jacafé's reviews, Alice's and Bob's inside House picks and Carol's folded, with `profiles` on the review relay. */
+  function jacafeWith(profiles: NostrEvent[]) {
+    const reviews = [...jacafeScored(), reviewOf(CAROL, JACAFE, 2, "Too sweet.", 5)];
+    return houseNetwork(reviews, HOUSE_RANKS, { [SEARCH]: createMemoryReader([...reviews, ...profiles]) });
+  }
+
+  /** The circle beside a review's name: the reviewer's picture in it, or their initial. */
+  const faceOf = (article: HTMLElement) => within(article).getByRole("heading", { level: 3 }).previousElementSibling as HTMLElement;
+  /** The review whose reviewer is named `name`, inside House picks. */
+  const reviewBy = (name: string) => insideReviews().find((article) => reviewerOf(article) === name)!;
+
+  it("fills each reviewer's circle with the picture their profile gives: no referrer, loaded lazily, the name beside it", async () => {
+    const { readers } = jacafeWith([pictured(ALICE, "Alice Bento", ALICE_PICTURE), pictured(BOB, "Bob", BOB_PICTURE)]);
+    await openApp(placePath(JACAFE), { events: places, readers });
+
+    await screen.findByText("Alice Bento");
+    for (const [name, address] of [["Alice Bento", ALICE_PICTURE], ["Bob", BOB_PICTURE]] as const) {
+      const face = faceOf(reviewBy(name));
+      const picture = await waitFor(() => {
+        const found = face.querySelector("img");
+        expect(found).not.toBeNull();
+        return found!;
+      });
+      expect(picture).toHaveAttribute("src", address);
+      // The name is beside it: the picture says nothing more.
+      expect(picture).toHaveAttribute("alt", "");
+      expect(picture).toHaveAttribute("referrerpolicy", "no-referrer");
+      expect(picture).toHaveAttribute("loading", "lazy");
+      expect(picture).toHaveAttribute("decoding", "async");
+      // Filling the circle, cut to it, its ground showing while it loads, and a ring that keeps its edge in either theme.
+      expect(picture).toHaveClass("size-full", "rounded-full", "object-cover", "bg-surface", "ring-1", "ring-line");
+      expect(picture).not.toHaveClass("opacity-60");
+      expect(face).toHaveAttribute("aria-hidden", "true");
+      expect(face).toHaveTextContent("");
+    }
+  });
+
+  it("shows the initial for a reviewer whose profile has no picture, or one that is not https", async () => {
+    const { readers } = jacafeWith([pictured(ALICE, "Alice Bento"), pictured(BOB, "Bob", "http://img.example.test/bob.jpg")]);
+    await openApp(placePath(JACAFE), { events: places, readers });
+
+    await screen.findByText("Alice Bento");
+    expect(faceOf(reviewBy("Alice Bento"))).toHaveTextContent(/^A$/);
+    expect(faceOf(reviewBy("Bob"))).toHaveTextContent(/^B$/);
+    expect(document.querySelector("article img")).toBeNull();
+  });
+
+  it("shows the initial in place of a picture that won't load, and does not ask for it again this session", async () => {
+    const { readers } = jacafeWith([pictured(ALICE, "Alice Bento", ALICE_PICTURE), pictured(BOB, "Bob", BOB_PICTURE)]);
+    const { router } = await openApp(placePath(JACAFE), { events: places, readers });
+
+    await screen.findByText("Alice Bento");
+    const picture = await waitFor(() => {
+      const found = faceOf(reviewBy("Alice Bento")).querySelector("img");
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    fireEvent.error(picture);
+    expect(faceOf(reviewBy("Alice Bento"))).toHaveTextContent(/^A$/);
+    expect(faceOf(reviewBy("Alice Bento")).querySelector("img")).toBeNull();
+    // Bob's loads: his stays.
+    expect(faceOf(reviewBy("Bob")).querySelector("img")).toHaveAttribute("src", BOB_PICTURE);
+
+    // Back on the place's page later in the session, Alice's is not asked for again.
+    await act(() => router.navigate("/"));
+    await act(() => router.navigate(placePath(JACAFE)));
+    await screen.findByText("Alice Bento");
+    expect(faceOf(reviewBy("Alice Bento"))).toHaveTextContent(/^A$/);
+    expect(document.querySelector(`img[src="${ALICE_PICTURE}"]`)).toBeNull();
+    expect(faceOf(reviewBy("Bob")).querySelector("img")).toHaveAttribute("src", BOB_PICTURE);
+  });
+
+  it("dims a folded reviewer's picture, as the words and stars beside it are", async () => {
+    const user = userEvent.setup();
+    const { readers } = jacafeWith([
+      pictured(ALICE, "Alice Bento", ALICE_PICTURE),
+      pictured(BOB, "Bob", BOB_PICTURE),
+      pictured(CAROL, "Carol", CAROL_PICTURE),
+    ]);
+    await openApp(placePath(JACAFE), { events: places, readers });
+    await screen.findByText("Alice Bento");
+    await user.click(screen.getByRole("button", { name: copy.reviews.show }));
+
+    const carol = (await screen.findByText("Too sweet.")).closest("article")!;
+    expect(carol).toHaveAttribute("data-folded", "true");
+    const picture = faceOf(carol).querySelector("img");
+    expect(picture).toHaveAttribute("src", CAROL_PICTURE);
+    expect(picture).toHaveClass("opacity-60");
+    for (const name of ["Alice Bento", "Bob"]) expect(faceOf(reviewBy(name)).querySelector("img")).not.toHaveClass("opacity-60");
+  });
+
+  it("never shows a number about a person with the pictures in", async () => {
+    const user = userEvent.setup();
+    const reviews = numbersReviews();
+    const profiles = [
+      pictured(ALICE, "Alice Bento", ALICE_PICTURE),
+      pictured(BOB, "Bob", BOB_PICTURE),
+      pictured(CAROL, "Carol", CAROL_PICTURE),
+    ];
+    const { readers } = houseNetwork(reviews, NUMBER_RANKS, { [SEARCH]: createMemoryReader([...reviews, ...profiles]) });
+    await openApp(placePath(JACAFE), { events: places, readers });
+    await screen.findByText("Alice Bento");
+    await user.click(screen.getByRole("button", { name: copy.reviews.show }));
+    await screen.findByText("Too sweet.");
+    await waitFor(() => expect(document.querySelectorAll("article img")).toHaveLength(3));
+
+    expectNoNumbersAboutPeople(NUMBERS);
   });
 });
 

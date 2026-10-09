@@ -1,8 +1,8 @@
 /**
  * The pictures that would not load this session, by address. Each is asked for once: after that the
- * initial stands in its place, wherever the account button is drawn again (a phone draws it on
- * Explore only). Kept apart from the button so that tests can forget it between one test and the
- * next without loading the shell (tests/setup.ts).
+ * initial stands in its place, wherever it is drawn again (`ProfilePicture`): the account button (a
+ * phone draws it on Explore only), or a reviewer's circle beside their review. Kept apart from them so
+ * that tests can forget it between one test and the next without loading the shell (tests/setup.ts).
  */
 const unloadable = new Set<string>();
 

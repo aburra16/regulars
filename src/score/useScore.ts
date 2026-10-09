@@ -11,9 +11,9 @@ import type { ReadState, ReviewCoordinate, ScoresStore } from "./store.ts";
 
 /*
  * What pages ask the scores store for: places' scores from the view on screen (House picks, or My
- * circle), their reviews, reviewers' names, and the person's own picture. They give reviews, place
- * scores, names and that picture, and never a number about a person (decision 19). Toggling the view
- * asks the store for nothing new: the scores are worked out again from what it holds (Review Focus 5).
+ * circle), their reviews, and people's names and pictures. They give reviews, place scores, names and
+ * pictures, and never a number about a person (decision 19). Toggling the view asks the store for
+ * nothing new: the scores are worked out again from what it holds (Review Focus 5).
  */
 
 /** Re-renders the component when places' reviews or scores may have changed; their version, for memos. */
@@ -21,7 +21,7 @@ function useScoresVersion(store: ScoresStore): number {
   return useSyncExternalStore(store.subscribe, store.scoresVersion);
 }
 
-/** Re-renders the component when names have changed; their version, for memos. */
+/** Re-renders the component when names, or the pictures read with them, have changed; their version, for memos. */
 function useNamesVersion(store: ScoresStore): number {
   return useSyncExternalStore(store.subscribe, store.namesVersion);
 }
@@ -162,15 +162,26 @@ export function useNames(pubkeys: readonly string[]): Map<string, string> {
 }
 
 /**
- * The picture in the profile of the person signed in as `pubkey`, read with their name
- * (`ScoresStore.pictureOf`): an https address, or undefined until it is read, or when their profile
- * has none that may be loaded. For the person's own account button only: the app loads no one
- * else's picture.
+ * Each person's picture, by public key: the https address in their profile (`ScoresStore.pictureOf`),
+ * read with their name (`useNames`), in the same read. Someone whose picture is not read yet, or whose
+ * profile has none that may be loaded, is not in the map: a page draws their initial in its place.
  */
-export function useOwnPicture(pubkey: string): string | undefined {
-  const store = useScoresStore("useOwnPicture");
-  useEffect(() => store.wantOwnPicture(pubkey), [store, pubkey]);
-  return useSyncExternalStore(store.subscribe, () => store.pictureOf(pubkey));
+export function usePictures(pubkeys: readonly string[]): Map<string, string> {
+  const store = useScoresStore("usePictures");
+  const version = useNamesVersion(store);
+  const asked = useSameList(pubkeys);
+
+  useEffect(() => store.wantNames(asked), [store, asked]);
+
+  return useMemo(() => {
+    void version; // What the store gives changes with it.
+    const pictures = new Map<string, string>();
+    for (const pubkey of asked) {
+      const picture = store.pictureOf(pubkey);
+      if (picture !== undefined) pictures.set(pubkey, picture);
+    }
+    return pictures;
+  }, [store, asked, version]);
 }
 
 /** What the person's own actions tell the store. */

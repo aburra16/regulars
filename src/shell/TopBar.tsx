@@ -11,9 +11,9 @@ import { BUSY_CONTROL, type InlineSignIn, InlineSignInLines, useInlineSignIn } f
 import { landingFrom } from "../signin/returnTo.ts";
 import { ThemeToggle } from "../theme/ThemeToggle.tsx";
 import { PersonIcon, SearchIcon } from "../ui/icons.tsx";
+import { ProfilePicture } from "../ui/ProfilePicture.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
-import { isUnloadablePicture, noteUnloadablePicture } from "./unloadablePictures.ts";
 
 type AccountSize = "phone" | "desktop";
 
@@ -71,17 +71,19 @@ export function AccountSignInLines({ signIn, className = "" }: { signIn: Account
 
 /**
  * The account button of the person signed in as `pubkey`, which goes to the You page: the picture
- * in their profile, filling the circle, else the first letter of their name, as the design draws it
- * (DeskExplore.dc.html, Tuning.dc.html), named "Sofia, your account" for a screen reader. Until the
- * name is known, or when their profile has none, the person icon, named "Your account". A picture
- * that will not load gives way to the initial. `focusNext`: it has just become theirs by a press of
- * it, and takes the focus.
+ * in their profile, filling the circle (`ProfilePicture`), else the first letter of their name, as
+ * the design draws it (DeskExplore.dc.html, Tuning.dc.html), named "Sofia, your account" for a screen
+ * reader. Until the name is known, or when their profile has none, the person icon, named "Your
+ * account". A picture that will not load gives way to the initial. `focusNext`: it has just become
+ * theirs by a press of it, and takes the focus.
+ *
+ * Privacy: the picture's address comes only from the person's own signed profile, and the image host
+ * it names sees their IP address, their browser, and when they open Regulars; with no referrer, not
+ * which page. Reviewers' pictures are loaded the same way beside their reviews (Avi, 2026-10-09), so
+ * the hosts they name see each visitor of a place's page.
  */
 function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: string; focusNext: RefObject<boolean> }): JSX.Element {
   const { name, picture } = useOwnProfile(pubkey);
-  // The picture that has just failed: setting it draws the button again, with the initial.
-  const [, setFailed] = useState<string>();
-  const shown = picture !== undefined && !isUnloadablePicture(picture) ? picture : undefined;
   const button = useRef<HTMLAnchorElement>(null);
   useEffect(() => {
     if (!focusNext.current) return;
@@ -91,29 +93,10 @@ function PersonButton({ size, pubkey, focusNext }: { size: AccountSize; pubkey: 
   return (
     <NavLink ref={button} to="/you" end aria-label={name === undefined ? copy.nav.yourAccount : copy.nav.accountOf(name)} className={ROUND}>
       <Disc size={size}>
-        {shown !== undefined ? (
-          // Privacy: the person's own picture only; no one else's is ever loaded, and its address
-          // comes only from their own signed profile. The image host that address names sees their
-          // IP address, their browser, and when they open Regulars; with no referrer, not which page.
-          // Its ground shows while it loads, and the ring keeps the edge of a light or a dark
-          // picture in either theme.
-          <img
-            src={shown}
-            alt=""
-            referrerPolicy="no-referrer"
-            loading="lazy"
-            decoding="async"
-            onError={() => {
-              noteUnloadablePicture(shown);
-              setFailed(shown);
-            }}
-            className="size-full rounded-full bg-surface object-cover ring-1 ring-line"
-          />
-        ) : name === undefined ? (
-          <PersonIcon size={20} />
-        ) : (
-          <span lang={scriptLang(name)}>{initialOf(name)}</span>
-        )}
+        <ProfilePicture
+          address={picture}
+          fallback={name === undefined ? <PersonIcon size={20} /> : <span lang={scriptLang(name)}>{initialOf(name)}</span>}
+        />
       </Disc>
     </NavLink>
   );
