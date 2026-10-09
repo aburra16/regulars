@@ -13,15 +13,7 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 - Avi walked through every screen's wording on 2026-10-09. One string is still marked DRAFT in `src/copy/en.ts`: `reviews.uncounted` ("2 reviews, shown without a rating for now"), reworded after his pass.
 
 **Product calls**
-- **Trending on the phone has no "Near …" line,** so its distances are from wherever Explore last looked. Add one?
-- **Photos:** the recommendation is photos attached to reviews, stored on a nostr file server we choose, shown only from people who count. For discussion; not scheduled.
-- **Open from the brief (§ 12):**
-  - flagged reviewers: folded with the rest, or hidden;
-  - whether About names BTC Map;
-  - About's contact address;
-  - what a reviewer gets back;
-  - whether to fold into brainstorm.world later.
-- **Korean font:** keep the coverage, or drop it to save about 57 KB per visitor.
+- All settled on 2026-10-09 (decisions 36 to 43).
 
 **For the team**
 - **NosFabrica relay team:** search.brainstorm.world refused every write from about 22:20 UTC on Oct 8 (`NO_SPACE`: its Vespa content node's memory over the feed-block limit). More machines are coming; nothing to change in the app when it is back (decision 29).
@@ -39,8 +31,12 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 5. **A "Near here" filter on Trending.**
 6. **Trending ranked by recent activity,** once there are enough reviews: places ranked by how many people who count reviewed them in the last 30 days (decision 31).
 7. **Growth beyond Funchal.** The map already shows every place; this needs a plan for seeding first reviewers.
+8. **A richer place page, with photos** (decision 42): explore public photo feeds as well as reviewer uploads. After the low-hanging fruit.
+9. **A reviewer's profile page** (decision 39): name, picture and reviews; later their lists. No counts.
 
 ## Hardening before many people use it
+
+- **Trending's "Near …" pill on the phone** (decision 43).
 
 - **Place signatures:** check them in the browser, in a worker or by sampling. Today they are off for speed.
 - **The importer:** never more than 10,000 places at one `created_at`.

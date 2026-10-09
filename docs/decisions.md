@@ -59,3 +59,11 @@ Avi's answers on 2026-10-07 to the questions in `handoff/START_HERE.md` and the 
 | 33 | Where distances are from | Every distance is from the place the "Near …" control names. It says "you" only for the device's location. A desktop's area searched on the map ("Search this area") is measured from the area's middle, and the control names it after the nearest listed town within 30 km of the middle, else "this map area"; picking a town or "Use my location" goes back. |
 | 34 | Opening hours in colour | Wherever hours show, the state words are in colour: "Open" green, "Closed" red, and "Closing soon" amber when 45 minutes or less are left, with the closing time ("Closing soon · 4 pm"). Each has its own token, at 4.5 to 1 in both themes; the week's table on the place page stays plain. |
 | 35 | Place page buttons | The place page's buttons read "Directions" (still "Get directions" to a screen reader, and to the eye when it is the only one), "Call" and "Website". On a phone they wrap when three do not fit. |
+| 36 | Flagged reviewers | Reviews by people the house or the person's circle has muted or reported fold with everyone else outside the view: never counted, one tap to read, with no label of their own, so nothing reads as a verdict on a person. |
+| 37 | BTC Map on About | About keeps naming BTC Map as the source that gathers the places, beside the OpenStreetMap credit. |
+| 38 | Contact on About | No contact line on About for now. |
+| 39 | What a reviewer gets back | A profile page: their name, picture and reviews, and later the lists they make that others can save. No counts about them (no "helpful" count), and no tips for now. |
+| 40 | Standalone | Regulars stays its own site at askregulars.world, with Brainstorm as a named partner. Revisit if there is a reason to merge, such as a shared sign-in. |
+| 41 | Korean font | Kept: Korean place names keep their font, at about 57 KB on the stylesheet. |
+| 42 | Photos and a richer place page | After the backlog's low-hanging fruit. Explore public feeds for photos as well as reviewer uploads; the place page should become richer. |
+| 43 | Trending's "Near …" | Trending shows the same "Near …" pill as Explore, opening the same town picker, so its distances say where they are measured from. |
