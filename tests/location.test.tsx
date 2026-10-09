@@ -699,15 +699,35 @@ describe("where a first visit starts", () => {
       expect(write).not.toHaveBeenCalled();
     });
 
-    it("is not moved through a name its places give two towns within reach: New York stays New York", () => {
-      const newYork = { name: "New York", country: "US", lat: 40.7586, lon: -73.9855 };
-      keep(newYork);
+    it("goes, through a name its places give several towns, to the one with three times the places of the next", () => {
+      // Praha: Prague's places give it, and so does one place of Radotín, a district GeoNames lists as a town.
+      keep({ name: "Praha", country: "CZ", lat: 50.0835, lon: 14.4341 });
+      override.cities = [prague, { name: "Radotín", country: "CZ", lat: 49.9873, lon: 14.3627, count: 1, geonameId: 3068107, aliases: ["praha"] }];
+      expect(renderHere().result.current).toMatchObject({ label: "Prague", lat: prague.lat, lon: prague.lon });
+      cleanup();
+
+      // New York: New York City's places give it, and one of Weehawken's.
+      keep({ name: "New York", country: "US", lat: 40.7586, lon: -73.9855 });
       override.cities = [
         { name: "New York City", country: "US", region: "NY", lat: 40.7143, lon: -74.006, count: 3, geonameId: 5128581, aliases: ["new york"] },
         { name: "Weehawken", country: "US", region: "NJ", lat: 40.7695, lon: -74.0204, count: 1, geonameId: 5106184, aliases: ["new york"] },
       ];
-      expect(renderHere().result.current).toMatchObject({ label: "New York", lat: newYork.lat, lon: newYork.lon });
-      expect(JSON.parse(saved()!)).toEqual(newYork);
+      expect(renderHere().result.current).toMatchObject({ label: "New York City", lat: 40.7143, lon: -74.006 });
+    });
+
+    it("stays as it was when the towns that have the name are as big, or one is less than three times the next", () => {
+      const newYork = { name: "New York", country: "US", lat: 40.7586, lon: -73.9855 };
+      const towns = (cityCount: number, weehawkenCount: number): City[] => [
+        { name: "New York City", country: "US", region: "NY", lat: 40.7143, lon: -74.006, count: cityCount, geonameId: 5128581, aliases: ["new york"] },
+        { name: "Weehawken", country: "US", region: "NJ", lat: 40.7695, lon: -74.0204, count: weehawkenCount, geonameId: 5106184, aliases: ["new york"] },
+      ];
+      for (const [cityCount, weehawkenCount] of [[2, 2], [5, 2]] as const) {
+        keep(newYork);
+        override.cities = towns(cityCount, weehawkenCount);
+        expect(renderHere().result.current).toMatchObject({ label: "New York", lat: newYork.lat, lon: newYork.lon });
+        expect(JSON.parse(saved()!)).toEqual(newYork);
+        cleanup();
+      }
     });
 
     it("is not moved through a name its places give a town more than 10 km away", () => {

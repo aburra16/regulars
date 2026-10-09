@@ -10,6 +10,12 @@ import { type SavedCity, savedCityOf } from "./useLocation.ts";
  */
 export const KEPT_ALIAS_KM = 10;
 
+/**
+ * How many times the places of the next a town must have to be the one a name its places give is
+ * taken for, when more than one has it: Prague's 29 places that say Praha, and the one of Radotín.
+ */
+export const KEPT_ALIAS_LEAD = 3;
+
 /** Whether two kept towns are the same, field for field. */
 const same = (a: SavedCity, b: SavedCity) =>
   a.name === b.name && a.region === b.region && a.country === b.country && a.lat === b.lat && a.lon === b.lon;
@@ -22,9 +28,10 @@ const same = (a: SavedCity, b: SavedCity) =>
  * not be loaded), in the same country:
  *
  * - the nearest within `TOWN_REACH_KM` of where it was kept that has its name ("Funchal"); else
- * - the one town within that reach whose places give it that name (`City.aliases`), if it is within
- *   `KEPT_ALIAS_KM`: Prague for Praha. When two towns within reach have the name ("New York", which
- *   the places of New York City and of Weehawken give), or the one is farther, no town is surely it.
+ * - of the towns within `KEPT_ALIAS_KM` whose places give it that name (`City.aliases`), the one with
+ *   the most places, when it has `KEPT_ALIAS_LEAD` times the places of the next: Prague for Praha,
+ *   which one place of Radotín gives too; New York City for New York, which one place of Weehawken
+ *   gives. When none of them has that lead, or none is that near, no town is surely it.
  */
 export function keptTownNow(kept: SavedCity, cities: readonly City[]): SavedCity | undefined {
   const name = foldName(kept.name);
@@ -37,12 +44,13 @@ export function keptTownNow(kept: SavedCity, cities: readonly City[]): SavedCity
     if (!(km <= TOWN_REACH_KM)) continue;
     if (foldName(city.name) === name) {
       if (byName === undefined || km < byName.km) byName = { city, km };
-    } else if ((city.aliases ?? []).includes(name)) {
+    } else if (km <= KEPT_ALIAS_KM && (city.aliases ?? []).includes(name)) {
       byAlias.push({ city, km });
     }
   }
-  const [only] = byAlias;
-  const town = byName?.city ?? (byAlias.length === 1 && only!.km <= KEPT_ALIAS_KM ? only!.city : undefined);
+  const [first, second] = byAlias.sort((a, b) => b.city.count - a.city.count);
+  const byAliasTown = first !== undefined && first.city.count >= KEPT_ALIAS_LEAD * (second?.city.count ?? 0) ? first.city : undefined;
+  const town = byName?.city ?? byAliasTown;
   if (town === undefined) return undefined;
   const now = savedCityOf(town);
   return same(now, kept) ? undefined : now;
