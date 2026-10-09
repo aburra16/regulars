@@ -320,10 +320,12 @@ describe("chooseTowns: a capital that takes in its districts", () => {
     expect(ids(choice.towns)).toEqual([1619650]);
   });
 
-  it("lists Bangkok, each entry with its GeoNames id and a reach of 25 km", () => {
+  it("lists Bangkok, at 25 km, and Tokyo, at 10 km, each once, with its GeoNames id", () => {
     expect(ABSORBING.find((entry) => entry.id === 1609350)).toMatchObject({ name: "Bangkok", withinKm: 25 });
+    // Short of Kichijōji (Musashino, 10.5 km) and Mitaka (11.9 km), cities of their own in Tokyo-to.
+    expect(ABSORBING.find((entry) => entry.id === 1850147)).toMatchObject({ name: "Tokyo", withinKm: 10 });
     expect(new Set(ABSORBING.map((entry) => entry.id)).size).toBe(ABSORBING.length);
-    for (const entry of ABSORBING) expect(entry.withinKm).toBe(25);
+    for (const entry of ABSORBING) expect(entry.withinKm).toBeLessThanOrEqual(25);
   });
 });
 
