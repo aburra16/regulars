@@ -1034,6 +1034,18 @@ describe("the bar at the foot of the screen (Avi, 2026-10-09)", () => {
     expectWorking(myCircle());
   });
 
+  it("still gives the focus back to what had it after the person leaves the window and comes back to the ×", async () => {
+    const { user, region } = await barWorking();
+    expect(housePicks()).toHaveFocus();
+    act(() => closeBar().focus());
+    // Another app, then back: the focus comes back to the × from no element.
+    fireEvent.focusOut(closeBar(), { relatedTarget: null });
+    fireEvent.focusIn(closeBar(), { relatedTarget: null });
+    await user.click(closeBar());
+    expect(region).toBeEmptyDOMElement();
+    expect(housePicks()).toHaveFocus();
+  });
+
   it("gives the focus to the page's main when what had it before the × has gone from the page", async () => {
     const { user, region, router } = await barWorking();
     act(() => closeBar().focus());

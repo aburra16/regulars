@@ -283,7 +283,8 @@ export function CircleBar({ aboveTabs, main }: { aboveTabs: boolean; main: RefOb
 
   const inside = (event: FocusEvent<HTMLDivElement>) => event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget);
   const onFocus = (event: FocusEvent<HTMLDivElement>) => {
-    if (!inside(event)) before.current = event.relatedTarget;
+    // Coming back to the window gives no element before: what was remembered stays.
+    if (!inside(event) && event.relatedTarget !== null) before.current = event.relatedTarget;
     setFocused(true);
   };
   const onBlur = (event: FocusEvent<HTMLDivElement>) => {
