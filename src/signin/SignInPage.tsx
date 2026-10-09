@@ -167,8 +167,8 @@ type Step =
  * "Continue with Nostr", one tap where it can be (decision 23). Where the browser has an add-on, it
  * asks it at once who the person is (the add-on may ask them first), and "Use an app on your phone
  * instead" is under it. Where it has none, it opens the phone's way at once (./PhoneWay.tsx): the
- * code, the link, and on a phone "Open the app"; on a desktop, with the line on how to get an add-on
- * under it. Pressed before the page has finished looking for an add-on that comes late, it says it is
+ * code, the link, and on a phone or a tablet "Open the app" (judged by the device: ./handheld.ts); on
+ * a desktop's layout, with the line on how to get an add-on under it. Pressed before the page has finished looking for an add-on that comes late, it says it is
  * looking, for at most half a second, and then goes one way: the phone's way is never shown and then
  * taken away. When the add-on says no, fails or does not answer in a minute, it says so, with Try
  * again and the phone's way. A link that asks for the phone's way (`wantsPhone`: "Use an app on your

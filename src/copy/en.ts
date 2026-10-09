@@ -631,7 +631,7 @@ export const copy = {
     /** The code to scan, for a screen reader. */
     qrLabel: "Code to scan with the app on your phone",
     copyLink: "Copy the link",
-    /** On a phone, beside the code: opens the app on the same phone with the link. */
+    /** On a phone or a tablet, beside the code: opens the app on the same device with the link. */
     openApp: "Open the app",
     /** Said once the link is copied. */
     copied: "Link copied",
