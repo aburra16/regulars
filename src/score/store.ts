@@ -763,11 +763,20 @@ export class ScoresStore {
 
   /**
    * Whether a read of `view`'s ranks failed, and the people it named have not been asked about again
-   * since (`refresh` asks them). Yes or no: which people, or how many, is the store's (decision 19).
+   * since (`retryRanks`, `refresh` ask them). Yes or no: which people, or how many, is the store's
+   * (decision 19).
    */
   rankReadFailed(view: View): boolean {
     return this.#bookOf(view)?.failed === true;
   }
+
+  /**
+   * Asks each view's scorer again about the people a failed read of its ranks let go of, and nothing
+   * else: unlike `refresh`, no place's reviews are read again, and none being read is stopped.
+   */
+  readonly retryRanks = (): void => {
+    this.#weigh();
+  };
 
   /**
    * `events`, review events a page read on its own (Recent's), with the reviews of `pubkey`'s that the

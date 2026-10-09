@@ -197,17 +197,23 @@ export function RecentPage(): JSX.Element {
     recent.retry();
   };
 
+  // Nothing listed while some reviewers are still asked about, on a page kept as it was for the person's
+  // Show older: it says it is reading, and claims nobody is outside yet.
+  const stillCounting = state === "ready" && entries.length === 0 && counting;
+
   // One line at most: the loading line, or a failure with Try again.
   let status: JSX.Element | null = null;
   if (state === "loading") status = <p className={quietLine}>{copy.recent.loading}</p>;
   else if (state === "failed" || (state === "ready" && ranksFailed)) status = <p className={quietLine}>{copy.recent.failed}</p>;
+  else if (stillCounting) status = <p className={quietLine}>{copy.recent.loading}</p>;
   else if (state === "ready" && newer === "failed") status = <p className={quietLine}>{copy.recent.newerFailed}</p>;
   const failed = state === "failed" || (state === "ready" && (ranksFailed || newer === "failed"));
 
   let body: JSX.Element | null = null;
   if (state === "ready" && entries.length === 0) {
     const circle = view === "circle";
-    const words = end
+    // "Yet" only once every review is read and whose they all are is known.
+    const words = end && !counting
       ? circle
         ? copy.recent.emptyCircle
         : copy.recent.emptyHouse

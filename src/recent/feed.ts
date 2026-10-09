@@ -255,8 +255,9 @@ export class RecentFeed {
 
   /**
    * Reads the newest page again, for the top of the list. Where every review relay answered, what the
-   * page reaches back to for every relay (`Page.reach`) is as it says: a review held from that time on
-   * that it no longer sends is gone (removed since). A page with no relay full holds every review there
+   * page reaches back to for every relay (`Page.reach`) is as it says: a review held from after that
+   * time that it no longer sends is gone (removed since). One from that very second stays: a relay that
+   * came back full may have had more of that second than the page had room for. A page with no relay full holds every review there
    * is. A full page that does not reach back to the newest review held would leave a gap below it: the
    * feed starts again from it. Starting again, or holding every review, an older page on its way is let
    * go of. Neither counts a page against the budget of pages read by itself, nor takes one back.
@@ -287,7 +288,8 @@ export class RecentFeed {
         this.#oldest = from;
         this.#end = false;
       } else if (from !== undefined) {
-        for (const [id, ev] of this.#events) if (ev.created_at >= from) this.#events.delete(id);
+        // After `from`, not at it: a full relay may have cut that second short.
+        for (const [id, ev] of this.#events) if (ev.created_at > from) this.#events.delete(id);
       }
     }
     this.#keep(page.events);

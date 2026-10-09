@@ -61,7 +61,7 @@ export interface Recent {
   end: boolean;
   /** Reads the next page back in time. */
   showOlder(): void;
-  /** Reads again what failed: the reviews, or whose they are (the scores store's `refresh`). */
+  /** Reads again what failed: the reviews, or whose they are (the scores store's `retryRanks`). */
   retry(): void;
 }
 
@@ -191,7 +191,7 @@ export function useRecent(): Recent {
       void feed.readOlder();
     },
     retry: () => {
-      if (ranksFailed) store.refresh();
+      if (ranksFailed) store.retryRanks();
       feed.retry();
     },
   };
