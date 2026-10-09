@@ -294,9 +294,10 @@ export const copy = {
     // DRAFT for Avi
     /** The button. Tapping it is the person's consent (decision 26). */
     personalize: "Personalize",
-    // DRAFT for Avi: decision 26's line, beside the button.
+    // DRAFT for Avi: decision 26's line, beside the button. What is public is the circle Brainstorm works
+    // out (who the person trusts, and whom they trust), not ratings of places.
     consent:
-      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle's ratings are public.",
+      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle is public.",
     // DRAFT for Avi
     /** While the person's browser add-on asks them to let Brainstorm know it is them. */
     approveBrowser: "Approve the request in your browser add-on to go on.",
@@ -677,8 +678,9 @@ export const copy = {
     ],
     /** The second button: go back to where the person was, with the house's scores. */
     keepHousePicks: "Keep House picks",
+    // DRAFT for Avi: its second sentence, which said "scores" of the circle Brainstorm works out.
     /** The notice about what personalizing does (the brief, section 6). */
-    notice: "Nothing is posted without you. Your circle's ratings are worked out by our scoring partner and are public.",
+    notice: "Nothing is posted without you. Your circle is worked out by our scoring partner, and it is public.",
     howItWorks: "First time? How signing in works",
     // DRAFT for Avi
     /** The numbered list of steps, for a screen reader. */

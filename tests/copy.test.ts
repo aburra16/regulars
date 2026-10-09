@@ -191,8 +191,19 @@ describe("copy", () => {
   });
 
   it("says rating, never score, in every string a person reads or hears (Avi, 2026-10-09)", () => {
+    // Brainstorm, "our scoring partner", works out the person's circle with "a public scoring profile":
+    // what it scores is people's trust, not places, and those two phrases are its own.
+    const said = (text: string) => text.replace(/\bscoring (?:partner|profile)\b/gi, "");
     const leaves = leavesOf(copy, "");
-    expect(leaves.filter((leaf) => /\bscor(?:e|es|ed)\b/i.test(leaf.text))).toEqual([]);
+    expect(leaves.filter((leaf) => /\bscor(?:e|es|ed|ing)\b/i.test(said(leaf.text)))).toEqual([]);
+    expect(said("Scores from our scoring partner")).toMatch(/\bscores\b/i);
+  });
+
+  it("says what Brainstorm makes public in plain words: the person's circle, not ratings (DRAFT)", () => {
+    expect(copy.circle.consent).toBe(
+      "Personalizing asks Brainstorm, our scoring partner, to work out your circle. It sets up a public scoring profile for you, and your circle is public.",
+    );
+    expect(copy.signin.notice).toBe("Nothing is posted without you. Your circle is worked out by our scoring partner, and it is public.");
   });
 
   it("never says 'near you' of its own accord: where the places are near is given, and is 'you' only for the device", () => {
