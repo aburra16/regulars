@@ -1,7 +1,7 @@
 import KDBush from "kdbush";
 
 import { foldText } from "./fold.ts";
-import { around } from "./geo.ts";
+import { nearestWithin } from "./geo.ts";
 
 /*
  * The towns the places are put in: src/data/towns.json, which tools/towns.ts cuts down from GeoNames'
@@ -107,8 +107,8 @@ export function readTowns(file: TownsFile): TownList {
     names,
     countryName: (code) => countries.get(code),
     townAt(lat, lon) {
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
-      const [nearest] = around(tree, lon, lat, 1, TOWN_REACH_KM);
+      // The nearest as tools/towns.ts finds it (`around`), by a cheaper walk: about 8,000 places are put in towns at each load.
+      const nearest = nearestWithin(tree, lon, lat, TOWN_REACH_KM);
       return nearest === undefined ? undefined : standsFor[nearest];
     },
   };

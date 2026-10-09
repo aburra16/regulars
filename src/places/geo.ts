@@ -299,3 +299,67 @@ export function withinCounter(index: KDBush): (longitude: number, latitude: numb
     return count;
   };
 }
+
+/** Kilometres in a degree of latitude, a little short, so a box drawn with it is never too small. */
+const KM_PER_DEGREE_SHORT = (Math.PI / 180) * EARTH_RADIUS_KM * 0.999;
+
+/**
+ * The id of the point of `index` nearest a location within `maxDistance` kilometres, or undefined
+ * when none is that near: what `around(index, longitude, latitude, 1, maxDistance)[0]` is, but for
+ * which of two at the same distance it gives. It walks only the parts of the tree that cross the box
+ * around the location that holds every point that near, and keeps no queue, so for a short distance
+ * it is much cheaper than `around`. The box takes in a pole when it reaches one, and wraps the 180th
+ * meridian.
+ */
+export function nearestWithin(index: KDBush, longitude: number, latitude: number, maxDistance: number): number | undefined {
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude) || !(maxDistance >= 0)) return undefined;
+  const dLat = maxDistance / KM_PER_DEGREE_SHORT;
+  const south = latitude - dLat;
+  const north = latitude + dLat;
+  // The box is widest at its edge nearer a pole; past a pole, it is every longitude.
+  const edge = Math.max(Math.abs(south), Math.abs(north));
+  const dLng = edge >= 90 ? 180 : dLat / Math.cos(edge * RAD);
+  const boxes: [west: number, east: number][] =
+    dLng >= 180
+      ? [[-180, 180]]
+      : [
+          [Math.max(-180, longitude - dLng), Math.min(180, longitude + dLng)],
+          ...(longitude - dLng < -180 ? [[longitude - dLng + 360, 180] as [number, number]] : []),
+          ...(longitude + dLng > 180 ? [[-180, longitude + dLng - 360] as [number, number]] : []),
+        ];
+
+  const { ids, coords, nodeSize } = index;
+  const maxHaverSinDist = haverSin(maxDistance / EARTH_RADIUS_KM);
+  const cosLat = Math.cos(latitude * RAD);
+  let nearest: number | undefined;
+  let nearestDist = Number.POSITIVE_INFINITY;
+  /** Looks at the point at `i` in the tree's order, if it is in the box. */
+  const look = (i: number, west: number, east: number) => {
+    const lng = coords[2 * i]!;
+    const lat = coords[2 * i + 1]!;
+    if (lng < west || lng > east || lat < south || lat > north) return;
+    const dist = haverSinDist(longitude, latitude, lng, lat, cosLat);
+    if (dist <= maxHaverSinDist && dist < nearestDist) {
+      nearest = ids[i];
+      nearestDist = dist;
+    }
+  };
+  for (const [west, east] of boxes) {
+    // As kdbush's `range` walks the tree: each entry is a part of it, and the axis it splits on.
+    const pending: [left: number, right: number, axis: 0 | 1][] = [[0, ids.length - 1, 0]];
+    while (pending.length > 0) {
+      const [left, right, axis] = pending.pop()!;
+      if (right - left <= nodeSize) {
+        for (let i = left; i <= right; i++) look(i, west, east);
+        continue;
+      }
+      const mid = (left + right) >> 1;
+      look(mid, west, east);
+      const split = coords[2 * mid + axis]!;
+      const next = axis === 0 ? 1 : 0;
+      if (axis === 0 ? west <= split : south <= split) pending.push([left, mid - 1, next]);
+      if (axis === 0 ? east >= split : north >= split) pending.push([mid + 1, right, next]);
+    }
+  }
+  return nearest;
+}

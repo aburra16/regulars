@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import KDBush from "kdbush";
 import { describe, expect, it } from "vitest";
 
-import { around, distance, withinCounter } from "../src/places/geo";
+import { around, distance, nearestWithin, withinCounter } from "../src/places/geo";
 
 const EARTH_RADIUS_KM = 6371;
 
@@ -217,5 +217,59 @@ describe("withinCounter", () => {
     expect(total).toBeGreaterThan(from.length * 20_000);
     const everyPoint = from.length * 2 * many.length;
     expect(probe.reads()).toBeLessThan(everyPoint / 5);
+  });
+});
+
+describe("nearestWithin", () => {
+  it("finds what around finds first, for points all over the Earth and distances short and long", () => {
+    const random = stream(30);
+    const points: Point[] = Array.from({ length: 4000 }, () => [random() * 360 - 180, Math.asin(random() * 2 - 1) * (180 / Math.PI)]);
+    const index = indexOf(points);
+    let found = 0;
+    for (let n = 0; n < 2000; n++) {
+      const lng = random() * 360 - 180;
+      const lat = Math.asin(random() * 2 - 1) * (180 / Math.PI);
+      for (const km of [30, 150, 600]) {
+        const expected = around(index, lng, lat, 1, km)[0];
+        expect(nearestWithin(index, lng, lat, km)).toBe(expected);
+        if (expected !== undefined) found += 1;
+      }
+    }
+    // Enough of the searches find a point for the comparison to mean something.
+    expect(found).toBeGreaterThan(1000);
+  });
+
+  it("finds a point across the 180th meridian, and one past a pole", () => {
+    const index = indexOf([
+      [179.95, 0],
+      [-170, 89.95],
+      [10, 45],
+    ]);
+    // 11 km east of the first, on the other side of the meridian.
+    expect(nearestWithin(index, -179.95, 0, 30)).toBe(0);
+    expect(nearestWithin(index, 179.9, 0.05, 30)).toBe(0);
+    // Near the North Pole, on the far side of it: 11 km away.
+    expect(nearestWithin(index, 10, 89.95, 30)).toBe(1);
+    expect(haversineKm(10, 89.95, -170, 89.95)).toBeLessThan(30);
+  });
+
+  it("finds nothing farther than the distance, nothing in an empty index, and nothing for a place that is not one", () => {
+    const index = indexOf([[10, 45]]);
+    // 0.27 degrees north is 30.0 km; 0.28 is 31.1.
+    expect(nearestWithin(index, 10, 45 - 0.269, 30)).toBe(0);
+    expect(nearestWithin(index, 10, 45 - 0.28, 30)).toBeUndefined();
+    expect(nearestWithin(indexOf([]), 10, 45, 30)).toBeUndefined();
+    expect(nearestWithin(index, Number.NaN, 45, 30)).toBeUndefined();
+    expect(nearestWithin(index, 10, 45, -1)).toBeUndefined();
+  });
+
+  it("looks at only the points in the box around the place", () => {
+    const random = stream(31);
+    const points: Point[] = Array.from({ length: 5000 }, () => [random() * 360 - 180, random() * 140 - 70]);
+    const { index, reads, reset } = readsOf(indexOf(points));
+    reset();
+    nearestWithin(index, 14.42, 50.09, 30);
+    // A few parts of the tree, not five thousand points.
+    expect(reads()).toBeLessThan(1000);
   });
 });
