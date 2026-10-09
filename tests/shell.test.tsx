@@ -485,6 +485,45 @@ describe("ViewToggle", () => {
     expect(half.querySelector("svg")).toBeNull();
   });
 
+  it("hints 'Working out your circle' over My circle's half while the circle is worked out, on every look, its name as it was", () => {
+    expect(copy.circle.workingTitle).toBe("Working out your circle");
+    for (const variant of ["bar", "compact", "panel", "map"] as const) {
+      const { unmount } = render(<ViewToggle value="house" onChange={() => {}} variant={variant} circleStatus="working" />);
+      const half = within(toggle()).getByRole("button", { name: copy.view.circleWorking });
+      // Not every browser shows the hint of a disabled button, or of what is around it while the pointer
+      // is on the button: the pointer goes through the half to what is around it, which has the hint.
+      const around = half.parentElement!;
+      expect(around).toHaveAttribute("title", copy.circle.workingTitle);
+      expect(around).toHaveClass("cursor-not-allowed");
+      expect(half).toHaveClass("pointer-events-none");
+      expect(half).not.toHaveAttribute("title");
+      // What is around a half is what shares the toggle's width, where the halves share it.
+      if (variant !== "compact") expect(around).toHaveClass("flex", "flex-1");
+      // A screen reader hears the half's name as before, once, and no hint after it.
+      expect(half).toHaveAccessibleName(copy.view.circleWorking);
+      expect(half).toHaveAccessibleDescription("");
+      expect(within(toggle()).getByRole("button", { name: copy.view.house }).closest("[title]")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("has no hint over either half in any other state: plain, off, checked, soon, chosen, or the door", () => {
+    const others: Partial<Parameters<typeof ViewToggle>[0]>[] = [
+      {},
+      { circleStatus: "waiting" },
+      { circleStatus: "checked" },
+      { circleStatus: "soon" },
+      { value: "circle" },
+      { value: "circle", circleStatus: "checked" },
+      { circleDoor: { expanded: false } },
+    ];
+    for (const props of others) {
+      const { unmount } = render(<ViewToggle value="house" onChange={() => {}} {...props} />);
+      expect(toggle().querySelector("[title]")).toBeNull();
+      unmount();
+    }
+  });
+
   it("keeps My circle's words in place as its mark comes and goes, on the top bar too: a slot on each side, not the padding", () => {
     for (const circleStatus of [undefined, "working", "checked"] as const) {
       const { unmount } = render(<ViewToggle value="house" onChange={() => {}} variant="compact" circleStatus={circleStatus} />);

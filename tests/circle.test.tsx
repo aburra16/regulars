@@ -100,6 +100,9 @@ function expectWorking(half: HTMLElement): void {
   expect(half).toBeDisabled();
   expect(half).not.toHaveAttribute("aria-expanded");
   expect(markOf(half)).toHaveClass("animate-turn", "motion-reduce:animate-breathe");
+  // With the hint over it, for a pointer that rests on it, which a screen reader does not hear again.
+  expect(hintOf(half)).toBe(copy.circle.workingTitle);
+  expect(half).toHaveAccessibleDescription("");
 }
 
 /** Fails unless `half` is My circle's, off and plain: while the circle is looked for, or the add-on asks. */
@@ -109,6 +112,7 @@ function expectWaiting(half: HTMLElement): void {
   expect(half).toBeDisabled();
   expect(half).not.toHaveAttribute("aria-expanded");
   expect(markOf(half)).toBeNull();
+  expect(hintOf(half)).toBeUndefined();
 }
 
 /** Fails unless `half` is My circle's with the check: on, in the trust green, fading in and out unless motion is reduced. */
@@ -116,6 +120,20 @@ function expectChecked(half: HTMLElement): void {
   expect(half).toHaveAccessibleName(copy.view.circle);
   expect(half).toBeEnabled();
   expect(markOf(half)).toHaveClass("text-trust", "animate-check", "motion-reduce:animate-none");
+  expect(hintOf(half)).toBeUndefined();
+}
+
+/**
+ * The hint over My circle's half, shown while the pointer rests on it: the title of the half, or of
+ * anything around it inside its toggle. Undefined when there is none.
+ */
+function hintOf(half: HTMLElement): string | undefined {
+  const group = half.closest('[role="group"]')!;
+  for (let at: Element | null = half; at !== null && at !== group; at = at.parentElement) {
+    const title = at.getAttribute("title");
+    if (title !== null) return title;
+  }
+  return undefined;
 }
 
 /** The bar's ×, beside its status. */
@@ -810,6 +828,8 @@ describe("the check on My circle's half, once a run the person started ends in a
     expect(myCircle()).toHaveAccessibleName(copy.view.circle);
     expect(myCircle()).toBeEnabled();
     expect(myCircle()).toHaveAttribute("aria-pressed", "false");
+    // The circle is worked out: no hint says it is being worked out, once the check came, nor after.
+    expect(hintOf(myCircle())).toBeUndefined();
   });
 
   it("carries on fading from where it was on a toggle drawn while it shows: another page's", async () => {
