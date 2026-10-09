@@ -1,6 +1,6 @@
 import type { City } from "../places/indexes.ts";
 import { distanceKm } from "../places/distance.ts";
-import { ZONE_POINTS } from "./zones.ts";
+import { deviceTimeZone, zonePoint } from "./timeZone.ts";
 
 /**
  * Where a first visit starts when the person has picked no town and the browser does not already
@@ -10,44 +10,6 @@ import { ZONE_POINTS } from "./zones.ts";
  * the country of the browser's language. It is worked out on the device from what the browser
  * says of itself; nothing is sent anywhere.
  */
-
-/**
- * Time zones a browser may still call by an old name, by the name the time zone database now
- * gives them. Chrome and Node name them as CLDR does ("Asia/Calcutta"); `zones.ts`, as the
- * database does ("Asia/Kolkata").
- */
-const RENAMED: Readonly<Record<string, string>> = {
-  "Africa/Asmera": "Africa/Asmara",
-  "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
-  "America/Catamarca": "America/Argentina/Catamarca",
-  "America/Cordoba": "America/Argentina/Cordoba",
-  "America/Jujuy": "America/Argentina/Jujuy",
-  "America/Mendoza": "America/Argentina/Mendoza",
-  "America/Coral_Harbour": "America/Atikokan",
-  "America/Indianapolis": "America/Indiana/Indianapolis",
-  "America/Louisville": "America/Kentucky/Louisville",
-  "America/Godthab": "America/Nuuk",
-  "Asia/Saigon": "Asia/Ho_Chi_Minh",
-  "Asia/Katmandu": "Asia/Kathmandu",
-  "Asia/Calcutta": "Asia/Kolkata",
-  "Asia/Rangoon": "Asia/Yangon",
-  "Atlantic/Faeroe": "Atlantic/Faroe",
-  "Europe/Kiev": "Europe/Kyiv",
-  "Pacific/Truk": "Pacific/Chuuk",
-  "Pacific/Enderbury": "Pacific/Kanton",
-  "Pacific/Ponape": "Pacific/Pohnpei",
-};
-
-/** The device's time zone as the time zone database names it ("Europe/Lisbon"); undefined when the browser will not say. */
-export function deviceTimeZone(): string | undefined {
-  try {
-    const zone: unknown = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (typeof zone !== "string" || zone === "") return undefined;
-    return RENAMED[zone] ?? zone;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * The country the browser's language names, upper case: "PT" for pt-PT. Undefined for a language
@@ -61,34 +23,6 @@ export function languageCountry(): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-/** The zones' points as `tools/zone-points.ts` packs them, read back: each zone's latitude and longitude, in degrees. */
-export function unpackZones(packed: string): Map<string, [lat: number, lon: number]> {
-  const points = new Map<string, [number, number]>();
-  for (const area of packed.split(";")) {
-    const colon = area.indexOf(":");
-    for (const entry of area.slice(colon + 1).split(",")) {
-      const [rest, lat, lon] = entry.split(" ");
-      points.set(`${area.slice(0, colon)}/${rest}`, [Number(lat) / 10, Number(lon) / 10]);
-    }
-  }
-  return points;
-}
-
-/** The zones' points, read the first time a guess needs them. */
-let zonePoints: Map<string, [number, number]> | undefined;
-
-/**
- * Where the place a time zone is named for is, to a tenth of a degree: Lisbon for Europe/Lisbon.
- * Undefined for a zone that is no place (Etc/UTC, UTC, Etc/GMT+5) or one the time zone database
- * does not have.
- */
-export function zonePoint(zone: string | undefined): { lat: number; lon: number } | undefined {
-  if (zone === undefined) return undefined;
-  zonePoints ??= unpackZones(ZONE_POINTS);
-  const point = zonePoints.get(zone);
-  return point === undefined ? undefined : { lat: point[0], lon: point[1] };
 }
 
 /**

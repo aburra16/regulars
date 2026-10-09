@@ -27,7 +27,10 @@ export interface PlaceCardProps {
    * card says nobody has reviewed the place yet ("No reviews yet"). Default: none.
    */
   score?: ShownScore;
-  /** The browser's language: it decides miles or kilometres, and the 12- or 24-hour clock. */
+  /**
+   * The browser's language: it decides the 12- or 24-hour clock, how numbers are written, and miles or
+   * kilometres where the device's time zone does not (`readsMiles`).
+   */
   locale: string;
   now: Date;
   /** The card of the pin chosen on the map: a heavier edge in the ink colour (DeskExplore.dc.html). */

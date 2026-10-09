@@ -26,6 +26,7 @@ import { PlaceCard } from "../src/ui/PlaceCard";
 import raw from "./fixtures/funchal-items.json";
 import { createMemoryReader } from "./support/memoryReader";
 import { appTowns } from "./support/towns";
+import { zoneIs } from "./support/zone";
 
 const fixtures: NostrEvent[] = raw;
 const fixturePlaces = parsePlaces(fixtures);
@@ -599,6 +600,14 @@ describe("Explore: how a place reads", () => {
       new RegExp(`Restaurant · ${formatDistance(km, "pt-PT").replace(".", "\\.")} Open until 22:00`),
     );
     expect(formatDistance(km, "pt-PT")).toMatch(/ (km|m)$/);
+  });
+
+  it("shows distances in kilometres on a device in Madeira's time zone, though the browser's language is American English", async () => {
+    zoneIs("Atlantic/Madeira");
+    await openExplore();
+    // Kilometres (or metres), in the language's way of writing numbers, and still its 12-hour clock.
+    expect(card("Jacafé")).toHaveAccessibleDescription(/^Coffee shop · \d+(?:\.\d)? (?:km|m) Closed · opens 9:30 am/);
+    expect(card("Novo Tahiti")).toHaveAccessibleDescription(/^Restaurant · \d+(?:\.\d)? (?:km|m) Open until 10 pm/);
   });
 
   it("keeps the open line up to date as the minutes pass", async () => {

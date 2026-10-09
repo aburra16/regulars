@@ -42,6 +42,7 @@ import raw from "./fixtures/funchal-items.json";
 import { FakeMap } from "./support/fakeMaplibre";
 import { createMemoryReader } from "./support/memoryReader";
 import { appTowns } from "./support/towns";
+import { zoneIs } from "./support/zone";
 
 const fixtures: NostrEvent[] = raw;
 const fixturePlaces = parsePlaces(fixtures);
@@ -2032,6 +2033,21 @@ describe("Filters", () => {
       const buttons = within(groupNamed(copy.filters.distance)).getAllByRole("button");
       expect(buttons.map((button) => button.textContent)).toEqual(["1 km", "2 km", "5 km", "10 km", "25 km"]);
       expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "false", "true"]);
+    });
+
+    it("offers kilometres on a device in Prague, though its language is American English, and miles on one in London", async () => {
+      zoneIs("Europe/Prague");
+      const prague = await openFilters();
+      const kilometres = within(groupNamed(copy.filters.distance)).getAllByRole("button");
+      expect(kilometres.map((button) => button.textContent)).toEqual(["1 km", "2 km", "5 km", "10 km", "25 km"]);
+      expect(kilometres.at(-1)).toHaveAttribute("aria-pressed", "true");
+      prague.unmount();
+
+      zoneIs("Europe/London");
+      vi.spyOn(navigator, "language", "get").mockReturnValue("en-GB");
+      await openFilters();
+      const miles = within(groupNamed(copy.filters.distance)).getAllByRole("button");
+      expect(miles.map((button) => button.textContent)).toEqual(["0.5 mi", "1 mi", "3 mi", "5 mi", "15 mi"]);
     });
 
     it("presses the one the person taps, and the address's own when it has one", async () => {

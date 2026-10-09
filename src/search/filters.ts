@@ -1,5 +1,5 @@
 import { copy } from "../copy/en.ts";
-import { usesMiles } from "../places/distance.ts";
+import { readsMiles } from "../places/distance.ts";
 import { openState } from "../places/hours.ts";
 import type { PlaceDistance } from "../places/indexes.ts";
 import { FAMILIES, type FamilyId, kindOf } from "../places/kinds.ts";
@@ -45,12 +45,12 @@ const MILES: readonly WithinChoice[] = [
 ].map(({ km, mi }) => ({ km, label: `${mi} ${copy.units.mi}` }));
 
 /**
- * The distances to choose from for a person's language, narrowest first: 1, 2, 5, 10 and 25
- * kilometres, or half a mile, 1, 3, 5 and 15 miles where distance is read in miles. The same list
- * each time for a unit.
+ * The distances to choose from, narrowest first: 1, 2, 5, 10 and 25 kilometres, or half a mile, 1, 3,
+ * 5 and 15 miles where the person reads miles, by their device's time zone or else their language
+ * (`readsMiles`). The same list each time for a unit.
  */
 export function withinChoices(locale: string): readonly WithinChoice[] {
-  return usesMiles(locale) ? MILES : KILOMETRES;
+  return readsMiles(locale) ? MILES : KILOMETRES;
 }
 
 /** The widest choice, and the default: no limit short of a city's own radius. */

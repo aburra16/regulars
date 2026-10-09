@@ -26,7 +26,10 @@ export interface PlaceRowProps {
    * elsewhere, where a distance across an ocean says nothing. Default: the distance.
    */
   where?: string;
-  /** The browser's language: it decides miles or kilometres, and the 12- or 24-hour clock. */
+  /**
+   * The browser's language: it decides the 12- or 24-hour clock, how numbers are written, and miles or
+   * kilometres where the device's time zone does not (`readsMiles`).
+   */
   locale: string;
   now: Date;
   /** The place's score from the view on screen (`ShownScore`). Default: none, "No reviews yet". */
