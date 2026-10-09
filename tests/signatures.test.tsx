@@ -142,6 +142,71 @@ describe("checkSignatures", () => {
   });
 });
 
+describe("checkSignatures, where the browser says when it is idle (requestIdleCallback)", () => {
+  const secret = generateSecretKey();
+  const events = signedPlaces(3, secret);
+  /** The idle callbacks asked for and not yet run or cancelled, by their id. */
+  const waiting = new Map<number, IdleRequestCallback>();
+  let lastId = 0;
+  const requestIdle = vi.fn((callback: IdleRequestCallback, _options?: IdleRequestOptions) => {
+    lastId += 1;
+    waiting.set(lastId, callback);
+    return lastId;
+  });
+  const cancelIdle = vi.fn((id: number) => {
+    waiting.delete(id);
+  });
+
+  /** The browser is idle: each callback waiting runs. */
+  function idle() {
+    for (const [id, callback] of [...waiting]) {
+      waiting.delete(id);
+      callback({ didTimeout: false, timeRemaining: () => 10 });
+    }
+  }
+
+  beforeEach(() => {
+    waiting.clear();
+    requestIdle.mockClear();
+    cancelIdle.mockClear();
+    vi.stubGlobal("requestIdleCallback", requestIdle);
+    vi.stubGlobal("cancelIdleCallback", cancelIdle);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("checks once the browser is idle, which it asks to be within 50 ms", async () => {
+    const verify = vi.fn((_event: NostrEvent) => true);
+    let settled = false;
+    const check = checkSignatures(events, { sample: 3, signal: never, verify }).finally(() => (settled = true));
+
+    await vi.waitFor(() => expect(requestIdle).toHaveBeenCalledTimes(1));
+    expect(requestIdle).toHaveBeenCalledWith(expect.any(Function), { timeout: 50 });
+    // Nothing is checked before the browser is idle.
+    expect(verify).not.toHaveBeenCalled();
+    expect(settled).toBe(false);
+
+    idle();
+    await expect(check).resolves.toEqual({ events, checked: 3, failed: 0 });
+    expect(verify).toHaveBeenCalledTimes(3);
+    expect(cancelIdle).not.toHaveBeenCalled();
+  });
+
+  it("stops waiting when the signal aborts: the idle callback is cancelled, and the check ends with the reason", async () => {
+    const verify = vi.fn((_event: NostrEvent) => true);
+    const controller = new AbortController();
+    const check = checkSignatures(events, { sample: 3, signal: controller.signal, verify });
+    await vi.waitFor(() => expect(requestIdle).toHaveBeenCalledTimes(1));
+
+    controller.abort(new Error("gone"));
+    await expect(check).rejects.toThrow("gone");
+    expect(cancelIdle).toHaveBeenCalledWith(lastId);
+    expect(waiting.size).toBe(0);
+    expect(verify).not.toHaveBeenCalled();
+  });
+});
+
 describe("the places from the relay, with their signatures sampled", () => {
   const secret = generateSecretKey();
   const house = getPublicKey(secret);
