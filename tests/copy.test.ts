@@ -191,8 +191,9 @@ describe("copy", () => {
     expect(copy.hours.closingSoonInline("4 pm")).toBe("Closing soon, 4 pm");
     expect([copy.place.go, copy.place.site, copy.place.directions]).toEqual(["Directions", "Website", "Get directions"]);
     expect(copy.reviews.foldedNote).toBe("Folded away, never deleted.");
-    expect(copy.reviews.uncounted(1)).toBe("1 more review, loading");
-    expect(copy.reviews.uncounted(2)).toBe("2 more reviews, loading");
+    // Every review folded while the view can't be worked out: said as it is (DRAFT).
+    expect(copy.reviews.uncounted(1)).toBe("1 review, shown without a rating for now");
+    expect(copy.reviews.uncounted(2)).toBe("2 reviews, shown without a rating for now");
     expect(copy.reviews.removeQuestion).toBe("Remove your review? It comes off Regulars and everywhere else it was posted.");
     expect(copy.reviews.removePartial).toBe("Removed from your account, but not from Regulars yet. Try again.");
   });
@@ -205,9 +206,11 @@ describe("copy", () => {
     // Brainstorm, "our scoring partner", works out the person's circle with "a public scoring profile":
     // what it scores is people's trust, not places, and those two phrases are its own.
     const said = (text: string) => text.replace(/\bscoring (?:partner|profile)\b/gi, "");
-    const leaves = leavesOf(copy, "");
-    expect(leaves.filter((leaf) => /\bscor(?:e|es|ed|ing)\b/i.test(said(leaf.text)))).toEqual([]);
-    expect(said("Scores from our scoring partner")).toMatch(/\bscores\b/i);
+    const scored = (text: string) => /\bscor\w*/i.test(said(text));
+    expect(leavesOf(copy, "").filter((leaf) => scored(leaf.text))).toEqual([]);
+    // It catches any word that starts so, and lets the partner's two phrases through.
+    for (const word of ["Score", "scores", "scored", "scoring", "Scorer", "scoreboard"]) expect(scored(`A ${word} here`), word).toBe(true);
+    expect(scored("our scoring partner, a public scoring profile")).toBe(false);
   });
 
   it("says what Brainstorm makes public in plain words: the person's circle, not ratings (DRAFT)", () => {

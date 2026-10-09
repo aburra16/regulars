@@ -450,8 +450,12 @@ export const copy = {
     // DRAFT for Avi
     /** The same box when no review is inside the circle: "4 reviews from outside your circle". */
     foldedAllCircle: (n: number) => `${reviewCount(n)} from ${outsideYourCircle}`,
-    /** The same box while House picks can't be worked out (Avi, 2026-10-09): "2 more reviews, loading". */
-    uncounted: (n: number) => `${n.toLocaleString("en")} more ${n === 1 ? "review" : "reviews"}, loading`,
+    // DRAFT for Avi
+    /**
+     * The same box while the view can't be worked out (its ranks can't be read), with every review in
+     * it and no rating on the page: "2 reviews, shown without a rating for now".
+     */
+    uncounted: (n: number) => `${reviewCount(n)}, shown without a rating for now`,
     /** Under it: the folded reviews are not a verdict on the people who wrote them (Avi, 2026-10-09). */
     foldedNote: "Folded away, never deleted.",
     /** The button that opens the folded reviews, and closes them again. */
@@ -1176,12 +1180,10 @@ export const copy = {
     /** The person searched an area of the map that has no places. */
     noneInArea: "No places listed in this area yet.",
     // DRAFT for Avi
-    /** Where a search of the map is, in a sentence that names where the places are: "No places near this area match those filters." */
-    thisArea: "this area",
-    // DRAFT for Avi
     /**
      * After "Near" in the "Near …" control, for an area searched on the desktop's map that has no listed
-     * town within a town's reach of its middle: "Near this map area".
+     * town within a town's reach of its middle: "Near this map area"; and in the sentences that name
+     * where the places are near: "No places near this map area match those filters."
      */
     thisMapArea: "this map area",
     // DRAFT for Avi

@@ -91,7 +91,7 @@ export function DeskExplore(): JSX.Element {
   } else if (entries.length === 0) {
     instead = (
       <PageMessage>
-        {copy.search.noResultsFiltered(searched.fromMap ? copy.map.thisArea : here.label)} {copy.search.noResultsFilteredHint}
+        {copy.search.noResultsFiltered(here.area ?? here.label)} {copy.search.noResultsFilteredHint}
       </PageMessage>
     );
   }

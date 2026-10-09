@@ -974,7 +974,7 @@ describe("the place page, not scored", () => {
     expect(screen.getByText(`${copy.score.peopleRated(2)}.`)).toBeInTheDocument();
 
     const box = screen.getByText(copy.reviews.uncounted(2)).closest("section")!;
-    expect(copy.reviews.uncounted(2)).toBe("2 more reviews, loading");
+    expect(copy.reviews.uncounted(2)).toBe("2 reviews, shown without a rating for now");
     await user.click(within(box).getByRole("button", { name: copy.reviews.show }));
     const shown = await screen.findAllByRole("article");
     expect(shown).toHaveLength(2);

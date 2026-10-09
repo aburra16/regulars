@@ -1468,13 +1468,25 @@ describe("an area searched on the map with nothing to show", () => {
     expect(pinAddresses(map)).toHaveLength(fixturePlaces.length);
   });
 
-  it("names the area, not the town, when the desktop's filters leave none of it", async () => {
+  it("names the area as the 'Near …' control does, not the town, when the desktop's filters leave none of it", async () => {
+    const user = userEvent.setup();
+    const inLisbon = lisbon.map((event) => variant(event, { locality: "Lisbon", country: "PT" }));
+    const { map } = await openApp("/?kinds=cafes", { px: DESKTOP, events: [...fixtures, ...inLisbon] });
+    act(() => map.dragTo(LISBON_VIEW));
+    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
+    expect(await screen.findByRole("button", { name: "Near Lisbon" })).toBeInTheDocument();
+    expect(screen.getByText(copy.search.noResultsFiltered("Lisbon"), { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText(copy.search.noResultsFiltered("Funchal"), { exact: false })).not.toBeInTheDocument();
+  });
+
+  it("names 'this map area' in that line when the control does", async () => {
     const user = userEvent.setup();
     const { map } = await openApp("/?kinds=cafes", { px: DESKTOP, events: [...fixtures, ...lisbon] });
     act(() => map.dragTo(LISBON_VIEW));
     await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
-    expect(screen.getByText(copy.search.noResultsFiltered(copy.map.thisArea), { exact: false })).toBeInTheDocument();
-    expect(screen.queryByText(copy.search.noResultsFiltered("Funchal"), { exact: false })).not.toBeInTheDocument();
+    const control = await screen.findByRole("button", { name: /^Near / });
+    const named = control.textContent!.replace(/^Near /, "");
+    expect(screen.getByText(copy.search.noResultsFiltered(named), { exact: false })).toBeInTheDocument();
   });
 });
 

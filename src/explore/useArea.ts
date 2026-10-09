@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
@@ -107,7 +107,8 @@ export function areaName(lat: number, lon: number, cities: readonly City[]): str
 /**
  * Has the "Near …" control name the area while it is one the person searched on the map (`areaName`),
  * since every distance on its list is from the area's middle; and where the person is near again once
- * the list is near there, or the page goes.
+ * the list is near there, or the page goes. Before the page is painted, so Back to it never shows the
+ * control with the town for a moment.
  */
 export function useNameSearchedArea({ area, fromMap }: SearchedArea): void {
   const { nameArea } = useHere();
@@ -116,8 +117,8 @@ export function useNameSearchedArea({ area, fromMap }: SearchedArea): void {
     () => (fromMap && cities !== undefined ? areaName(area.lat, area.lon, cities) : undefined),
     [fromMap, cities, area.lat, area.lon],
   );
-  useEffect(() => nameArea(name), [nameArea, name]);
-  useEffect(() => () => nameArea(undefined), [nameArea]);
+  useLayoutEffect(() => nameArea(name), [nameArea, name]);
+  useLayoutEffect(() => () => nameArea(undefined), [nameArea]);
 }
 
 /** What an area lists. */
