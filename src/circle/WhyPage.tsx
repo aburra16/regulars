@@ -252,7 +252,8 @@ function CirclePanel({ owner, scorer, wide }: { owner: string; scorer: Scorer; w
 /**
  * The circle panel's place before the circle is ready (the signed-out version is not drawn): what My
  * circle is, beside House picks (below), and the way to it: Sign in, which can bring the person back
- * here; or, signed in, Personalize, with the line that says what it does, and its progress.
+ * here; or, signed in, Personalize, with the line that says what it does, and its progress. Personalize
+ * is the page's own panel, in view without a tap: My circle's half, on either toggle, goes to it.
  */
 function ViewsPanel({ signedOut, wide }: { signedOut: boolean; wide: boolean }): JSX.Element {
   const location = useLocation();

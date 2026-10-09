@@ -21,8 +21,9 @@ import { useAreaEntries, useSearchedArea } from "./useArea.ts";
 
 /**
  * Explore on a desktop (DeskExplore.dc.html): the list beside the map (DeskLayout). The top bar,
- * which the shell draws, has the search and the toggle; Personalize is at the top of the list's
- * column, for a person signed in whose circle is not ready.
+ * which the shell draws, has the search and the toggle, whose My circle half opens Personalize in a
+ * panel under it (Avi, 2026-10-08). Once the circle is asked for, the top of the list's column says how
+ * it is getting on, for a person signed in whose circle is not ready, with Try again when it can't be had.
  *
  * Above the list are the filters, as menus, kept in the address the way the search keeps them, so
  * the phone's filters page and these read one model. The map has every place, at any zoom, whatever
@@ -99,26 +100,29 @@ export function DeskExplore(): JSX.Element {
       historyKey={historyKey}
       list={list}
       head={
-        <div ref={head} tabIndex={-1} className="flex flex-col gap-3.5 outline-none">
-          {/* Under the top bar's toggle: Personalize, for a person signed in whose circle is not ready. */}
-          <Personalize holdFocus={head} />
-          {/* Explore has no words to match: its list is nearest first, by name, or best first by the view's scores. */}
-          <FilterMenus
-            filters={filters}
-            order={sort === "name" || sort === "score" ? sort : "distance"}
-            onChange={setFilters}
-            locale={locale}
-          />
-          <ViewLine
-            count={placeCount(entries)}
-            inArea={inArea}
-            nearestOnly={nearestOnly}
-            // The places arriving are news too: the list's count is first said once they are in.
-            announceKey={`${list}|${placesInArea}`}
-            unavailable={scores.state === "unavailable"}
-            onRetry={refresh}
-            className="gap-3.5"
-          />
+        <div ref={head} tabIndex={-1} className="flex flex-col outline-none">
+          {/* Under the top bar's toggle: the circle getting ready. The toggle itself offers Personalize.
+              Always there, for its status; saying nothing, it takes no room. */}
+          <Personalize holdFocus={head} offer="toggle" className="mb-3.5" />
+          <div className="flex flex-col gap-3.5">
+            {/* Explore has no words to match: its list is nearest first, by name, or best first by the view's scores. */}
+            <FilterMenus
+              filters={filters}
+              order={sort === "name" || sort === "score" ? sort : "distance"}
+              onChange={setFilters}
+              locale={locale}
+            />
+            <ViewLine
+              count={placeCount(entries)}
+              inArea={inArea}
+              nearestOnly={nearestOnly}
+              // The places arriving are news too: the list's count is first said once they are in.
+              announceKey={`${list}|${placesInArea}`}
+              unavailable={scores.state === "unavailable"}
+              onRetry={refresh}
+              className="gap-3.5"
+            />
+          </div>
         </div>
       }
       entries={entries}

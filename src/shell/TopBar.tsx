@@ -204,7 +204,8 @@ function SearchField(): JSX.Element {
 
 /**
  * The desktop's one top bar (DeskExplore.dc.html): the wordmark, the search field with the
- * location inside it, the House picks / My circle toggle, the dark mode switch, Saved once saved
+ * location inside it, the House picks / My circle toggle (whose My circle half opens Personalize in a
+ * panel under it, before the person's circle is asked for), the dark mode switch, Saved once saved
  * lists open (`config.features.saved`), and the account button. Under it, the lines of the account
  * button signing the person in, and the region that says when the person's location could not be used.
  */

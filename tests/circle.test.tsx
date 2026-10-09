@@ -1,5 +1,5 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,13 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SESSION_KEY } from "../src/account/session";
 import * as client from "../src/circle/brainstorm";
 import { CIRCLE_KEY, OPEN_POLL_MS, POLL_CAP_MS, POLL_MS } from "../src/circle/CircleProvider";
+import { WHY_PATH } from "../src/circle/paths";
 import { readToken, saveToken, TOKEN_KEY } from "../src/circle/token";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import type { RelayReader } from "../src/nostr/events";
 import { VIEW_STORAGE_KEY } from "../src/view/ViewProvider";
 import raw from "./fixtures/funchal-items.json";
-import { DESKTOP, openApp, resetWidth } from "./support/app";
+import { DESKTOP, openApp, PHONE, resetWidth, resizeTo } from "./support/app";
 import { shapedEvent } from "./support/events";
 import { createMemoryReader } from "./support/memoryReader";
 
@@ -82,8 +83,84 @@ const open = (px?: number) => openApp("/", { events: fixtures, readers, ...(px =
 const toggle = () => screen.getByRole("group", { name: copy.view.label });
 const housePicks = () => within(toggle()).getByRole("button", { name: copy.view.house });
 const myCircle = () => within(toggle()).getByRole("button", { name: /^My circle/ });
-const personalize = () => screen.findByRole("button", { name: copy.circle.personalize });
 const workOutAgain = () => screen.findByRole("button", { name: copy.circle.workOutAgain });
+
+type User = ReturnType<typeof userEvent.setup>;
+/** A person at the screen, on the fake clock. */
+const aUser = () => userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+/**
+ * My circle's half while it is the door to Personalize, its panel closed: "My circle", enabled. It
+ * waits for it, as the half reads "soon" while the returning visitor's look is under way.
+ */
+const theDoor = () => within(toggle()).findByRole("button", { name: copy.view.circle, expanded: false });
+/** The panel that My circle's half names as the one it opens, while it does. */
+const panelOf = (half: HTMLElement) => document.getElementById(half.getAttribute("aria-controls") ?? "");
+/** Opens the door from My circle's half, and gives back the Personalize in its panel. */
+async function openDoor(user: User): Promise<HTMLElement> {
+  await user.click(await theDoor());
+  return screen.getByRole("button", { name: copy.circle.personalize });
+}
+
+/** Where the toggle is, and the door with it: the phone's Explore, the desktop's top bar, the phone's map. */
+const PLACES = [
+  ["the phone's Explore", "/", undefined],
+  ["the desktop's top bar", "/", DESKTOP],
+  ["the phone's map", "/map", undefined],
+] as const;
+/** Where the door's panel floats over the page: under the desktop's top bar, and over the phone's map. */
+const FLOATING = PLACES.slice(1);
+/** The page at `path`, as wide as `px` (a phone's when undefined). */
+const openAt = (path: string, px: number | undefined) => openApp(path, { events: fixtures, readers, ...(px === undefined ? {} : { px }) });
+
+/**
+ * Brainstorm as api.brainstorm.world answers today for a public key it has no scorer for (ruling R13),
+ * through the client's own look: what reaches it is the fetch this gives back, which notes each call.
+ */
+async function brainstormKnowsNobody() {
+  const actual = await vi.importActual<typeof import("../src/circle/brainstorm")>("../src/circle/brainstorm");
+  brainstorm.scorerOf.mockImplementation(actual.scorerOf);
+  const fetch = vi.fn(
+    async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({ detail: "Not Found" }), { status: 404, headers: { "content-type": "application/json" } }),
+  );
+  vi.stubGlobal("fetch", fetch);
+  return fetch;
+}
+
+/** Fails if anything but the returning visitor's one look has asked Brainstorm for something. */
+function askedNothingButTheLook(): void {
+  expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
+  for (const call of [brainstorm.signInToBrainstorm, brainstorm.latestRun, brainstorm.startRun]) expect(call).not.toHaveBeenCalled();
+}
+
+/**
+ * The add-on asks the person to let Brainstorm know it is them, and waits: `answer` gives their answer
+ * (yes, and the tab has Brainstorm's token; or no). `asked` is the sign-in's signal, once it is asked.
+ */
+function addOnAsks() {
+  let answer: ((yes: boolean) => void) | undefined;
+  let asked: AbortSignal | undefined;
+  brainstorm.signInToBrainstorm.mockImplementation(
+    (pubkey, _signer, signal) =>
+      new Promise((resolve, reject) => {
+        asked = signal;
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        answer = (yes) => {
+          if (!yes) return reject(new Error("User rejected"));
+          saveToken(pubkey, TOKEN);
+          resolve(TOKEN);
+        };
+      }),
+  );
+  return { answer: (yes: boolean) => act(async () => answer?.(yes)), asked: () => asked };
+}
+
+/**
+ * The desktop's Explore column's Personalize: the top of the list's column, under its heading. It is
+ * always there, for its status, once someone signed in is looked at.
+ */
+const columnPersonalize = () =>
+  screen.getByRole("heading", { level: 1, name: copy.pages.explore }).nextElementSibling!.firstElementChild as HTMLElement;
 /** Whether the places are still listed: House picks keeps working. */
 const placesListed = () => document.querySelectorAll('main a[href^="/place/"]').length > 0;
 
@@ -123,34 +200,35 @@ describe("the copy", () => {
     expect(copy.circle.recently).toBe("Your circle was updated recently. We'll use that.");
     expect(copy.circle.busy).toBe("Brainstorm is busy right now. Try again in a little while.");
     expect(copy.circle.unavailable).toBe("My circle isn't available right now.");
+    expect(copy.circle.notNow).toBe("Not now");
   });
 });
 
 describe("Personalize", () => {
-  it("sits under the toggle on a phone, with the line beside it, for a signed-in person whose circle isn't ready", async () => {
+  it("waits behind My circle's half on a phone's Explore, for a signed-in person whose circle isn't asked for", async () => {
     signedIn();
     await open();
-    const button = await personalize();
-    const line = screen.getByText(copy.circle.consent);
-    expect(button).toHaveAccessibleDescription(copy.circle.consent);
-    expect(toggle().compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(button.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(screen.getByRole("main")).getByRole("button", { name: copy.circle.personalize })).toBe(button);
-    // Not ready: My circle reads "soon", and the view is House picks.
-    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
-    expect(myCircle()).toBeDisabled();
+    const half = await theDoor();
+    // The way in: My circle, which can be tapped, though it is not yet a view to choose.
+    expect(half).toHaveTextContent(/^My circle$/);
+    expect(half).toBeEnabled();
+    expect(half).not.toHaveAttribute("aria-pressed");
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(screen.queryByText(copy.circle.consent)).toBeNull();
     expect(housePicks()).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("sits in the list's column on a desktop, below the top bar's toggle", async () => {
+  it("is not in the list's column on a desktop: the top bar's toggle is the way to it", async () => {
     signedIn();
     await open(DESKTOP);
-    const button = await personalize();
-    const column = screen.getByRole("heading", { level: 1, name: copy.pages.explore }).closest("section");
-    expect(column).toContainElement(button);
-    expect(within(screen.getByRole("banner")).queryByRole("button", { name: copy.circle.personalize })).toBeNull();
-    expect(within(column!).getByText(copy.circle.consent)).toBeInTheDocument();
-    expect(within(screen.getByRole("banner")).getByRole("group", { name: copy.view.label })).toBeInTheDocument();
+    const half = await theDoor();
+    expect(within(screen.getByRole("banner")).getByRole("group", { name: copy.view.label })).toContainElement(half);
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(screen.queryByText(copy.circle.consent)).toBeNull();
+    // Its status is there, empty, so a screen reader hears what comes; empty, it takes no room.
+    const column = columnPersonalize();
+    expect(within(column).getByRole("status")).toBeEmptyDOMElement();
+    expect(column.className).not.toMatch(/(^|\s)-?[mp][trblxy]?-/);
   });
 
   it("is not there for someone signed out, who asks Brainstorm nothing, and My circle takes them to sign in", async () => {
@@ -163,6 +241,7 @@ describe("Personalize", () => {
       expect(call).not.toHaveBeenCalled();
     }
     expect(myCircle()).toHaveTextContent(/^My circle$/);
+    expect(myCircle()).not.toHaveAttribute("aria-expanded");
     await user.click(myCircle());
     expect(router.state.location.pathname).toBe("/signin");
   });
@@ -170,23 +249,397 @@ describe("Personalize", () => {
   it("is not there while My circle is closed (config.features.circle), and nothing asks Brainstorm", async () => {
     config.features.circle = false;
     signedIn();
+    const user = aUser();
     await open();
     await after(POLL_CAP_MS);
     expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
     expect(brainstorm.scorerOf).not.toHaveBeenCalled();
     expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    expect(myCircle()).toBeDisabled();
+    expect(myCircle()).not.toHaveAttribute("aria-expanded");
+    await user.click(myCircle());
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
   });
 
   it("asks Brainstorm nothing but the one look at a returning visitor's scorer, until it is tapped (Review Focus 1)", async () => {
     signedIn();
     await open();
-    await personalize();
+    await theDoor();
     await after(POLL_CAP_MS);
-    expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
-    expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+    askedNothingButTheLook();
+    expect(window.sessionStorage.getItem(TOKEN_KEY)).toBeNull();
+  });
+});
+
+describe("the door: My circle's half, while the person's circle is not asked for (Avi, 2026-10-08)", () => {
+  it.each(PLACES)(
+    "opens a panel under the toggle on %s, with the consent line and Personalize, reaching nothing at Brainstorm",
+    async (_, path, px) => {
+      signedIn();
+      const fetch = await brainstormKnowsNobody();
+      const user = aUser();
+      await openAt(path, px);
+      const half = await theDoor();
+      expect(half).toHaveTextContent(/^My circle$/);
+      expect(half).toBeEnabled();
+      expect(half).toHaveAttribute("aria-expanded", "false");
+      expect(half).not.toHaveAttribute("aria-pressed");
+      // The one look of the session (ruling R13): Brainstorm's setup, with no token.
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      await user.click(half);
+      const button = screen.getByRole("button", { name: copy.circle.personalize });
+      expect(half).toHaveAttribute("aria-expanded", "true");
+      const panel = panelOf(half);
+      expect(panel).toContainElement(button);
+      expect(within(panel!).getByText(copy.circle.consent)).toBeInTheDocument();
+      expect(button).toHaveAccessibleDescription(copy.circle.consent);
+      expect(within(panel!).getByRole("button", { name: copy.circle.notNow })).toBeInTheDocument();
+      expect(button).toHaveFocus();
+      // Right after the toggle, for the keyboard too.
+      await user.tab({ shift: true });
+      expect(half).toHaveFocus();
+      await user.tab();
+      expect(button).toHaveFocus();
+
+      await after(POLL_CAP_MS);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      askedNothingButTheLook();
+      expect(window.sessionStorage.getItem(TOKEN_KEY)).toBeNull();
+    },
+  );
+
+  it.each(PLACES)("closes on Not now and on Escape, on %s, giving the focus back to the half, reaching nothing at Brainstorm", async (_, path, px) => {
+    signedIn();
+    const fetch = await brainstormKnowsNobody();
+    const user = aUser();
+    await openAt(path, px);
+    const half = await theDoor();
+
+    await user.click(half);
+    await user.click(screen.getByRole("button", { name: copy.circle.notNow }));
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(screen.queryByText(copy.circle.consent)).toBeNull();
+    expect(half).toHaveAttribute("aria-expanded", "false");
+    expect(half).toHaveFocus();
+
+    await user.click(half);
+    expect(screen.getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(half).toHaveAttribute("aria-expanded", "false");
+    expect(half).toHaveFocus();
+
+    await after(POLL_CAP_MS);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    askedNothingButTheLook();
+  });
+
+  it("closes when the window crosses between the phone's layout and the desktop's, and the toggle that opened it goes", async () => {
+    signedIn();
+    const user = aUser();
+    await open();
+    await openDoor(user);
+    // A phone turned, or a window widened: the desktop's top bar has the toggle now.
+    act(() => resizeTo(DESKTOP));
+    expect(await theDoor()).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    // And back: the panel under the phone's toggle waits to be opened again.
+    act(() => resizeTo(PHONE));
+    expect(await theDoor()).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    askedNothingButTheLook();
+  });
+
+  it.each(FLOATING)("closes on a tap outside it, on %s, reaching nothing at Brainstorm", async (_, path, px) => {
+    signedIn();
+    const fetch = await brainstormKnowsNobody();
+    const user = aUser();
+    await openAt(path, px);
+    const half = await theDoor();
+    await user.click(half);
+    expect(screen.getByRole("button", { name: copy.circle.personalize })).toBeInTheDocument();
+    await user.click(screen.getByRole("main"));
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(half).toHaveAttribute("aria-expanded", "false");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    askedNothingButTheLook();
+  });
+
+  it.each(FLOATING)("closes when the focus leaves it by Tab, on %s, reaching nothing at Brainstorm", async (_, path, px) => {
+    signedIn();
+    const user = aUser();
+    await openAt(path, px);
+    const half = await theDoor();
+    await user.click(half);
+    const panel = panelOf(half)!;
+    expect(screen.getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: copy.circle.notNow })).toHaveFocus();
+    await user.tab();
+    expect(panel).not.toBeInTheDocument();
+    expect(half).toHaveAttribute("aria-expanded", "false");
+    expect(document.activeElement).not.toBe(document.body);
+    askedNothingButTheLook();
+  });
+
+  it.each(FLOATING)("closes on another tap of the half, on %s, with the focus on the half", async (_, path, px) => {
+    signedIn();
+    const user = aUser();
+    await openAt(path, px);
+    const half = await theDoor();
+    await user.click(half);
+    expect(screen.getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    // A click that moves no focus, as Safari's does not: it stays in the panel until the half takes it.
+    fireEvent.click(half);
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(half).toHaveAttribute("aria-expanded", "false");
+    expect(half).toHaveFocus();
+    askedNothingButTheLook();
+  });
+
+  it("closes on another page, from the desktop's top bar", async () => {
+    signedIn();
+    const user = aUser();
+    const { router } = await open(DESKTOP);
+    await user.click(await theDoor());
+    expect(screen.getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    await act(() => router.navigate("/about"));
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(await theDoor()).toHaveAttribute("aria-expanded", "false");
+    expect(document.activeElement).not.toBe(document.body);
+    askedNothingButTheLook();
+  });
+
+  it.each([...PLACES, ["the phone's Why page", WHY_PATH, undefined]] as const)(
+    "takes no consent from Enter held down on My circle's half, on %s: Personalize waits for a press of its own",
+    async (_, path, px) => {
+      signedIn();
+      const user = aUser();
+      await openAt(path, px);
+      await waitFor(() => expect(myCircle()).toHaveTextContent(/^My circle$/));
+      const half = myCircle();
+      act(() => half.focus());
+      // The key's first press opens the panel, which takes the focus; the key, still down, repeats there.
+      await user.keyboard("{Enter>4/}");
+      expect(screen.getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+      await after(POLL_MS);
+      expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+      askedNothingButTheLook();
+    },
+  );
+
+  it("starts the same flow from the phone's Explore panel's Personalize: signing, then the half off and 'soon', the focus on House picks", async () => {
+    const pubkey = signedIn();
+    addOnAsks();
+    const user = aUser();
+    await open();
+    await user.click(await openDoor(user));
+
+    await waitFor(() =>
+      expect(brainstorm.signInToBrainstorm).toHaveBeenCalledWith(pubkey, expect.anything(), expect.any(AbortSignal), { how: "browser" }),
+    );
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    expect(myCircle()).toBeDisabled();
+    expect(myCircle()).not.toHaveAttribute("aria-expanded");
+    expect(housePicks()).toHaveAttribute("aria-pressed", "true");
+    expect(housePicks()).toHaveFocus();
+    // The panel has closed: its offer is gone. Under the toggle, as before, it says what is going on.
+    expect(screen.queryByText(copy.circle.consent)).toBeNull();
+    expect(screen.queryByRole("button", { name: copy.circle.notNow })).toBeNull();
+    expect(await screen.findByText(copy.circle.approveBrowser)).toBeInTheDocument();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("a floating panel through the sign-in (ruling F1)", () => {
+  /** Opens the door on `path`, taps Personalize, and gives back the panel, which the add-on now asks from. */
+  async function signingFrom(path: string, px: number | undefined) {
+    const pubkey = signedIn();
+    const addOn = addOnAsks();
+    const user = aUser();
+    await openAt(path, px);
+    const half = await theDoor();
+    await user.click(half);
+    const panel = panelOf(half)!;
+    await user.click(within(panel).getByRole("button", { name: copy.circle.personalize }));
+    await waitFor(() =>
+      expect(brainstorm.signInToBrainstorm).toHaveBeenCalledWith(pubkey, expect.anything(), expect.any(AbortSignal), { how: "browser" }),
+    );
+    return { panel, addOn, user };
+  }
+
+  it.each(FLOATING)("stays open on %s, saying the add-on asks, with Cancel only, in its status: said once on the page", async (_, path, px) => {
+    const { panel } = await signingFrom(path, px);
+    expect(panel).toBeInTheDocument();
+    expect(within(panel).getByRole("status")).toHaveTextContent(copy.circle.approveBrowser);
+    expect(within(panel).getByRole("button", { name: copy.circle.cancel })).toBeInTheDocument();
+    // One way to stop: Not now beside Cancel would read as a second, and leave the sign-in running.
+    expect(within(panel).queryByRole("button", { name: copy.circle.notNow })).toBeNull();
+    expect(screen.queryByText(copy.circle.consent)).toBeNull();
+    expect(panel).toContainElement(document.activeElement as HTMLElement);
+    // The half is off while the circle is asked for, as before.
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    expect(myCircle()).toBeDisabled();
+    // One region says it: the desktop's list column keeps its status, empty, and has no Cancel of its own.
+    expect(screen.getAllByText(copy.circle.approveBrowser)).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: copy.circle.cancel })).toHaveLength(1);
+    if (px === DESKTOP) expect(within(columnPersonalize()).getByRole("status")).toBeEmptyDOMElement();
     expect(brainstorm.latestRun).not.toHaveBeenCalled();
     expect(brainstorm.startRun).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem(TOKEN_KEY)).toBeNull();
+  });
+
+  it.each(FLOATING)("goes back to Personalize in the panel on Cancel, on %s, with the focus on the panel", async (_, path, px) => {
+    const { panel, addOn, user } = await signingFrom(path, px);
+    await user.click(within(panel).getByRole("button", { name: copy.circle.cancel }));
+    expect(addOn.asked()?.aborted).toBe(true);
+    expect(within(panel).getByText(copy.circle.consent)).toBeInTheDocument();
+    expect(panel).toHaveFocus();
+    expect(myCircle()).toHaveTextContent(/^My circle$/);
+    expect(myCircle()).toHaveAttribute("aria-expanded", "true");
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+  });
+
+  it.each(FLOATING)("asks once when Enter is pressed twice on Cancel, on %s", async (_, path, px) => {
+    const { panel, addOn, user } = await signingFrom(path, px);
+    within(panel).getByRole("button", { name: copy.circle.cancel }).focus();
+    await user.keyboard("{Enter}{Enter}");
+    expect(addOn.asked()?.aborted).toBe(true);
+    expect(within(panel).getByText(copy.circle.consent)).toBeInTheDocument();
+    expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+  });
+
+  it.each(FLOATING)("shows Personalize again when the add-on says no, on %s, with the focus on the panel", async (_, path, px) => {
+    const { panel, addOn } = await signingFrom(path, px);
+    await addOn.answer(false);
+    expect(await within(panel).findByText(copy.circle.consent)).toBeInTheDocument();
+    expect(panel).toHaveFocus();
+    expect(within(panel).queryByRole("button", { name: copy.circle.cancel })).toBeNull();
+    expect(screen.queryByText(copy.circle.unavailable)).toBeNull();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+  });
+
+  it.each(FLOATING)("closes once the circle is being worked out, on %s, with the focus on House picks", async (_, path, px) => {
+    const { panel, addOn } = await signingFrom(path, px);
+    await addOn.answer(true);
+    await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledTimes(1));
+    expect(panel).not.toBeInTheDocument();
+    expect(housePicks()).toHaveFocus();
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    // The desktop's list column says it is being worked out; on the map, "My circle · soon" does.
+    if (px === DESKTOP) expect(within(columnPersonalize()).getByRole("status")).toHaveTextContent(copy.circle.workingTitle);
+  });
+
+  it.each(
+    FLOATING.flatMap(([where, path, px]) =>
+      (["Escape", "a tap outside", "Tab out"] as const).map((how) => [how, where, path, px] as const),
+    ),
+  )("closes on %s while the add-on asks, on %s, and the sign-in goes on", async (how, _, path, px) => {
+    const { panel, addOn, user } = await signingFrom(path, px);
+    if (how === "Escape") await user.keyboard("{Escape}");
+    if (how === "a tap outside") await user.click(screen.getByRole("main"));
+    if (how === "Tab out") for (let tabs = 0; tabs < 4 && panel.isConnected; tabs++) await user.tab();
+    expect(panel).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+    // Closing it is not Cancel: the add-on still asks, and nothing else has gone to Brainstorm.
+    expect(addOn.asked()?.aborted).toBe(false);
+    expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
+    expect(brainstorm.latestRun).not.toHaveBeenCalled();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    // The desktop's list column says it now, with its Cancel.
+    if (px === DESKTOP) expect(within(columnPersonalize()).getByRole("status")).toHaveTextContent(copy.circle.approveBrowser);
+    await addOn.answer(true);
+    await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("My circle's half, once the circle is asked for", () => {
+
+  it.each(
+    PLACES.flatMap(([where, path, px]) => (["failed", "busy", "unavailable"] as const).map((state) => [state, where, path, px] as const)),
+  )("offers Try again from the half when the circle is %s, on %s, and Try again starts the flow", async (state, _, path, px) => {
+    const pubkey = signedIn();
+    // Where the circle got to before, kept for the tab.
+    window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state }));
+    brainstorm.startRun.mockResolvedValue({ run: run("running") });
+    const user = aUser();
+    await openAt(path, px);
+    const half = myCircle();
+    expect(half).toHaveTextContent(/^My circle$/);
+    expect(half).toBeEnabled();
+    expect(half).not.toHaveAttribute("aria-pressed");
+    // The phone's Explore shows its line and Try again under the toggle, as before; elsewhere a tap opens them.
+    const inline = path === "/" && px === undefined;
+    expect(half).toHaveAttribute("aria-expanded", String(inline));
+
+    await user.click(half);
+    expect(half).toHaveAttribute("aria-expanded", "true");
+    const panel = panelOf(half)!;
+    const line = within(panel).getByText(state === "busy" ? copy.circle.busy : copy.circle.unavailable);
+    const tryAgain = within(panel).getByRole("button", { name: copy.circle.tryAgain });
+    expect(tryAgain).toHaveAccessibleDescription(line.textContent!);
+    expect(tryAgain).toHaveFocus();
+    expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+
+    await user.click(tryAgain);
+    await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledTimes(1));
+    expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    expect(myCircle()).toBeDisabled();
+    // Under the phone's toggle the focus waits on the toggle's block: the panel may go if the add-on says no.
+    // From a panel that floats, it goes to House picks once the circle is being worked out.
+    if (inline) expect(document.activeElement).toBe(toggle().closest('[tabindex="-1"]'));
+    else expect(housePicks()).toHaveFocus();
+  });
+
+  it.each([
+    [
+      "checking",
+      (_pubkey: string) => {
+        // The returning visitor's look, not answered yet.
+        brainstorm.scorerOf.mockImplementation(
+          (_pubkey, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
+        );
+      },
+    ],
+    [
+      "signing",
+      (pubkey: string) => {
+        // Personalize was tapped, and the add-on asks the person, who has not answered yet.
+        window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "off" }));
+        brainstorm.signInToBrainstorm.mockImplementation(
+          (_pubkey, _signer, signal) =>
+            new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
+        );
+      },
+    ],
+    [
+      "working",
+      (pubkey: string) => {
+        // A run followed since a moment ago, which Brainstorm has not answered about yet.
+        window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "working", since: Date.now() }));
+        saveToken(pubkey, TOKEN);
+        brainstorm.latestRun.mockImplementation(
+          (_token, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
+        );
+      },
+    ],
+  ] as const)("is off and reads 'My circle · soon' while the circle is %s, on every toggle", async (state, setUp) => {
+    const pubkey = signedIn();
+    setUp(pubkey);
+    const user = aUser();
+    for (const [, path, px] of PLACES) {
+      const page = await openAt(path, px);
+      if (state === "signing") await user.click(await openDoor(user));
+      await waitFor(() => expect(myCircle()).toHaveTextContent(copy.view.circleSoon));
+      expect(myCircle()).toBeDisabled();
+      expect(myCircle()).not.toHaveAttribute("aria-expanded");
+      expect(myCircle()).not.toHaveAttribute("aria-controls");
+      page.unmount();
+      if (state === "signing") window.sessionStorage.setItem(CIRCLE_KEY, JSON.stringify({ pubkey, state: "off" }));
+    }
   });
 });
 
@@ -221,19 +674,19 @@ describe("a returning visitor", () => {
     expect(JSON.parse(window.sessionStorage.getItem(CIRCLE_KEY) ?? "null")).toMatchObject({ state: "unconfirmed", scorer: SCORER_AT });
   });
 
-  it("is offered Personalize when Brainstorm has no scorer for them", async () => {
+  it("is offered Personalize, behind My circle's half, when Brainstorm has no scorer for them", async () => {
     signedIn();
     await open();
-    expect(await personalize()).toBeInTheDocument();
+    expect(await theDoor()).toBeEnabled();
     expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
-    expect(myCircle()).toBeDisabled();
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
   });
 
   it("is offered Personalize, quietly, when Brainstorm can't be reached for the look", async () => {
     signedIn();
     brainstorm.scorerOf.mockRejectedValue(new client.Unavailable());
     await open();
-    expect(await personalize()).toBeInTheDocument();
+    expect(await theDoor()).toBeEnabled();
     expect(screen.queryByText(copy.circle.unavailable)).toBeNull();
   });
 
@@ -248,11 +701,11 @@ describe("a returning visitor", () => {
     );
     vi.stubGlobal("fetch", fetch);
     await open();
-    expect(await personalize()).toBeInTheDocument();
+    expect(await theDoor()).toBeEnabled();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(String(fetch.mock.calls[0]![0])).toBe(`https://api.brainstorm.world/setup/${pubkey}`);
     expect(screen.queryByText(copy.circle.unavailable)).toBeNull();
-    expect(myCircle()).toBeDisabled();
+    expect(myCircle()).toHaveTextContent(/^My circle$/);
   });
 
   it("is offered Personalize, quietly, when its scorer's relay can't be read for the look", async () => {
@@ -265,7 +718,7 @@ describe("a returning visitor", () => {
       },
     });
     await openApp("/", { events: fixtures, readers: down });
-    expect(await personalize()).toBeInTheDocument();
+    expect(await theDoor()).toBeEnabled();
     expect(screen.queryByText(copy.circle.unavailable)).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -276,13 +729,13 @@ describe("a returning visitor", () => {
     await act(() => vi.advanceTimersByTimeAsync(100));
     expect(brainstorm.scorerOf).not.toHaveBeenCalled();
     const { unmount } = await opening;
-    await personalize();
+    await theDoor();
     expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
 
     // A reload of the tab.
     unmount();
     await open();
-    expect(await personalize()).toBeInTheDocument();
+    expect(await theDoor()).toBeEnabled();
     expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
   });
 });
@@ -433,7 +886,7 @@ describe("the tap", () => {
     );
     brainstorm.startRun.mockResolvedValue({ run: run("waiting") });
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
 
     // Signing: the add-on asks them, which the line says.
     expect(await screen.findByText(copy.circle.approveBrowser)).toBeInTheDocument();
@@ -491,7 +944,7 @@ describe("the tap", () => {
     brainstorm.startRun.mockResolvedValue({ run: run("done") });
     brainstorm.scorerOf.mockResolvedValueOnce(null).mockResolvedValue(SCORER_AT);
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.ready)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: copy.circle.dismiss }));
     expect(screen.queryByText(copy.circle.ready)).toBeNull();
@@ -504,7 +957,7 @@ describe("the tap", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.latestRun.mockResolvedValue(run("running"));
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await after(POLL_MS * 3);
     expect(brainstorm.latestRun.mock.calls.length).toBeGreaterThanOrEqual(3);
@@ -517,7 +970,7 @@ describe("the tap", () => {
     brainstorm.scorerOf.mockResolvedValueOnce(null).mockResolvedValue(SCORER_AT);
     brainstorm.latestRun.mockResolvedValue(run("done"));
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.ready)).toBeInTheDocument();
     expect(brainstorm.startRun).not.toHaveBeenCalled();
     expect(myCircle()).toBeEnabled();
@@ -528,7 +981,7 @@ describe("the tap", () => {
     saveToken(pubkey, TOKEN);
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledWith(TOKEN, expect.any(AbortSignal)));
     expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
@@ -540,7 +993,7 @@ describe("the tap", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.latestRun.mockRejectedValueOnce(new client.TokenExpired());
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledWith(TOKEN, expect.any(AbortSignal)));
@@ -556,7 +1009,7 @@ describe("recently", () => {
     brainstorm.startRun.mockResolvedValue({ recently: true });
     brainstorm.scorerOf.mockResolvedValueOnce(null).mockResolvedValue(SCORER_AT);
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.recently)).toBeInTheDocument();
     expect(myCircle()).toBeEnabled();
     expect(housePicks()).toHaveAttribute("aria-pressed", "true");
@@ -569,7 +1022,7 @@ describe("recently", () => {
     brainstorm.latestRun.mockResolvedValueOnce(null).mockResolvedValue(run("running"));
     brainstorm.startRun.mockResolvedValue({ recently: true });
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await after(POLL_MS);
     brainstorm.latestRun.mockResolvedValue(run("done"));
@@ -584,11 +1037,13 @@ describe("recently", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.startRun.mockResolvedValue({ recently: true });
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.busy)).toBeInTheDocument();
     expect(screen.queryByText(copy.circle.recently)).toBeNull();
     expect(screen.queryByText(copy.circle.workingTitle)).toBeNull();
-    expect(myCircle()).toBeDisabled();
+    // The half is the door again, whose panel, showing under the toggle, has Try again.
+    expect(myCircle()).toHaveTextContent(/^My circle$/);
+    expect(myCircle()).toBeEnabled();
     expect(placesListed()).toBe(true);
 
     brainstorm.startRun.mockResolvedValue({ run: run("running") });
@@ -605,13 +1060,14 @@ describe("when it goes wrong (Review Focus 4)", () => {
     signedIn();
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     brainstorm.latestRun.mockResolvedValue(run("failed"));
     await after(POLL_MS);
     expect(await screen.findByText(copy.circle.unavailable)).toBeInTheDocument();
     expect(screen.queryByText(copy.circle.workingTitle)).toBeNull();
-    expect(myCircle()).toBeDisabled();
+    expect(myCircle()).toHaveTextContent(/^My circle$/);
+    expect(myCircle()).toBeEnabled();
     expect(housePicks()).toHaveAttribute("aria-pressed", "true");
     expect(placesListed()).toBe(true);
 
@@ -632,7 +1088,7 @@ describe("when it goes wrong (Review Focus 4)", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     fail();
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.unavailable)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: copy.circle.tryAgain })).toBeInTheDocument();
     expect(screen.queryByText(copy.circle.workingTitle)).toBeNull();
@@ -644,7 +1100,7 @@ describe("when it goes wrong (Review Focus 4)", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.latestRun.mockResolvedValueOnce(null);
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     brainstorm.latestRun.mockRejectedValue(new client.Unavailable());
     // One poll that fails is not the end of it.
@@ -662,7 +1118,7 @@ describe("when it goes wrong (Review Focus 4)", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.latestRun.mockResolvedValueOnce(null).mockResolvedValue(run("running"));
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await after(POLL_CAP_MS - POLL_MS);
     expect(screen.getByText(copy.circle.workingTitle)).toBeInTheDocument();
@@ -673,19 +1129,21 @@ describe("when it goes wrong (Review Focus 4)", () => {
   it.each([
     ["does not sign the login in time", () => new client.NotSigned()],
     ["says no", () => new Error("User rejected")],
-  ])("goes back to Personalize, quietly, when the add-on %s", async (_, refusal) => {
+  ])("goes back to the door, quietly, when the add-on %s", async (_, refusal) => {
     signedIn();
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.signInToBrainstorm.mockRejectedValue(refusal());
     await open();
-    await user.click(await personalize());
-    expect(await personalize()).toBeInTheDocument();
+    await user.click(await openDoor(user));
+    expect(await theDoor()).toBeEnabled();
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
     expect(screen.queryByText(copy.circle.unavailable)).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(brainstorm.startRun).not.toHaveBeenCalled();
   });
 
-  it("goes back to Personalize when the person cancels while the add-on asks, and stops the ask", async () => {
+  it("goes back to the door when the person cancels while the add-on asks, and stops the ask", async () => {
     signedIn();
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     let asked: AbortSignal | undefined;
@@ -697,10 +1155,13 @@ describe("when it goes wrong (Review Focus 4)", () => {
         }),
     );
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     await screen.findByText(copy.circle.approveBrowser);
     await user.click(screen.getByRole("button", { name: copy.circle.cancel }));
-    expect(await personalize()).toBeInTheDocument();
+    expect(await theDoor()).toBeEnabled();
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    // The panel has gone with Cancel: the focus is on the toggle's block, not lost.
+    expect(document.activeElement).not.toBe(document.body);
     expect(asked?.aborted).toBe(true);
     expect(screen.queryByText(copy.circle.approveBrowser)).toBeNull();
     expect(brainstorm.startRun).not.toHaveBeenCalled();
@@ -713,7 +1174,7 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.startRun.mockResolvedValue({ run: run("running") });
     const first = await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledTimes(1));
 
@@ -740,7 +1201,7 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.latestRun.mockResolvedValueOnce(null).mockResolvedValue(run("running"));
     const first = await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await after(POLL_CAP_MS / 2);
     first.unmount();
@@ -750,7 +1211,7 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
     expect(await screen.findByText(copy.circle.unavailable)).toBeInTheDocument();
   });
 
-  it("starts afresh when the tab is reloaded before a run is known: Personalize again, polling nothing", async () => {
+  it("starts afresh when the tab is reloaded before a run is known: the door to Personalize again, polling nothing", async () => {
     const pubkey = signedIn();
     saveToken(pubkey, TOKEN);
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
@@ -760,7 +1221,7 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
         new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
     );
     const first = await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     expect(brainstorm.latestRun).toHaveBeenCalledTimes(1);
 
@@ -768,20 +1229,20 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
     first.unmount();
     brainstorm.latestRun.mockReset().mockResolvedValue(run("running"));
     await open();
-    expect(await personalize()).toBeInTheDocument();
+    expect(await theDoor()).toBeEnabled();
     expect(screen.queryByText(copy.circle.workingTitle)).toBeNull();
     await after(POLL_MS * 2);
     expect(brainstorm.latestRun).not.toHaveBeenCalled();
     expect(brainstorm.startRun).not.toHaveBeenCalled();
-    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    expect(myCircle()).toHaveTextContent(/^My circle$/);
   });
 
-  it("goes back to Personalize, quietly, when the reload finds no run at all", async () => {
+  it("goes back to the door, quietly, when the reload finds no run at all", async () => {
     signedIn();
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.startRun.mockResolvedValue({ run: run("running") });
     const first = await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledTimes(1));
 
@@ -789,7 +1250,7 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
     first.unmount();
     brainstorm.latestRun.mockClear().mockResolvedValue(null);
     await open();
-    expect(await personalize()).toBeInTheDocument();
+    expect(await theDoor()).toBeEnabled();
     expect(brainstorm.latestRun).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(copy.circle.workingTitle)).toBeNull();
     expect(screen.queryByText(copy.circle.unavailable)).toBeNull();
@@ -821,7 +1282,7 @@ describe("a reload while the circle is worked out (Review Focus 3)", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.latestRun.mockResolvedValueOnce(null).mockResolvedValue(run("running"));
     await openApp("/", { events: fixtures, readers, strict: true });
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await after(POLL_MS * 3);
     expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
@@ -849,7 +1310,7 @@ describe("a sign-in that runs out while polling", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.startRun.mockResolvedValue({ run: run("running") });
     await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledTimes(1));
 
@@ -888,9 +1349,10 @@ describe("someone else signing in to the tab", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     await open();
 
-    expect(await personalize()).toBeInTheDocument();
-    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
-    expect(myCircle()).toBeDisabled();
+    // The door to Personalize: no circle of the other person's to choose.
+    expect(await theDoor()).toBeEnabled();
+    expect(myCircle()).toHaveTextContent(/^My circle$/);
+    expect(myCircle()).not.toHaveAttribute("aria-pressed");
     expect(screen.queryByText(copy.circle.ready)).toBeNull();
     // Their own returning look, not the other person's circle.
     expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
@@ -909,7 +1371,7 @@ describe("someone else signing in to the tab", () => {
       saveToken(who, "eyJhbGciOiJIUzI1NiJ9.eyJ3aG8iOjJ9.dGhlaXJz");
       return "eyJhbGciOiJIUzI1NiJ9.eyJ3aG8iOjJ9.dGhlaXJz";
     });
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalled());
     expect(brainstorm.signInToBrainstorm).toHaveBeenCalledWith(pubkey, expect.anything(), expect.any(AbortSignal), { how: "browser" });
     expect(used).not.toBe(TOKEN);
@@ -923,7 +1385,7 @@ describe("signing out", () => {
     brainstorm.latestRun.mockResolvedValue(run("done"));
     brainstorm.scorerOf.mockResolvedValueOnce(null).mockResolvedValue(SCORER_AT);
     const { router } = await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.ready)).toBeInTheDocument();
     await user.click(myCircle());
     expect(readToken(pubkey)).toBe(TOKEN);
@@ -946,7 +1408,7 @@ describe("signing out", () => {
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     brainstorm.latestRun.mockResolvedValue(run("running"));
     const { router } = await open();
-    await user.click(await personalize());
+    await user.click(await openDoor(user));
     expect(await screen.findByText(copy.circle.workingTitle)).toBeInTheDocument();
     await act(() => router.navigate("/you"));
     await user.click(await screen.findByRole("button", { name: copy.you.signOut }));
