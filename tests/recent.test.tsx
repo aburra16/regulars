@@ -674,7 +674,7 @@ describe("Recent: paging", () => {
     // Every review is read; whose the last are is not known: no "yet", and a polite word that it is reading.
     expect(await saidPolitely(copy.recent.loading)).not.toBeNull();
     expect(screen.queryByText(copy.recent.emptyHouse)).not.toBeInTheDocument();
-    expect(screen.getByText(copy.recent.noneLatestHouse)).toBeInTheDocument();
+    expect(screen.queryByText(copy.recent.noneLatestHouse)).not.toBeInTheDocument();
 
     net.release();
     await listsExactly(["Erin's review of Maia, 5 hours ago"]);

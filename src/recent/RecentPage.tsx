@@ -210,10 +210,12 @@ export function RecentPage(): JSX.Element {
   const failed = state === "failed" || (state === "ready" && (ranksFailed || newer === "failed"));
 
   let body: JSX.Element | null = null;
-  if (state === "ready" && entries.length === 0) {
+  // Nothing listed while some reviewers are still asked about: the loading line says so, and nothing
+  // claims who is outside before that is known.
+  if (state === "ready" && entries.length === 0 && !counting) {
     const circle = view === "circle";
-    // "Yet" only once every review is read and whose they all are is known.
-    const words = end && !counting
+    // "Yet" only once every review is read.
+    const words = end
       ? circle
         ? copy.recent.emptyCircle
         : copy.recent.emptyHouse
@@ -240,7 +242,7 @@ export function RecentPage(): JSX.Element {
         {words}
       </PageMessage>
     );
-  } else if (state === "ready") {
+  } else if (state === "ready" && entries.length > 0) {
     body = (
       <ul ref={list} role="list" aria-labelledby={headingId} className="m-0 flex list-none flex-col gap-3 p-0">
         {entries.map((entry) => (
