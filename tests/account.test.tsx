@@ -862,6 +862,25 @@ describe("signing in with an app on the phone", () => {
     expect(relay.openSubscriptions).toBe(0);
   });
 
+  it.each([
+    ["no 'from' (a link to sign in, a new tab)", undefined],
+    ["a 'from' that is no page of the app", { from: { pathname: "https://example.com/" } }],
+  ])("lands on Explore, never on You, after the phone app signs the person in on a sign-in page with %s (decision 23)", async (_, state) => {
+    const relay = new MemoryConnectRelay();
+    const app = createSignerApp(relay);
+    const user = userEvent.setup();
+    const { router } = await openApp("/signin", { events: fixtures, relays: () => relay, entries: [{ pathname: "/signin", state }] });
+    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await user.click(await screen.findByRole("button", { name: copy.signin.copyLink }));
+    await app.scan(writeText.mock.calls[0]![0]);
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    expect(router.state.historyAction).toBe("REPLACE");
+    expect(readSession()).toMatchObject({ how: "phone", pubkey: app.userPubkey });
+    expect(screen.queryByRole("heading", { level: 1, name: copy.pages.you })).not.toBeInTheDocument();
+  });
+
   it("says it did not connect, with Try again, when nothing answers in 120 seconds (Review Focus 3)", async () => {
     const relay = new MemoryConnectRelay();
     await openApp("/signin", { events: fixtures, relays: () => relay });
