@@ -38,13 +38,11 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 
 - **Trending's "Near …" pill on the phone** (decision 43).
 
-- **Place signatures:** check them in the browser, in a worker or by sampling. Today they are off for speed.
-- **The importer:** never more than 10,000 places at one `created_at`.
+- **The importer** (in the mise-en-place repo; still open): never more than 10,000 places at one `created_at`, or returning visitors stay on their saved copy.
 - **Focus:** move it to the new page's heading after navigation (for screen readers).
-- **Search:** Thai and Chinese names aren't split into words.
 - **Duplicates:** the same venue mapped twice within 50 m shows twice.
 - **Postcodes:** bound the length of a run kept on one line.
-- **Content Security Policy:** a meta tag (a hardening idea from M2b).
+- **Framing:** the Content Security Policy is a meta tag, which can't set `frame-ancestors`, so nothing keeps the site out of another site's frame. Only a header can, and GitHub Pages sets none.
 - **CI:** `ubuntu-latest` moves to Ubuntu 26 on 19 October; watch the first run after.
 
 ## Small deferred items
@@ -84,6 +82,12 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 - Cards redraw once when the house becomes ready.
 - No targeted retry of failed places.
 - The empty focus target after removing your only review has no name.
+
+**Search, signatures and the policy** (the hardening batch)
+- Two words apart in a Thai or Chinese name, typed with no space between them ("ร้านมาลี"), don't find it; with a space they do. Splitting the query into words as well broke words typed in part.
+- Under attack, a forged newer version of a place hides the real one: the newest version at each address is kept before the signatures are checked, so that place is gone until a clean load.
+- The first signature check of a visit takes about 20 ms on a desktop (the curve's tables), past the 16 ms aim for a slice; each later one about 1 ms.
+- MapLibre's worker takes its policy from the headers its file is served with, so the meta tag's doesn't reach it.
 
 **Tests and proof** (M2a record)
 - An order-dependent config test pair.
