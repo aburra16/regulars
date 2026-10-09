@@ -148,9 +148,10 @@ describe("the places from the relay, with their signatures sampled", () => {
   const before = { houseHex: config.houseHex, sample: config.placesSignatureSample };
 
   beforeEach(() => {
-    // The key made here is the house's, for these tests, and the sample takes the whole list.
+    // The key made here is the house's, for these tests, and the sample is the whole list: a forged
+    // place is always in it.
     config.houseHex = house;
-    config.placesSignatureSample = 64;
+    config.placesSignatureSample = fixtures.length;
   });
   afterEach(() => {
     config.houseHex = before.houseHex;
@@ -168,8 +169,16 @@ describe("the places from the relay, with their signatures sampled", () => {
     },
   });
 
+  /** The names of the places of every render, in order: what the person could have seen, however briefly. */
+  let rendered: string[][] = [];
+
   function renderPlaces(events: NostrEvent[], reader: RelayReader = createMemoryReader(events)) {
-    return renderHook(() => usePlaces(), {
+    rendered = [];
+    return renderHook(() => {
+      const state = usePlaces();
+      rendered.push(state.places.map((place) => place.name));
+      return state;
+    }, {
       wrapper: ({ children }: { children: ReactNode }) => (
         <PlacesProvider reader={reader} towns={null}>
           {children}
@@ -194,6 +203,7 @@ describe("the places from the relay, with their signatures sampled", () => {
   it("leaves a forged place out, shows the rest, and saves only the rest", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const list = places();
+    expect(list.length).toBeLessThanOrEqual(config.placesSignatureSample);
     const fake = forged(list[5]!);
     const { result } = renderPlaces(list.map((event, i) => (i === 5 ? fake : event)));
     await waitFor(() => expect(result.current.savedAt).toBeDefined());
@@ -210,6 +220,20 @@ describe("the places from the relay, with their signatures sampled", () => {
     // Once, with the count, and nothing of the events.
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(`[places] 1 of ${list.length} signatures failed`);
+  });
+
+  it("never shows a fresh list before its signatures are checked, not for one render", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const list = places();
+    const fake = forged(list[20]!);
+    const { result } = renderPlaces(list.map((event, i) => (i === 20 ? fake : event)));
+    await waitFor(() => expect(result.current.savedAt).toBeDefined());
+
+    // The check gives the page its turn between slices, and every render meanwhile was of no places.
+    expect(rendered.length).toBeGreaterThan(1);
+    expect(rendered.filter((names) => names.includes("Forged Place"))).toEqual([]);
+    expect(rendered.filter((names) => names.length > 0 && names.length !== list.length - 1)).toEqual([]);
+    expect(rendered.at(-1)).toHaveLength(list.length - 1);
   });
 
   it("leaves out a place by another key, signed well or not, and never saves it", async () => {
