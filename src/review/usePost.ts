@@ -27,8 +27,9 @@ export type PostStatus = "editing" | "posting" | "failed" | "not on Regulars";
 export interface Posting {
   status: PostStatus;
   /**
-   * Whether the post under way is slow: no review relay has taken it `SLOW_POST_MS` after it was sent
-   * (ruling P1). The form says so, under Post. False whenever nothing is being posted.
+   * Whether the post under way is slow: no review relay has taken it `SLOW_POST_MS` after it was sent,
+   * and one is still trying (ruling P1). The form says so, under Post. False whenever nothing is being
+   * posted, and once no review relay is left trying.
    */
   slow: boolean;
   /** Posts a review of `stars` with the words `text`; nothing while one is under way. */
@@ -102,12 +103,15 @@ export function usePost(place: Place, onPosted: () => void): Posting {
     /** Where it is sent, and where it was taken already (by an earlier try). */
     let relays: readonly string[] = [];
     const before = resend ? again.accepted : [];
+    // Slow while no review relay has taken it and one is still trying: the line goes once none is,
+    // though the person's own relays may still be answering.
     const onSlow = () => setSlow(true);
+    const onSlowEnd = () => setSlow(false);
     try {
       let posted: Posted;
       if (resend) {
         relays = again.relays;
-        posted = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers, onSlow });
+        posted = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers, onSlow, onSlowEnd });
       } else {
         unposted.current = null;
         relays = await whereToPost(account.pubkey, account.signer, readers, signal);
@@ -117,6 +121,7 @@ export function usePost(place: Place, onPosted: () => void): Posting {
           writers,
           signWithin: signTimeFor(account.how),
           onSlow,
+          onSlowEnd,
         });
       }
       unposted.current = null;

@@ -36,6 +36,27 @@ describe("Address", () => {
     expect([...wrapped].map((each) => each.textContent)).toEqual(["9000-082", "9050-026"]);
   });
 
+  it("keeps a run whole up to four parts of up to ten digits each", () => {
+    const longest = "1234567890-1234567890-1234567890-1234567890";
+    const wrapped = draw(`Funchal ${longest}`).querySelectorAll(".whitespace-nowrap");
+    expect([...wrapped].map((each) => each.textContent)).toEqual([longest]);
+  });
+
+  it("leaves a longer run free to wrap, as written: a hostile 100-character run cannot push its row wider", () => {
+    for (const run of [
+      `${"1234567890-".repeat(9)}1`,
+      "1-2-3-4-5",
+      "12345678901-2",
+      "1-23456789012",
+    ]) {
+      const line = draw(`Rua Nova ${run}, Funchal`);
+      expect(line.querySelector(".whitespace-nowrap"), run).toBeNull();
+      expect(line.textContent).toBe(`Rua Nova ${run}, Funchal`);
+      cleanup();
+    }
+    expect(`${"1234567890-".repeat(9)}1`.length).toBeGreaterThanOrEqual(100);
+  });
+
   it("is plain text when no hyphen sits between digits", () => {
     for (const text of ["12 Rua Nova Funchal", "Rua Dr. Fernão de Ornelas 56-A, Funchal", "Santa-Cruz 9100 - 024", ""]) {
       const line = draw(text);

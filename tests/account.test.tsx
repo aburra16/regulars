@@ -832,6 +832,29 @@ describe("signing in with an app on the phone", () => {
     expect(copy.signin.openApp).toBe("Open the app");
   });
 
+  it("offers Open the app by the device, not the window's width: on a tablet laid out as a desktop, with no line on add-ons", async () => {
+    const relay = new MemoryConnectRelay();
+    const user = userEvent.setup();
+    await openApp("/signin", { events: fixtures, px: DESKTOP, device: "handheld", relays: () => relay });
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await screen.findByRole("img", { name: copy.signin.qrLabel });
+    expect(screen.getByRole("link", { name: copy.signin.openApp })).toHaveAttribute("href", expect.stringMatching(LINK));
+    // The line on getting an add-on is a computer's: a tablet's browser seldom takes one, and has the app.
+    expect(screen.queryByText(copy.signin.noAddOn)).not.toBeInTheDocument();
+    expect(copy.signin.noAddOn).toBe("To sign in with this browser, add a sign-in add-on to it, then reload this page.");
+  });
+
+  it("does not offer Open the app in a computer's window, however narrow: its person scans the code, with the line on add-ons under it", async () => {
+    const relay = new MemoryConnectRelay();
+    const user = userEvent.setup();
+    await openApp("/signin", { events: fixtures, px: PHONE, device: "computer", relays: () => relay });
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    const code = await screen.findByRole("img", { name: copy.signin.qrLabel });
+    expect(screen.queryByRole("link", { name: copy.signin.openApp })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.signin.copyLink })).toBeInTheDocument();
+    expect(follows(code, screen.getByText(copy.signin.noAddOn))).toBe(true);
+  });
+
   it("says so when the browser will not copy the link", async () => {
     const relay = new MemoryConnectRelay();
     const user = userEvent.setup();
@@ -860,6 +883,25 @@ describe("signing in with an app on the phone", () => {
     expect(readSession()).toMatchObject({ how: "phone", pubkey: app.userPubkey });
     // The request the code was waiting on is closed.
     expect(relay.openSubscriptions).toBe(0);
+  });
+
+  it.each([
+    ["no 'from' (a link to sign in, a new tab)", undefined],
+    ["a 'from' that is no page of the app", { from: { pathname: "https://example.com/" } }],
+  ])("lands on Explore, never on You, after the phone app signs the person in on a sign-in page with %s (decision 23)", async (_, state) => {
+    const relay = new MemoryConnectRelay();
+    const app = createSignerApp(relay);
+    const user = userEvent.setup();
+    const { router } = await openApp("/signin", { events: fixtures, relays: () => relay, entries: [{ pathname: "/signin", state }] });
+    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+    await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+    await user.click(await screen.findByRole("button", { name: copy.signin.copyLink }));
+    await app.scan(writeText.mock.calls[0]![0]);
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    expect(router.state.historyAction).toBe("REPLACE");
+    expect(readSession()).toMatchObject({ how: "phone", pubkey: app.userPubkey });
+    expect(screen.queryByRole("heading", { level: 1, name: copy.pages.you })).not.toBeInTheDocument();
   });
 
   it("says it did not connect, with Try again, when nothing answers in 120 seconds (Review Focus 3)", async () => {
@@ -1074,6 +1116,28 @@ describe("the account button, signed out", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/"));
     expect(readSession()).toMatchObject({ how: "browser" });
   });
+
+  it.each(["/you", "/saved"])(
+    "gives the focus to the account button that is now the person's, on the Explore it lands on from %s, not to Explore's heading",
+    async (path) => {
+      const key = generateSecretKey();
+      installAddOn(key);
+      const user = userEvent.setup();
+      const { router } = await openApp(path, { events: fixtures, px: DESKTOP, readers: readersWith([profileOf(getPublicKey(key), "Maya")]) });
+      const top = screen.getByRole("banner");
+      await user.click(within(top).getByRole("link", { name: copy.nav.signIn }));
+      await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+      await screen.findByRole("heading", { level: 1, name: copy.pages.explore });
+      await settle();
+      const mine = within(top).getByRole("link", { name: /account$/i });
+      expect(mine).toHaveAttribute("href", "/you");
+      expect(mine).toHaveFocus();
+
+      // That was the page's own doing, once: the next page the person goes to has its heading take the focus.
+      await user.click(within(top).getByRole("link", { name: copy.nav.recent }));
+      expect(await screen.findByRole("heading", { level: 1, name: copy.pages.recent })).toHaveFocus();
+    },
+  );
 
   it("stops saying the add-on didn't work once the person goes to another page", async () => {
     const addOn = installAddOn(generateSecretKey());

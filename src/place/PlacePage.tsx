@@ -1,4 +1,4 @@
-import { type JSX, useEffect, useMemo, useRef } from "react";
+import { type JSX, useContext, useEffect, useMemo, useRef } from "react";
 import { Link, useLocation, useOutlet, useParams } from "react-router-dom";
 
 import { useOwnPubkey } from "../account/useOwnPubkey.ts";
@@ -37,7 +37,7 @@ import { actionsOf, PhoneActions, type PlaceActions, RailActions } from "./Actio
 import { Facts } from "./Facts.tsx";
 import { osmNoteUrl, osmUrl } from "./osmLinks.ts";
 import { Reviews } from "./Reviews.tsx";
-import { RateButton, ScorePanel } from "./ScorePanel.tsx";
+import { RateButton, RateButtonRef, ScorePanel } from "./ScorePanel.tsx";
 
 /** How close the map is: a street and the blocks around it. */
 const MAP_ZOOM = 16;
@@ -105,7 +105,12 @@ interface HeaderProps {
 /** The name, marked with its script and free to wrap anywhere: a long name or one with no spaces stays inside the page. */
 function Name({ name, className }: { name: string; className: string }): JSX.Element {
   return (
-    <h1 lang={scriptLang(name)} dir="auto" className={`m-0 min-w-0 font-display font-extrabold wrap-break-word ${className}`}>
+    <h1
+      lang={scriptLang(name)}
+      dir="auto"
+      tabIndex={-1}
+      className={`m-0 min-w-0 font-display font-extrabold wrap-break-word outline-none ${className}`}
+    >
       {name}
     </h1>
   );
@@ -293,35 +298,36 @@ interface View {
 
 /**
  * The reviews, once the place's score is worked out and it has some; and the person's own, as soon as
- * it is there, while the others are counted too (ruling R15). Nothing when there are none, but where
- * the person's has just been removed: the focus, which was on the button that removed it, comes here
- * then, where it was, and not to the page, nor anywhere that would scroll it (ruling R17).
+ * it is there, while the others are counted too (ruling R15). Nothing when there are none. Once the
+ * person's has been removed, the focus, which was on the button that removed it, comes here, where it
+ * was, and not to the page, nor anywhere that would scroll it (ruling R17); or, when theirs was the
+ * only one and nothing is left here, to Rate this place (`RateButtonRef`), without scrolling either.
  */
 function PlaceReviews({ view, wide, className = "" }: { view: View; wide: boolean; className?: string }): JSX.Element | null {
   const { shown, score, mine, removal, scoresView, scoresState, now } = view;
   const reviewsRef = useRef<HTMLDivElement>(null);
+  const rate = useContext(RateButtonRef);
   const removed = removal.status === "removed";
-  useEffect(() => {
-    if (removed) reviewsRef.current?.focus({ preventScroll: true });
-  }, [removed]);
   const listed = score !== undefined && (shown.kind === "scored" || shown.kind === "unscored" || shown.kind === "unavailable");
   const any = listed || mine !== undefined;
-  if (!any && !removed) return null;
+  // Once, as it is removed: what is here then, or Rate this place when nothing is.
+  useEffect(() => {
+    if (removed) (any ? reviewsRef.current : rate?.current)?.focus({ preventScroll: true });
+  }, [removed]);
+  if (!any) return null;
   return (
-    <div ref={reviewsRef} tabIndex={-1} className={`outline-none ${any ? className : ""}`}>
+    <div ref={reviewsRef} tabIndex={-1} className={`outline-none ${className}`}>
       {/* On a phone, "Rate this place" goes beside the reviews' heading when the panel, with its score, has no button. */}
-      {any && (
-        <Reviews
-          score={listed ? score : undefined}
-          mine={mine}
-          removal={removal}
-          view={scoresView}
-          state={scoresState}
-          wide={wide}
-          rate={!wide && shown.kind === "scored"}
-          now={now}
-        />
-      )}
+      <Reviews
+        score={listed ? score : undefined}
+        mine={mine}
+        removal={removal}
+        view={scoresView}
+        state={scoresState}
+        wide={wide}
+        rate={!wide && shown.kind === "scored"}
+        now={now}
+      />
     </div>
   );
 }
@@ -434,6 +440,8 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
   const me = useOwnPubkey();
   const mine = me === undefined ? undefined : reviews.find((review) => review.reviewer === me);
   const removal = useRemoveReview(place, mine);
+  // Its Rate this place, for the focus once the person's review, the only one, is removed.
+  const rate = useRef<HTMLAnchorElement>(null);
   const { scores: nearbyScores } = useListScores(nearby);
   // How far away is said only from where the device says the person is. From the default city, or a
   // town they picked, it would be how far the place is from somewhere they may not be.
@@ -457,7 +465,7 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
     locale,
     now,
   };
-  return wide ? <DeskPlace view={view} /> : <PhonePlace view={view} />;
+  return <RateButtonRef value={rate}>{wide ? <DeskPlace view={view} /> : <PhonePlace view={view} />}</RateButtonRef>;
 }
 
 /**

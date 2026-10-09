@@ -1,6 +1,6 @@
 # Backlog
 
-What is left, in one place, as of 2026-10-09. Sources: the brief's order of work (handoff/REGULARS_APP_BRIEF.md § 13), docs/m1-handover.md, and the build records at the end of each plan in docs/plans/. Decisions are in docs/decisions.md.
+What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: the brief's order of work (handoff/REGULARS_APP_BRIEF.md § 13), docs/m1-handover.md, and the build records at the end of each plan in docs/plans/. Decisions are in docs/decisions.md.
 
 ## Waiting on Avi
 
@@ -36,12 +36,8 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 
 ## Hardening before many people use it
 
-- **Trending's "Near …" pill on the phone** (decision 43).
-
 - **The importer** (in the mise-en-place repo; still open): never more than 10,000 places at one `created_at`, or returning visitors stay on their saved copy.
-- **Focus:** move it to the new page's heading after navigation (for screen readers).
 - **Duplicates:** the same venue mapped twice within 50 m shows twice.
-- **Postcodes:** bound the length of a run kept on one line.
 - **Framing:** the Content Security Policy is a meta tag, which can't set `frame-ancestors`, so nothing keeps the site out of another site's frame. Only a header can, and GitHub Pages sets none.
 - **CI:** `ubuntu-latest` moves to Ubuntu 26 on 19 October; watch the first run after.
 
@@ -54,12 +50,7 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 - Contradictory lines when the circle relay is down while unconfirmed.
 - A done run whose `/setup` keeps returning 404 polls until the 45-minute cap.
 
-**The My circle panel** (decision 27)
-- On the Map, and on desktop pages other than Explore, nothing shows "working out your circle" once the panel closes.
-- Desktop Explore shows two Try again buttons when a run failed.
-
 **Posting** (P1, P2)
-- "Still posting…" can linger up to 7 s after a refusal while an own relay hangs.
 - Up to 3 copies of a review are queued at the review relay.
 
 **Towns** (GeoNames, decision 30)
@@ -70,18 +61,18 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 - Antiguo Cuscatlán (88 places) outnumbers San Salvador (84); the first visit still starts in San Salvador.
 - Bangkok's Lat Krabang and Min Buri, and Tokyo's outer wards (Ōta, Katsushika), sit past the absorb reach and stay their own towns.
 - `towns.json` is 159 KB raw (73 KB gzip) and grows at each refresh; regenerate it with each monthly import (README).
-- The `townsWaitMs` prop has no test of its own.
 
 **Trending** (decisions 28 and 31; the code keeps the name Recent)
 - The list is rebuilt on every store change (fine at today's scale).
 - The rank-failure flag is per view, not per person, so a brief false failure line is possible.
 
 **Reviews and sign-in** (M2b record)
-- A sign-in with no "from" lands on /you.
-- "Open the app" is chosen by layout width, not device.
 - Cards redraw once when the house becomes ready.
 - No targeted retry of failed places.
-- The empty focus target after removing your only review has no name.
+
+**Focus after navigation** (the polish batch)
+- A page with no `h1` (Not found, a page that broke, a place still being looked for) leaves the focus where it was.
+- A new search from the results (the same pathname) never moves the focus; the first, from Explore's top bar, leaves it in the field.
 
 **Search, signatures and the policy** (the hardening batch)
 - Two words apart in a Thai or Chinese name, typed with no space between them ("ร้านมาลี"), don't find it; with a space they do. Splitting the query into words as well broke words typed in part.
@@ -90,7 +81,6 @@ What is left, in one place, as of 2026-10-09. Sources: the brief's order of work
 - MapLibre's worker takes its policy from the headers its file is served with, so the meta tag's doesn't reach it.
 
 **Tests and proof** (M2a record)
-- An order-dependent config test pair.
 - Proof marker tags.
 - README nits.
 - More guard-test cases.

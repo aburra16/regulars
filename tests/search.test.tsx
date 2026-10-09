@@ -2263,7 +2263,8 @@ describe("Filters", () => {
       expect(router.state.location.state).toEqual({ from: "filters" });
       expect(field()).toHaveValue("cafe");
       expect(field()).not.toHaveFocus();
-      expect(document.body).toHaveFocus();
+      // The results' heading has it, as after any page the person goes to: no keyboard comes up for it.
+      expect(screen.getByRole("heading", { level: 1, name: copy.pages.search })).toHaveFocus();
     });
 
     it("does not put it there after the cross either", async () => {

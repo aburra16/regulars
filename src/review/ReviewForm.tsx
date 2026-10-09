@@ -66,7 +66,8 @@ export function ReviewTitle({ place, wide, className = "" }: { place: Place; wid
       <h1
         lang={scriptLang(place.name)}
         dir="auto"
-        className={`m-0 font-display leading-[1.1] font-extrabold tracking-display wrap-break-word ${wide ? "text-[32px]" : "text-[30px]"}`}
+        tabIndex={-1}
+        className={`m-0 font-display leading-[1.1] font-extrabold tracking-display wrap-break-word outline-none ${wide ? "text-[32px]" : "text-[30px]"}`}
       >
         {place.name}
       </h1>

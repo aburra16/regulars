@@ -400,7 +400,9 @@ function PhoneWhy(): JSX.Element {
         <BackLink wide={false} back={copy.about.back} />
       </div>
       <div className="flex flex-col gap-2.5 px-gutter-phone pt-2">
-        <h1 className="m-0 font-display text-display-phone leading-[1.08] font-extrabold tracking-display">{copy.why.title}</h1>
+        <h1 tabIndex={-1} className="m-0 font-display text-display-phone leading-[1.08] font-extrabold tracking-display outline-none">
+          {copy.why.title}
+        </h1>
         <p className="m-0 text-body leading-[1.5] text-ink-soft">{copy.why.intro}</p>
       </div>
       <div className="flex flex-col gap-[18px] px-gutter-phone pt-[22px]">
@@ -428,7 +430,9 @@ function DeskWhy(): JSX.Element {
     <div className="mx-auto flex w-full max-w-content flex-wrap items-start gap-x-14 gap-y-9 px-gutter-desktop pt-10 pb-14">
       <div className="flex min-w-0 flex-[999_1_520px] flex-col gap-[30px]">
         <div className="flex flex-col gap-3.5">
-          <h1 className="m-0 font-display text-[48px] leading-[1.04] font-extrabold tracking-[-0.025em]">{copy.why.title}</h1>
+          <h1 tabIndex={-1} className="m-0 font-display text-[48px] leading-[1.04] font-extrabold tracking-[-0.025em] outline-none">
+            {copy.why.title}
+          </h1>
           <p className="m-0 max-w-[58ch] text-[18px] leading-[1.5] text-ink-soft">{copy.why.intro}</p>
         </div>
         <LookingThrough wide />

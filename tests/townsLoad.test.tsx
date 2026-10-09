@@ -108,6 +108,81 @@ describe("loadTowns", () => {
   });
 });
 
+describe("how long the places wait for their towns (`townsWaitMs`)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * The places from the relay, inside a provider given `wait()` as its `townsWaitMs` each time it is drawn
+   * (none: its own default), whose towns' chunk never comes. It resolves once the relay has answered and
+   * the device's saved copy (none) has been read: the places wait for their towns from there.
+   */
+  async function stalledTowns(wait: () => number | undefined) {
+    towns.load = () => new Promise<TownList | null>(() => {});
+    const read = later<void>();
+    device.onRead = () => read.settle();
+    const answered = later<void>();
+    const memory = createMemoryReader(fixtures);
+    const reader: RelayReader = {
+      async *req(filter, signal) {
+        yield* memory.req(filter, signal);
+        answered.settle();
+      },
+    };
+    const view = renderHook(() => usePlaces(), {
+      wrapper: ({ children }: { children: ReactNode }) => {
+        const ms = wait();
+        return (
+          <PlacesProvider reader={reader} {...(ms === undefined ? {} : { townsWaitMs: ms })}>
+            {children}
+          </PlacesProvider>
+        );
+      },
+    });
+    await act(async () => {
+      await Promise.all([read.promise, answered.promise]);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    return view;
+  }
+
+  it("is as long as the provider is told, and then the places show without their towns", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { result } = await stalledTowns(() => 5_000);
+
+    await act(() => vi.advanceTimersByTimeAsync(4_999));
+    expect(result.current.status).toBe("loading");
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(result.current).toMatchObject({ status: "ready", source: "network", towns: null });
+    expect(result.current.places).toHaveLength(43);
+  });
+
+  it("is read once, on mount: a provider drawn again with another wait keeps the first", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let wait = 5_000;
+    const { result, rerender } = await stalledTowns(() => wait);
+    wait = 0;
+    rerender();
+
+    await act(() => vi.advanceTimersByTimeAsync(4_999));
+    expect(result.current.status).toBe("loading");
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(result.current.status).toBe("ready");
+  });
+
+  it("is TOWNS_WAIT_MS, 300 ms, when the provider is not told", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { result } = await stalledTowns(() => undefined);
+
+    await act(() => vi.advanceTimersByTimeAsync(TOWNS_WAIT_MS - 1));
+    expect(result.current.status).toBe("loading");
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(result.current).toMatchObject({ status: "ready", towns: null });
+    expect(TOWNS_WAIT_MS).toBe(300);
+  });
+});
+
 describe("the places, with their towns", () => {
   it("are put in the app's towns, which load with them", async () => {
     const { result } = renderPlaces(fixtures);

@@ -111,8 +111,10 @@ function offered(
  * - `always`: here, always (the Why page, which explains My circle);
  * - `opened`: here, once My circle's half opens it, with Not now beside it (the phone's Explore);
  * - `toggle`: not here: the panel that floats under the toggle offers it (the desktop's Explore). That
- *   panel says the add-on asks, while it is open (ruling F1): then this one says nothing, so only one
- *   region says it. Saying nothing, it is there all the same, for its status, and takes no room.
+ *   panel says the add-on asks, while it is open (ruling F1), and that Brainstorm was busy or the circle
+ *   could not be had, with Try again (decision 27): then this one says nothing, so only one region says
+ *   it, and one Try again is offered. Saying nothing, it is there all the same, for its status, and
+ *   takes no room.
  * Unless the toggle has its own, this is the page's panel, which My circle's half opens or goes to.
  *
  * What it says is in a polite status that is always there while the panel is, so a screen reader hears
@@ -193,6 +195,8 @@ export function Personalize({
       if (circle.state === "off" && waits && !opened) return null;
       // Under the desktop's top bar, its toggle offers Personalize: this says nothing till the circle is asked for.
       if (circle.state === "off" && offer === "toggle") break;
+      // The panel floating under the toggle says it, with Try again, while it is open: once on the page.
+      if (offer === "toggle" && openedBy !== null) break;
       ({ message, actions } = offered(circle.state, circle, lineId, start, notNow));
       break;
     case "signing":

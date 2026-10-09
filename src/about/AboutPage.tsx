@@ -39,7 +39,12 @@ function Section({
 }): JSX.Element {
   return (
     <section id={id} aria-labelledby={`${id}-heading`} className="flex flex-col gap-3">
-      <h2 id={`${id}-heading`} className={`m-0 font-display font-bold ${wide ? "text-[26px]" : "text-h2"}`}>
+      {/* Focusable from code only, with no ring: a link to the section puts the focus here (src/shell/headingFocus.ts). */}
+      <h2
+        id={`${id}-heading`}
+        tabIndex={-1}
+        className={`m-0 font-display font-bold outline-none ${wide ? "text-[26px]" : "text-h2"}`}
+      >
         {heading}
       </h2>
       {children}
@@ -150,7 +155,7 @@ function PhoneAbout({ locale }: { locale: string }): JSX.Element {
       </div>
       <header className="flex flex-col gap-3 px-gutter-phone pt-2">
         <div className="font-display text-[20px] font-extrabold tracking-[-0.01em] text-accent">{copy.app.name}</div>
-        <h1 className="m-0 font-display text-display-phone leading-[1.08] font-extrabold tracking-display">
+        <h1 tabIndex={-1} className="m-0 font-display text-display-phone leading-[1.08] font-extrabold tracking-display outline-none">
           {copy.about.title}
         </h1>
       </header>
@@ -180,7 +185,9 @@ function DeskAbout({ locale }: { locale: string }): JSX.Element {
       <BackLink wide back={copy.about.back} />
       <div className="flex items-start gap-10">
         <div className="flex min-w-0 flex-1 flex-col gap-8">
-          <h1 className="m-0 font-display text-[48px] leading-[1.04] font-extrabold tracking-[-0.025em]">{copy.about.title}</h1>
+          <h1 tabIndex={-1} className="m-0 font-display text-[48px] leading-[1.04] font-extrabold tracking-[-0.025em] outline-none">
+            {copy.about.title}
+          </h1>
           <Section id="where-the-places-come-from" heading={copy.about.placesHeading} wide>
             <p className={BODY}>{copy.about.placesBody}</p>
             <FinePrint />

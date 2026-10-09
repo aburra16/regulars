@@ -449,6 +449,38 @@ describe("removing a review", () => {
     expect(sentTo(world, SEARCH)).toHaveLength(2);
   });
 
+  it("stops saying it is still removing once Regulars has refused the removal for good, while the person's own relay is still trying", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+    world.directory.push(listOf(me.pubkey, [OWN]));
+    // Regulars says nothing for 10 seconds, then refuses it for good; the person's own relay never answers.
+    world.writers[SEARCH] = createMemoryWriter({ answers: [{ delayMs: 10_000, refuse: "blocked: not on the list" }] });
+    world.writers[OWN] = createMemoryWriter({ silent: true });
+    await open(world, fromExplore(PLACE_PATH));
+    const mine = await yourReview();
+    await removeButton(mine);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW_S * 1000 });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+
+    await removeIt(user);
+    await waitFor(() => expect(sentTo(world, OWN)).toHaveLength(1));
+    const line = within(mine).getByRole("status");
+    await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS));
+    expect(line).toHaveTextContent(copy.reviews.stillRemoving);
+
+    // Refused for good at 10 seconds: the line goes at once, though the person's own relay has 5 seconds left.
+    await act(() => vi.advanceTimersByTimeAsync(10_000 - SLOW_POST_MS));
+    expect(line).toBeEmptyDOMElement();
+    expect(line).toHaveClass("sr-only");
+    expect(within(mine).getByRole("button", { name: copy.reviews.removing })).toHaveAttribute("aria-disabled", "true");
+    expect(within(mine).queryByRole("alert")).not.toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS));
+    expect(await within(mine).findByRole("alert")).toHaveTextContent(copy.reviews.removeFailed);
+    expect(screen.queryByText(copy.reviews.stillRemoving)).not.toBeInTheDocument();
+  });
+
   it("stops saying it is still removing once Regulars has not taken the removal in time: it says it didn't come off", async () => {
     const world = newWorld();
     const me = signedIn(world);
@@ -575,19 +607,32 @@ describe("removing a review", () => {
     expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
   });
 
-  it("puts the focus on where the reviews were when the person's was the only one", async () => {
-    const world = newWorld();
-    const me = signedIn(world);
-    world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
-    world.writers[SEARCH] = createMemoryWriter();
-    const user = userEvent.setup();
-    await open(world, fromExplore(PLACE_PATH));
+  it.each([
+    ["a phone", PHONE],
+    ["a desktop", DESKTOP],
+  ])(
+    "puts the focus on Rate this place, without scrolling, when the person's review was the only one, on %s: nothing is left where the reviews were",
+    async (_, px) => {
+      const world = newWorld();
+      const me = signedIn(world);
+      world.search.push(reviewBy(me.pubkey, 4, "Get the bolo"));
+      world.writers[SEARCH] = createMemoryWriter();
+      const user = userEvent.setup();
+      await open(world, fromExplore(PLACE_PATH), px);
+      const focus = vi.spyOn(HTMLElement.prototype, "focus");
 
-    await removeIt(user);
-    await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
-    expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement).toHaveAttribute("tabindex", "-1");
-  });
+      await removeIt(user);
+      await waitFor(() => expect(noYourReview()).not.toBeInTheDocument());
+      const rate = document.activeElement as HTMLElement;
+      // A control with a name, and what the person may do next: not an empty place with none.
+      expect(rate).toHaveAccessibleName(copy.place.rate);
+      expect(rate).toHaveAttribute("href", REVIEW_PATH);
+      expect(screen.getByRole("link", { name: copy.place.rate })).toBe(rate);
+      expect(focus.mock.contexts.at(-1)).toBe(rate);
+      expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
+      expect(screen.getByText(copy.reviews.removed, { selector: '[role="status"]' })).toBeInTheDocument();
+    },
+  );
 
   it("sends the removal to a relay the review was sent to that did not take it in time, which may have kept it", async () => {
     const world = newWorld();

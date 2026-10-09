@@ -235,8 +235,11 @@ describe("the layout, by width", () => {
     ] as const) {
       const { unmount } = renderApp(path, { width: PHONE });
       expect(within(tabBar()!).getByRole("link", { name: tab })).toHaveAttribute("aria-current", "page");
-      // Only Explore has the "Near" control at its top.
-      expect(screen.queryByRole("button", { name: "Near Funchal" })).not.toBeInTheDocument();
+      // Only Explore has the "Near" control at its top; Trending has it under its heading (decision 43).
+      expect(screen.queryByRole("banner")).not.toBeInTheDocument();
+      const near = screen.queryByRole("button", { name: "Near Funchal" });
+      if (path === "/trending") expect(within(screen.getByRole("main")).getByRole("button", { name: "Near Funchal" })).toBe(near);
+      else expect(near).not.toBeInTheDocument();
       unmount();
     }
   });

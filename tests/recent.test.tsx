@@ -10,6 +10,7 @@ import { CIRCLE_KEY } from "../src/circle/CircleProvider";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import type { RelayReader, RelayWriter } from "../src/nostr/events";
+import { distanceKm, formatDistance } from "../src/places/distance";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { FEED_FRESH_MS, FEED_PAGE, RecentFeed } from "../src/recent/feed";
@@ -964,6 +965,75 @@ describe("Trending: getting there", () => {
     await user.click(half);
     expect(await screen.findByRole("button", { name: copy.circle.personalize })).toHaveFocus();
     expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+  });
+});
+
+describe("Trending: where its distances are from (decision 43)", () => {
+  /** Lisbon's point in GeoNames, as src/data/towns.json has it: where a pick of Lisbon measures from. */
+  const LISBON = { lat: 38.7251, lon: -9.1498 };
+  /** Jacafé's event, filed again as a place in Lisbon: the town picker has a town other than Funchal to offer. */
+  const inLisbon = (): NostrEvent => {
+    const jacafe = (raw as NostrEvent[]).find((ev) => ev.tags.some((tag) => tag[0] === "d" && tag[1] === JACAFE.d))!;
+    return {
+      ...jacafe,
+      id: hex64("8"),
+      tags: [
+        ...jacafe.tags.filter(([name]) => !["d", "locality", "lat", "lon"].includes(name!)),
+        ["d", "a-place-in-lisbon"],
+        ["locality", "Lisbon"],
+        ["lat", String(LISBON.lat + 0.001)],
+        ["lon", String(LISBON.lon)],
+      ],
+    };
+  };
+  /** Whether `b` comes after `a` on the page. */
+  const follows = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  it("has the phone's 'Near …' control under its heading, which opens the town picker; a town picked there measures the distances from it", async () => {
+    const net = network({ reviews: [reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR)] });
+    const user = userEvent.setup();
+    await openApp("/trending", { events: [...placeEvents, inLisbon()], readers: net.readers });
+    await listsExactly([ALICE_AT_JACAFE]);
+    expect(within(entryLinks()[0]!).getByText("Coffee shop · 0.1 mi")).toBeInTheDocument();
+
+    // The same control as the top of the phone's Explore: on the page, under its heading, above the toggle.
+    const near = within(screen.getByRole("main")).getByRole("button", { name: "Near Funchal" });
+    expect(near).toHaveAttribute("aria-haspopup", "dialog");
+    expect(follows(screen.getByRole("heading", { level: 1, name: copy.pages.recent }), near)).toBe(true);
+    expect(follows(near, toggle())).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Near Funchal" })).toHaveLength(1);
+
+    await user.click(near);
+    const dialog = screen.getByRole("dialog", { name: copy.location.pickTitle });
+    await user.click(within(dialog).getByRole("button", { name: /^Lisbon/ }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Near Lisbon" })).toHaveFocus();
+    const fromLisbon = formatDistance(distanceKm(LISBON.lat, LISBON.lon, JACAFE.lat, JACAFE.lon), navigator.language);
+    expect(within(entryLinks()[0]!).getByText(`Coffee shop · ${fromLisbon}`)).toBeInTheDocument();
+    expect(entryLinks()[0]).toHaveAccessibleDescription(`Coffee shop · ${fromLisbon} 4 out of 5 Get the bolo.`);
+  });
+
+  it("says under the control why it cannot use the person's location, as Explore's top does", async () => {
+    const net = network();
+    const user = userEvent.setup();
+    await openRecent(net);
+    // No geolocation in this browser: "Use my location" cannot find the person.
+    await user.click(screen.getByRole("button", { name: "Near Funchal" }));
+    await user.click(screen.getByRole("button", { name: copy.location.useMine }));
+    const notice = await screen.findByText(copy.location.unavailable);
+    expect(notice.closest('[role="status"]')).toBeInTheDocument();
+    expect(follows(screen.getByRole("button", { name: "Near Funchal" }), notice)).toBe(true);
+    expect(follows(notice, toggle())).toBe(true);
+  });
+
+  it("has no control of its own on a desktop, where the top bar's says where the distances are from", async () => {
+    const net = network({ reviews: [reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR)] });
+    await openRecent(net, { px: DESKTOP });
+    await listsExactly([ALICE_AT_JACAFE]);
+    const [near, ...more] = screen.getAllByRole("button", { name: "Near Funchal" });
+    expect(more).toHaveLength(0);
+    expect(within(screen.getByRole("search")).getByRole("button", { name: "Near Funchal" })).toBe(near);
+    expect(within(screen.getByRole("main")).queryByRole("button", { name: /^Near / })).not.toBeInTheDocument();
   });
 });
 

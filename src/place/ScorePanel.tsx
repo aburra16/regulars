@@ -1,4 +1,4 @@
-import { type ComponentProps, type JSX, useId, useRef } from "react";
+import { type ComponentProps, createContext, type JSX, type RefObject, useContext, useId, useRef } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
@@ -52,15 +52,24 @@ function useRate(): { link: ComponentProps<typeof Link>; inline: InlineSignIn | 
 }
 
 /**
+ * Where a place's page keeps its "Rate this place" button (`RateButton`, one on the page at a time),
+ * for the focus to go to once the person's review, the only one, is removed: nothing is left where
+ * the reviews were, and this is named, and what they may do next.
+ */
+export const RateButtonRef = createContext<RefObject<HTMLAnchorElement | null> | null>(null);
+
+/**
  * "Rate this place": the accent button, 52 px, the width of what it is in (PlaceNew.dc.html,
  * DeskPlace.dc.html). It opens the review form, after sign in for a person signed out (`useRate`),
- * whose lines go under it.
+ * whose lines go under it. Signed in, it is the page's `RateButtonRef`; signed out, the sign-in's
+ * control, as nobody signed out has a review to remove.
  */
 export function RateButton(): JSX.Element {
   const { link, inline } = useRate();
+  const page = useContext(RateButtonRef);
   return (
     <>
-      <Link {...link} className={`${primaryButton} w-full ${BUSY_CONTROL}`}>
+      <Link {...link} ref={link.ref ?? page ?? undefined} className={`${primaryButton} w-full ${BUSY_CONTROL}`}>
         {copy.place.rate}
       </Link>
       {inline !== undefined && <InlineSignInLines inline={inline} />}

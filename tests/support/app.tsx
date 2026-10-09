@@ -17,22 +17,44 @@ import { createMemoryReader } from "./memoryReader";
 
 export const PHONE = 390;
 export const DESKTOP = 1360;
+/** Where the desktop's layout starts (src/shell/useWide.ts). */
+const DESKTOP_FROM = 900;
 
 let width = PHONE;
+
+/**
+ * The device the window is on: a phone or a tablet (its main pointer coarse, and no hover), or a
+ * computer (a fine pointer, which hovers). `matchMedia` answers for it, as it does for the width.
+ */
+export type Device = "handheld" | "computer";
+
+let device: Device = "handheld";
 
 /** What hears each query list change: `resizeTo` calls them. */
 const onChanges = new Set<() => void>();
 
-/** Makes the window as wide as `px`, for `useWide` and every `wide:` rule that asks `matchMedia`. */
-export function setWidth(px: number): void {
+/** Whether the window and its device match one of a query's conditions: `min-width`, `pointer` and `hover`; anything else does not. */
+function meets(name: string, value: string): boolean {
+  if (name === "min-width") return width >= Number.parseInt(value, 10);
+  if (name === "pointer") return value === (device === "handheld" ? "coarse" : "fine");
+  if (name === "hover") return value === (device === "handheld" ? "none" : "hover");
+  return false;
+}
+
+/**
+ * Makes the window as wide as `px`, for `useWide` and every `wide:` rule that asks `matchMedia`, on
+ * `on`: by default a phone or tablet in a phone's width, and a computer in a desktop's.
+ */
+export function setWidth(px: number, on: Device = px < DESKTOP_FROM ? "handheld" : "computer"): void {
   width = px;
+  device = on;
   onChanges.clear();
   window.matchMedia = ((query: string) => {
-    const min = Number(/\(min-width:\s*(\d+)px\)/.exec(query)?.[1] ?? Number.NaN);
+    const conditions = [...query.matchAll(/\(([\w-]+):\s*([^)]+)\)/g)];
     return {
       media: query,
       get matches() {
-        return width >= min;
+        return conditions.length > 0 && conditions.every(([, name, value]) => meets(name!, value!.trim()));
       },
       addEventListener: (_: string, onChange: () => void) => onChanges.add(onChange),
       removeEventListener: (_: string, onChange: () => void) => onChanges.delete(onChange),
@@ -57,12 +79,16 @@ export function resetWidth(): void {
 export interface OpenOptions {
   /** The window's width. Default: a phone's. */
   px?: number;
+  /** The device the window is on. Default: a phone or tablet in a phone's width, a computer in a desktop's. */
+  device?: Device;
   /** The place events the relay has. Default: none, so the caller must give them. */
   events: NostrEvent[];
   /** The history, ending at the page that is open. Default: `[path]`. An entry may carry router state. */
   entries?: InitialEntry[];
   /** How long the relay waits before it answers, in milliseconds. Default: no wait. */
   delayMs?: number;
+  /** The places relay's reader, in place of one over `events` (which may then be empty): one the test holds, say. */
+  placesReader?: RelayReader;
   /**
    * The reader of each relay the scores store reads (reviews, the house's ranks, names). Default:
    * the app's own, as main.tsx has it; tests open no socket (tests/setup.ts), so pass readers to read.
@@ -89,13 +115,13 @@ export interface OpenOptions {
  */
 export async function openApp(
   path: string,
-  { px = PHONE, events, entries, delayMs, readers, writers, relays, strict = false }: OpenOptions,
+  { px = PHONE, device: on, events, entries, delayMs, placesReader, readers, writers, relays, strict = false }: OpenOptions,
 ) {
-  setWidth(px);
+  setWidth(px, on);
   const initialEntries = entries ?? [path];
   const router = createMemoryRouter(routes, { initialEntries, initialIndex: initialEntries.length - 1 });
   const app = (
-    <PlacesProvider reader={createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
+    <PlacesProvider reader={placesReader ?? createMemoryReader(events, delayMs === undefined ? {} : { delayMs })}>
       <ScoresProvider readers={readers} writers={writers}>
         <ForgetCircleOnSignOut>
           <AccountProvider relays={relays}>
