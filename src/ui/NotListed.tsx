@@ -18,7 +18,7 @@ export function NotListed(): JSX.Element {
   const navigate = useNavigate();
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-gutter-phone py-16 text-center wide:px-gutter-desktop">
-      <h1 className="m-0 font-display text-h2 font-bold">{copy.place.noLongerListed}</h1>
+      <h1 tabIndex={-1} className="m-0 font-display text-h2 font-bold outline-none">{copy.place.noLongerListed}</h1>
       <p className="m-0 max-w-[36ch] text-body leading-[1.5] text-ink-soft">{copy.place.noLongerListedDetail}</p>
       <Link
         to="/"

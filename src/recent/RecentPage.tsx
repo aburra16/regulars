@@ -275,7 +275,8 @@ export function RecentPage(): JSX.Element {
       <div ref={top} tabIndex={-1} className="flex flex-col outline-none">
         <h1
           id={headingId}
-          className="m-0 font-display text-display-phone leading-[1.1] font-extrabold tracking-display wide:text-display-desktop"
+          tabIndex={-1}
+          className="m-0 font-display text-display-phone leading-[1.1] font-extrabold tracking-display outline-none wide:text-display-desktop"
         >
           {copy.pages.recent}
         </h1>

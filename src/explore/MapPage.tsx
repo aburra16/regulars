@@ -115,7 +115,9 @@ export function MapPage(): JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <h1 className="sr-only">{copy.pages.map}</h1>
+      <h1 tabIndex={-1} className="sr-only">
+        {copy.pages.map}
+      </h1>
       <EveryPlaceMap
         className="min-h-0 flex-1"
         center={center}

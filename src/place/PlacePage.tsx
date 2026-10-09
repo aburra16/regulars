@@ -105,7 +105,12 @@ interface HeaderProps {
 /** The name, marked with its script and free to wrap anywhere: a long name or one with no spaces stays inside the page. */
 function Name({ name, className }: { name: string; className: string }): JSX.Element {
   return (
-    <h1 lang={scriptLang(name)} dir="auto" className={`m-0 min-w-0 font-display font-extrabold wrap-break-word ${className}`}>
+    <h1
+      lang={scriptLang(name)}
+      dir="auto"
+      tabIndex={-1}
+      className={`m-0 min-w-0 font-display font-extrabold wrap-break-word outline-none ${className}`}
+    >
       {name}
     </h1>
   );

@@ -1,0 +1,82 @@
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
+import { useLocation, useNavigationType } from "react-router-dom";
+
+/*
+ * Where the focus goes once the person goes to another page (a new pathname), for a screen reader and
+ * a keyboard: to the new page's main heading, the `h1` in `main`, which each page makes focusable from
+ * code only (`tabIndex={-1}`) and draws with no ring. The page is not scrolled for it: Back puts a page
+ * where it was, and a new page opens at its top, as the router has them.
+ *
+ * It goes there when the focus went with the page before, or is still on the link that took the
+ * person to the new page (a tab, a link in the top bar). Not on the first load, nor on what the first
+ * load does by itself before the person has done anything (an old link to Recent, sent on to
+ * Trending). Not when the new page puts the focus somewhere of its own as it comes in: a dialog's first
+ * control, the search field opened from Explore, the control that opened a dialog when the dialog
+ * closes. Nor when it is somewhere else that stays: the field the person is typing in (the desktop's
+ * search, in the top bar), or the × of the bar that tells them of their circle.
+ */
+
+/** What says the person has done something on the page: a press, a key, a click (a screen reader's too). */
+const ACTS = ["pointerdown", "keydown", "click"] as const;
+
+/**
+ * Notes what has the focus as each new page goes in, into `at`. Drawn first in the frame, before the
+ * page: React runs a commit's layout effects in the order of the tree, a component's children before
+ * it, so this runs once the page before has gone from the document and before anything of the new one
+ * runs. Whatever moves the focus after it, the new page did. It draws nothing.
+ */
+export function ArrivalMark({ at }: { at: RefObject<Element | null> }): null {
+  const { pathname } = useLocation();
+  useLayoutEffect(() => {
+    at.current = document.activeElement;
+  }, [pathname, at]);
+  return null;
+}
+
+/**
+ * Whether the focus, as it is, has nowhere of its own to be: it went with the page before (to the
+ * body), or it is on a link, which took the person to the new page and is not what they are reading.
+ */
+function nowhere(active: Element | null): boolean {
+  return active === null || active === document.body || active instanceof HTMLAnchorElement;
+}
+
+/**
+ * Moves the focus to the main heading of each new page in `main`, once it is in (`ready`: the frame
+ * shows the page, not the places' loading line), when it is where it was as the page went in (`at`,
+ * noted by `ArrivalMark`), and that is nowhere of its own (`nowhere`). Call it in the component that
+ * draws `main` and the mark: its effects run after the page's.
+ */
+export function useHeadingFocus(main: RefObject<HTMLElement | null>, at: RefObject<Element | null>, ready: boolean): void {
+  const { pathname } = useLocation();
+  const how = useNavigationType();
+  // Whether the person has done anything on the page yet. Back and Forward are theirs too.
+  const acted = useRef(false);
+  // The pathname whose page the focus was last settled for, and whether a new page's heading is due it.
+  const settled = useRef(pathname);
+  const due = useRef(false);
+
+  useEffect(() => {
+    const stop = () => {
+      for (const type of ACTS) document.removeEventListener(type, note, true);
+    };
+    const note = () => {
+      acted.current = true;
+      stop();
+    };
+    for (const type of ACTS) document.addEventListener(type, note, true);
+    return stop;
+  }, []);
+
+  useEffect(() => {
+    if (settled.current !== pathname) {
+      settled.current = pathname;
+      due.current = acted.current || how === "POP";
+    }
+    if (!due.current || !ready) return;
+    due.current = false;
+    const active = document.activeElement;
+    if (active !== at.current || !nowhere(active)) return;
+    main.current?.querySelector("h1")?.focus({ preventScroll: true });
+  }, [pathname, how, ready, main, at]);
+}
