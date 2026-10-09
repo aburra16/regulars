@@ -8,6 +8,7 @@ import { around, HALF_EARTH_KM, withinCounter } from "./geo.ts";
 import { cuisinesOf, KIND_VOCABULARY, kindQueryReader, termsOfCategory } from "./kindQuery.ts";
 import { cuisineLabel, FAMILY_SEARCH_TERMS, kindOf } from "./kinds.ts";
 import type { Place } from "./place.ts";
+import { foldName, type Town, type TownList } from "./towns.ts";
 
 export { formatDistance } from "./distance.ts";
 
@@ -29,17 +30,30 @@ export interface Chain {
   places: Place[];
 }
 
+/**
+ * A town the places are in: one of src/data/towns.json (GeoNames'), or, for places no town of it is
+ * near, a locality that three or more of them name (see `Indexes.cities`).
+ */
 export interface City {
+  /** GeoNames' name for it ("Prague"), or the locality's commonest spelling. */
   name: string;
   /** An upper-case country code; empty when its places have none. */
   country: string;
   /** The region its places name, when they do: "KY" for Lexington, Kentucky. */
   region?: string;
-  /** The median of the coordinates of the places in its main cluster. */
+  /** The town's point in GeoNames; for a locality, the median of the coordinates of the places in its main cluster. */
   lat: number;
   lon: number;
-  /** The places in its main cluster. */
+  /** The places in it. */
   count: number;
+  /** Its GeoNames id; absent for a locality. */
+  geonameId?: number;
+  /**
+   * The other names it is found by, folded (`foldName`), and never shown: its ASCII name where that
+   * is not its name without accents ("lodz"), and the localities its places give it that are not the
+   * name of another town of the file ("praha", "praha 10" for Prague). Absent for a locality.
+   */
+  aliases?: string[];
 }
 
 /** Rows of one chain, shown as one entry. */
@@ -92,8 +106,25 @@ export interface Indexes {
   chainBySlug(slug: string): Chain | undefined;
   /** Every chain, by `chainId(chain.key, chain.country)`. */
   chains: Map<string, Chain>;
-  /** Towns with three or more places close together, those with the most first. */
+  /**
+   * The towns the places are in, those with the most places first. A place is in the town of
+   * src/data/towns.json nearest to it within 30 km (`TOWN_REACH_KM`; a part of a town stands for the
+   * town). The places no such town is near are grouped by their locality, as are all the places when
+   * the towns could not be loaded: a locality that three or more of them name, close together, is a
+   * town. A town with no places is not here.
+   */
   cities: City[];
+  /** The town of `cities` a place is in; undefined for a place in none. */
+  townOf(place: Place): City | undefined;
+  /** A country's name in English ("Czechia") by its upper-case code; undefined when the towns could not be loaded, or name no such country. */
+  countryName(code: string): string | undefined;
+  /**
+   * The places farther than `beyondKm` from a point whose names have every word of `q` (each word the
+   * start of a word of the name), best match first and, among matches that are about as good, nearest
+   * first; at most `limit`. Nothing for a kind query (`isKindQuery`), for no words, or for a point that
+   * is not a place on Earth. Only the name is searched: a place is found here by what it is called.
+   */
+  elsewhere(q: string, opts: { lat: number; lon: number; beyondKm: number; limit: number }): PlaceDistance[];
   /** Places by their `d`, the last part of the route `/place/:d`. */
   byD: Map<string, Place>;
   /** Places by their address (`39999:<curator>:<d>`), which a map's pin is known by. */
@@ -217,10 +248,11 @@ function busiestCluster(group: readonly Place[]): Place[] {
 }
 
 /**
- * Towns. Places are grouped by locality, region and country, since many towns share a name; of
- * each group only its busiest cluster counts, since a group can be spread over a continent.
+ * Towns by locality. Places are grouped by locality, region and country, since many towns share a
+ * name; of each group only its busiest cluster counts, since a group can be spread over a continent.
+ * Each place of a town is put in `townOf`. In no order.
  */
-function buildCities(places: readonly Place[]): City[] {
+function localityTowns(places: readonly Place[], townOf: Map<Place, City>): City[] {
   const groups = new Map<string, Place[]>();
   for (const place of places) {
     const locality = place.locality?.trim();
@@ -244,14 +276,70 @@ function buildCities(places: readonly Place[]): City[] {
     };
     if (regions.length > 0) city.region = commonest(regions);
     cities.push(city);
+    for (const place of cluster) townOf.set(place, city);
   }
-  return cities.sort(
+  return cities;
+}
+
+/**
+ * The town of src/data/towns.json that `own` are in: called by GeoNames' name, at GeoNames' point,
+ * with the region most of them name, and the other names it is found by (see `City.aliases`). A
+ * locality that is the name of another town of the file is that town's, never this one's: one odd
+ * tag does not make two towns one.
+ */
+function fileTown(town: Town, own: readonly Place[], towns: TownList): City {
+  const names = new Set([foldName(town.name)]);
+  const aliases = new Set<string>();
+  if (town.ascii !== undefined) {
+    const ascii = foldName(town.ascii);
+    names.add(ascii);
+    aliases.add(ascii);
+  }
+  for (const place of own) {
+    const locality = foldName(place.locality ?? "");
+    if (locality !== "" && !names.has(locality) && !towns.names.has(locality)) aliases.add(locality);
+  }
+  const city: City = { name: town.name, country: town.country, lat: town.lat, lon: town.lon, count: own.length, geonameId: town.id };
+  const regions = own.flatMap((place) => (place.region?.trim() ? [place.region.trim()] : []));
+  if (regions.length > 0) city.region = commonest(regions);
+  city.aliases = [...aliases].sort();
+  return city;
+}
+
+/**
+ * The towns the places are in, and the town of each place that is in one (see `Indexes.cities`):
+ * with `towns`, each place's nearest town of the file, and towns by locality for the places none is
+ * near; without, towns by locality for all of them.
+ */
+function buildCities(places: readonly Place[], towns: TownList | null | undefined): { cities: City[]; townOf: Map<Place, City> } {
+  const townOf = new Map<Place, City>();
+  const cities: City[] = [];
+  let rest: readonly Place[] = places;
+  if (towns !== null && towns !== undefined) {
+    const inTown = new Map<Town, Place[]>();
+    const far: Place[] = [];
+    for (const place of places) {
+      const town = towns.townAt(place.lat, place.lon);
+      if (town === undefined) far.push(place);
+      else push(inTown, town, place);
+    }
+    for (const [town, own] of inTown) {
+      const city = fileTown(town, own, towns);
+      cities.push(city);
+      for (const place of own) townOf.set(place, city);
+    }
+    rest = far;
+  }
+  cities.push(...localityTowns(rest, townOf));
+  cities.sort(
     (a, b) =>
       b.count - a.count ||
       collator.compare(a.name, b.name) ||
       collator.compare(a.region ?? "", b.region ?? "") ||
-      collator.compare(a.country, b.country),
+      collator.compare(a.country, b.country) ||
+      (a.geonameId ?? 0) - (b.geonameId ?? 0),
   );
+  return { cities, townOf };
 }
 
 /** What `cityLabel` reads of a city; a city saved on a device has no more than this and its coordinates. */
@@ -316,6 +404,26 @@ function searchDoc(place: Place, id: number): SearchDoc {
  */
 const SCORE_BANDS = 4;
 
+/** A place the relevance search found, how far it is, and how well it matched. */
+interface ScoredHit {
+  place: Place;
+  km: number;
+  score: number;
+}
+
+/**
+ * Hits that come best first, in bands of their scores against the best of them (`SCORE_BANDS`),
+ * nearest first within a band.
+ */
+function bestFirst(found: readonly ScoredHit[]): PlaceDistance[] {
+  const top = found[0]?.score ?? 0;
+  const band = (score: number) => (top > 0 ? Math.ceil((score / top) * SCORE_BANDS) : 0);
+  return found
+    .map(({ place, km, score }) => ({ place, km, band: band(score) }))
+    .sort((a, b) => b.band - a.band || a.km - b.km)
+    .map(({ place, km }) => ({ place, km }));
+}
+
 /**
  * A cuisine makes a query a kind query only when at least this many places carry it, among any
  * of their cuisines. Free text in the data puts a stray tag on a place or two ("beer" on a
@@ -324,8 +432,12 @@ const SCORE_BANDS = 4;
  */
 export const KIND_CUISINE_MIN = 5;
 
-/** Everything the screens look places up by, built once for a list of places. */
-export function buildIndexes(places: readonly Place[]): Indexes {
+/**
+ * Everything the screens look places up by, built once for a list of places, with the towns of
+ * src/data/towns.json when they are given (`loadTowns`). Without them (none given, or null: they could
+ * not be loaded), the towns are the places' localities.
+ */
+export function buildIndexes(places: readonly Place[], towns?: TownList | null): Indexes {
   const tree = new KDBush(places.length);
   for (const place of places) tree.add(place.lon, place.lat);
   tree.finish();
@@ -413,19 +525,28 @@ export function buildIndexes(places: readonly Place[]): Indexes {
     const kindTerms = readKindQuery(q);
     if (kindTerms !== undefined) return searchKind(kindTerms, q, lat, lon, radiusKm);
 
-    const found: { place: Place; km: number; score: number }[] = [];
+    const found: ScoredHit[] = [];
     for (const hit of finder.search(q)) {
       const place = places[hit.id]!;
       const km = distanceKm(lat, lon, place.lat, place.lon);
       if (radiusKm === undefined || km <= radiusKm) found.push({ place, km, score: hit.score });
     }
-    // The hits come best first. Band the scores against the best one that is still in range.
-    const top = found[0]?.score ?? 0;
-    const band = (score: number) => (top > 0 ? Math.ceil((score / top) * SCORE_BANDS) : 0);
-    return found
-      .map(({ place, km, score }) => ({ place, km, band: band(score) }))
-      .sort((a, b) => b.band - a.band || a.km - b.km)
-      .map(({ place, km }) => ({ place, km }));
+    return bestFirst(found);
+  }
+
+  function elsewhere(
+    q: string,
+    { lat, lon, beyondKm, limit }: { lat: number; lon: number; beyondKm: number; limit: number },
+  ): PlaceDistance[] {
+    if (!isLocation(lat, lon) || q.trim() === "" || !(limit > 0) || readKindQuery(q) !== undefined) return [];
+    const found: ScoredHit[] = [];
+    // A word of the name that starts with each word asked for; a word a letter away does not count.
+    for (const hit of finder.search(q, { fields: ["name"], fuzzy: false })) {
+      const place = places[hit.id]!;
+      const km = distanceKm(lat, lon, place.lat, place.lon);
+      if (km > beyondKm) found.push({ place, km, score: hit.score });
+    }
+    return bestFirst(found).slice(0, limit);
   }
 
   function chainBySlug(slug: string): Chain | undefined {
@@ -447,7 +568,24 @@ export function buildIndexes(places: readonly Place[]): Indexes {
 
   const isKindQuery = (q: string) => readKindQuery(q) !== undefined;
 
-  return { near, inRange, nearestWhere, search, isKindQuery, chainOf, chainBySlug, chains, cities: buildCities(places), byD, byAddress };
+  const { cities, townOf } = buildCities(places, towns);
+
+  return {
+    near,
+    inRange,
+    nearestWhere,
+    search,
+    elsewhere,
+    isKindQuery,
+    chainOf,
+    chainBySlug,
+    chains,
+    cities,
+    townOf: (place) => townOf.get(place),
+    countryName: (code) => towns?.countryName(code),
+    byD,
+    byAddress,
+  };
 }
 
 /**

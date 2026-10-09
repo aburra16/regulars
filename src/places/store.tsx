@@ -15,6 +15,7 @@ import type { RelayReader } from "../nostr/events.ts";
 import { readSaved, writeSaved } from "./cache.ts";
 import { debug, fetchHouseEvents, parsePlaces, sameStamps, savedEvents, type Stamps, stampsOf } from "./load.ts";
 import type { Place } from "./place.ts";
+import { loadTowns, type TownList } from "./towns.ts";
 
 /** Why the places could not be refreshed: a code, never a message. The screens choose the words. */
 export type PlacesError = "network";
@@ -30,6 +31,11 @@ export interface PlacesState {
   savedAt?: number;
   /** Set when the last load from the relay failed. Any places shown are the saved ones. */
   error?: PlacesError;
+  /**
+   * The towns the places are put in (src/data/towns.json), which come with them: places are not shown
+   * before their towns. Null when the towns could not be loaded; absent while there are no places.
+   */
+  towns?: TownList | null;
 }
 
 export type PlacesValue = PlacesState & {
@@ -110,11 +116,25 @@ function mayReplace(count: number, complete: boolean, saved: { count: number } |
  * unless the relay's places are on screen already; the relay's places replace it when they come.
  * A load that fails keeps the saved copy on screen; with no saved copy, it is an error.
  * `reader` is read once, on mount; without one, the provider reads the places relay.
+ *
+ * The towns load at the same time, from their own chunk (`loadTowns`), and either copy of the places
+ * shows once they have come, or failed to: the screens never put the places in towns twice. `towns`,
+ * read once on mount, gives them instead (null: as if they could not be loaded); a test that passes
+ * them never loads the chunk.
  */
-export function PlacesProvider({ children, reader }: { children: ReactNode; reader?: RelayReader }): JSX.Element {
+export function PlacesProvider({
+  children,
+  reader,
+  towns,
+}: {
+  children: ReactNode;
+  reader?: RelayReader;
+  towns?: TownList | null;
+}): JSX.Element {
   const [state, setState] = useState<PlacesState>(LOADING);
   const [attempt, setAttempt] = useState(0);
   const [givenReader] = useState(reader);
+  const [givenTowns] = useState(towns);
   const deviceRef = useRef<Device>({});
 
   useEffect(() => {
@@ -129,6 +149,9 @@ export function PlacesProvider({ children, reader }: { children: ReactNode; read
           : { status: "error", places: [], source: "network", complete: false, error: "network" },
       );
 
+    // The towns, from their chunk, at the same time as the rest. They never fail: null is none.
+    const townsReady = givenTowns === undefined ? loadTowns() : Promise.resolve(givenTowns);
+
     // Read the saved copy once per mount. It shows unless places are on screen already: the
     // relay's, which win, or this same copy, shown by an earlier run.
     device.read ??= readSavedCopy().then((copy) => {
@@ -138,7 +161,7 @@ export function PlacesProvider({ children, reader }: { children: ReactNode; read
       }
       device.copy = device.replaced ? null : copy;
     });
-    void device.read.then(() => {
+    void Promise.all([device.read, townsReady]).then(([, loadedTowns]) => {
       const copy = device.copy;
       if (signal.aborted || copy === null || copy === undefined) return;
       setState((current) =>
@@ -150,6 +173,7 @@ export function PlacesProvider({ children, reader }: { children: ReactNode; read
               source: "cache",
               complete: copy.complete,
               savedAt: copy.savedAt,
+              towns: loadedTowns,
               ...(current.status === "error" ? { error: "network" as const } : {}),
             },
       );
@@ -169,6 +193,7 @@ export function PlacesProvider({ children, reader }: { children: ReactNode; read
         return;
       }
       const { events, complete, places } = loaded;
+      const towns = await townsReady;
       if (signal.aborted) return;
 
       // Judged against the saved copy if it has been read. If not, the relay has won the race.
@@ -178,7 +203,7 @@ export function PlacesProvider({ children, reader }: { children: ReactNode; read
       }
       // `savedAt` stays the saved copy's until these places are saved too.
       const before = device.saved?.savedAt;
-      setState({ status: "ready", places, source: "network", complete, ...(before === undefined ? {} : { savedAt: before }) });
+      setState({ status: "ready", places, source: "network", complete, towns, ...(before === undefined ? {} : { savedAt: before }) });
       // The saved copy is off the screen for good: let it go, and the indexes built for it.
       device.replaced = true;
       device.copy = null;
@@ -200,7 +225,7 @@ export function PlacesProvider({ children, reader }: { children: ReactNode; read
     })();
 
     return () => controller.abort();
-  }, [attempt, givenReader]);
+  }, [attempt, givenReader, givenTowns]);
 
   const retry = useCallback(() => {
     setState((current) => (current.status === "error" ? LOADING : current));

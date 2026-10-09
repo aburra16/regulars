@@ -40,10 +40,12 @@ import { PlaceRow } from "../src/ui/PlaceRow";
 import raw from "./fixtures/funchal-items.json";
 import { FakeMap } from "./support/fakeMaplibre";
 import { createMemoryReader } from "./support/memoryReader";
+import { appTowns } from "./support/towns";
 
 const fixtures: NostrEvent[] = raw;
 const fixturePlaces = parsePlaces(fixtures);
-const idx = buildIndexes(fixturePlaces);
+// With the towns the app loads with the places, so the town it starts at is the app's.
+const idx = buildIndexes(fixturePlaces, appTowns);
 const HERE = config.defaultCity;
 const PAGE = 50;
 
@@ -1054,7 +1056,8 @@ describe("Search: the results", () => {
   it("shows distances in kilometres where the browser's language does", async () => {
     vi.spyOn(navigator, "language", "get").mockReturnValue("pt-PT");
     await openSearch("/search?q=pizza");
-    expect(rowFor("Ciao Pizzeria").textContent).toMatch(/\d+ m|\d\.\d km/);
+    // Portuguese writes a decimal comma: "2,3 km".
+    expect(rowFor("Ciao Pizzeria").textContent).toMatch(/\d+ m|\d[.,]\d km/);
     expect(rowFor("Ciao Pizzeria").textContent).not.toMatch(/ mi\b/);
   });
 

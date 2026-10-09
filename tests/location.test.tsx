@@ -701,11 +701,12 @@ describe("where a first visit starts", () => {
       );
       expect(screen.getByRole("button", { name: copy.location.useMine })).toBeInTheDocument();
 
-      expect(await screen.findByRole("button", { name: "Near Lisboa" })).toBeInTheDocument();
+      // The places say Lisboa; the town is GeoNames' Lisbon.
+      expect(await screen.findByRole("button", { name: "Near Lisbon" })).toBeInTheDocument();
       expect(shown[0]).toMatchObject({ settling: true });
       // Each one either waits for the places or is the guess: Funchal never shows.
-      for (const here of shown) expect(here.settling || here.label === "Lisboa").toBe(true);
-      expect(shown.at(-1)).toMatchObject({ label: "Lisboa", source: "guess", settling: false });
+      for (const here of shown) expect(here.settling || here.label === "Lisbon").toBe(true);
+      expect(shown.at(-1)).toMatchObject({ label: "Lisbon", source: "guess", settling: false });
     });
   });
 
@@ -1379,6 +1380,8 @@ describe("NearButton", () => {
 
     await user.click(nearButton("Near Funchal"));
     const row = within(screen.getByRole("dialog")).getByRole("button", { name: /^Funchal/ });
-    expect(row).toHaveTextContent(copy.location.count(37));
+    // Funchal is GeoNames' town: 42 of the 43 places are nearest it, those whose locality is a parish
+    // of it or that have none among them. The other is in São Roque, a town nearer it.
+    expect(row).toHaveTextContent(copy.location.count(42));
   });
 });
