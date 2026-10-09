@@ -109,8 +109,12 @@ describe("the unit, from where the device is (Avi, 2026-10-09)", () => {
     ["Pacific/Saipan", "en-MP"],
     ["Pacific/Pago_Pago", "en-AS"],
     ["Pacific/Midway", "en-UM"],
-    // The United Kingdom, Liberia and Myanmar.
+    // The United Kingdom, and the Crown dependencies, each its own country in zone.tab.
     ["Europe/London", "en-GB"],
+    ["Europe/Jersey", "en-GB"],
+    ["Europe/Guernsey", "en-GB"],
+    ["Europe/Isle_of_Man", "en-GB"],
+    // Liberia and Myanmar.
     ["Africa/Monrovia", "en-LR"],
     ["Asia/Yangon", "my-MM"],
   ])("is miles on a device in %s, whatever its language (%s)", (zone, locale) => {
@@ -123,8 +127,8 @@ describe("the unit, from where the device is (Avi, 2026-10-09)", () => {
     ["Atlantic/Madeira", "en"],
     ["America/Toronto", "en-US"],
     ["Asia/Tokyo", "en-US"],
-    // Jersey, Guernsey and the Isle of Man are their own countries in zone.tab, not GB.
-    ["Europe/Jersey", "en-GB"],
+    // Ireland, beside the United Kingdom, reads kilometres.
+    ["Europe/Dublin", "en-GB"],
   ])("is kilometres on a device in %s, even in %s", (zone, locale) => {
     expect(milesFor(zone, locale)).toBe(false);
   });

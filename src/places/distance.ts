@@ -12,10 +12,10 @@ const MILE_REGIONS: ReadonlySet<string> = new Set(["US", "LR", "MM"]);
  * Countries whose people measure distance in miles, as zone.tab names them (Avi, 2026-10-09): the
  * United States and the territories it gives codes of their own (Puerto Rico, the US Virgin Islands,
  * Guam, the Northern Mariana Islands, American Samoa and the minor outlying islands), the United
- * Kingdom, Liberia and Myanmar. zone.tab gives Jersey, Guernsey and the Isle of Man codes of their own,
- * so they are not among them.
+ * Kingdom and the Crown dependencies it gives codes of their own (Jersey, Guernsey and the Isle of
+ * Man), Liberia and Myanmar.
  */
-const MILE_COUNTRIES: ReadonlySet<string> = new Set(["US", "PR", "VI", "GU", "MP", "AS", "UM", "GB", "LR", "MM"]);
+const MILE_COUNTRIES: ReadonlySet<string> = new Set(["US", "PR", "VI", "GU", "MP", "AS", "UM", "GB", "JE", "GG", "IM", "LR", "MM"]);
 
 /** The great-circle distance between two places, in kilometres. */
 export function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
