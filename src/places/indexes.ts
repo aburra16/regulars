@@ -48,6 +48,8 @@ export interface City {
   count: number;
   /** Its GeoNames id; absent for a locality. */
   geonameId?: number;
+  /** True for a country's capital (GeoNames' PPLC); absent for any other town. */
+  capital?: true;
   /**
    * The other names it is found by, folded (`foldName`), and never shown: its ASCII name where that
    * is not its name without accents ("lodz"), and the localities its places give it that are not the
@@ -349,6 +351,7 @@ function fileTown(town: Town, own: readonly Place[], towns: TownList): City {
     if (!towns.names.has(locality) && !towns.names.has(beforeComma)) aliases.add(locality);
   }
   const city: City = { name: town.name, country: town.country, lat: town.lat, lon: town.lon, count: own.length, geonameId: town.id };
+  if (town.capital === true) city.capital = true;
   const regions = own.flatMap((place) => (place.region?.trim() ? [place.region.trim()] : []));
   if (town.region !== undefined) city.region = town.region;
   else if (regions.length > 0) city.region = commonest(regions);

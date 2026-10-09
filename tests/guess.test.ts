@@ -120,6 +120,31 @@ describe("guessTown", () => {
     });
   });
 
+  describe("towns close together", () => {
+    // San Salvador, the capital, and two towns beside it, as the places have them.
+    const sanSalvador: City = { ...town("San Salvador", "SV", 13.6894, -89.1872, 84), capital: true };
+    const antiguo = town("Antiguo Cuscatlán", "SV", 13.6733, -89.2401, 88);
+    const santaTecla = town("Santa Tecla", "SV", 13.6769, -89.2797, 30);
+
+    it("takes the capital when its places are within a tenth of the most", () => {
+      expect(guessTown([antiguo, sanSalvador, santaTecla], "America/El_Salvador", undefined)).toBe(sanSalvador);
+      // Without the capital among them, the one with the most places.
+      expect(guessTown([antiguo, santaTecla], "America/El_Salvador", undefined)).toBe(antiguo);
+    });
+
+    it("takes the town with the most places when the capital has more than a tenth fewer", () => {
+      const smaller: City = { ...sanSalvador, count: 79 };
+      expect(guessTown([antiguo, smaller, santaTecla], "America/El_Salvador", undefined)).toBe(antiguo);
+      // 80 is within a tenth of 88.
+      expect(guessTown([antiguo, { ...sanSalvador, count: 80 }, santaTecla], "America/El_Salvador", undefined)?.name).toBe("San Salvador");
+    });
+
+    it("takes the capital the same way in the language's country when the zone is no place", () => {
+      expect(guessTown([antiguo, sanSalvador, santaTecla], "Etc/UTC", "SV")).toBe(sanSalvador);
+      expect(guessTown([antiguo, { ...sanSalvador, count: 79 }, santaTecla], "Etc/UTC", "SV")).toBe(antiguo);
+    });
+  });
+
   it("goes as far as it takes: the zone need have no town of its own", () => {
     expect(guessTown(towns, "Asia/Kathmandu", undefined)).toBe(kolkata);
     expect(guessTown(towns, "Australia/Sydney", undefined)).toBe(bangkok);

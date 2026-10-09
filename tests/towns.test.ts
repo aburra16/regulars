@@ -57,6 +57,13 @@ describe("towns from the file", () => {
     expect(TOWN_REACH_KM).toBe(30);
   });
 
+  it("marks a capital, and no other town", () => {
+    const capitals = townsOf([{ ...PRAGUE, capital: true }, RICANY]);
+    const { cities } = buildIndexes([inPrague("A", "Praha"), make("B", { lat: RICANY.lat, lon: RICANY.lon })], capitals);
+    expect(byName(cities, "Prague")?.capital).toBe(true);
+    expect(byName(cities, "Říčany")).not.toHaveProperty("capital");
+  });
+
   it("counts a place with no locality under its nearest town", () => {
     const bare = inPrague("No locality", undefined, 8);
     const { cities, townOf } = buildIndexes([inPrague("A", "Praha"), bare], towns);

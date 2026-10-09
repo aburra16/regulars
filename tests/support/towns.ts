@@ -26,5 +26,6 @@ export function townsOf(
     towns: byKey,
     parts: parts.map(([lat, lon, of], i) => [900_000_000 + i, lat, lon, of]),
     localities,
+    capitals: towns.filter((town) => town.capital === true).map((town) => town.id),
   });
 }

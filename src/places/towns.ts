@@ -50,6 +50,8 @@ export interface TownsFile {
    * together, are a town by their locality (El Zonte), not in the town of the file around them.
    */
   localities: Record<string, string[]>;
+  /** The GeoNames ids of the towns here that are their country's capital (PPLC). */
+  capitals: number[];
 }
 
 /** A town of the file. */
@@ -63,6 +65,8 @@ export interface Town {
   country: string;
   /** In the United States and Canada, its state or province: "MO", "ON". */
   region?: string;
+  /** True for its country's capital. */
+  capital?: true;
   lat: number;
   lon: number;
 }
@@ -97,6 +101,10 @@ export function readTowns(file: TownsFile): TownList {
       towns.push(town);
       byId.set(id, town);
     }
+  }
+  for (const id of file.capitals ?? []) {
+    const town = byId.get(id);
+    if (town !== undefined) town.capital = true;
   }
   // A part whose town is not in the file is left out: it stands for nothing.
   const parts = file.parts.flatMap(([, lat, lon, of]) => {

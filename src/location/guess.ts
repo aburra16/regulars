@@ -98,29 +98,40 @@ export function zonePoint(zone: string | undefined): { lat: number; lon: number 
  */
 const ZONE_REACH_KM = 50;
 
+/** How near the most places a capital's must be for it to be taken first: within a tenth. */
+const CAPITAL_SHARE = 0.9;
+
 /**
- * The town with the most places within `ZONE_REACH_KM` of the place `zone` is named for, the
- * nearer of two with as many; with none so near, the nearest town, however far. When the zone is
- * no place, the town with the most places in `country`. Undefined when there is none of these.
- * `cities` is in the order `Indexes.cities` has, those with the most places first.
+ * Of some towns, the one with the most places; but a capital within a tenth of the most is taken before
+ * it (San Salvador, with 84, before Antiguo Cuscatlán beside it, with 88), and of two as good, the one
+ * `nearer` puts first. Undefined for no towns.
+ */
+function biggest(towns: readonly City[], nearer: (a: City, b: City) => number = () => 0): City | undefined {
+  const most = Math.max(...towns.map((city) => city.count));
+  const capital = (city: City) => Number(city.capital === true && city.count >= CAPITAL_SHARE * most);
+  return [...towns].sort((a, b) => capital(b) - capital(a) || b.count - a.count || nearer(a, b))[0];
+}
+
+/**
+ * The biggest town (`biggest`) within `ZONE_REACH_KM` of the place `zone` is named for ("the biggest
+ * nearby town with places", decision 24), the nearer of two as good. With none so near, the nearest
+ * town, however far. When the zone is no place, the biggest town in `country`. Undefined when there is
+ * none of these. `cities` is in the order `Indexes.cities` has, those with the most places first.
  */
 export function guessTown(cities: readonly City[], zone: string | undefined, country: string | undefined): City | undefined {
   const point = zonePoint(zone);
   if (point !== undefined) {
-    let main: { city: City; km: number } | undefined;
     let nearest: { city: City; km: number } | undefined;
+    const near = new Map<City, number>();
     for (const city of cities) {
       const km = distanceKm(point.lat, point.lon, city.lat, city.lon);
       if (nearest === undefined || km < nearest.km) nearest = { city, km };
-      if (km <= ZONE_REACH_KM && (main === undefined || city.count > main.city.count || (city.count === main.city.count && km < main.km))) {
-        main = { city, km };
-      }
+      if (km <= ZONE_REACH_KM) near.set(city, km);
     }
-    return (main ?? nearest)?.city;
+    if (near.size === 0) return nearest?.city;
+    return biggest([...near.keys()], (a, b) => near.get(a)! - near.get(b)!);
   }
-  if (country !== undefined) {
-    for (const city of cities) if (city.country === country) return city;
-  }
+  if (country !== undefined) return biggest(cities.filter((city) => city.country === country));
   return undefined;
 }
 

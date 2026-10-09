@@ -405,8 +405,10 @@ describe("the file", () => {
     });
     expect(file.parts).toEqual([[2264131, 32.655, LON, 2267827]]);
     // No country names: the app names countries itself.
-    expect(Object.keys(file)).toEqual(["source", "licence", "date", "regenerate", "towns", "parts", "localities"]);
+    expect(Object.keys(file)).toEqual(["source", "licence", "date", "regenerate", "towns", "parts", "localities", "capitals"]);
     expect(file.localities).toEqual({});
+    // The capitals among the towns (GeoNames' PPLC), which the first visit's guess prefers.
+    expect(file.capitals).toEqual([3067696]);
     expect(file).toMatchObject({ date: "2026-10-09" });
     expect(file.licence).toMatch(/CC BY 4\.0/);
     expect(file.source).toMatch(/GeoNames/);
@@ -432,6 +434,7 @@ describe("the file", () => {
 
     const list = readTowns(file);
     expect(list.towns.map((town) => town.name).sort()).toEqual(["Camacha", "Funchal", "Prague", "Sant Julià de Lòria", "Łódź"]);
+    expect(list.towns.filter((town) => town.capital === true).map((town) => town.name)).toEqual(["Prague"]);
     // A point nearest Santa Luzia is in Funchal, which Santa Luzia is part of; one beyond reach is in none.
     expect(list.townAt(32.655, LON)?.name).toBe("Funchal");
     expect(list.townAt(32.668, -16.88)?.name).toBe("Camacha");

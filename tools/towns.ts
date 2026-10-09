@@ -499,6 +499,7 @@ export function townsFile(choice: TownChoice, { date, places }: { date: string; 
   for (const { country, locality } of [...choice.localities].sort((a, b) => (a.country < b.country ? -1 : a.country > b.country ? 1 : a.locality < b.locality ? -1 : 1))) {
     (localities[country] ??= []).push(locality);
   }
+  const capitals = choice.towns.filter((town) => town.code === "PPLC").map((town) => town.id).sort((a, b) => a - b);
   return {
     source: `GeoNames' towns of 1,000 people or more (cities1000.txt, https://download.geonames.org/export/dump/), cut down by tools/towns.ts to the towns of the ${places.toLocaleString("en")} places of the live list, the food and drink places the app loads, read from the places relay.`,
     licence: "Town names from GeoNames (geonames.org), CC BY 4.0: https://creativecommons.org/licenses/by/4.0/",
@@ -507,6 +508,7 @@ export function townsFile(choice: TownChoice, { date, places }: { date: string; 
     towns,
     parts,
     localities,
+    capitals,
   };
 }
 
@@ -526,7 +528,8 @@ export function formatTownsFile(file: TownsFile): string {
     head.map((line) => `${line},`).join("\n"),
     `"towns": {\n${towns.join(",\n")}\n},`,
     `"parts": [\n${parts.join(",\n")}\n],`,
-    `"localities": {\n${localities.join(",\n")}\n}`,
+    `"localities": {\n${localities.join(",\n")}\n},`,
+    `"capitals": ${JSON.stringify(file.capitals)}`,
     "}",
     "",
   ].join("\n");
