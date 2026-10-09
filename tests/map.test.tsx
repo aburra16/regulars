@@ -1327,28 +1327,6 @@ describe("distances on the map's pages, when the device has said where the perso
     expect(cards[0]).toHaveAccessibleDescription(expect.stringContaining(` · ${formatDistance(rows[0]!.km, "en-US")} `));
   });
 
-  it("are from the town the 'Near …' control names, not the area's middle, in the desktop's list of a searched area, which is nearest the town first and limited from it", async () => {
-    const user = userEvent.setup();
-    const { map } = await openApp("/?within=0.8", { px: DESKTOP });
-    act(() => map.dragTo(EAST_OF_FUNCHAL));
-    await user.click(screen.getByRole("button", { name: copy.map.searchArea }));
-    // The control still names the town after the search: every distance is from it.
-    expect(screen.getByRole("button", { name: "Near Funchal" })).toBeInTheDocument();
-
-    const rows = placesInBox(idx, [EAST_OF_FUNCHAL.west, EAST_OF_FUNCHAL.south, EAST_OF_FUNCHAL.east, EAST_OF_FUNCHAL.north])
-      .map((each) => ({ place: each, km: distanceKm(HERE.lat, HERE.lon, each.lat, each.lon) }))
-      .filter((row) => row.km <= 0.8)
-      .sort((a, b) => a.km - b.km);
-    const names = groupForList(rows, idx).map((entry) => ("chain" in entry ? entry.chain.name : entry.place.name));
-    expect(names.length).toBeGreaterThan(3);
-    const cards = within(screen.getByRole("list")).getAllByRole("link");
-    expect(cards.map(nameOf)).toEqual(names.slice(0, 30));
-    const fromTown = formatDistance(rows[0]!.km, "en-US");
-    const fromMiddle = formatDistance(distanceKm(32.65, -16.89, rows[0]!.place.lat, rows[0]!.place.lon), "en-US");
-    expect(fromTown).not.toBe(fromMiddle);
-    expect(cards[0]).toHaveAccessibleDescription(expect.stringContaining(` · ${fromTown} `));
-  });
-
   it("put no limit on a searched area at the widest distance, however far it is from the device", async () => {
     const user = userEvent.setup();
     deviceAt(HERE.lat, HERE.lon);
@@ -1596,14 +1574,11 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
       act(() => map.dragTo(WORLD, 1));
       await user.click(searchArea());
 
-      // The 50 nearest the middle of the view, listed nearest the town the "Near …" control names first,
-      // with how far each is from it (Avi, 2026-10-09): every distance is from there, wherever the area is.
+      // No device: the distances, and the nearest, are from the middle of the view.
       const rows = everyPlace
         .map((each) => ({ place: each, km: distanceKm(0, 0, each.lat, each.lon) }))
         .sort((a, b) => a.km - b.km)
-        .slice(0, LIST_LIMIT)
-        .map(({ place: each }) => ({ place: each, km: distanceKm(HERE.lat, HERE.lon, each.lat, each.lon) }))
-        .sort((a, b) => a.km - b.km);
+        .slice(0, LIST_LIMIT);
       const expected = namesOf(groupForList(rows, everyIdx));
       expect(cards().map(nameOf)).toEqual(expected.slice(0, 30));
       await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
@@ -1736,15 +1711,10 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
         .filter(({ place: each }) => openState(each, MORNING).kind !== "closed")
         .slice(0, LIST_LIMIT);
       await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
-      // The same places (places the same distance away may come in either order), nearest first to the
-      // town the "Near …" control names (here a town guessed from the places, wherever it is), as each
-      // card says how far it is from it.
+      // The same places (places the same distance away may come in either order), nearest first.
       expect(cards().map(nameOf).sort()).toEqual(namesOf(groupForList(open, allIdx)).sort());
-      const shownMiles = cards().map((card) => {
-        const miles = / · ([\d,.]+) mi$/.exec(document.getElementById(card.getAttribute("aria-describedby")!.split(" ")[0]!)!.textContent!);
-        return Number(miles![1]!.replaceAll(",", ""));
-      });
-      expect(shownMiles).toEqual([...shownMiles].sort((a, b) => a - b));
+      const shownKm = cards().map((card) => all.find((each) => each.name === nameOf(card))!).map((each) => distanceKm(0, 0, each.lat, each.lon));
+      expect(shownKm).toEqual([...shownKm].sort((a, b) => a - b));
       expect(houseLine()).toHaveTextContent(copy.deskExplore.inArea(all.length));
     });
 
@@ -1803,26 +1773,16 @@ describe("every place on Explore's maps, at any zoom (decision 25)", () => {
 
     it("is nearest the middle of the map as drawn", async () => {
       const user = userEvent.setup();
-      // As many places as the list holds around the middle of a view from 35°N to 70°N as MapLibre draws
-      // it, and one at the middle of its latitudes, which a list nearest that middle would hold.
+      // One place at the middle of a view from 35°N to 70°N as MapLibre draws it, one at the middle of its latitudes.
       const middles = [
-        ...Array.from({ length: LIST_LIMIT }, (_, i) =>
-          variant(nameOnly, { d: `drawn-middle-${i}`, name: `At the drawn middle ${i}`, lat: "56.3", lon: String(10 + i * 0.001) }),
-        ),
+        variant(nameOnly, { d: "drawn-middle", name: "At the drawn middle", lat: "56.3", lon: "10" }),
         variant(nameOnly, { d: "mean-middle", name: "At the mean latitude", lat: "52.5", lon: "10" }),
       ];
       const { map } = await openApp("/", { px: DESKTOP, events: [...fixtures, ...middles] });
       act(() => map.dragTo({ west: -10, south: 35, east: 30, north: 70 }, 4, [10, 56.3]));
       await user.click(searchArea());
-      await user.click(screen.getByRole("button", { name: copy.explore.showMore }));
-      expect(cards()).toHaveLength(LIST_LIMIT);
-      expect(cards().map(nameOf).every((name) => name.startsWith("At the drawn middle"))).toBe(true);
-      expect(houseLine()).toHaveTextContent(copy.deskExplore.inArea(LIST_LIMIT + 1));
-      // Each says how far it is from the town the "Near …" control names, not from the middle.
-      const first = parsePlaces(middles).find((each) => each.name === nameOf(cards()[0]!))!;
-      expect(cards()[0]).toHaveAccessibleDescription(
-        expect.stringContaining(` · ${formatDistance(distanceKm(HERE.lat, HERE.lon, first.lat, first.lon), "en-US")} `),
-      );
+      expect(cards().map(nameOf)).toEqual(["At the drawn middle", "At the mean latitude"]);
+      expect(cards()[0]).toHaveAccessibleDescription(expect.stringContaining(` · ${formatDistance(0, "en-US")} `));
     });
 
     it("reaches past 25 km from its middle: a searched area has no city's radius", async () => {

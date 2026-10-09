@@ -105,7 +105,7 @@ export interface AreaEntries {
    * places as it holds: it has the open places nearest the middle, and there may be more farther out.
    */
   nearestOnly?: boolean;
-  /** Where each distance is from: where the "Near …" control says, the device or the town, wherever the area is. */
+  /** Where each distance is from: the device, when it has said where the person is; otherwise the area's centre. */
   from: { lat: number; lon: number };
 }
 
@@ -122,13 +122,12 @@ function cheapFilter(families: readonly FamilyId[], withinKm: number, from: { la
 
 /**
  * The places in an area, the same as Explore lists them: chains as one entry. Each has how far it
- * is from where the "Near …" control says the places are near, nearest it first, wherever the area
- * is: the person, when the device has said where they are ("Near you"), or else the town (Avi,
- * 2026-10-09). Every distance in the app is measured from there.
+ * is from the person when the device has said where they are, nearest them first, wherever the area
+ * is; otherwise how far it is from the area's centre, which is where the list is near.
  *
  * With `filters`, only those that pass them, in their sort; a distance is measured the same way.
- * The widest distance is no limit: the area is the limit, so an area searched far from the device or
- * the town still lists its places.
+ * The widest distance is no limit: the area is the limit, so an area searched far from the device
+ * still lists its places.
  *
  * An area searched on the map lists no more than `LIST_LIMIT` places: those nearest the middle of the
  * map that pass the filters, found by walking out from the middle and stopping at the first that many,
@@ -143,7 +142,9 @@ export function useAreaEntries(area: Area, filters?: Filters): AreaEntries {
   const here = useHere();
   const locale = useLocale();
   const { lat, lon, radiusKm, box } = area;
-  const { lat: fromLat, lon: fromLon } = here;
+  const fromDevice = here.source === "device";
+  const fromLat = fromDevice ? here.lat : lat;
+  const fromLon = fromDevice ? here.lon : lon;
   const from = useMemo(() => ({ lat: fromLat, lon: fromLon }), [fromLat, fromLon]);
   const widest = widestKm(locale);
   const withinKm = filters === undefined || filters.withinKm >= widest ? Number.POSITIVE_INFINITY : filters.withinKm;
