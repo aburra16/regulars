@@ -4,8 +4,10 @@ import { useLocation, useNavigationType } from "react-router-dom";
 /*
  * Where the focus goes once the person goes to another page (a new pathname), for a screen reader and
  * a keyboard: to the new page's main heading, the `h1` in `main`, which each page makes focusable from
- * code only (`tabIndex={-1}`) and draws with no ring. The page is not scrolled for it: Back puts a page
- * where it was, and a new page opens at its top, as the router has them.
+ * code only (`tabIndex={-1}`) and draws with no ring; or, when the address names a section of the page
+ * (`/about#signing-in`), to that section's heading, made focusable the same way. The page is not
+ * scrolled for it: Back puts a page where it was, and a new page opens at its top, or at the section,
+ * as the router has them.
  *
  * It goes there when the focus went with the page before, or is still on the link that took the
  * person to the new page (a tab, a link in the top bar). Not on the first load, nor on what the first
@@ -63,8 +65,30 @@ function nowhere(active: Element | null): boolean {
   return active === null || active === document.body || active instanceof HTMLAnchorElement;
 }
 
+/** What a heading is. */
+const HEADINGS = "h1, h2, h3, h4, h5, h6";
+
 /**
- * Moves the focus to the main heading of each new page in `main`, once it is in (`ready`: the frame
+ * The heading the focus goes to on a new page in `main`: the heading of the section the address's
+ * `hash` names (itself, when it is one), when that is in the page and has one; else the page's `h1`.
+ */
+function headingOf(main: HTMLElement, hash: string): HTMLElement | null {
+  let id = "";
+  try {
+    id = decodeURIComponent(hash.slice(1));
+  } catch {
+    // Not an id the page could have given: the page's own heading, then.
+  }
+  const named = id === "" ? null : document.getElementById(id);
+  if (named !== null && main.contains(named)) {
+    const heading = named.matches(HEADINGS) ? named : named.querySelector<HTMLElement>(HEADINGS);
+    if (heading !== null) return heading;
+  }
+  return main.querySelector("h1");
+}
+
+/**
+ * Moves the focus to the main heading of each new page in `main` (or of the section its address names), once it is in (`ready`: the frame
  * shows the page, not the places' loading line), when it is where it was as the page went in
  * (`arrival`, which `ArrivalMark` notes), that is nowhere of its own (`nowhere`), and the app did not
  * put it there on purpose (`placed`, which `usePlaceFocus` notes and the frame gives as `PlacedFocus`).
@@ -74,7 +98,7 @@ export function useHeadingFocus(
   main: RefObject<HTMLElement | null>,
   ready: boolean,
 ): { arrival: RefObject<Element | null>; placed: RefObject<Element | null> } {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
   const how = useNavigationType();
   const arrival = useRef<Element | null>(null);
   const placed = useRef<Element | null>(null);
@@ -105,8 +129,8 @@ export function useHeadingFocus(
     due.current = false;
     const active = document.activeElement;
     if (active !== arrival.current || !nowhere(active) || active === placed.current) return;
-    main.current?.querySelector("h1")?.focus({ preventScroll: true });
-  }, [pathname, how, ready, main]);
+    if (main.current !== null) headingOf(main.current, hash)?.focus({ preventScroll: true });
+  }, [pathname, hash, how, ready, main]);
 
   return { arrival, placed };
 }

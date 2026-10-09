@@ -177,6 +177,44 @@ describe("the focus after going to another page", () => {
   });
 });
 
+describe("the focus after going to a section of a page (a link with a hash)", () => {
+  /** What the router's scrolling to a section is given: jsdom lays nothing out and scrolls nothing. */
+  let scrolledTo: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    scrolledTo = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, writable: true, value: scrolledTo });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  });
+
+  it("goes to the heading of the section the link names, not the page's, without scrolling: sign in's How signing in works", async () => {
+    const user = userEvent.setup();
+    const { router } = await open("/signin");
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    await user.click(screen.getByRole("link", { name: copy.signin.howItWorks }));
+    expect(router.state.location.pathname + router.state.location.hash).toBe("/about#signing-in");
+
+    const heading = await screen.findByRole("heading", { level: 2, name: copy.about.signingInHeading });
+    expect(heading).toHaveFocus();
+    expect(heading).toHaveAttribute("tabindex", "-1");
+    expect(heading).toHaveClass("outline-none");
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
+    // The router brings the section into view, as before.
+    await waitFor(() => expect(scrolledTo).toHaveBeenCalled());
+    expect(scrolledTo.mock.contexts.at(-1)).toBe(heading.closest("section"));
+  });
+
+  it("goes to the page's heading when the hash names nothing on it", async () => {
+    const user = userEvent.setup();
+    const { router } = await open("/");
+    // The person has done something on the page: what comes next is their going.
+    await user.click(screen.getByRole("main"));
+    await act(() => router.navigate("/about#no-such-section"));
+    expect(await screen.findByRole("heading", { level: 1, name: copy.about.title })).toHaveFocus();
+  });
+});
+
 describe("the focus the app puts somewhere on purpose, as the page changes", () => {
   beforeEach(() => {
     config.reviewRelays = [SEARCH];

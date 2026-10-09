@@ -39,7 +39,12 @@ function Section({
 }): JSX.Element {
   return (
     <section id={id} aria-labelledby={`${id}-heading`} className="flex flex-col gap-3">
-      <h2 id={`${id}-heading`} className={`m-0 font-display font-bold ${wide ? "text-[26px]" : "text-h2"}`}>
+      {/* Focusable from code only, with no ring: a link to the section puts the focus here (src/shell/headingFocus.ts). */}
+      <h2
+        id={`${id}-heading`}
+        tabIndex={-1}
+        className={`m-0 font-display font-bold outline-none ${wide ? "text-[26px]" : "text-h2"}`}
+      >
         {heading}
       </h2>
       {children}
