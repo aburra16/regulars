@@ -26,8 +26,9 @@ import { type PlaceScore, scorePlace } from "./score.ts";
  * (the house's, and the person's circle once it is ready), and the reviewers' names, read once a
  * session and held in memory. Scores are worked out from them when asked for, from the view asked
  * for, and never stored (brief § 5): toggling the view reads nothing (Review Focus 5). What it holds
- * about people stays here: a page gets reviews, place scores and names, and the person signed in their
- * own picture, never a person's rank or weight (decision 19).
+ * about people stays here: a page gets reviews, place scores and names, whether a reviewer counts in a
+ * view (yes or no, for Recent), and the person signed in their own picture, never a person's rank or
+ * weight (decision 19).
  *
  * Nothing here loads the relay code: the app's readers import it when they first read
  * (src/nostr/relayCode.ts), so the store can be on the first screen.
@@ -282,6 +283,11 @@ class RankBook {
   asked = new Set<string>();
   /** The reviewers the scorer has answered for: someone it does not rank is outside. */
   readonly known = new Set<string>();
+  /**
+   * Whether a read of ranks failed since its people were last asked about: they are not asked about
+   * again until something does (`refresh`, the device back on line, another place's reviews).
+   */
+  failed = false;
   /** Aborts its reads once it is let go of: the circle went, or is another person's now. */
   readonly #ended = new AbortController();
 
@@ -485,6 +491,12 @@ export class ScoresStore {
     house: new Map(),
     circle: new Map(),
   };
+
+  /**
+   * The people whose ranks a page wants from each view beside the reviewers of the places asked for:
+   * Recent's reviewers (`wantRanks`), whose reviews it lists once their view has said they count.
+   */
+  readonly #rankWanted = new Set<string>();
 
   /** House picks' ranks, from the scorer the house names. */
   readonly #house = new RankBook((signal) => resolveScorer(this.#readers, signal));
@@ -716,6 +728,74 @@ export class ScoresStore {
     }
     if (added) this.#queueFlush();
   }
+
+  /**
+   * Asks each view's scorer about the people with `pubkeys`, as it asks about the reviewers of the
+   * places pages ask for, in the same turns: Recent's reviewers, whom it lists only once their view has
+   * said they count (`countsIn`). Each is asked about once a session from each view, so switching the
+   * view asks for nothing new; a circle that is ready later is asked about them too.
+   */
+  wantRanks(pubkeys: Iterable<string>): void {
+    let added = false;
+    for (const pubkey of pubkeys) {
+      if (!isHex64(pubkey) || this.#rankWanted.has(pubkey)) continue;
+      this.#rankWanted.add(pubkey);
+      added = true;
+    }
+    if (added) this.#weigh();
+  }
+
+  /**
+   * Whether `pubkey`'s reviews count from `view`, as they count in its scores: in My circle, the person
+   * whose circle it is always does; anyone else does at or above the line (`config.scoring.line`) from
+   * the view's scorer. Undefined while that is not known: they have not been asked about or answered
+   * for, the view can't be worked out right now, or there is no circle ready. Nobody is outside a view
+   * before its scorer has said so. Yes or no, never how much: a page shows a person by name only
+   * (decision 19).
+   */
+  countsIn(pubkey: string, view: View): boolean | undefined {
+    const book = this.#bookOf(view);
+    if (book === null || book.state === "unavailable") return undefined;
+    if (pubkey === book.owner) return true;
+    if (!book.known.has(pubkey)) return undefined;
+    return weightOf(book.ranks.get(pubkey), config.scoring.line) > 0;
+  }
+
+  /**
+   * Whether a read of `view`'s ranks failed, and the people it named have not been asked about again
+   * since (`retryRanks`, `refresh` ask them). Yes or no: which people, or how many, is the store's
+   * (decision 19).
+   */
+  rankReadFailed(view: View): boolean {
+    return this.#bookOf(view)?.failed === true;
+  }
+
+  /**
+   * Asks each view's scorer again about the people a failed read of its ranks let go of, and nothing
+   * else: unlike `refresh`, no place's reviews are read again, and none being read is stopped.
+   */
+  readonly retryRanks = (): void => {
+    this.#weigh();
+  };
+
+  /**
+   * `events`, review events a page read on its own (Recent's), with the reviews of `pubkey`'s that the
+   * store shows: each one held (posted this session, and not read back yet), and each one read for a
+   * place that is no older than `since`, as far back as the page has read, so that it is not shown
+   * below reviews the page has not read. Less each review the person removed this session
+   * (`noteRemoval`), as the store hides them everywhere. With no `pubkey` (nobody signed in), `events`
+   * less those removed.
+   */
+  readonly withOwn = (events: Iterable<NostrEvent>, pubkey: string | undefined, since: number): NostrEvent[] => {
+    const all = [...events].filter(this.#notRemoved);
+    if (pubkey === undefined) return all;
+    const held = new Set<string>();
+    for (const { event } of this.#own.values()) held.add(event.id);
+    for (const ev of this.#shownEvents()) {
+      if (ev.pubkey === pubkey && (held.has(ev.id) || ev.created_at >= since)) all.push(ev);
+    }
+    return all;
+  };
 
   /**
    * The place at `address`'s score from `view` (House picks unless named): across all its filings, one
@@ -1029,31 +1109,40 @@ export class ScoresStore {
   /**
    * Asks each view's scorer about the reviewers it has not been asked about, `RANK_BATCH` to a read:
    * House picks', and My circle's once the person's circle is ready, whose own reviews need no rank.
-   * Nothing is asked of a scorer until a place has a review: then the house's scorer is read, once a
-   * session, and the ranks each scorer gives (`#rank`). A view that is unavailable is asked nothing
-   * until it is tried again (`refresh`, back on line).
+   * The reviewers are those of the places asked for, and the people a page wants ranked (`wantRanks`).
+   * Nothing is asked of a scorer until there is someone to ask about: then the house's scorer is read,
+   * once a session, and the ranks each scorer gives (`#rank`). People a failed read let go of are asked
+   * about again here, and their view's `rankReadFailed` is no longer so. A view that is unavailable is
+   * asked nothing until it is tried again (`refresh`, back on line).
    */
   #weigh(): void {
     const life = this.#life;
     if (life === null) return;
-    let started = false;
+    let notify = false;
     for (const book of this.#books()) {
       if (book.state === "unavailable") continue;
       const unknown = new Set<string>();
+      const consider = (pubkey: string) => {
+        if (pubkey !== book.owner && !book.asked.has(pubkey)) unknown.add(pubkey);
+      };
       for (const reviews of this.#reviewsByAddress().values()) {
-        for (const review of reviews) {
-          if (review.reviewer !== book.owner && !book.asked.has(review.reviewer)) unknown.add(review.reviewer);
-        }
+        for (const review of reviews) consider(review.reviewer);
       }
+      for (const pubkey of this.#rankWanted) consider(pubkey);
       if (unknown.size === 0) continue;
+      // Those a failed read let go of are among them: being asked again, they are no longer failed.
+      if (book.failed) {
+        book.failed = false;
+        notify = true;
+      }
       for (const pubkey of unknown) book.asked.add(pubkey);
       if (book.state === "idle") {
         book.state = "loading";
-        started = true;
+        notify = true;
       }
       void this.#rank(book, [...unknown], AbortSignal.any([life.signal, book.ended]));
     }
-    if (started) this.#changed("scores");
+    if (notify) this.#changed("scores");
   }
 
   /**
@@ -1123,7 +1212,10 @@ export class ScoresStore {
       if (signal.aborted) return;
       debug(book === this.#house ? "the house's ranks could not be read" : "the circle's ranks could not be read", error);
       for (const pubkey of people) book.asked.delete(pubkey);
+      // Pages that wait on these people say so, with Try again (`rankReadFailed`).
+      book.failed = true;
       if (book.known.size === 0) this.#unavailable(book);
+      else this.#changed("scores");
     }
   }
 
@@ -1160,15 +1252,18 @@ export class ScoresStore {
     this.#changed("names");
   }
 
+  /** Whether `ev` is not a review the person removed: written after the removal, or never removed. */
+  readonly #notRemoved = (ev: NostrEvent): boolean => {
+    const removedAt = this.#removed.get(eventKey(ev));
+    return removedAt === undefined || ev.created_at > removedAt;
+  };
+
   /** Every review event read or held, but those the person removed. */
   #shownEvents(): NostrEvent[] {
     const events: NostrEvent[] = [];
     for (const read of this.#read.values()) events.push(...read);
     for (const held of this.#own.values()) events.push(held.event);
-    return events.filter((ev) => {
-      const removedAt = this.#removed.get(eventKey(ev));
-      return removedAt === undefined || ev.created_at > removedAt;
-    });
+    return events.filter(this.#notRemoved);
   }
 
   /**

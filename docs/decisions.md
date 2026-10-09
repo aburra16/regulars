@@ -41,3 +41,9 @@ Avi's answers on 2026-10-07 to the questions in `handoff/START_HERE.md` and the 
 | 25 | Zoomed-out map | Every place in view appears as pins, grouped into count bubbles at any zoom. The list shows the 50 places nearest the middle of the map, with a line like "2,345 places in view. Zoom in to see the rest." The 25 km cap on a searched area goes. |
 | 26 | My circle consent | The deliberate Personalize tap is the consent, with one plain line beside it saying that Brainstorm works out their circle and the result is public. No separate consent screen. |
 | 27 | Where Personalize is | Tapping "My circle" is the way in. For a signed-in person who hasn't personalized, the half reads "My circle" (not "soon") and opens a small panel right under the toggle, wherever the toggle is (Explore, Map, the desktop top bar). The panel holds decision 26's line, Personalize and Not now. Opening it asks Brainstorm nothing. While the add-on or phone app asks, the panel says so, with Cancel. "Soon" is shown only while the circle is being worked out. |
+
+## Avi's answers on 2026-10-08, on a feed of recent reviews
+
+| # | Topic | Decision |
+|---|---|---|
+| 28 | Recent | A feed of the newest reviews from the people behind the scores on screen (House picks' reviewers, or the person's circle and their own), newest first, in its own tab, "Recent" (a link in the desktop's top bar). It covers everywhere, with each place's distance; a "Near here" filter can come later. Order is by time only, and a person shows by name only (decision 19). |

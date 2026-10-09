@@ -32,6 +32,8 @@ const pages = {
   signin: "Sign in",
   saved: "Saved",
   you: "You",
+  // DRAFT for Avi
+  recent: "Recent reviews",
 };
 
 /** How many places a chain has: "74 locations". */
@@ -103,6 +105,12 @@ const backToExplore = "Back to Explore";
 /** The name of the page that says how a score is worked out (Trust.dc.html, DeskTrust.dc.html). */
 const whyTitle = "Why you see what you see";
 
+/** Times in words where English has them ("now", "yesterday"), in the app's language. */
+const relativeWords = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+/** Times as a count ("1 week ago", never "last week"), in the app's language. */
+const relativeCount = new Intl.RelativeTimeFormat("en", { numeric: "always" });
+
 /** "phone", "phone or website", "phone, website or hours". */
 const eitherOf = (items: readonly string[]) =>
   items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
@@ -135,6 +143,12 @@ export const copy = {
     label: "Main",
     explore: "Explore",
     map: "Map",
+    // DRAFT for Avi
+    /** The tab, and the desktop top bar's link, to the newest reviews from the people behind the scores. */
+    recent: "Recent",
+    // DRAFT for Avi
+    /** The desktop top bar's links to pages (Recent, Saved), for a screen reader: not `label`, the phone's tabs. */
+    pages: "Pages",
     saved: "Saved",
     you: "You",
     // DRAFT for Avi
@@ -462,6 +476,76 @@ export const copy = {
     },
   },
   /**
+   * Recent (Avi, 2026-10-08): the newest reviews of places everywhere, from the people who count in the
+   * view on screen, newest first. Each is a link to its place.
+   */
+  recent: {
+    // DRAFT for Avi
+    /** Under the toggle while it is on House picks: whose reviews these are. */
+    houseLine: "From the reviewers the house trusts.",
+    // DRAFT for Avi
+    /** The same, while it is on My circle. */
+    circleLine: "From your circle.",
+    // DRAFT for Avi
+    /** In place of the name on the person's own review. */
+    you: "You",
+    // DRAFT for Avi
+    /**
+     * How long ago a review was written, in plain words, from how many seconds, calendar days and whole
+     * calendar months ago: "now", "5 minutes ago", "2 hours ago" under a day, then "yesterday", "3 days
+     * ago", "1 week ago", "2 months ago", "1 year ago".
+     */
+    when: (seconds: number, days = 0, months = 0) => {
+      if (seconds < 60) return relativeWords.format(0, "second");
+      if (seconds < 3_600) return relativeCount.format(-Math.floor(seconds / 60), "minute");
+      if (seconds < 86_400) return relativeCount.format(-Math.floor(seconds / 3_600), "hour");
+      if (days < 2) return relativeWords.format(-1, "day");
+      if (days < 7) return relativeCount.format(-days, "day");
+      if (days < 30) return relativeCount.format(-Math.floor(days / 7), "week");
+      if (months < 12) return relativeCount.format(-Math.max(1, months), "month");
+      return relativeCount.format(-Math.floor(months / 12), "year");
+    },
+    // DRAFT for Avi
+    /** A review in the list, for a screen reader: the link to its place. "Maya's review of Jacafé, 2 hours ago". */
+    entry: (name: string, place: string, when: string) => `${name}'s review of ${place}, ${when}`,
+    // DRAFT for Avi
+    /** The same, for the person's own: "Your review of Jacafé, now". */
+    yourEntry: (place: string, when: string) => `Your review of ${place}, ${when}`,
+    // DRAFT for Avi
+    /** While the newest reviews are read, or whose they are is worked out. */
+    loading: "Reading the latest reviews…",
+    // DRAFT for Avi
+    /** No review relay answered for the newest reviews, with Try again (`load.retry`). */
+    failed: "Recent reviews couldn't be loaded.",
+    // DRAFT for Avi
+    /** The same, for the newest page read again over a list on screen, which stays. */
+    newerFailed: "The newest reviews couldn't be loaded.",
+    // DRAFT for Avi
+    /** The button under the list that reads the next reviews back in time. */
+    showOlder: "Show older reviews",
+    // DRAFT for Avi
+    /** Beside it, when they could not be read: it reads them again. */
+    olderFailed: "Older reviews couldn't be loaded.",
+    // DRAFT for Avi
+    /** Under the list, once every review there is has been read. */
+    end: "That's every review so far.",
+    // DRAFT for Avi
+    /** In place of the list, in House picks, once every review is read and none counts. */
+    emptyHouse: "No reviews from the reviewers the house trusts yet.",
+    // DRAFT for Avi
+    /** The same, in My circle. The switch to House picks (`toHouse`) follows. */
+    emptyCircle: "Nobody in your circle has reviewed a place yet.",
+    // DRAFT for Avi
+    /** In place of the list, in House picks, when none of the reviews read counts and there are older ones to read. */
+    noneLatestHouse: "None of the latest reviews are from the reviewers the house trusts.",
+    // DRAFT for Avi
+    /** The same, in My circle. */
+    noneLatestCircle: "None of the latest reviews are from your circle.",
+    // DRAFT for Avi
+    /** Under the empty list in My circle: switches the view to House picks. */
+    toHouse: "Show House picks",
+  },
+  /**
    * Where the map and the place details come from. `mapTiler` and `openStreetMap` are the words in
    * those lines that link to each source's terms.
    */
@@ -522,6 +606,7 @@ export const copy = {
     signin: pageTitle(pages.signin),
     saved: pageTitle(pages.saved),
     you: pageTitle(pages.you),
+    recent: pageTitle(pages.recent),
     // DRAFT for Avi
     missing: pageTitle("Not found"),
     // DRAFT for Avi

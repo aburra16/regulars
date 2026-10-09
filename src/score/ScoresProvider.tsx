@@ -4,6 +4,7 @@ import { ForgetOnSignOut } from "../account/forgetOnSignOut.ts";
 import type { RelayReader, RelayWriter } from "../nostr/events.ts";
 import { appReaders, appWriters } from "../nostr/relayCode.ts";
 import { usePlaces } from "../places/store.tsx";
+import { RecentFeed } from "../recent/feed.ts";
 import { ScoresStore } from "./store.ts";
 
 export type { ReadState, ViewState } from "./store.ts";
@@ -14,13 +15,14 @@ export interface Relays {
   writers: (url: string) => RelayWriter;
 }
 
-const ScoresContext = createContext<{ store: ScoresStore; relays: Relays } | null>(null);
+const ScoresContext = createContext<{ store: ScoresStore; feed: RecentFeed; relays: Relays } | null>(null);
 
 /**
  * Holds the session's reviews, each view's ranks and reviewer names for the pages below it, which ask
  * through the hooks in ./useScore.ts, and the person's own reviews, shown before the relays send them
  * back (kept for the tab, so a reload shows them too, and let go of when the person signs out:
- * `ForgetOnSignOut`). It reads nothing until a page asks. It must be
+ * `ForgetOnSignOut`). Beside them, the newest reviews Recent lists (src/recent/feed.ts), which share
+ * its readers, and whose reviewers it ranks. It reads nothing until a page asks. It must be
  * inside a `PlacesProvider`: from the places it knows which are filed more than once (brief § 4.3).
  * `readers` gives each relay's reader and `writers` each relay's writer, for posting a review
  * (`useRelays`); both are read once, on mount. Without them, the app's own, which load the relay
@@ -37,16 +39,21 @@ export function ScoresProvider({
 }): JSX.Element {
   const [value] = useState(() => ({
     store: new ScoresStore(readers),
+    feed: new RecentFeed(readers),
     relays: { readers: readers ?? appReaders, writers: writers ?? appWriters },
   }));
-  const { store } = value;
+  const { store, feed } = value;
   const { places } = usePlaces();
 
   useEffect(() => store.setPlaces(places), [store, places]);
   useEffect(() => {
     store.start();
-    return () => store.stop();
-  }, [store]);
+    feed.start();
+    return () => {
+      feed.stop();
+      store.stop();
+    };
+  }, [store, feed]);
 
   // Signing out lets go of the person's own reviews held for the tab (the account provider is inside this one).
   return (
@@ -61,6 +68,13 @@ export function useScoresStore(hook: string): ScoresStore {
   const value = useContext(ScoresContext);
   if (value === null) throw new Error(`${hook} must be used inside <ScoresProvider>.`);
   return value.store;
+}
+
+/** The newest reviews, for Recent (src/recent/useRecent.ts). */
+export function useRecentFeed(): RecentFeed {
+  const value = useContext(ScoresContext);
+  if (value === null) throw new Error("useRecentFeed must be used inside <ScoresProvider>.");
+  return value.feed;
 }
 
 /**
