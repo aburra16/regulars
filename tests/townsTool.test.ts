@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { readTowns, TOWN_REACH_KM, type TownsFile } from "../src/places/towns";
 import { ABSORBING } from "../tools/towns-absorb";
-import { chooseTowns, formatTownsFile, marginTowns, type PlacePoint, readGeoNames, readPlaces, type TownChoice, townsFile } from "../tools/towns";
+import { chooseTowns, formatTownsFile, marginTowns, type PlacePoint, readDistricts, readGeoNames, readPlaces, type TownChoice, townsFile } from "../tools/towns";
 
 /*
  * tools/towns.ts on a few rows in GeoNames' layout (cities1000.txt: 19 columns, apart by tabs) and a
@@ -217,6 +217,11 @@ describe("chooseTowns", () => {
   });
 });
 
+// Lisbon, and Areeiro, a quarter of it that GeoNames lists as a town, with a twentieth of its people or fewer.
+const lisbon = (alternates = "Lisboa") => geoRow(2267057, "Lisbon", 38.7251, -9.1498, { code: "PPLC", admin1: "14", population: 517802, alternates });
+const areeiro = (population: number) => geoRow(2271547, "Areeiro", 38.741, -9.138, { admin1: "14", population });
+const inAreeiro = [{ lat: 38.741, lon: -9.138, locality: "Lisboa" }, { lat: 38.7405, lon: -9.1375 }];
+
 /** The town the app puts a place in, with the file the choice makes. */
 function runtimeTown(choice: TownChoice, place: PlacePoint) {
   return readTowns(townsFile(choice, { date: "2026-10-09", places: 1 })).townAt(place.lat, place.lon, place.locality)?.name;
@@ -292,6 +297,27 @@ describe("chooseTowns: parts", () => {
     const two = chooseTowns(rows, [{ lat: 51.03, lon: 6.985, locality: "Köln" }, { lat: 51.031, lon: 6.984, locality: "Koeln" }, { lat: 51.029, lon: 6.986 }]);
     expect(ids(two.towns)).toEqual([2886242]);
   });
+
+  it("makes a town with a twentieth of the bigger town's people or fewer a part of it on one place's word", () => {
+    const choice = chooseTowns(geo(lisbon(), areeiro(21160)), inAreeiro);
+    expect(ids(choice.towns)).toEqual([2267057]);
+    expect(runtimeTown(choice, inAreeiro[1]!)).toBe("Lisbon");
+  });
+
+  it("asks two places' word of a town whose people GeoNames does not know", () => {
+    expect(ids(chooseTowns(geo(lisbon(), areeiro(0)), inAreeiro).towns)).toEqual([2271547]);
+  });
+
+  it("counts a place that names a town by one of its own other names as the town's, before the bigger town's same name", () => {
+    // Both are called Shared by GeoNames; Small's places that say Shared are Small's.
+    const rows = geo(
+      geoRow(1, "Big", 32.7, LON, { population: 100000, alternates: "Shared" }),
+      geoRow(2, "Small", 32.6, LON, { population: 5000, alternates: "Shared" }),
+    );
+    const choice = chooseTowns(rows, places(placeLine(32.6, LON, "Shared"), placeLine(32.601, LON, "Shared")));
+    expect(ids(choice.towns)).toEqual([2]);
+    expect(choice.parts).toEqual([]);
+  });
 });
 
 describe("chooseTowns: a capital that takes in its districts", () => {
@@ -313,6 +339,19 @@ describe("chooseTowns: a capital that takes in its districts", () => {
     expect(runtimeTown(choice, inSaiMai)).toBe("Bangkok");
     expect(runtimeTown(choice, inPakKret)).toBe("Pak Kret");
     expect(choice.astray).toBe(0);
+  });
+
+  it("gives the capital the names of the towns and districts it takes in, as other names it is found by", () => {
+    // Chatuchak, which GeoNames lists as a district (PPLX), not a town.
+    const chatuchak = geoRow(1611207, "Chatuchak", 13.8286, 100.5597, { code: "PPLX", country: "TH", admin1: "40", population: 160000 });
+    const choice = chooseTowns(rows, [{ lat: 13.766, lon: 100.646 }, { lat: 13.912, lon: 100.498 }], absorbing, readDistricts(chatuchak));
+    const file = townsFile(choice, { date: "2026-10-09", places: 2 });
+    expect(file.names).toEqual({ 1609350: ["Bang Kapi", "Chatuchak", "Sai Mai"] });
+  });
+
+  it("gives a town the names of its parts", () => {
+    const choice = chooseTowns(geo(lisbon(), areeiro(21160)), inAreeiro);
+    expect(townsFile(choice, { date: "2026-10-09", places: 2 }).names).toEqual({ 2267057: ["Areeiro"] });
   });
 
   it("does so only for the capitals on the list", () => {
@@ -405,7 +444,9 @@ describe("the file", () => {
     });
     expect(file.parts).toEqual([[2264131, 32.655, LON, 2267827]]);
     // No country names: the app names countries itself.
-    expect(Object.keys(file)).toEqual(["source", "licence", "date", "regenerate", "towns", "parts", "localities", "capitals"]);
+    expect(Object.keys(file)).toEqual(["source", "licence", "date", "regenerate", "towns", "parts", "localities", "capitals", "names"]);
+    // Santa Luzia is part of Funchal: Funchal is found by its name.
+    expect(file.names).toEqual({ 2267827: ["Santa Luzia"] });
     expect(file.localities).toEqual({});
     // The capitals among the towns (GeoNames' PPLC), which the first visit's guess prefers.
     expect(file.capitals).toEqual([3067696]);

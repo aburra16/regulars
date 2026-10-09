@@ -57,6 +57,25 @@ describe("towns from the file", () => {
     expect(TOWN_REACH_KM).toBe(30);
   });
 
+  it("finds a town by the names of the towns and districts it takes in, and shows none of them", () => {
+    const tokyo = { id: 1850147, name: "Tokyo", country: "JP", lat: 35.6895, lon: 139.6917 };
+    const taking = townsOf([LISBON, tokyo], [], {}, { [LISBON.id]: ["Areeiro", "Bairro Alto"], [tokyo.id]: ["Minato City", "Shibuya", "Shinjuku"] });
+    const { cities } = buildIndexes(
+      [make("A", { lat: 38.72, lon: -9.14, locality: "Lisboa" }), make("B", { lat: 35.66, lon: 139.7, locality: "港区" })],
+      taking,
+    );
+    expect(cities.map((city) => city.name).sort()).toEqual(["Lisbon", "Tokyo"]);
+    expect(byName(cities, "Lisbon")?.aliases).toEqual(["areeiro", "bairro alto", "lisboa"]);
+    expect(byName(cities, "Tokyo")?.aliases).toEqual(["minato city", "shibuya", "shinjuku", "港区"]);
+
+    const find = townFinder(cities, (city) => city.name);
+    expect(find("Minato", 3).map((city) => city.name)).toEqual(["Tokyo"]);
+    expect(find("shibuya", 3).map((city) => city.name)).toEqual(["Tokyo"]);
+    expect(find("Areeiro", 3).map((city) => city.name)).toEqual(["Lisbon"]);
+    const label = cityLabeller(cities);
+    expect(cities.filter((city) => pickerMatches(city, foldName(label(city)), foldName("Shibuya"))).map((city) => city.name)).toEqual(["Tokyo"]);
+  });
+
   it("marks a capital, and no other town", () => {
     const capitals = townsOf([{ ...PRAGUE, capital: true }, RICANY]);
     const { cities } = buildIndexes([inPrague("A", "Praha"), make("B", { lat: RICANY.lat, lon: RICANY.lon })], capitals);

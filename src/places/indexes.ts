@@ -52,7 +52,8 @@ export interface City {
   capital?: true;
   /**
    * The other names it is found by, folded (`foldName`), and never shown: its ASCII name where that
-   * is not its name without accents ("lodz"), and the localities its places give it that are not the
+   * is not its name without accents ("lodz"), the names of the towns and districts it takes in
+   * ("areeiro" for Lisbon, "shibuya" for Tokyo), and the localities its places give it that are not the
    * name of another town of the file ("praha", "praha 10" for Prague). Absent for a locality.
    */
   aliases?: string[];
@@ -331,7 +332,8 @@ function ownLocalities(inTown: Map<Town, Place[]>, towns: TownList, townOf: Map<
 /**
  * The town of src/data/towns.json that `own` are in: called by GeoNames' name, at GeoNames' point,
  * with its state or province in the United States and Canada, else the region most of its places name,
- * and the other names it is found by (see `City.aliases`). A locality that is the name of another town
+ * and the other names it is found by (see `City.aliases`): the names of the towns and districts it
+ * takes in, and its places' localities. A locality that is the name of another town
  * of the file, or that name and more after a comma, is that town's, never this one's: one odd tag does
  * not make two towns one.
  */
@@ -343,6 +345,8 @@ function fileTown(town: Town, own: readonly Place[], towns: TownList): City {
     names.add(ascii);
     aliases.add(ascii);
   }
+  // The names of the towns and districts it takes in ("Areeiro" for Lisbon, "Shibuya" for Tokyo).
+  for (const name of town.takenIn ?? []) if (!names.has(name)) aliases.add(name);
   for (const place of own) {
     const locality = foldName(place.locality ?? "");
     if (locality === "" || names.has(locality)) continue;

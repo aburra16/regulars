@@ -76,18 +76,14 @@ function degrees(text: string | undefined, limit: number): number | undefined {
   return Number.isFinite(value) && Math.abs(value) <= limit ? value : undefined;
 }
 
-/**
- * The towns in the text of cities1000.txt: one to a line, 19 fields apart by tabs. A line that is
- * not one (too few fields, an id or a point that is not a number) is skipped, as is every row that
- * is not a populated place or is one of `EXCLUDED_CODES`.
- */
-export function readGeoNames(text: string): GeoTown[] {
+/** The populated places in the text of cities1000.txt whose feature code `keep` keeps. */
+function readPopulated(text: string, keep: (code: string) => boolean): GeoTown[] {
   const towns: GeoTown[] = [];
   for (const line of text.split("\n")) {
     const fields = line.split("\t");
     if (fields.length < 19) continue;
     const [id, name, ascii, alternates, lat, lon, featureClass, code, country, , admin1, , , , population] = fields;
-    if (featureClass !== "P" || code === undefined || EXCLUDED_CODES.has(code)) continue;
+    if (featureClass !== "P" || code === undefined || !keep(code)) continue;
     const latitude = degrees(lat, 90);
     const longitude = degrees(lon, 180);
     if (!WHOLE.test(id ?? "") || latitude === undefined || longitude === undefined) continue;
@@ -106,6 +102,23 @@ export function readGeoNames(text: string): GeoTown[] {
     });
   }
   return towns;
+}
+
+/**
+ * The towns in the text of cities1000.txt: one to a line, 19 fields apart by tabs. A line that is
+ * not one (too few fields, an id or a point that is not a number) is skipped, as is every row that
+ * is not a populated place or is one of `EXCLUDED_CODES`.
+ */
+export function readGeoNames(text: string): GeoTown[] {
+  return readPopulated(text, (code) => !EXCLUDED_CODES.has(code));
+}
+
+/**
+ * The districts in the text of cities1000.txt (PPLX: Shibuya, Chatuchak), which are no towns. A
+ * capital that takes in its districts is found by their names too (see `chooseTowns`).
+ */
+export function readDistricts(text: string): GeoTown[] {
+  return readPopulated(text, (code) => code === "PPLX");
 }
 
 /**
@@ -198,7 +211,17 @@ export interface TownChoice {
   astray: number;
   /** The localities of their own (see `chooseTowns`), each with its country, which may be "". */
   localities: { country: string; locality: string }[];
+  /**
+   * The names of the towns each town of `towns` takes in (its parts, and for a capital that takes in
+   * its districts, the towns and the districts within its reach), which it is found by too: "Areeiro"
+   * for Lisbon, "Shibuya" for Tokyo. GeoNames' name and ASCII name of each, but for those that are the
+   * town's own, once each.
+   */
+  names: Map<GeoTown, string[]>;
 }
+
+/** How small, in people, a part may be beside the bigger town for one place's word to make it a part: a twentieth. */
+const ONE_VOTE_SHARE = 0.05;
 
 /** How far from the point of the town its places are in a locality of their own must be, in kilometres (as src/places/indexes.ts groups localities, 25 km for a cluster). */
 const OWN_LOCALITY_KM = 5;
@@ -239,12 +262,14 @@ const PART_VOTES_MIN = 2;
  * 2. Otherwise it is in the town nearest to it within reach, unless that town is a part of a bigger
  *    one. A town is a part when at least two of the places nearest to it name one bigger town (more
  *    people) within their reach by their locality, and those are more than half of its places with a
- *    locality, and more than name it. A locality names a town first by its name or ASCII name, then by
+ *    locality, and more than name it; one is enough when GeoNames knows the town's people, and they
+ *    are a twentieth of the bigger town's or fewer (Areeiro, a quarter of Lisbon). A locality names a town first by its name or ASCII name, then by
  *    GeoNames' other names for it ("Praha" is Prague); a town's own name comes before a bigger town's,
  *    and a bigger town's before the town's other names: the City of London's places that say London
  *    are London's. A town that some place names (step 1) is never a part.
  * 3. A capital of `absorbing` takes in every town of its own first-level area within its reach as a
- *    part, whatever its places say (tools/towns-absorb.ts).
+ *    part, whatever its places say (tools/towns-absorb.ts); and it is found by the names of those
+ *    towns, and of the `districts` (PPLX) there.
  * 4. A part's places are its town's; a part of a part goes to the town at the end of the chain.
  * 5. A locality is one of its own when three or more places name it, close together (as the app groups
  *    localities), more than 5 km from the point of the town most of them are in, and no town within
@@ -256,7 +281,12 @@ const PART_VOTES_MIN = 2;
  * The file holds each place's town, and the parts the app needs to put each place where the tool did
  * (see `astray`): those that some place is nearer to than to any other point of the file.
  */
-export function chooseTowns(rows: readonly GeoTown[], places: readonly PlacePoint[], absorbing: readonly { id: number; withinKm: number }[] = []): TownChoice {
+export function chooseTowns(
+  rows: readonly GeoTown[],
+  places: readonly PlacePoint[],
+  absorbing: readonly { id: number; withinKm: number }[] = [],
+  districts: readonly GeoTown[] = [],
+): TownChoice {
   const tree = new KDBush(rows.length);
   for (const row of rows) tree.add(row.lon, row.lat);
   tree.finish();
@@ -327,7 +357,8 @@ export function chooseTowns(rows: readonly GeoTown[], places: readonly PlacePoin
         most = count;
       }
     }
-    if (best !== undefined && most >= PART_VOTES_MIN && most * 2 > located && most > ownVotes) partOf.set(town, best);
+    const small = town.population > 0 && town.population <= ONE_VOTE_SHARE * (best?.population ?? 0);
+    if (best !== undefined && most >= (small ? 1 : PART_VOTES_MIN) && most * 2 > located && most > ownVotes) partOf.set(town, best);
   }
 
   // 4. Each part's town is at the end of its chain. A town is bigger than its part, and a capital takes
@@ -416,8 +447,41 @@ export function chooseTowns(rows: readonly GeoTown[], places: readonly PlacePoin
     if (!named) localities.push({ country, locality });
   }
 
+  // The names of what each town takes in.
+  const takenIn = new Map<GeoTown, GeoTown[]>();
+  const takeIn = (town: GeoTown, into: GeoTown) => {
+    if (!towns.has(into)) return;
+    const list = takenIn.get(into);
+    if (list === undefined) takenIn.set(into, [town]);
+    else list.push(town);
+  };
+  for (const town of partOf.keys()) takeIn(town, townOf(town));
+  for (const { id, withinKm } of absorbing) {
+    const capital = byIdOf.get(id);
+    if (capital === undefined) continue;
+    for (const district of districts) {
+      if (district.country === capital.country && district.admin1 === capital.admin1 && distance(capital.lon, capital.lat, district.lon, district.lat) <= withinKm) {
+        takeIn(district, capital);
+      }
+    }
+  }
+  const names = new Map<GeoTown, string[]>();
+  for (const [town, taken] of takenIn) {
+    const seen = new Set(ownNames(town));
+    const list: string[] = [];
+    for (const each of taken.sort(byId)) {
+      for (const name of [each.name, each.ascii]) {
+        const folded = foldName(name);
+        if (seen.has(folded)) continue;
+        seen.add(folded);
+        list.push(name);
+      }
+    }
+    if (list.length > 0) names.set(town, list.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+  }
+
   const placed = chosen.filter((town) => town !== undefined).length;
-  return { towns: [...towns], parts, placed, unplaced: places.length - placed, astray, localities };
+  return { towns: [...towns], parts, placed, unplaced: places.length - placed, astray, localities, names };
 }
 
 /**
@@ -500,6 +564,8 @@ export function townsFile(choice: TownChoice, { date, places }: { date: string; 
     (localities[country] ??= []).push(locality);
   }
   const capitals = choice.towns.filter((town) => town.code === "PPLC").map((town) => town.id).sort((a, b) => a - b);
+  const names: Record<string, string[]> = {};
+  for (const [town, list] of [...choice.names].sort((a, b) => byId(a[0], b[0]))) names[String(town.id)] = list;
   return {
     source: `GeoNames' towns of 1,000 people or more (cities1000.txt, https://download.geonames.org/export/dump/), cut down by tools/towns.ts to the towns of the ${places.toLocaleString("en")} places of the live list, the food and drink places the app loads, read from the places relay.`,
     licence: "Town names from GeoNames (geonames.org), CC BY 4.0: https://creativecommons.org/licenses/by/4.0/",
@@ -509,6 +575,7 @@ export function townsFile(choice: TownChoice, { date, places }: { date: string; 
     parts,
     localities,
     capitals,
+    names,
   };
 }
 
@@ -529,7 +596,8 @@ export function formatTownsFile(file: TownsFile): string {
     `"towns": {\n${towns.join(",\n")}\n},`,
     `"parts": [\n${parts.join(",\n")}\n],`,
     `"localities": {\n${localities.join(",\n")}\n},`,
-    `"capitals": ${JSON.stringify(file.capitals)}`,
+    `"capitals": ${JSON.stringify(file.capitals)},`,
+    `"names": {\n${Object.entries(file.names).map(([id, list]) => `${JSON.stringify(id)}: ${JSON.stringify(list)}`).join(",\n")}\n}`,
     "}",
     "",
   ].join("\n");
@@ -551,9 +619,10 @@ function main(args: string[]): void {
   }
   const [geoPath, placesPath] = files as [string, string];
 
-  const rows = readGeoNames(readFileSync(geoPath, "utf8"));
+  const geoText = readFileSync(geoPath, "utf8");
+  const rows = readGeoNames(geoText);
   const { places, skipped, older } = readPlaces(readFileSync(placesPath, "utf8"));
-  const choice = chooseTowns(rows, places, ABSORBING);
+  const choice = chooseTowns(rows, places, ABSORBING, readDistricts(geoText));
   const text = formatTownsFile(townsFile(choice, { date, places: places.length }));
 
   const out = written.value ?? join(dirname(fileURLToPath(import.meta.url)), "..", "src", "data", "towns.json");

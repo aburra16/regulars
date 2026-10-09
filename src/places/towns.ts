@@ -52,6 +52,11 @@ export interface TownsFile {
   localities: Record<string, string[]>;
   /** The GeoNames ids of the towns here that are their country's capital (PPLC). */
   capitals: number[];
+  /**
+   * By the GeoNames id of a town here, the names of the towns and districts it takes in, which it is
+   * found by too ("Areeiro" for Lisbon, "Shibuya" for Tokyo), and never shown.
+   */
+  names: Record<string, string[]>;
 }
 
 /** A town of the file. */
@@ -67,6 +72,8 @@ export interface Town {
   region?: string;
   /** True for its country's capital. */
   capital?: true;
+  /** The names of the towns and districts it takes in, folded (`foldName`): `TownsFile.names`. */
+  takenIn?: string[];
   lat: number;
   lon: number;
 }
@@ -101,6 +108,10 @@ export function readTowns(file: TownsFile): TownList {
       towns.push(town);
       byId.set(id, town);
     }
+  }
+  for (const [id, list] of Object.entries(file.names ?? {})) {
+    const town = byId.get(Number(id));
+    if (town !== undefined) town.takenIn = list.map(foldName);
   }
   for (const id of file.capitals ?? []) {
     const town = byId.get(id);
