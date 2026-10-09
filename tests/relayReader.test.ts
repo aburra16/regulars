@@ -388,7 +388,7 @@ describe("writerFor", () => {
       const { error } = sent.outcome as { error: unknown };
       expect(error).toBeInstanceOf(DOMException);
       expect((error as DOMException).name).toBe("NetworkError");
-      expect((error as DOMException).message).toContain(OWN);
+      expect((error as DOMException).message).toBe("The connection was lost before the relay answered");
       expect(sent.relay.closed).toBe(true);
     },
   );

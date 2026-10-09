@@ -63,7 +63,7 @@ export function createMemoryWriter(opts: MemoryWriterOptions = {}): MemoryWriter
         const ms = answer.delayMs;
         await orAbort(new Promise((resolve) => setTimeout(resolve, ms)), signal);
       }
-      if (answer.closes) throw new DOMException("The connection closed before the relay answered", "NetworkError");
+      if (answer.closes) throw new DOMException("The connection was lost before the relay answered", "NetworkError");
       if (answer.refuse !== undefined) throw new Error(answer.refuse);
       opts.into?.push(event);
     },

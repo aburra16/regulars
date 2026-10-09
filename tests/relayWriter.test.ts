@@ -36,6 +36,8 @@ class FakeWebSocket extends EventTarget {
   protocol = "";
   /** What was sent on it, in order. */
   readonly sent: string[] = [];
+  /** The listeners on it now, by event. */
+  private readonly heard = new Map<string, Set<unknown>>();
 
   constructor(readonly url: string) {
     super();
@@ -44,6 +46,22 @@ class FakeWebSocket extends EventTarget {
 
   send(data: string): void {
     this.sent.push(data);
+  }
+
+  override addEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean): void {
+    super.addEventListener(type, listener, options);
+    if (!this.heard.has(type)) this.heard.set(type, new Set());
+    this.heard.get(type)!.add(listener);
+  }
+
+  override removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: EventListenerOptions | boolean): void {
+    super.removeEventListener(type, listener, options);
+    this.heard.get(type)?.delete(listener);
+  }
+
+  /** How many listeners `type` has on it now. */
+  listeners(type: string): number {
+    return this.heard.get(type)?.size ?? 0;
   }
 
   /** Closed from this end: closed a moment later, as a browser's is. Nothing once it is closing. */
@@ -92,7 +110,11 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
+
+/** Lets every message and event that is due land. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("writerFor over Nostrify's own relay", () => {
   it("finds the browser's socket under Nostrify's relay, as socket.underlyingWebsocket", async () => {
@@ -131,7 +153,50 @@ describe("writerFor over Nostrify's own relay", () => {
     const error = await sending.catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(DOMException);
     expect((error as DOMException).name).toBe("NetworkError");
-    expect((error as DOMException).message).toContain(URL);
+    // The relay is named where the warning is written (src/review/post.ts), not here as well.
+    expect((error as DOMException).message).toBe("The connection was lost before the relay answered");
+  });
+
+  it("closes the connection once the relay has taken the event, and leaves none of its own listeners on the socket", async () => {
+    const { sending, socket } = startPublish();
+    socket.open();
+    const during = { close: socket.listeners("close"), error: socket.listeners("error") };
+    socket.receive(["OK", event.id, true, ""]);
+    await expect(sending).resolves.toBeUndefined();
+    await settle();
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+    // The writer's own two, one on close and one on error, are gone; websocket-ts keeps its own.
+    expect({ close: socket.listeners("close"), error: socket.listeners("error") }).toEqual({ close: during.close - 1, error: during.error - 1 });
+  });
+
+  it("waits out the try, as it did before, when the socket under Nostrify's relay cannot be found (an upgrade moved it)", async () => {
+    const probe = new NRelay1(URL);
+    // websocket-ts's getter, on every socket of its: gone, as an upgrade might leave it.
+    const sockets = Object.getPrototypeOf(probe.socket) as typeof probe.socket;
+    vi.spyOn(sockets, "underlyingWebsocket", "get").mockReturnValue(undefined as unknown as WebSocket);
+    void probe.close().catch(() => {});
+
+    // It is taken as before.
+    const taken = startPublish();
+    taken.socket.open();
+    taken.socket.receive(["OK", event.id, true, ""]);
+    await expect(taken.sending).resolves.toBeUndefined();
+
+    // A lost connection is not seen: the try waits until its signal aborts, with no error of its own.
+    const controller = new AbortController();
+    let outcome: unknown = "pending";
+    void writerFor(URL)
+      .publish(event, controller.signal)
+      .catch((error: unknown) => (outcome = error));
+    const socket = FakeWebSocket.made.at(-1)!;
+    socket.open();
+    socket.lose("close");
+    await settle();
+    expect(outcome).toBe("pending");
+    const reason = new DOMException("The try's time is up", "TimeoutError");
+    controller.abort(reason);
+    await settle();
+    expect(outcome).toBe(reason);
   });
 
   it("fails at once with a NetworkError when the connection is lost before it opens", async () => {
