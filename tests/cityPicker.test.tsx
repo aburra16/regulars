@@ -61,7 +61,7 @@ describe("CityPicker", () => {
       renderPicker([lisbon]);
       expect(screen.getByRole("dialog", { name: copy.location.pickTitle })).toBe(dialog());
       expect(dialog()).toHaveAttribute("aria-modal", "true");
-      expect(screen.getByRole("heading", { name: "Choose a place" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Choose a town" })).toBeInTheDocument();
     });
 
     it("moves the focus to the filter field when it opens", () => {

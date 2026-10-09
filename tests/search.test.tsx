@@ -1999,7 +1999,7 @@ describe("Filters", () => {
       const toggle = screen.getByRole("switch", { name: "Open now" });
       expect(toggle).toHaveAttribute("aria-checked", "false");
       expect(toggle).toHaveAccessibleDescription(copy.filters.openNowNote);
-      expect(screen.getByText("Keeps places with no hours listed.")).toBeInTheDocument();
+      expect(screen.getByText("Places with no hours listed stay in.")).toBeInTheDocument();
     });
 
     it("turns on and off, and is 44 px tall to touch", async () => {

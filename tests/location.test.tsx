@@ -1316,7 +1316,7 @@ describe("the copy", () => {
       "Location is off, so we're showing places near Funchal. Pick a city, or turn on location in your browser settings.",
     );
     expect(copy.location.unavailable).toBe("We couldn't find your location. Pick a city instead.");
-    expect(copy.location.pickTitle).toBe("Choose a place");
+    expect(copy.location.pickTitle).toBe("Choose a town");
     expect(copy.location.useMine).toBe("Use my location");
     expect(copy.location.filterPlaceholder).toBe("Search towns and cities");
     expect(copy.location.count(7)).toBe("7 places");

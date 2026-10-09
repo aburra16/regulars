@@ -181,6 +181,11 @@ describe("copy", () => {
     expect(copy.score.circleUnavailable).toBe("My circle isn't available right now.");
   });
 
+  it("has the words Avi approved for the town picker and the filters (his wording pass, 2026-10-09)", () => {
+    expect(copy.location.pickTitle).toBe("Choose a town");
+    expect(copy.filters.openNowNote).toBe("Places with no hours listed stay in.");
+  });
+
   it("says My circle is not available in the same words wherever it says so", () => {
     expect(copy.circle.unavailable).toBe(copy.score.circleUnavailable);
   });

@@ -253,7 +253,8 @@ export const copy = {
      */
     sort: { score: "House picks' rating", circleScore: "My circle's rating", distance: "Distance", name: "Name" },
     openNow: "Open now",
-    openNowNote: "Keeps places with no hours listed.",
+    /** Under Open now: what it does with places whose hours are not known (Avi, 2026-10-09). */
+    openNowNote: "Places with no hours listed stay in.",
     distance: "Distance",
     kinds: kindOfPlace,
     clearAll: "Clear all",
@@ -1246,10 +1247,11 @@ export const copy = {
     },
   },
   location: {
-    // DRAFT for Avi: every string in this group is a first draft and needs your edit.
+    // DRAFT for Avi: every string in this group but `pickTitle` (Avi, 2026-10-09) is a first draft and needs your edit.
     /** The word after "Near" in the header when the places are around the device: "Near you". */
     you: "you",
-    pickTitle: "Choose a place",
+    /** The town picker's title. */
+    pickTitle: "Choose a town",
     useMine: "Use my location",
     filterPlaceholder: "Search towns and cities",
     close: "Close",
