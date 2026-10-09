@@ -288,7 +288,9 @@ export function Personalize({
  * offers, with Not now, which runs `onClose`. Opened, the focus goes to its first button.
  *
  * Personalize and Try again keep it open through the sign-in they start (ruling F1): it says the add-on
- * or phone app asks, with Cancel and Not now. When the sign-in ends without a circle (declined,
+ * or phone app asks, with Cancel only, the one way to stop it (Not now beside it would read as another,
+ * and leave the sign-in running). Escape, a tap or the focus elsewhere still close the panel, stopping
+ * nothing. When the sign-in ends without a circle (declined,
  * cancelled, failed), it offers Personalize or Try again again, and the focus, if it was in the panel,
  * goes to that. Once the circle is being worked out, it goes, and the focus, if it was in it, goes where
  * `onLeave` puts it, never to the page. What it says is in a polite status, as Personalize's is. A key
@@ -357,12 +359,9 @@ export function DoorPanel({
   } else if (state === "signing") {
     message = approveLine(account?.how);
     actions = (
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-        <button type="button" onClick={fromPanel(circle.cancel)} className={wordButton}>
-          {copy.circle.cancel}
-        </button>
-        {notNow}
-      </div>
+      <button type="button" onClick={fromPanel(circle.cancel)} className={wordButton}>
+        {copy.circle.cancel}
+      </button>
     );
   } else {
     return null;

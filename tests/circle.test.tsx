@@ -469,12 +469,13 @@ describe("a floating panel through the sign-in (ruling F1)", () => {
     return { panel, addOn, user };
   }
 
-  it.each(FLOATING)("stays open on %s, saying the add-on asks, with Cancel, in its status: said once on the page", async (_, path, px) => {
+  it.each(FLOATING)("stays open on %s, saying the add-on asks, with Cancel only, in its status: said once on the page", async (_, path, px) => {
     const { panel } = await signingFrom(path, px);
     expect(panel).toBeInTheDocument();
     expect(within(panel).getByRole("status")).toHaveTextContent(copy.circle.approveBrowser);
     expect(within(panel).getByRole("button", { name: copy.circle.cancel })).toBeInTheDocument();
-    expect(within(panel).getByRole("button", { name: copy.circle.notNow })).toBeInTheDocument();
+    // One way to stop: Not now beside Cancel would read as a second, and leave the sign-in running.
+    expect(within(panel).queryByRole("button", { name: copy.circle.notNow })).toBeNull();
     expect(screen.queryByText(copy.circle.consent)).toBeNull();
     expect(panel).toContainElement(document.activeElement as HTMLElement);
     // The half is off while the circle is asked for, as before.
@@ -522,11 +523,10 @@ describe("a floating panel through the sign-in (ruling F1)", () => {
 
   it.each(
     FLOATING.flatMap(([where, path, px]) =>
-      (["Not now", "Escape", "a tap outside", "Tab out"] as const).map((how) => [how, where, path, px] as const),
+      (["Escape", "a tap outside", "Tab out"] as const).map((how) => [how, where, path, px] as const),
     ),
   )("closes on %s while the add-on asks, on %s, and the sign-in goes on", async (how, _, path, px) => {
     const { panel, addOn, user } = await signingFrom(path, px);
-    if (how === "Not now") await user.click(within(panel).getByRole("button", { name: copy.circle.notNow }));
     if (how === "Escape") await user.keyboard("{Escape}");
     if (how === "a tap outside") await user.click(screen.getByRole("main"));
     if (how === "Tab out") for (let tabs = 0; tabs < 4 && panel.isConnected; tabs++) await user.tab();

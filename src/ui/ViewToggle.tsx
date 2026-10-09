@@ -114,8 +114,9 @@ export function ViewToggle({ value, onChange, scores, variant = "bar", circleSoo
  * a tap opens a panel that floats under the toggle, and closes it again, with the focus on the half;
  * it closes on Not now and Escape (the focus back on the half, or on House picks while the half is off),
  * and on a tap or the focus anywhere else. It stays open through the sign-in its Personalize or Try
- * again starts, and goes once the circle is being worked out, with the focus on House picks if it was
- * in it (ruling F1). While the circle is looked for, or asked for, the half is off and reads "soon".
+ * again starts, with Cancel and no Not now, and goes once the circle is being worked out, with the
+ * focus on House picks if it was in it (ruling F1). While the circle is looked for, or asked for, the
+ * half is off and reads "soon".
  */
 export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "circleSoon" | "circleDoor" | "halves">): JSX.Element {
   const { view, setView } = useView();
