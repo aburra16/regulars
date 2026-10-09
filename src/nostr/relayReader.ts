@@ -1,3 +1,6 @@
+// First: zod is told, before Nostrify uses it, not to try eval (./zod.ts).
+import "./zod.ts";
+
 import { type NostrRelayMsg, NRelay1, type NRelay1Opts } from "@nostrify/nostrify";
 
 import type { RelayReader, RelayWriter } from "./events.ts";

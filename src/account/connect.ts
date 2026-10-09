@@ -1,3 +1,6 @@
+// First: zod is told, before Nostrify uses it, not to try eval (src/nostr/zod.ts).
+import "../nostr/zod.ts";
+
 import {
   NBrowserSigner,
   NConnectSigner,
