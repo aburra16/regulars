@@ -1,4 +1,4 @@
-import { type FocusEvent, type JSX, type Ref, useEffect, useId, useLayoutEffect, useRef } from "react";
+import { type FocusEvent, type JSX, type Ref, useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAccount } from "../account/AccountProvider.tsx";
@@ -33,11 +33,11 @@ const LOOK: Record<ViewToggleVariant, { group: string; button: string }> = {
 
 /**
  * Where the door's own panel floats under the toggle: from the start of the top bar's, as wide as its
- * words need; across the others, as wide as they are.
+ * words need, and never wider than the window inside its gutters; across the others, as wide as they are.
  */
 const FLOAT: Record<ViewToggleVariant, string> = {
   bar: "inset-x-0",
-  compact: "left-0 w-[340px]",
+  compact: "left-0 w-[340px] max-w-[calc(100vw-2*var(--gutter-desktop))]",
   panel: "inset-x-0",
   map: "inset-x-0",
 };
@@ -111,10 +111,11 @@ export function ViewToggle({ value, onChange, scores, variant = "bar", circleSoo
  * Signed in, before their circle is asked for, or when asking for it ended without one, My circle's
  * half is the door to Personalize (`useCircleDoor`; Avi, 2026-10-08). On a page with a panel of its
  * own (the phone's Explore, the Why page), a tap opens it, or goes to it if it shows already. Elsewhere
- * a tap opens a panel that floats under the toggle, and closes it again; it closes on Not now, Escape
- * (the focus back on the half), a tap or the focus anywhere else, and after Personalize or Try again,
- * with the focus on House picks. While the circle is looked for, or worked out, the half is off and
- * reads "soon".
+ * a tap opens a panel that floats under the toggle, and closes it again, with the focus on the half;
+ * it closes on Not now and Escape (the focus back on the half, or on House picks while the half is off),
+ * and on a tap or the focus anywhere else. It stays open through the sign-in its Personalize or Try
+ * again starts, and goes once the circle is being worked out, with the focus on House picks if it was
+ * in it (ruling F1). While the circle is looked for, or asked for, the half is off and reads "soon".
  */
 export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "circleSoon" | "circleDoor" | "halves">): JSX.Element {
   const { view, setView } = useView();
@@ -132,13 +133,14 @@ export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "
   useLayoutEffect(() => addToggle(id, { house, circle: half }), [addToggle, id]);
 
   const open = config.features.circle && circle.ready;
-  // The page's own panel, where it has one; else this toggle's, floating under it.
-  const page = door.door ? door.pagePanel : null;
-  const floating = door.door && page === null && door.openedBy === id;
-  const pageShows = page !== null && (!page.waits || door.openedBy !== null || circle.state !== "off");
+  // The page's own panel, where it has one; else this toggle's, floating under it, open through a sign-in too.
+  const page = door.pagePanel;
+  const floating = page === null && door.openedBy === id;
+  const pageShows = door.door && page !== null && (!page.waits || door.openedBy !== null || circle.state !== "off");
+  const toHouse = useCallback(() => house.current?.focus(), []);
 
-  // Floating, it closes on a tap anywhere else, and on Escape, with the focus back on the half. A tap
-  // is heard before the page's own handlers, which the map's may stop.
+  // Floating, it closes on a tap anywhere else, and on Escape, with the focus back on the half (on House
+  // picks while the half is off). A tap is heard before the page's own handlers, which the map's may stop.
   useEffect(() => {
     if (!floating) return;
     const onDown = (event: PointerEvent) => {
@@ -165,7 +167,7 @@ export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "
     if (next === "circle" && door.door) {
       // The page's panel, showing already, takes the focus; this toggle's own closes again; else it opens.
       if (pageShows) page?.focus();
-      else if (floating) close();
+      else if (floating) close("circle");
       else door.open(id);
       return;
     }
@@ -193,7 +195,7 @@ export function ViewSwitch(props: Omit<ViewToggleProps, "value" | "onChange" | "
         <DoorPanel
           id={panelId}
           className={`absolute top-full z-20 mt-2 ${FLOAT[props.variant ?? "bar"]}`}
-          onStart={() => close("house")}
+          onLeave={toHouse}
           onClose={() => close("circle")}
         />
       )}

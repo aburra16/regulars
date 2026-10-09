@@ -10,7 +10,7 @@ import {
   useRef,
 } from "react";
 
-import { useAccount } from "../account/AccountProvider.tsx";
+import { type Account, useAccount } from "../account/AccountProvider.tsx";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { useCircleEmptiness } from "../score/useScore.ts";
@@ -35,6 +35,20 @@ const quietLine = "m-0 text-secondary leading-[1.4] text-muted";
 type Offered = "off" | "busy" | "failed" | "unavailable";
 
 const offers = (state: CircleState): state is Offered => DOOR_STATES.has(state);
+
+/** The line while the person's add-on, or the app on their phone, asks them to let Brainstorm know it is them. */
+const approveLine = (how: Account["how"] | undefined): ReactNode => (
+  <p className={quietLine}>{how === "phone" ? copy.circle.approvePhone : copy.circle.approveBrowser}</p>
+);
+
+/**
+ * Keeps a key held down from pressing what the focus has just moved to (review I1): My circle's half
+ * puts the focus on Personalize, and Enter or Space, still down from tapping the half, would tap it,
+ * the person's consent not asked for. In a panel, only a fresh press of a key presses a button.
+ */
+function heldKeyPressesNothing(event: KeyboardEvent<HTMLDivElement>): void {
+  if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault();
+}
 
 /**
  * What the door to My circle offers in `state`: in off, Personalize, with decision 26's line under it,
@@ -97,7 +111,9 @@ function offered(
  * Where Personalize is offered (`offer`), before the circle is asked for (Avi, 2026-10-08):
  * - `always`: here, always (the Why page, which explains My circle);
  * - `opened`: here, once My circle's half opens it, with Not now beside it (the phone's Explore);
- * - `toggle`: not here: the panel that floats under the toggle offers it (the desktop's Explore).
+ * - `toggle`: not here: the panel that floats under the toggle offers it (the desktop's Explore). That
+ *   panel says the add-on asks, while it is open (ruling F1): then this one says nothing, so only one
+ *   region says it. Saying nothing, it is there all the same, for its status, and takes no room.
  * Unless the toggle has its own, this is the page's panel, which My circle's half opens or goes to.
  *
  * What it says is in a polite status that is always there while the panel is, so a screen reader hears
@@ -105,7 +121,8 @@ function offered(
  * (asking for the circle can end in off, which it may not offer), on `holdFocus`, the part of the page
  * the panel sits in; Dismiss, which puts the panel away, leaves it there too. Opened from the half, the
  * focus goes to its first button; Not now and Escape close it, and Personalize or Try again too, which
- * leave the focus on the half and on House picks. `className` spaces it from what is around it.
+ * leave the focus on the half and on House picks. A key held down from the half presses nothing in
+ * it. `className` spaces it from what is around it, while it shows something.
  */
 export function Personalize({
   holdFocus,
@@ -173,11 +190,15 @@ export function Personalize({
     case "busy":
     case "failed":
     case "unavailable":
-      if (circle.state === "off" && (offer === "toggle" || (waits && !opened))) return null;
+      if (circle.state === "off" && waits && !opened) return null;
+      // Under the desktop's top bar, its toggle offers Personalize: this says nothing till the circle is asked for.
+      if (circle.state === "off" && offer === "toggle") break;
       ({ message, actions } = offered(circle.state, circle, lineId, start, notNow));
       break;
     case "signing":
-      message = <p className={quietLine}>{account.how === "phone" ? copy.circle.approvePhone : copy.circle.approveBrowser}</p>;
+      // The panel floating under the toggle says it, while it is open (ruling F1).
+      if (offer === "toggle" && openedBy !== null) break;
+      message = approveLine(account.how);
       actions = (
         <button
           type="button"
@@ -240,11 +261,19 @@ export function Personalize({
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    heldKeyPressesNothing(event);
     if (opened && event.key === "Escape") close("circle");
   };
 
+  const shows = message !== null || actions !== null;
   return (
-    <div ref={panel} id={panelId} tabIndex={-1} onKeyDown={onKeyDown} className={`flex flex-col items-start outline-none ${className}`}>
+    <div
+      ref={panel}
+      id={panelId}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+      className={`flex flex-col items-start outline-none ${shows ? className : ""}`}
+    >
       <div role="status" className="w-full">
         {message}
       </div>
@@ -256,31 +285,63 @@ export function Personalize({
 /**
  * The panel My circle's half opens where the page has none of its own (the desktop's top bar, the
  * phone's map), floating under the toggle, in the floating things' ground and shadow: what the door
- * offers, with Not now. Opened, the focus goes to its first button. Personalize and Try again run
- * `onStart` first, which closes it and puts the focus on House picks; Not now runs `onClose`, which
- * closes it and puts the focus back on the half. What it says is in a polite status, as Personalize's is.
+ * offers, with Not now, which runs `onClose`. Opened, the focus goes to its first button.
+ *
+ * Personalize and Try again keep it open through the sign-in they start (ruling F1): it says the add-on
+ * or phone app asks, with Cancel and Not now. When the sign-in ends without a circle (declined,
+ * cancelled, failed), it offers Personalize or Try again again, and the focus, if it was in the panel,
+ * goes to that. Once the circle is being worked out, it goes, and the focus, if it was in it, goes where
+ * `onLeave` puts it, never to the page. What it says is in a polite status, as Personalize's is. A key
+ * held down from the half presses nothing in it.
  */
 export function DoorPanel({
   id,
   className,
-  onStart,
+  onLeave,
   onClose,
 }: {
   id: string;
   className: string;
-  onStart(): void;
+  onLeave(): void;
   onClose(): void;
 }): JSX.Element | null {
+  const { account } = useAccount();
   const circle = useCircle();
+  const { state } = circle;
   const panel = useRef<HTMLDivElement>(null);
   const lineId = useId();
-  useEffect(() => {
-    panel.current?.querySelector("button")?.focus();
-  }, []);
-  if (!offers(circle.state)) return null;
 
-  const tap = (act: () => void) => () => {
-    onStart();
+  // Opened, the focus goes to its first button; and back to its first button when the sign-in ends in an
+  // offer again, if the focus was in the panel, or went with a button that went.
+  const opening = useRef(true);
+  useEffect(() => {
+    const node = panel.current;
+    if (node === null || !offers(state)) return;
+    const at = document.activeElement;
+    if (opening.current || at === null || at === document.body || node.contains(at)) node.querySelector("button")?.focus();
+    opening.current = false;
+  }, [state]);
+
+  // Gone with the focus in it: the focus goes where `onLeave` puts it. Looked at once the panel is out
+  // of the page, so that React's development run of an effect twice moves nothing.
+  const leave = useRef(onLeave);
+  useLayoutEffect(() => {
+    leave.current = onLeave;
+  });
+  useLayoutEffect(() => {
+    const node = panel.current;
+    return () => {
+      if (node === null || !node.contains(document.activeElement)) return;
+      queueMicrotask(() => {
+        const at = document.activeElement;
+        if (!node.isConnected && (at === null || at === document.body)) leave.current();
+      });
+    };
+  }, []);
+
+  /** Runs `act`, with the focus on the panel first: the button pressed is about to go. */
+  const fromPanel = (act: () => void) => () => {
+    panel.current?.focus({ preventScroll: true });
     act();
   };
   const notNow = (
@@ -288,9 +349,33 @@ export function DoorPanel({
       {copy.circle.notNow}
     </button>
   );
-  const { message, actions } = offered(circle.state, circle, lineId, tap, notNow);
+
+  let message: ReactNode;
+  let actions: ReactNode;
+  if (offers(state)) {
+    ({ message, actions } = offered(state, circle, lineId, fromPanel, notNow));
+  } else if (state === "signing") {
+    message = approveLine(account?.how);
+    actions = (
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+        <button type="button" onClick={fromPanel(circle.cancel)} className={wordButton}>
+          {copy.circle.cancel}
+        </button>
+        {notNow}
+      </div>
+    );
+  } else {
+    return null;
+  }
+
   return (
-    <div ref={panel} id={id} className={`flex flex-col items-start rounded-panel bg-ground p-4 shadow-float ${className}`}>
+    <div
+      ref={panel}
+      id={id}
+      tabIndex={-1}
+      onKeyDown={heldKeyPressesNothing}
+      className={`flex flex-col items-start rounded-panel bg-ground p-4 shadow-float outline-none ${className}`}
+    >
       <div role="status" className="w-full">
         {message}
       </div>

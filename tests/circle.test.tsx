@@ -1,5 +1,5 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SESSION_KEY } from "../src/account/session";
 import * as client from "../src/circle/brainstorm";
 import { CIRCLE_KEY, OPEN_POLL_MS, POLL_CAP_MS, POLL_MS } from "../src/circle/CircleProvider";
+import { WHY_PATH } from "../src/circle/paths";
 import { readToken, saveToken, TOKEN_KEY } from "../src/circle/token";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
@@ -131,6 +132,35 @@ function askedNothingButTheLook(): void {
   expect(brainstorm.scorerOf).toHaveBeenCalledTimes(1);
   for (const call of [brainstorm.signInToBrainstorm, brainstorm.latestRun, brainstorm.startRun]) expect(call).not.toHaveBeenCalled();
 }
+
+/**
+ * The add-on asks the person to let Brainstorm know it is them, and waits: `answer` gives their answer
+ * (yes, and the tab has Brainstorm's token; or no). `asked` is the sign-in's signal, once it is asked.
+ */
+function addOnAsks() {
+  let answer: ((yes: boolean) => void) | undefined;
+  let asked: AbortSignal | undefined;
+  brainstorm.signInToBrainstorm.mockImplementation(
+    (pubkey, _signer, signal) =>
+      new Promise((resolve, reject) => {
+        asked = signal;
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        answer = (yes) => {
+          if (!yes) return reject(new Error("User rejected"));
+          saveToken(pubkey, TOKEN);
+          resolve(TOKEN);
+        };
+      }),
+  );
+  return { answer: (yes: boolean) => act(async () => answer?.(yes)), asked: () => asked };
+}
+
+/**
+ * The desktop's Explore column's Personalize: the top of the list's column, under its heading. It is
+ * always there, for its status, once someone signed in is looked at.
+ */
+const columnPersonalize = () =>
+  screen.getByRole("heading", { level: 1, name: copy.pages.explore }).nextElementSibling!.firstElementChild as HTMLElement;
 /** Whether the places are still listed: House picks keeps working. */
 const placesListed = () => document.querySelectorAll('main a[href^="/place/"]').length > 0;
 
@@ -195,6 +225,10 @@ describe("Personalize", () => {
     expect(within(screen.getByRole("banner")).getByRole("group", { name: copy.view.label })).toContainElement(half);
     expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
     expect(screen.queryByText(copy.circle.consent)).toBeNull();
+    // Its status is there, empty, so a screen reader hears what comes; empty, it takes no room.
+    const column = columnPersonalize();
+    expect(within(column).getByRole("status")).toBeEmptyDOMElement();
+    expect(column.className).not.toMatch(/(^|\s)-?[mp][trblxy]?-/);
   });
 
   it("is not there for someone signed out, who asks Brainstorm nothing, and My circle takes them to sign in", async () => {
@@ -332,35 +366,186 @@ describe("the door: My circle's half, while the person's circle is not asked for
     askedNothingButTheLook();
   });
 
-  it.each(PLACES)(
-    "starts the same flow from the panel's Personalize on %s: signing, then the half off and 'soon', the focus on House picks",
+  it.each(FLOATING)("closes when the focus leaves it by Tab, on %s, reaching nothing at Brainstorm", async (_, path, px) => {
+    signedIn();
+    const user = aUser();
+    await openAt(path, px);
+    const half = await theDoor();
+    await user.click(half);
+    const panel = panelOf(half)!;
+    expect(screen.getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: copy.circle.notNow })).toHaveFocus();
+    await user.tab();
+    expect(panel).not.toBeInTheDocument();
+    expect(half).toHaveAttribute("aria-expanded", "false");
+    expect(document.activeElement).not.toBe(document.body);
+    askedNothingButTheLook();
+  });
+
+  it.each(FLOATING)("closes on another tap of the half, on %s, with the focus on the half", async (_, path, px) => {
+    signedIn();
+    const user = aUser();
+    await openAt(path, px);
+    const half = await theDoor();
+    await user.click(half);
+    expect(screen.getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    // A click that moves no focus, as Safari's does not: it stays in the panel until the half takes it.
+    fireEvent.click(half);
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(half).toHaveAttribute("aria-expanded", "false");
+    expect(half).toHaveFocus();
+    askedNothingButTheLook();
+  });
+
+  it("closes on another page, from the desktop's top bar", async () => {
+    signedIn();
+    const user = aUser();
+    const { router } = await open(DESKTOP);
+    await user.click(await theDoor());
+    expect(screen.getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    await act(() => router.navigate("/about"));
+    expect(screen.queryByRole("button", { name: copy.circle.personalize })).toBeNull();
+    expect(await theDoor()).toHaveAttribute("aria-expanded", "false");
+    expect(document.activeElement).not.toBe(document.body);
+    askedNothingButTheLook();
+  });
+
+  it.each([...PLACES, ["the phone's Why page", WHY_PATH, undefined]] as const)(
+    "takes no consent from Enter held down on My circle's half, on %s: Personalize waits for a press of its own",
     async (_, path, px) => {
-      const pubkey = signedIn();
-      // The add-on asks the person, who has not answered yet.
-      brainstorm.signInToBrainstorm.mockImplementation(
-        (_pubkey, _signer, signal) =>
-          new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
-      );
+      signedIn();
       const user = aUser();
       await openAt(path, px);
-      await user.click(await openDoor(user));
-
-      await waitFor(() =>
-        expect(brainstorm.signInToBrainstorm).toHaveBeenCalledWith(pubkey, expect.anything(), expect.any(AbortSignal), { how: "browser" }),
-      );
-      expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
-      expect(myCircle()).toBeDisabled();
-      expect(myCircle()).not.toHaveAttribute("aria-expanded");
-      expect(housePicks()).toHaveAttribute("aria-pressed", "true");
-      expect(housePicks()).toHaveFocus();
-      // The panel has closed: its offer is gone.
-      expect(screen.queryByText(copy.circle.consent)).toBeNull();
-      expect(screen.queryByRole("button", { name: copy.circle.notNow })).toBeNull();
-      // Explore says what is going on, as before: under the phone's toggle, in the desktop's list column.
-      if (path === "/") expect(await screen.findByText(copy.circle.approveBrowser)).toBeInTheDocument();
-      expect(brainstorm.startRun).not.toHaveBeenCalled();
+      await waitFor(() => expect(myCircle()).toHaveTextContent(/^My circle$/));
+      const half = myCircle();
+      act(() => half.focus());
+      // The key's first press opens the panel, which takes the focus; the key, still down, repeats there.
+      await user.keyboard("{Enter>4/}");
+      expect(screen.getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+      await after(POLL_MS);
+      expect(brainstorm.signInToBrainstorm).not.toHaveBeenCalled();
+      askedNothingButTheLook();
     },
   );
+
+  it("starts the same flow from the phone's Explore panel's Personalize: signing, then the half off and 'soon', the focus on House picks", async () => {
+    const pubkey = signedIn();
+    addOnAsks();
+    const user = aUser();
+    await open();
+    await user.click(await openDoor(user));
+
+    await waitFor(() =>
+      expect(brainstorm.signInToBrainstorm).toHaveBeenCalledWith(pubkey, expect.anything(), expect.any(AbortSignal), { how: "browser" }),
+    );
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    expect(myCircle()).toBeDisabled();
+    expect(myCircle()).not.toHaveAttribute("aria-expanded");
+    expect(housePicks()).toHaveAttribute("aria-pressed", "true");
+    expect(housePicks()).toHaveFocus();
+    // The panel has closed: its offer is gone. Under the toggle, as before, it says what is going on.
+    expect(screen.queryByText(copy.circle.consent)).toBeNull();
+    expect(screen.queryByRole("button", { name: copy.circle.notNow })).toBeNull();
+    expect(await screen.findByText(copy.circle.approveBrowser)).toBeInTheDocument();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("a floating panel through the sign-in (ruling F1)", () => {
+  /** Opens the door on `path`, taps Personalize, and gives back the panel, which the add-on now asks from. */
+  async function signingFrom(path: string, px: number | undefined) {
+    const pubkey = signedIn();
+    const addOn = addOnAsks();
+    const user = aUser();
+    await openAt(path, px);
+    const half = await theDoor();
+    await user.click(half);
+    const panel = panelOf(half)!;
+    await user.click(within(panel).getByRole("button", { name: copy.circle.personalize }));
+    await waitFor(() =>
+      expect(brainstorm.signInToBrainstorm).toHaveBeenCalledWith(pubkey, expect.anything(), expect.any(AbortSignal), { how: "browser" }),
+    );
+    return { panel, addOn, user };
+  }
+
+  it.each(FLOATING)("stays open on %s, saying the add-on asks, with Cancel, in its status: said once on the page", async (_, path, px) => {
+    const { panel } = await signingFrom(path, px);
+    expect(panel).toBeInTheDocument();
+    expect(within(panel).getByRole("status")).toHaveTextContent(copy.circle.approveBrowser);
+    expect(within(panel).getByRole("button", { name: copy.circle.cancel })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: copy.circle.notNow })).toBeInTheDocument();
+    expect(screen.queryByText(copy.circle.consent)).toBeNull();
+    expect(panel).toContainElement(document.activeElement as HTMLElement);
+    // The half is off while the circle is asked for, as before.
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    expect(myCircle()).toBeDisabled();
+    // One region says it: the desktop's list column keeps its status, empty, and has no Cancel of its own.
+    expect(screen.getAllByText(copy.circle.approveBrowser)).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: copy.circle.cancel })).toHaveLength(1);
+    if (px === DESKTOP) expect(within(columnPersonalize()).getByRole("status")).toBeEmptyDOMElement();
+    expect(brainstorm.latestRun).not.toHaveBeenCalled();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+  });
+
+  it.each(FLOATING)("goes back to Personalize in the panel on Cancel, on %s, with the focus on it", async (_, path, px) => {
+    const { panel, addOn, user } = await signingFrom(path, px);
+    await user.click(within(panel).getByRole("button", { name: copy.circle.cancel }));
+    expect(addOn.asked()?.aborted).toBe(true);
+    expect(within(panel).getByText(copy.circle.consent)).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    expect(myCircle()).toHaveTextContent(/^My circle$/);
+    expect(myCircle()).toHaveAttribute("aria-expanded", "true");
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+  });
+
+  it.each(FLOATING)("shows Personalize again when the add-on says no, on %s, with the focus on it", async (_, path, px) => {
+    const { panel, addOn } = await signingFrom(path, px);
+    await addOn.answer(false);
+    expect(await within(panel).findByText(copy.circle.consent)).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: copy.circle.personalize })).toHaveFocus();
+    expect(within(panel).queryByRole("button", { name: copy.circle.cancel })).toBeNull();
+    expect(screen.queryByText(copy.circle.unavailable)).toBeNull();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+  });
+
+  it.each(FLOATING)("closes once the circle is being worked out, on %s, with the focus on House picks", async (_, path, px) => {
+    const { panel, addOn } = await signingFrom(path, px);
+    await addOn.answer(true);
+    await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledTimes(1));
+    expect(panel).not.toBeInTheDocument();
+    expect(housePicks()).toHaveFocus();
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    // The desktop's list column says it is being worked out; on the map, "My circle · soon" does.
+    if (px === DESKTOP) expect(within(columnPersonalize()).getByRole("status")).toHaveTextContent(copy.circle.workingTitle);
+  });
+
+  it.each(
+    FLOATING.flatMap(([where, path, px]) =>
+      (["Not now", "Escape", "a tap outside", "Tab out"] as const).map((how) => [how, where, path, px] as const),
+    ),
+  )("closes on %s while the add-on asks, on %s, and the sign-in goes on", async (how, _, path, px) => {
+    const { panel, addOn, user } = await signingFrom(path, px);
+    if (how === "Not now") await user.click(within(panel).getByRole("button", { name: copy.circle.notNow }));
+    if (how === "Escape") await user.keyboard("{Escape}");
+    if (how === "a tap outside") await user.click(screen.getByRole("main"));
+    if (how === "Tab out") for (let tabs = 0; tabs < 4 && panel.isConnected; tabs++) await user.tab();
+    expect(panel).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+    // Closing it is not Cancel: the add-on still asks, and nothing else has gone to Brainstorm.
+    expect(addOn.asked()?.aborted).toBe(false);
+    expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
+    expect(brainstorm.latestRun).not.toHaveBeenCalled();
+    expect(brainstorm.startRun).not.toHaveBeenCalled();
+    expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
+    // The desktop's list column says it now, with its Cancel.
+    if (px === DESKTOP) expect(within(columnPersonalize()).getByRole("status")).toHaveTextContent(copy.circle.approveBrowser);
+    await addOn.answer(true);
+    await waitFor(() => expect(brainstorm.startRun).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("My circle's half, once the circle is asked for", () => {
 
   it.each(
     PLACES.flatMap(([where, path, px]) => (["failed", "busy", "unavailable"] as const).map((state) => [state, where, path, px] as const)),
@@ -393,8 +578,10 @@ describe("the door: My circle's half, while the person's circle is not asked for
     expect(brainstorm.signInToBrainstorm).toHaveBeenCalledTimes(1);
     expect(myCircle()).toHaveTextContent(copy.view.circleSoon);
     expect(myCircle()).toBeDisabled();
-    expect(document.activeElement).not.toBe(document.body);
-    if (!inline) expect(housePicks()).toHaveFocus();
+    // Under the phone's toggle the focus waits on the toggle's block: the panel may go if the add-on says no.
+    // From a panel that floats, it goes to House picks once the circle is being worked out.
+    if (inline) expect(document.activeElement).toBe(toggle().closest('[tabindex="-1"]'));
+    else expect(housePicks()).toHaveFocus();
   });
 
   it.each([

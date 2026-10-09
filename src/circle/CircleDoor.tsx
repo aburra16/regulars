@@ -18,6 +18,11 @@ import { type CircleState, useCircle } from "./CircleProvider.tsx";
  * circle and keeps Personalize in view. Elsewhere (the desktop's top bar, the phone's map), the toggle
  * opens a panel of its own, floating under it. One panel is open at a time on a page, and none once
  * the person goes to another page.
+ *
+ * A floating panel stays open through the sign-in its Personalize or Try again starts (ruling F1): it
+ * says the add-on or phone app asks, with Cancel; it closes once the circle is being worked out, and
+ * offers Personalize or Try again again if the sign-in ends without a circle (declined, cancelled,
+ * failed). The half itself is off meanwhile, and reads "soon".
  */
 
 /** The states in which My circle's half is the door: the circle is not asked for, or asking for it ended without one. */
@@ -45,14 +50,18 @@ export interface CircleDoorValue {
    * is signed in, and their circle is off, busy, failed or unavailable.
    */
   door: boolean;
-  /** The toggle whose half opened the panel, while it is open: its id. */
+  /**
+   * The toggle whose half opened the panel, while it is open: its id. It stays open through the sign-in
+   * that Personalize or Try again starts from it, while the half is off (ruling F1).
+   */
   openedBy: string | null;
   /** Opens the panel, from the half of the toggle `by`. */
   open(by: string): void;
   /**
    * Closes the panel. The focus goes to the toggle that opened it: to its half (`circle`: Not now,
-   * Escape) or to House picks (`house`: Personalize, Try again, after which the half is off a while);
-   * or, with neither, stays where it is (a tap elsewhere).
+   * Escape), or to House picks (`house`: Personalize, Try again, after which the half is off a while; and
+   * in place of the half while it is off); or, with neither, stays where it is (a tap elsewhere).
+   * Closing it stops nothing: a sign-in under way goes on.
    */
   close(focus?: View): void;
   /** The page's own panel, while it has one. */
@@ -68,13 +77,16 @@ const DoorContext = createContext<CircleDoorValue | null>(null);
 /**
  * The door to My circle, for every toggle and Personalize on the page below it (`useCircleDoor`). It
  * must be inside the router, the account provider and the circle's provider. Another page closes the
- * panel, and so does the half no longer being the door (Personalize was tapped, or the person signed out).
+ * panel, and so do the circle being worked out, or ready, and the person signing out.
  */
 export function CircleDoorProvider({ children }: { children: ReactNode }): JSX.Element {
   const { account } = useAccount();
   const { state } = useCircle();
   const { pathname } = useLocation();
-  const door = config.features.circle && account !== undefined && DOOR_STATES.has(state);
+  const signedIn = config.features.circle && account !== undefined;
+  const door = signedIn && DOOR_STATES.has(state);
+  // A floating panel stays open through the sign-in it started (ruling F1).
+  const stays = door || (signedIn && state === "signing");
   const [openedBy, setOpenedBy] = useState<string | null>(null);
   const [pagePanel, setPanel] = useState<PagePanel | null>(null);
 
@@ -84,8 +96,8 @@ export function CircleDoorProvider({ children }: { children: ReactNode }): JSX.E
     setPage(pathname);
     setOpenedBy(null);
   }
-  // The half is no longer the door: there is nothing for the panel to offer.
-  if (!door && openedBy !== null) setOpenedBy(null);
+  // The circle is being worked out, or ready, or the person signed out: there is nothing for the panel to say.
+  if (!stays && openedBy !== null) setOpenedBy(null);
 
   // The toggles on the page, and the one that opened the panel last: what closing focuses is read as it closes.
   const toggles = useRef(new Map<string, Halves>());
@@ -98,7 +110,9 @@ export function CircleDoorProvider({ children }: { children: ReactNode }): JSX.E
 
   const close = useCallback((focus?: View) => {
     const halves = opener.current === null ? undefined : toggles.current.get(opener.current);
-    if (focus !== undefined) halves?.[focus].current?.focus();
+    // The half is off while the circle is asked for: House picks, then.
+    const to = focus === "circle" && halves?.circle.current?.disabled === true ? "house" : focus;
+    if (to !== undefined) halves?.[to].current?.focus();
     setOpenedBy(null);
   }, []);
 
@@ -117,8 +131,8 @@ export function CircleDoorProvider({ children }: { children: ReactNode }): JSX.E
   }, []);
 
   const value = useMemo<CircleDoorValue>(
-    () => ({ door, openedBy: door ? openedBy : null, open, close, pagePanel, setPagePanel, addToggle }),
-    [door, openedBy, open, close, pagePanel, setPagePanel, addToggle],
+    () => ({ door, openedBy: stays ? openedBy : null, open, close, pagePanel, setPagePanel, addToggle }),
+    [door, stays, openedBy, open, close, pagePanel, setPagePanel, addToggle],
   );
   return <DoorContext value={value}>{children}</DoorContext>;
 }
