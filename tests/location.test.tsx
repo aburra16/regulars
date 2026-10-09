@@ -636,6 +636,98 @@ describe("where a first visit starts", () => {
     });
   });
 
+  describe("a town kept before the towns of GeoNames", () => {
+    // Prague as the indexes have it now: GeoNames' name and point, and the names its places give it.
+    const prague: City = { name: "Prague", country: "CZ", lat: 50.088, lon: 14.4208, count: 31, geonameId: 3067696, aliases: ["praha", "praha 10"] };
+    const keep = (town: object) => window.localStorage.setItem(STORAGE_KEY, JSON.stringify(town));
+
+    it("is called by the town it is now once the towns load, kept by its old locality's name, and the device keeps that", () => {
+      // Picked when towns were the places' localities: Praha, at the middle of its places.
+      keep({ name: "Praha", country: "CZ", lat: 50.0835, lon: 14.4341 });
+      override.cities = null;
+      const view = renderHere();
+      expect(view.result.current).toMatchObject({ label: "Praha", source: "city" });
+
+      override.cities = [porto, prague];
+      view.rerender();
+      expect(view.result.current).toMatchObject({ label: "Prague", lat: prague.lat, lon: prague.lon, source: "city", settling: false });
+      expect(JSON.parse(saved()!)).toEqual({ name: "Prague", country: "CZ", lat: prague.lat, lon: prague.lon });
+      view.unmount();
+
+      // The next visit starts there, before the towns load.
+      override.cities = null;
+      expect(renderHere().result.current).toMatchObject({ label: "Prague", lat: prague.lat, source: "city" });
+    });
+
+    it("is found by a district's name its places gave it too", () => {
+      keep({ name: "Praha 10", country: "CZ", lat: 50.07, lon: 14.48 });
+      override.cities = [prague];
+      expect(renderHere().result.current).toMatchObject({ label: "Prague", lat: prague.lat, lon: prague.lon });
+    });
+
+    it("stays as it was when no town is it now, and the device keeps it as it was", () => {
+      const atlantis = { name: "Atlantis", country: "PT", lat: 10, lon: 20 };
+      keep(atlantis);
+      override.cities = [lisbon, porto, prague];
+      expect(renderHere().result.current).toMatchObject({ label: "Atlantis", lat: 10, lon: 20, source: "city" });
+      expect(JSON.parse(saved()!)).toEqual(atlantis);
+    });
+
+    it("is not taken for a town of another country, or one beyond a town's reach, that has the name", () => {
+      const lisboa = { name: "Lisboa", country: "PT", lat: 38.72, lon: -9.14 };
+      keep(lisboa);
+      override.cities = [
+        { name: "Lisbon", country: "US", lat: 40.772, lon: -80.7681, count: 1, geonameId: 5160951, aliases: ["lisboa"] },
+        { name: "Lisbon", country: "PT", lat: 41.5, lon: -8.6, count: 1, geonameId: 1, aliases: ["lisboa"] },
+      ];
+      expect(renderHere().result.current).toMatchObject({ label: "Lisboa", lat: 38.72, lon: -9.14 });
+      expect(JSON.parse(saved()!)).toEqual(lisboa);
+    });
+
+    it("takes the point of the town of the same name it is now", () => {
+      // Funchal, kept at the middle of its places; now at GeoNames' point, 2 km away.
+      keep({ name: "Funchal", country: "PT", lat: 32.6507, lon: -16.9084 });
+      override.cities = [{ name: "Funchal", country: "PT", lat: 32.6657, lon: -16.9255, count: 59, geonameId: 2267827, aliases: [] }];
+      expect(renderHere().result.current).toMatchObject({ label: "Funchal", lat: 32.6657, lon: -16.9255 });
+    });
+
+    it("leaves a town picked from the towns as it is", () => {
+      keep({ name: "Prague", country: "CZ", lat: prague.lat, lon: prague.lon });
+      const write = vi.spyOn(Storage.prototype, "setItem");
+      override.cities = [prague];
+      expect(renderHere().result.current).toMatchObject({ label: "Prague", lat: prague.lat });
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it("says Near Prague once the places and their towns load, for a device that kept Praha", async () => {
+      override.cities = undefined;
+      keep({ name: "Praha", country: "CZ", lat: 50.0835, lon: 14.4341 });
+      const inPrague = ["Praha", "Praha 10", undefined].map((locality, i) => ({
+        ...fixtures[i]!,
+        id: `${i + 1}`.padStart(64, "c"),
+        tags: [
+          ...fixtures[i]!.tags.filter(([name]) => !["d", "locality", "lat", "lon", "country"].includes(name!)),
+          ["d", `prague-kept-${i}`],
+          ...(locality === undefined ? [] : [["locality", locality]]),
+          ["country", "CZ"],
+          ["lat", String(50.088 + i * 0.001)],
+          ["lon", "14.4208"],
+        ],
+      }));
+      render(
+        <PlacesProvider reader={createMemoryReader([...fixtures, ...inPrague], { delayMs: 5 })}>
+          <HereProvider>
+            <NearButton />
+          </HereProvider>
+        </PlacesProvider>,
+      );
+      // While the places load, the town as it was kept.
+      expect(screen.getByRole("button", { name: "Near Praha" })).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "Near Prague" })).toBeInTheDocument();
+      expect(JSON.parse(saved()!)).toMatchObject({ name: "Prague", country: "CZ" });
+    });
+  });
+
   describe("while the places load", () => {
     it("is settling, names no town in the header, and settles on the guess when the towns come", () => {
       zoneIs("Europe/Lisbon");

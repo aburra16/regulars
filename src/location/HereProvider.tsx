@@ -5,6 +5,7 @@ import { copy } from "../copy/en.ts";
 import { type City, cityLabel } from "../places/indexes.ts";
 import { useIndexes } from "../places/useIndexes.ts";
 import { startGuesser } from "./guess.ts";
+import { keptTownNow } from "./keptTown.ts";
 import {
   DEVICE_OPTIONS,
   DEVICE_WAIT_MS,
@@ -50,7 +51,9 @@ function firstState(): State {
  * does not allow it, it is the main town near the place the device's time zone is named for, or
  * else the one with the most places in the language's country (`guess.ts`), once the places have
  * loaded; and with none of those, the default city. The device's own position is held in memory
- * only. Use it inside a `PlacesProvider`, whose towns it guesses from and names the picked city from.
+ * only. A city kept before the towns of GeoNames, by its places' locality ("Praha"), is the town it is
+ * now ("Prague") once the towns load, and the device keeps that (`keptTownNow`). Use it inside a
+ * `PlacesProvider`, whose towns it guesses from and names the picked city from.
  */
 export function HereProvider({ children }: { children: ReactNode }): JSX.Element {
   const cities = useIndexes()?.cities;
@@ -138,6 +141,14 @@ export function HereProvider({ children }: { children: ReactNode }): JSX.Element
     });
   }, [unpicked, ask]);
 
+  // A city kept by a name the towns no longer have is the town it is now, as soon as the towns are
+  // known: before anything shows it there, so the list does not start at the old point and move.
+  const kept = state.choice.source === "city" ? state.choice.city : undefined;
+  const keptNow = useMemo(() => (kept === undefined || cities === undefined ? undefined : keptTownNow(kept, cities)), [kept, cities]);
+  useEffect(() => {
+    if (keptNow !== undefined) writeSavedCity(keptNow);
+  }, [keptNow]);
+
   // The guess, only while it is needed, and once there are towns to guess from.
   const town = useMemo(
     () => (unpicked && cities !== undefined ? guess(cities) : undefined),
@@ -148,7 +159,8 @@ export function HereProvider({ children }: { children: ReactNode }): JSX.Element
     const { choice, problem, pending, waiting } = state;
     let where: Pick<Here, "label" | "lat" | "lon" | "source">;
     if (choice.source === "city") {
-      where = { label: cityLabel(choice.city, cities ?? []), lat: choice.city.lat, lon: choice.city.lon, source: "city" };
+      const city = keptNow ?? choice.city;
+      where = { label: cityLabel(city, cities ?? []), lat: city.lat, lon: city.lon, source: "city" };
     } else if (choice.source === "device") {
       where = { label: copy.location.you, lat: choice.lat, lon: choice.lon, source: "device" };
     } else if (town !== undefined) {
@@ -165,7 +177,7 @@ export function HereProvider({ children }: { children: ReactNode }): JSX.Element
       useDevice,
       pickCity,
     };
-  }, [state, cities, town, useDevice, pickCity]);
+  }, [state, cities, keptNow, town, useDevice, pickCity]);
 
   return <HereContext value={value}>{children}</HereContext>;
 }
