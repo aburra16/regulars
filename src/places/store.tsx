@@ -130,21 +130,26 @@ function mayReplace(count: number, complete: boolean, saved: { count: number } |
  * waits for them `TOWNS_WAIT_MS` at most; past that, the places show in the towns their localities
  * name, and are put in the towns of the file when they come, once. When the chunk could not be loaded,
  * it is loaded again when the browser is back on line. `towns`, read once on mount, gives them instead
- * (null: as if they could not be loaded); a test that passes them never loads the chunk.
+ * (null: as if they could not be loaded); a test that passes them never loads the chunk. `townsWaitMs`,
+ * read once on mount, is how long the places wait for them (default `TOWNS_WAIT_MS`).
  */
 export function PlacesProvider({
   children,
   reader,
   towns,
+  townsWaitMs = TOWNS_WAIT_MS,
 }: {
   children: ReactNode;
   reader?: RelayReader;
   towns?: TownList | null;
+  /** How long ready places wait for their towns, in milliseconds, read once on mount. Default `TOWNS_WAIT_MS`. */
+  townsWaitMs?: number;
 }): JSX.Element {
   const [state, setState] = useState<PlacesState>(LOADING);
   const [attempt, setAttempt] = useState(0);
   const [givenReader] = useState(reader);
   const [givenTowns] = useState(towns);
+  const [townsWait] = useState(townsWaitMs);
   // The towns: undefined while their chunk has not come, null when it could not be loaded.
   const [loadedTowns, setLoadedTowns] = useState<TownList | null | undefined>(givenTowns);
   const [townsAttempt, setTownsAttempt] = useState(0);
@@ -184,7 +189,7 @@ export function PlacesProvider({
       Promise.race([
         townsLoad.current,
         new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, TOWNS_WAIT_MS);
+          const timer = setTimeout(resolve, townsWait);
           signal.addEventListener("abort", () => {
             clearTimeout(timer);
             resolve();
@@ -264,7 +269,7 @@ export function PlacesProvider({
     })();
 
     return () => controller.abort();
-  }, [attempt, givenReader, givenTowns]);
+  }, [attempt, givenReader, givenTowns, townsWait]);
 
   const retry = useCallback(() => {
     setState((current) => (current.status === "error" ? LOADING : current));

@@ -48,12 +48,20 @@ afterEach(() => {
   device.onRead = undefined;
 });
 
-/** Renders the places and their indexes inside a provider that reads `events`, or reads with `reader`. */
-function renderPlaces(events: NostrEvent[], given?: { towns?: TownList | null; reader?: RelayReader }) {
+/**
+ * Renders the places and their indexes inside a provider that reads `events`, or reads with `reader`.
+ * The places wait for their towns a minute unless `townsWaitMs` says otherwise: no test leans on a real
+ * window of time.
+ */
+function renderPlaces(events: NostrEvent[], given?: { towns?: TownList | null; reader?: RelayReader; townsWaitMs?: number }) {
   const reader = given?.reader ?? createMemoryReader(events);
   return renderHook(() => ({ places: usePlaces(), indexes: useIndexes() }), {
     wrapper: ({ children }: { children: ReactNode }) => (
-      <PlacesProvider reader={reader} {...(given?.towns === undefined ? {} : { towns: given.towns })}>
+      <PlacesProvider
+        reader={reader}
+        townsWaitMs={given?.townsWaitMs ?? 60_000}
+        {...(given?.towns === undefined ? {} : { towns: given.towns })}
+      >
         {children}
       </PlacesProvider>
     ),
@@ -130,7 +138,13 @@ describe("the places, with their towns", () => {
         if (value.places.status === "ready") seen.push(value.places.towns);
         return value;
       },
-      { wrapper: ({ children }: { children: ReactNode }) => <PlacesProvider reader={reader}>{children}</PlacesProvider> },
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <PlacesProvider reader={reader} townsWaitMs={60_000}>
+            {children}
+          </PlacesProvider>
+        ),
+      },
     );
 
     // The saved copy has been read, and the relay has answered: still loading, a moment, for the towns.
@@ -147,6 +161,7 @@ describe("the places, with their towns", () => {
     expect(result.current.indexes!.cities.map((city) => [city.name, city.count])).toEqual([["Funchal", 43]]);
     // Never on screen without them.
     expect(seen.every((each) => each === list)).toBe(true);
+    // The app's own wait, which this test sets longer.
     expect(TOWNS_WAIT_MS).toBe(300);
   });
 
@@ -154,7 +169,8 @@ describe("the places, with their towns", () => {
     vi.mocked(buildIndexes).mockClear();
     const slow = later<TownList | null>();
     towns.load = () => slow.promise;
-    const { result } = renderPlaces(fixtures);
+    // No wait at all: the chunk has stalled as soon as the places are in.
+    const { result } = renderPlaces(fixtures, { townsWaitMs: 0 });
 
     // Past the wait: the places, in the towns their localities name.
     await waitFor(() => expect(result.current.indexes?.byD.size).toBe(43));
