@@ -243,13 +243,13 @@ const LOGGED_REASON_MAX = 200;
 
 /**
  * `reason` as it may be logged: anything in it that would name a person or an event, as a relay may
- * echo one back (a key or an id in hex, an npub1, note1, nevent1 or nprofile1), as "[redacted]", and
- * no longer than `LOGGED_REASON_MAX`.
+ * echo one back (a key, an id or a signature in hex, an npub1, note1, nevent1, nprofile1 or naddr1),
+ * as "[redacted]", and no longer than `LOGGED_REASON_MAX`.
  */
 function loggable(reason: string): string {
   const redacted = reason
-    .replace(/\b[0-9a-f]{64}\b/gi, "[redacted]")
-    .replace(/\b(?:npub|note|nevent|nprofile)1[02-9ac-hj-np-z]+\b/gi, "[redacted]");
+    .replace(/[0-9a-f]{64,}/gi, "[redacted]")
+    .replace(/\b(?:npub|note|nevent|nprofile|naddr)1[02-9ac-hj-np-z]+\b/gi, "[redacted]");
   return redacted.length <= LOGGED_REASON_MAX ? redacted : `${redacted.slice(0, LOGGED_REASON_MAX - 1)}…`;
 }
 

@@ -801,14 +801,15 @@ describe("patience with the review relays (rulings P1 and P2)", () => {
 
   it("keeps out of a warning anything that names a person or an event in what a relay said, and keeps it short", async () => {
     const hex = "ab".repeat(32);
-    const bech32 = ["npub1", "note1", "nevent1", "nprofile1"].map((prefix) => `${prefix}${"qpzry9x8gf2tvdw0s3jn54khce6mua7l".repeat(2)}`);
-    const said = `blocked: ${hex} and ${bech32.join(", ")} are not allowed ${"x".repeat(300)}`;
+    const signature = "cd".repeat(64);
+    const bech32 = ["npub1", "note1", "nevent1", "nprofile1", "naddr1"].map((prefix) => `${prefix}${"qpzry9x8gf2tvdw0s3jn54khce6mua7l".repeat(2)}`);
+    const said = `blocked: ${hex} and ${bech32.join(", ")} are not allowed (${signature}) ${"x".repeat(300)}`;
     const sent = send(signed(), [SEARCH], writersOver({ [SEARCH]: createMemoryWriter({ refuse: said }) }));
     await vi.waitFor(() => expect(sent.error).toBeInstanceOf(NotPosted));
 
     const [line] = postWarnings(warnings);
     const reason = line!.slice(`[post] ${SEARCH} did not take it: `.length);
-    expect(reason.startsWith("blocked: [redacted] and [redacted], [redacted], [redacted], [redacted] are not allowed x")).toBe(true);
+    expect(reason.startsWith("blocked: [redacted] and [redacted], [redacted], [redacted], [redacted], [redacted] are not allowed ([redacted]) x")).toBe(true);
     expect(reason).toHaveLength(200);
     expect(reason.endsWith("…")).toBe(true);
     // What it said is kept whole where it is not logged.
