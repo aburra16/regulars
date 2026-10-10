@@ -10,7 +10,7 @@ What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: 
 - **Benjamin:** done. His review is live (decision 29); the review relay had run out of memory.
 
 **Copy**
-- Avi walked through every screen's wording on 2026-10-09. One string is still marked DRAFT in `src/copy/en.ts`: `reviews.uncounted` ("2 reviews, shown without a rating for now"), reworded after his pass.
+- Avi walked through every screen's wording on 2026-10-09. Two strings are marked DRAFT in `src/copy/en.ts`: `reviews.uncounted` ("2 reviews, shown without a rating for now"), reworded after his pass, and `framed.open` ("Open Regulars"), the one link the site shows in another site's frame.
 
 **Product calls**
 - All settled on 2026-10-09 (decisions 36 to 43).
@@ -38,7 +38,6 @@ What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: 
 
 - **The importer** (in the mise-en-place repo; still open): never more than 10,000 places at one `created_at`, or returning visitors stay on their saved copy.
 - **Duplicates:** the same venue mapped twice within 50 m shows twice.
-- **Framing:** the Content Security Policy is a meta tag, which can't set `frame-ancestors`, so nothing keeps the site out of another site's frame. Only a header can, and GitHub Pages sets none.
 - **CI:** `ubuntu-latest` moves to Ubuntu 26 on 19 October; watch the first run after.
 
 ## Small deferred items
@@ -79,6 +78,7 @@ What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: 
 - Under attack, a forged newer version of a place hides the real one: the newest version at each address is kept before the signatures are checked, so that place is gone until a clean load.
 - The first signature check of a visit takes about 20 ms on a desktop (the curve's tables), past the 16 ms aim for a slice; each later one about 1 ms.
 - MapLibre's worker takes its policy from the headers its file is served with, so the meta tag's doesn't reach it.
+- A first visit that finds a forged place, with no saved copy, shows "loading" for the whole list's check: about 9.5 s on a desktop, longer on a phone.
 
 **Tests and proof** (M2a record)
 - Proof marker tags.

@@ -7,8 +7,9 @@
  * address the code reaches is allowed.
  *
  * A policy in a meta tag cannot set frame-ancestors, report-uri or sandbox: browsers ignore them there.
- * Only a header could keep the site out of other sites' frames. Nor does it reach MapLibre's worker,
- * which takes its policy from the headers its own file is served with.
+ * Only a header could keep the site out of other sites' frames, so the app keeps itself out: in a
+ * frame it draws only a link that opens it on its own (src/shell/Framed.tsx). Nor does the policy reach
+ * MapLibre's worker, which takes its policy from the headers its own file is served with.
  *
  * The development server has none: Vite's client and React's refresh run scripts written into the page.
  */

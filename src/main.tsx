@@ -33,6 +33,7 @@ import { HereProvider } from "./location/HereProvider.tsx";
 import { PlacesProvider } from "./places/store.tsx";
 import { routes } from "./routes.tsx";
 import { ScoresProvider } from "./score/ScoresProvider.tsx";
+import { FramedLink, isFramed } from "./shell/Framed.tsx";
 import { forgetScrollOfFreshVisit } from "./shell/scrollKey.ts";
 import { followDevice } from "./theme/theme.ts";
 import { APP_ROOT_ID } from "./ui/lockPage.ts";
@@ -44,7 +45,6 @@ if (!root) throw new Error(`Missing #${APP_ROOT_ID} element in index.html`);
 forgetScrollOfFreshVisit();
 // The theme index.html set before the first paint follows the device's setting from here, until the person chooses one.
 followDevice();
-const router = createBrowserRouter(routes);
 
 // The places load once for the whole app; the reviews, ranks and names of the places that pages ask
 // about are read once a session (nothing until a page asks); who is signed in is restored from what
@@ -55,20 +55,31 @@ const router = createBrowserRouter(routes);
 // provider what to forget when the person signs out (src/account/forgetOnSignOut.ts), their reviews
 // held for the tab, their circle and Brainstorm's token, and a provider can only use what a provider
 // around it gives. CircleProvider is inside it, as it follows who is signed in.
-createRoot(root).render(
-  <StrictMode>
-    <PlacesProvider>
-      <ScoresProvider>
-        <ForgetCircleOnSignOut>
-          <AccountProvider>
-            <CircleProvider>
-              <HereProvider>
-                <RouterProvider router={router} />
-              </HereProvider>
-            </CircleProvider>
-          </AccountProvider>
-        </ForgetCircleOnSignOut>
-      </ScoresProvider>
-    </PlacesProvider>
-  </StrictMode>,
-);
+//
+// In another site's frame, none of it: only a link that opens the page on its own (src/shell/Framed.tsx).
+if (isFramed()) {
+  createRoot(root).render(
+    <StrictMode>
+      <FramedLink />
+    </StrictMode>,
+  );
+} else {
+  const router = createBrowserRouter(routes);
+  createRoot(root).render(
+    <StrictMode>
+      <PlacesProvider>
+        <ScoresProvider>
+          <ForgetCircleOnSignOut>
+            <AccountProvider>
+              <CircleProvider>
+                <HereProvider>
+                  <RouterProvider router={router} />
+                </HereProvider>
+              </CircleProvider>
+            </AccountProvider>
+          </ForgetCircleOnSignOut>
+        </ScoresProvider>
+      </PlacesProvider>
+    </StrictMode>,
+  );
+}
