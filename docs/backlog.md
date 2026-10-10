@@ -24,7 +24,7 @@ What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: 
 
 ## Next features (brief § 13 order)
 
-1. **Trust button with the § 7 safeguards, and the person page.** The page has names only, with no "how much this person counts" meter (decision 19). It must be tested against an account with an existing follow list, preserving every entry.
+1. **The Follow button (brief § 7's Trust button, decision 44) with the § 7 safeguards, and the person page.** The page has names only, with no "how much this person counts" meter (decision 19). It must be tested against an account with an existing follow list, preserving every entry.
 2. **Saved lists**, now hidden behind `features.saved`.
 3. **Add or fix a place.** Today "Add a missing place" opens an OpenStreetMap note; the in-app form comes later.
 4. **Tags**, once the W20 fix on `feat/tags` lands.
