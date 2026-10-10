@@ -36,6 +36,8 @@ What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: 
 
 ## Hardening before many people use it
 
+- **Deep links answer HTTP 404.** GitHub Pages serves every address other than `/` through `404.html` (the app's copy), with status 404. The page works in a browser, but link previews and search engines may treat a shared place page as missing. Options: prerender the place pages at build time, or move to a host with single-page rewrites (Cloudflare Pages, Netlify).
+
 - **The importer** (in the mise-en-place repo; still open): never more than 10,000 places at one `created_at`, or returning visitors stay on their saved copy.
 - **Duplicates:** the same venue mapped twice within 50 m shows twice.
 - **CI:** `ubuntu-latest` moves to Ubuntu 26 on 19 October; watch the first run after.
