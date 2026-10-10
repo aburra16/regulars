@@ -372,7 +372,10 @@ describe("search", () => {
     const beijing = make("北京饭店");
     const noodles = make("こだわり麺や");
     const lao = make("ເຂົ້າມັນໄກ່ສິງກະໂປ");
-    const idx = buildIndexes([thai, duck, beijing, noodles, lao, make("Noodle Bar")]);
+    // KFC ไก่ ทอด: KFC, fried chicken. ร้าน 123 มาลี: shop 123 Mali.
+    const kfc = make("KFCไก่ทอด");
+    const numbered = make("ร้าน123มาลี");
+    const idx = buildIndexes([thai, duck, beijing, noodles, lao, kfc, numbered, make("Noodle Bar")]);
 
     it("is found by a word from its middle", () => {
       expect(namesOf(search(idx, "ก๋วยเตี๋ยว"))).toEqual([thai.name]);
@@ -387,13 +390,22 @@ describe("search", () => {
       expect(namesOf(search(idx, "店"))).toEqual([duck.name]);
       expect(namesOf(search(idx, "饭店"))).toEqual([beijing.name]);
       // Words apart in the name, asked for with a space between them.
-      expect(namesOf(search(idx, "ร้าน มาลี"))).toEqual([thai.name]);
+      expect(namesOf(search(idx, "ร้าน มาลี")).sort()).toEqual([thai.name, numbered.name].sort());
+      expect(namesOf(search(idx, "ร้าน แม่"))).toEqual([thai.name]);
     });
 
     it("is still found by its start, a word or less, as before", () => {
       expect(namesOf(search(idx, "ร้านก๋วย"))).toEqual([thai.name]);
       expect(namesOf(search(idx, "北京")).sort()).toEqual([duck.name, beijing.name].sort());
       expect(namesOf(search(idx, "北京烤"))).toEqual([duck.name]);
+    });
+
+    it("is found by a word that follows Latin letters or digits with no space", () => {
+      expect(namesOf(search(idx, "ไก่"))).toEqual([kfc.name]);
+      expect(namesOf(search(idx, "ทอด"))).toEqual([kfc.name]);
+      expect(namesOf(search(idx, "kfc"))).toEqual([kfc.name]);
+      expect(namesOf(search(idx, "มาลี")).sort()).toEqual([thai.name, numbered.name].sort());
+      expect(namesOf(search(idx, "ร้าน")).sort()).toEqual([thai.name, numbered.name].sort());
     });
 
     it("is not found by the middle of a word", () => {
