@@ -5,7 +5,7 @@ import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import { retryButton } from "../ui/Banner.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
-import { hasAddOn } from "./addOn.ts";
+import { hasAddOn, watchForBlockedAddOn } from "./addOn.ts";
 import { useAddOnSignIn } from "./useAddOnSignIn.ts";
 
 /*
@@ -57,6 +57,12 @@ export function useInlineSignIn(state: { from: Path; next?: Path }, onSignedIn: 
     stop();
     setPhase("idle");
   }, [stop]);
+  // An add-on's script the page's policy blocks is said in the console while the control is there.
+  useEffect(() => {
+    const watching = new AbortController();
+    watchForBlockedAddOn(watching.signal);
+    return () => watching.abort();
+  }, []);
 
   const ask = () => {
     setPhase("asking");

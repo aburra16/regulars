@@ -10,7 +10,7 @@ What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: 
 - **Benjamin:** done. His review is live (decision 29); the review relay had run out of memory.
 
 **Copy**
-- Avi walked through every screen's wording on 2026-10-09. One string is still marked DRAFT in `src/copy/en.ts`: `reviews.uncounted` ("2 reviews, shown without a rating for now"), reworded after his pass.
+- Avi walked through every screen's wording on 2026-10-09. Two strings are marked DRAFT in `src/copy/en.ts`: `reviews.uncounted` ("2 reviews, shown without a rating for now"), reworded after his pass, and `framed.open` ("Open Regulars"), the one link the site shows in another site's frame.
 
 **Product calls**
 - All settled on 2026-10-09 (decisions 36 to 43).
@@ -36,11 +36,8 @@ What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: 
 
 ## Hardening before many people use it
 
-- **Place signatures:** check them in the browser, in a worker or by sampling. Today they are off for speed.
-- **The importer:** never more than 10,000 places at one `created_at`.
-- **Search:** Thai and Chinese names aren't split into words.
+- **The importer** (in the mise-en-place repo; still open): never more than 10,000 places at one `created_at`, or returning visitors stay on their saved copy.
 - **Duplicates:** the same venue mapped twice within 50 m shows twice.
-- **Content Security Policy:** a meta tag (a hardening idea from M2b).
 - **CI:** `ubuntu-latest` moves to Ubuntu 26 on 19 October; watch the first run after.
 
 ## Small deferred items
@@ -75,6 +72,13 @@ What is left, in one place, as of 2026-10-09 (after the polish batch). Sources: 
 **Focus after navigation** (the polish batch)
 - A page with no `h1` (Not found, a page that broke, a place still being looked for) leaves the focus where it was.
 - A new search from the results (the same pathname) never moves the focus; the first, from Explore's top bar, leaves it in the field.
+
+**Search, signatures and the policy** (the hardening batch)
+- Two words apart in a Thai or Chinese name, typed with no space between them ("ร้านมาลี"), don't find it; with a space they do. Splitting the query into words as well broke words typed in part.
+- Under attack, a forged newer version of a place hides the real one: the newest version at each address is kept before the signatures are checked, so that place is gone until a clean load.
+- The first signature check of a visit takes about 20 ms on a desktop (the curve's tables), past the 16 ms aim for a slice; each later one about 1 ms.
+- MapLibre's worker takes its policy from the headers its file is served with, so the meta tag's doesn't reach it.
+- A first visit that finds a forged place, with no saved copy, shows "loading" for the whole list's check: about 9.5 s on a desktop, longer on a phone.
 
 **Tests and proof** (M2a record)
 - Proof marker tags.

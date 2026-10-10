@@ -1,8 +1,11 @@
+import type { NostrEvent } from "@nostrify/nostrify";
 import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ADD_ON_TIMEOUT_MS, CONNECT_TIMEOUT_MS, connectBrowser } from "../src/account/connect";
-import { ADD_ON_WAIT_MS, hasAddOn, lookForAddOn, msSinceLoad } from "../src/signin/addOn";
+import { ADD_ON_WAIT_MS, forgetBlockedAddOn, hasAddOn, lookForAddOn, msSinceLoad, watchForBlockedAddOn } from "../src/signin/addOn";
+import raw from "./fixtures/funchal-items.json";
+import { DESKTOP, openApp } from "./support/app";
 
 /*
  * Whether the browser has an add-on to sign in with (NIP-07), looking for one that puts itself on the
@@ -31,6 +34,8 @@ function watch<T>(promise: Promise<T>): { done(): boolean; value(): T | undefine
   });
   return { done: () => done, value: () => value };
 }
+
+const fixtures: NostrEvent[] = raw;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -163,5 +168,77 @@ describe("the time the add-on has to answer", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(ended.value()).toBe("ended");
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+// ---- A policy that blocks an add-on's script ----
+
+/** What a browser fires on the document when its policy blocks something: `blockedURI` under `directive`. */
+function violation(directive: string, blockedURI: string): Event {
+  const event = new Event("securitypolicyviolation", { bubbles: true, composed: true });
+  Object.defineProperties(event, {
+    effectiveDirective: { value: directive },
+    violatedDirective: { value: directive },
+    blockedURI: { value: blockedURI },
+  });
+  return event;
+}
+
+/** The lines the sign-in code warned, from `warn`. */
+const signinWarnings = (warn: { mock: { calls: unknown[][] } }) =>
+  warn.mock.calls.map((args) => String(args[0])).filter((line) => line.startsWith("[signin]"));
+
+describe("a script of an add-on that the page's policy blocks", () => {
+  afterEach(() => {
+    forgetBlockedAddOn();
+  });
+
+  it("is said once in the console while the page watches, by its address's scheme alone", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const watching = new AbortController();
+    watchForBlockedAddOn(watching.signal);
+
+    document.dispatchEvent(violation("script-src-elem", "chrome-extension://kpgefcfmnafjgpblomihpgmejjdanjjp/nostr-provider.js"));
+    document.dispatchEvent(violation("script-src-elem", "inline"));
+    expect(signinWarnings(warn)).toEqual(["[signin] the page's policy blocked an add-on's script: chrome-extension:"]);
+    // Nothing that could tell which add-on it is.
+    expect(warn.mock.calls.flat().join(" ")).not.toContain("kpgefcfmnafjgpblomihpgmejjdanjjp");
+    watching.abort();
+  });
+
+  it("says a script written into the page as text so", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const watching = new AbortController();
+    watchForBlockedAddOn(watching.signal);
+    document.dispatchEvent(violation("script-src-elem", "inline"));
+    expect(signinWarnings(warn)).toEqual(["[signin] the page's policy blocked an add-on's script: inline"]);
+    watching.abort();
+  });
+
+  it("is not said for what is not a script, nor once the page has stopped watching", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const watching = new AbortController();
+    watchForBlockedAddOn(watching.signal);
+    document.dispatchEvent(violation("img-src", "http://pictures.example.com/me.jpg"));
+    document.dispatchEvent(violation("style-src-attr", "inline"));
+    document.dispatchEvent(violation("script-src", "eval"));
+    watching.abort();
+    document.dispatchEvent(violation("script-src-elem", "moz-extension://8f2c/nostr-provider.js"));
+    expect(signinWarnings(warn)).toEqual([]);
+  });
+
+  it("is watched for on the sign-in page, and by the account button's sign-in where the person is", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const signIn = await openApp("/signin", { events: fixtures, px: DESKTOP });
+    document.dispatchEvent(violation("script-src-elem", "safari-web-extension://3B1E/nostr.js"));
+    expect(signinWarnings(warn)).toEqual(["[signin] the page's policy blocked an add-on's script: safari-web-extension:"]);
+    signIn.unmount();
+
+    forgetBlockedAddOn();
+    warn.mockClear();
+    // Explore on a desktop, whose top bar has the account button.
+    await openApp("/", { events: fixtures, px: DESKTOP });
+    document.dispatchEvent(violation("script-src-elem", "chrome-extension://abc/nostr-provider.js"));
+    expect(signinWarnings(warn)).toEqual(["[signin] the page's policy blocked an add-on's script: chrome-extension:"]);
   });
 });

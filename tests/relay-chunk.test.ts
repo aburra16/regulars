@@ -19,6 +19,8 @@ import { describe, expect, it } from "vitest";
 // circle's provider (src/circle/CircleProvider.tsx) and the Why page's count (src/circle/circleSize.ts)
 // call when they first need it: the person taps Personalize or Update now, a signed-in tab looks for a
 // circle worked out before, or the Why page counts the circle with the token the tab has.
+// The check of a fresh list's signatures (src/places/signatures.ts) is a chunk the places store loads
+// when the relay's list comes, and nostr-tools' signature code (@noble/curves) is in none the entry loads.
 // This builds the real app (vite.config.ts and index.html, in memory: nothing is written) and checks
 // that none of it is in the entry, or in anything the entry loads before it runs.
 const ROOT = process.cwd();
@@ -31,6 +33,8 @@ const CONNECT = /[\\/]src[\\/]account[\\/]connect\.ts$/;
 const QR_LIBRARY = /[\\/]node_modules[\\/]uqr[\\/]/;
 const BRAINSTORM = /[\\/]src[\\/]circle[\\/]brainstorm\.ts$/;
 const CIRCLE_PROVIDER = /[\\/]src[\\/]circle[\\/]CircleProvider\.tsx$/;
+const SIGNATURES = /[\\/]src[\\/]places[\\/]signatures\.ts$/;
+const CURVES = /[\\/]node_modules[\\/]@noble[\\/]curves[\\/]/;
 
 type Output = Awaited<ReturnType<typeof build>>;
 interface Chunk {
@@ -73,7 +77,7 @@ describe("the relay chunk", () => {
       }),
     );
     const lazyCode = (chunk: Chunk | undefined) =>
-      (chunk?.moduleIds ?? []).filter((id) => [RELAY_READER, NOSTRIFY, CONNECT, QR_LIBRARY, BRAINSTORM].some((code) => code.test(id)));
+      (chunk?.moduleIds ?? []).filter((id) => [RELAY_READER, NOSTRIFY, CONNECT, QR_LIBRARY, BRAINSTORM, SIGNATURES, CURVES].some((code) => code.test(id)));
 
     const entries = chunks.filter((chunk) => chunk.isEntry);
     expect(entries).toHaveLength(1);
@@ -89,7 +93,7 @@ describe("the relay chunk", () => {
     expect(lazyCode(entry)).toEqual([]);
 
     // Everything the entry loads before it runs: none of it is the relay code, Nostrify, the signing code,
-    // the QR library or Brainstorm's client.
+    // the QR library, Brainstorm's client, the signature check or the curves it checks with.
     const byName = new Map(chunks.map((chunk) => [chunk.fileName, chunk]));
     const eager = new Set<string>([entry.fileName]);
     for (const name of eager) for (const imported of byName.get(name)?.imports ?? []) eager.add(imported);
@@ -114,5 +118,7 @@ describe("the relay chunk", () => {
     lazyChunkOf(QR_LIBRARY);
     // Brainstorm's client, in a chunk of its own, which brings no Nostrify: it signs through the account's signer.
     expect(bringsNostrify(lazyChunkOf(BRAINSTORM))).toBe(false);
+    // The signature check, in a chunk of its own, which brings no Nostrify either.
+    expect(bringsNostrify(lazyChunkOf(SIGNATURES))).toBe(false);
   }, 120_000);
 });

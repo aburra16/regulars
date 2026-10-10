@@ -9,6 +9,7 @@ import { cuisinesOf, KIND_VOCABULARY, kindQueryReader, termsOfCategory } from ".
 import { cuisineLabel, FAMILY_SEARCH_TERMS, kindOf } from "./kinds.ts";
 import type { Place } from "./place.ts";
 import { foldName, type Town, type TownList } from "./towns.ts";
+import { laterWordStarts } from "./words.ts";
 
 export { formatDistance } from "./distance.ts";
 
@@ -437,6 +438,13 @@ export function cityLabel(city: CityName, all: readonly City[]): string {
 interface SearchDoc {
   id: number;
   name: string;
+  /**
+   * The name from each of its words but the first, where it is written without spaces (Thai, Chinese,
+   * Japanese; ./words.ts): "ก๋วยเตี๋ยวแม่มาลี แม่มาลี มาลี" for "ร้านก๋วยเตี๋ยวแม่มาลี", so a word in its
+   * middle starts a part the search finds. Empty for a name written with spaces. A field of its own,
+   * so the name's field, and every name written with spaces, scores as it did.
+   */
+  nameWords: string;
   kind: string;
   /** Words for the kind of place that its label does not say: "coffee" for a cafe. */
   terms: string;
@@ -445,11 +453,15 @@ interface SearchDoc {
   keywords: string;
 }
 
+/** How the search splits a field into the parts it finds by their start: at spaces and punctuation. */
+const splitParts = MiniSearch.getDefault("tokenize") as (text: string) => string[];
+
 function searchDoc(place: Place, id: number): SearchDoc {
   const kind = kindOf(place.category);
   return {
     id,
     name: place.name,
+    nameWords: splitParts(place.name).flatMap(laterWordStarts).join(" "),
     kind: kind.label,
     terms: FAMILY_SEARCH_TERMS[kind.family] ?? "",
     cuisine: place.cuisine === undefined ? "" : cuisineLabel(place.cuisine),
@@ -492,6 +504,9 @@ function bestFirst(found: readonly ScoredHit[]): PlaceDistance[] {
  */
 export const KIND_CUISINE_MIN = 5;
 
+/** The fields that hold a place's name, which a search by name alone looks in. */
+const NAME_FIELDS = ["name", "nameWords"];
+
 /**
  * Everything the screens look places up by, built once for a list of places, with the towns of
  * src/data/towns.json when they are given (`loadTowns`). Without them (none given, or null: they could
@@ -503,10 +518,10 @@ export function buildIndexes(places: readonly Place[], towns?: TownList | null):
   tree.finish();
 
   const finder = new MiniSearch<SearchDoc>({
-    fields: ["name", "kind", "terms", "cuisine", "locality", "keywords"],
+    fields: ["name", "nameWords", "kind", "terms", "cuisine", "locality", "keywords"],
     storeFields: [],
     processTerm: foldText,
-    searchOptions: { prefix: true, fuzzy: 0.2, combineWith: "AND", boost: { name: 3, cuisine: 2 } },
+    searchOptions: { prefix: true, fuzzy: 0.2, combineWith: "AND", boost: { name: 3, nameWords: 3, cuisine: 2 } },
   });
   finder.addAll(places.map(searchDoc));
 
@@ -567,7 +582,7 @@ export function buildIndexes(places: readonly Place[], towns?: TownList | null):
     }
     const found = new Set(ids);
     // A name counts when a word of it starts with the word asked for; a word a letter away does not.
-    for (const hit of finder.search(q, { fields: ["name"], fuzzy: false })) found.add(hit.id);
+    for (const hit of finder.search(q, { fields: NAME_FIELDS, fuzzy: false })) found.add(hit.id);
 
     const rows: PlaceDistance[] = [];
     for (const id of [...found].sort((a, b) => a - b)) {
@@ -601,7 +616,7 @@ export function buildIndexes(places: readonly Place[], towns?: TownList | null):
     if (!isLocation(lat, lon) || q.trim() === "" || !(limit > 0) || readKindQuery(q) !== undefined) return [];
     const found: ScoredHit[] = [];
     // A word of the name that starts with each word asked for; a word a letter away does not count.
-    for (const hit of finder.search(q, { fields: ["name"], fuzzy: false })) {
+    for (const hit of finder.search(q, { fields: NAME_FIELDS, fuzzy: false })) {
       const place = places[hit.id]!;
       const km = distanceKm(lat, lon, place.lat, place.lon);
       if (km > beyondKm) found.push({ place, km, score: hit.score });

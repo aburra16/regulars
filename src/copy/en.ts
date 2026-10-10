@@ -555,6 +555,12 @@ export const copy = {
     text: "We can't find that page.",
     home: backToExplore,
   },
+  /** The site in another site's frame, which shows only this (src/shell/Framed.tsx). */
+  framed: {
+    // DRAFT for Avi
+    /** The one link, which opens the same page on its own. */
+    open: `Open ${config.appName}`,
+  },
   /** A page that broke while it was drawn. */
   broken: {
     text: "Something went wrong on this page.",

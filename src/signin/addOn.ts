@@ -34,6 +34,44 @@ export function msSinceLoad(): number {
   return performance.now() - navigation.domContentLoadedEventEnd;
 }
 
+/** Whether a blocked script has been said in the console, once a page. */
+let saidBlocked = false;
+
+/** An address's scheme ("chrome-extension:"), or what a browser names in its place ("inline"). Never the rest. */
+function schemeOf(address: string): string {
+  try {
+    return new URL(address).protocol;
+  } catch {
+    return /^[a-z-]+$/.test(address) ? address : "unknown";
+  }
+}
+
+/**
+ * While `signal` has not aborted, says once in the console when the page's Content Security Policy
+ * (tools/csp.ts) blocks a script: most likely an add-on's that writes itself into the page as text, or
+ * comes from where the policy does not let scripts in, so that it never puts `window.nostr` on the
+ * page and signing in finds no add-on. Only the address's scheme is said: the rest can tell which
+ * add-on it is. The sign-in page and the sign-in where the person is watch while they are open.
+ */
+export function watchForBlockedAddOn(signal: AbortSignal): void {
+  if (typeof document === "undefined" || signal.aborted) return;
+  const onViolation = (event: Event) => {
+    const { effectiveDirective, blockedURI } = event as SecurityPolicyViolationEvent;
+    // A script element's, by the directive that blocked it (script-src where a browser does not split it).
+    const script = effectiveDirective === "script-src-elem" || (effectiveDirective === "script-src" && blockedURI !== "eval");
+    if (!script || saidBlocked) return;
+    saidBlocked = true;
+    console.warn(`[signin] the page's policy blocked an add-on's script: ${schemeOf(blockedURI)}`);
+  };
+  document.addEventListener("securitypolicyviolation", onViolation);
+  signal.addEventListener("abort", () => document.removeEventListener("securitypolicyviolation", onViolation), { once: true });
+}
+
+/** For tests: as if no blocked script had been said yet. */
+export function forgetBlockedAddOn(): void {
+  saidBlocked = false;
+}
+
 /**
  * Looks for the browser's add-on: at once, then every `ADD_ON_CHECK_MS` and whenever the window gets
  * the focus, until it is there (true) or `ADD_ON_WAIT_MS` have passed since the page loaded (false):

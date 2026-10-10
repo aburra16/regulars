@@ -56,6 +56,13 @@ interface Config {
   headerCoordinate: string;
   placesRelay: string;
   /**
+   * How many of the places' signatures are checked when a fresh list comes from the places relay,
+   * picked at random; every one is checked when one of them fails, and each that fails is left out
+   * (src/places/signatures.ts). The relay is read with its own checks off: all 7,954 took 6.7 s on a
+   * desktop.
+   */
+  placesSignatureSample: number;
+  /**
    * Where the places are near when nothing else says: no town picked, the device's location not
    * already allowed, the device's time zone not a known place, and no town in its language's country
    * (docs/decisions.md #24; src/location/guess.ts). `radiusKm` is how far "near" reaches, wherever that is.
@@ -129,6 +136,7 @@ export const config: Config = {
   headerCoordinate:
     "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places",
   placesRelay: "wss://dcosl.brainstorm.world",
+  placesSignatureSample: 64,
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
   mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
   features: { signIn: true, circle: true, saved: false },

@@ -9,7 +9,7 @@ import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { useWide } from "../shell/useWide.ts";
 import { CloseIcon } from "../ui/icons.tsx";
 import { isPlainClick } from "../ui/plainClick.ts";
-import { ADD_ON_WAIT_MS, hasAddOn, lookForAddOn, msSinceLoad } from "./addOn.ts";
+import { ADD_ON_WAIT_MS, hasAddOn, lookForAddOn, msSinceLoad, watchForBlockedAddOn } from "./addOn.ts";
 import { isHandheld } from "./handheld.ts";
 import { loadPhoneWay } from "./loadPhoneWay.ts";
 import type { PhoneWay as PhoneWayPanel, Tone } from "./PhoneWay.tsx";
@@ -139,6 +139,8 @@ function useAddOn(): { present: boolean | undefined; known(): Promise<boolean | 
   const looking = useRef<Promise<boolean | undefined> | null>(null);
   useEffect(() => {
     const controller = new AbortController();
+    // An add-on's script the page's policy blocks is said in the console while the page is open.
+    watchForBlockedAddOn(controller.signal);
     const look = lookForAddOn(controller.signal).then((found) => (controller.signal.aborted ? undefined : found));
     looking.current = look;
     void look.then((found) => {
