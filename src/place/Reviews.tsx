@@ -1,0 +1,404 @@
+import { type JSX, type KeyboardEvent, type MouseEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+
+import { copy } from "../copy/en.ts";
+import { FollowButton } from "../follow/FollowButton.tsx";
+import { personPath } from "../person/npub.ts";
+import type { RemoveReview, RemoveStatus } from "../review/useRemoveReview.ts";
+import type { Review } from "../reviews/review.ts";
+import { whenWritten, writtenOn } from "../reviews/when.ts";
+import type { PlaceScore } from "../score/score.ts";
+import type { ViewState } from "../score/store.ts";
+import { useNames, usePictures } from "../score/useScore.ts";
+import { ProfilePicture } from "../ui/ProfilePicture.tsx";
+import { scriptLang } from "../ui/scriptLang.ts";
+import { Stars } from "../ui/Stars.tsx";
+import type { View } from "../view/ViewProvider.tsx";
+import { EditLink, RateLink } from "./ScorePanel.tsx";
+
+/*
+ * A place's reviews (the design), worded for the view on screen: the review of
+ * the person signed in, on its own at the top, with Edit and Remove (ruling R15); those by people
+ * inside the view (the house trusts them, or they are in the person's circle), listed; and those by
+ * people outside it, folded into a dashed box that shows them, dimmed, on request. Each review has its
+ * reviewer's picture (or initial), name, its stars, when it was written and its words. A reviewer
+ * appears by their name and the picture their profile gives: never a rank, a weight or a meter
+ * (decision 19), and the folded box is no verdict on the people in it. Nor does anything say whether
+ * the view counts the person's own review: it is never among the others, nor dimmed, nor counted with
+ * them.
+ *
+ * A reviewer's name is a link to their page, and beside it, for a person signed in, is Follow, small,
+ * while they do not follow that reviewer (src/follow/FollowButton.tsx): on a folded review as on any
+ * other, and never on the person's own.
+ */
+
+/** The first character a person would see of a name: one emoji, or one letter with its marks. */
+function initialOf(name: string): string {
+  const first =
+    typeof Intl.Segmenter === "function"
+      ? new Intl.Segmenter("en", { granularity: "grapheme" }).segment(name)[Symbol.iterator]().next().value?.segment
+      : Array.from(name)[0];
+  return (first ?? "").toLocaleUpperCase();
+}
+
+/**
+ * One review, with its reviewer's `picture` when their profile gives one. A folded one is dimmed:
+ * drawn in the muted colour, its stars too, and its picture faded to match.
+ *
+ * Its first row is the picture, the name, Follow when there is one, and when it was written. The row
+ * wraps, so that what Follow has to say goes under it, as wide as the review: the name takes the room
+ * the others leave, and is cut short before anything is pushed to another row. It is as tall as the
+ * picture: the name and Follow each have 44 px to tap, which neither takes from the row
+ * (src/follow/FollowButton.tsx), and nothing in it cuts off what overflows it.
+ */
+function ReviewItem({
+  review,
+  name,
+  picture,
+  now,
+  wide,
+  folded,
+}: {
+  review: Review;
+  name: string;
+  picture: string | undefined;
+  now: Date;
+  wide: boolean;
+  folded: boolean;
+}): JSX.Element {
+  const ink = folded ? "text-muted" : "text-ink";
+  const written = writtenOn(review.createdAt);
+  return (
+    <article data-folded={folded ? "true" : undefined} className="flex flex-col gap-2">
+      <div className={`flex flex-wrap items-center ${wide ? "gap-x-3" : "gap-x-2.5"}`}>
+        {/*
+          The reviewer's picture, filling the circle; their initial until it is known,
+          when there is none, or when it will not load. Hidden from a screen reader: the name is beside it.
+        */}
+        <span
+          aria-hidden="true"
+          className={`flex shrink-0 items-center justify-center rounded-full bg-surface font-bold ${ink} ${wide ? "size-11" : "size-10"}`}
+        >
+          <ProfilePicture address={picture} fallback={initialOf(name)} className={folded ? "opacity-60" : ""} />
+        </span>
+        <h3 className={`m-0 min-w-0 flex-1 text-body font-bold ${ink}`}>
+          {/*
+            The name opens the reviewer's page. One line, cut short where the row has no room for all
+            of it, and no wider than the name, or than a touch target for a short one: the space after
+            it is not the link's. It is 44 px tall to tap: a line of 40 px, as tall as the picture
+            beside it on a phone, and 2 px of its own over and under that, which take no room. So the
+            row is as tall as the picture, as it was before a name was a link.
+          */}
+          <Link
+            to={personPath(review.reviewer)}
+            className="-my-0.5 inline-block max-w-full min-w-touch truncate py-0.5 align-top leading-10 no-underline hover:underline"
+          >
+            <bdi lang={scriptLang(name)}>{name}</bdi>
+          </Link>
+        </h3>
+        <FollowButton pubkey={review.reviewer} name={name} size="small" />
+        {/* No date for a time no date can hold: the review shows without one, and the page stands. */}
+        {written !== undefined && (
+          <time dateTime={written.toISOString()} className="shrink-0 text-caption text-muted">
+            {whenWritten(review.createdAt, now)}
+          </time>
+        )}
+      </div>
+      {review.stars !== null && <Stars value={review.stars} tone={folded ? "muted" : "accent"} />}
+      {review.text !== "" && (
+        <p
+          dir="auto"
+          lang={scriptLang(review.text)}
+          className={`m-0 max-w-measure whitespace-pre-line wrap-break-word ${
+            wide ? "text-[17px] leading-[1.55]" : "text-body leading-[1.5]"
+          } ${folded ? "text-muted" : "text-ink-soft"}`}
+        >
+          {review.text}
+        </p>
+      )}
+    </article>
+  );
+}
+
+/** Reviews one under another, a line between each two (the design). */
+function ReviewList({
+  reviews,
+  names,
+  pictures,
+  now,
+  wide,
+  folded,
+}: {
+  reviews: readonly Review[];
+  names: Map<string, string>;
+  pictures: Map<string, string>;
+  now: Date;
+  wide: boolean;
+  folded: boolean;
+}): JSX.Element {
+  return (
+    <ul role="list" className="m-0 flex list-none flex-col p-0">
+      {reviews.map((review, i) => (
+        <li key={review.id} className={i === 0 ? "" : "mt-[18px] border-t-token border-line pt-[18px]"}>
+          <ReviewItem
+            review={review}
+            name={names.get(review.reviewer) ?? copy.reviews.someone}
+            picture={pictures.get(review.reviewer)}
+            now={now}
+            wide={wide}
+            folded={folded}
+          />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The heading of a part of the reviews, on a phone or a desktop. */
+const sectionHeading = (wide: boolean) => `m-0 font-display font-bold ${wide ? "text-[26px]" : "text-h2"}`;
+
+/** A small button of the person's own review, 44 px tall, in the chip's shape. */
+const chipButton =
+  "h-11 cursor-pointer rounded-chip px-4 font-text text-secondary font-bold aria-disabled:cursor-not-allowed aria-disabled:opacity-60";
+
+/** Edit and Remove under the person's own review: words, 44 px tall, as Rate this place is beside the reviews. */
+const wordButton = "inline-flex min-h-touch shrink-0 cursor-pointer items-center text-[15px] underline";
+
+/** The row under the person's own review: Edit, then Remove, or Keep it in its place once asked. */
+const actionsRow = "flex flex-wrap items-center gap-x-6";
+
+/**
+ * The person's own review (ruling R15), under "Your review": as anyone's is drawn, never dimmed, with
+ * Edit, which opens the form with it, and Remove, which asks first (`removal`).
+ *
+ * Asked, Keep it takes Remove's place, in the same row, and the focus goes to it; what removing does,
+ * and the Remove that does it, come after, so that a second quick tap where Remove was keeps the review
+ * rather than removing it (ruling R17). Keep it, or Escape, closes the question and gives the focus back
+ * to Remove; not while it is being removed. Removing, that Remove says so, and a quiet line under it
+ * once Regulars is slow to take it; when no relay took it, an alert says so, and it becomes Try again:
+ * one button throughout, which keeps the focus. When only the person's own relays took it, it says so,
+ * with Try again and nothing to keep it by, nor Edit: it is gone from their own places already. A
+ * double click on Remove asks, and its second click does not confirm.
+ */
+function YourReview({
+  review,
+  name,
+  picture,
+  now,
+  wide,
+  removal,
+}: {
+  review: Review;
+  name: string;
+  picture: string | undefined;
+  now: Date;
+  wide: boolean;
+  removal: RemoveReview;
+}): JSX.Element {
+  const headingId = useId();
+  const questionId = useId();
+  const removeRef = useRef<HTMLButtonElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const { status } = removal;
+  const was = useRef<RemoveStatus>(status);
+
+  useEffect(() => {
+    const before = was.current;
+    was.current = status;
+    if (status === "asking" && before === "idle") keepRef.current?.focus();
+    else if (status === "idle" && before !== "idle") removeRef.current?.focus();
+  }, [status]);
+
+  const asked = status !== "idle" && status !== "removed";
+  const removing = status === "removing";
+  /** Whether Regulars is slow to take the removal under way: said under its button, for everyone. */
+  const slow = removing && removal.slow;
+  const confirm = (event: MouseEvent<HTMLButtonElement>) => {
+    // The second click of a double click on Remove, which asked: not a yes.
+    if (event.detail > 1 || removing) return;
+    removal.remove();
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape" || (status !== "asking" && status !== "failed")) return;
+    event.preventDefault();
+    removal.keep();
+  };
+
+  return (
+    <section aria-labelledby={headingId} className={`flex flex-col ${wide ? "gap-5" : "gap-[18px]"}`}>
+      <h2 id={headingId} className={sectionHeading(wide)}>
+        {copy.reviews.yours}
+      </h2>
+      <ReviewItem review={review} name={name} picture={picture} now={now} wide={wide} folded={false} />
+      <div onKeyDown={onKeyDown} className="flex flex-col gap-3">
+        {status !== "partial" && (
+          <div className={actionsRow}>
+            <EditLink className={`${wordButton} font-bold text-accent`} />
+            {asked ? (
+              <button
+                key="keep"
+                ref={keepRef}
+                type="button"
+                aria-describedby={questionId}
+                aria-disabled={removing ? true : undefined}
+                onClick={() => {
+                  if (!removing) removal.keep();
+                }}
+                className={`${chipButton} border-token border-line-strong bg-ground text-ink`}
+              >
+                {copy.reviews.keep}
+              </button>
+            ) : (
+              // Off while a session this tab kept is restored: there is no one to sign the removal yet.
+              <button
+                key="remove"
+                ref={removeRef}
+                type="button"
+                aria-disabled={removal.ready ? undefined : true}
+                onClick={() => {
+                  if (removal.ready) removal.ask();
+                }}
+                className={`${wordButton} border-0 bg-transparent p-0 font-text font-semibold text-muted aria-disabled:cursor-not-allowed aria-disabled:opacity-60`}
+              >
+                {copy.reviews.remove}
+              </button>
+            )}
+          </div>
+        )}
+        {asked && (
+          <div role="group" aria-labelledby={questionId} className="flex flex-col gap-3 rounded-card bg-surface p-4">
+            <p id={questionId} className="m-0 max-w-measure text-body leading-[1.45] text-ink">
+              {copy.reviews.removeQuestion}
+            </p>
+            {(status === "failed" || status === "partial") && (
+              <p role="alert" className="m-0 text-body font-semibold text-accent">
+                {status === "failed" ? copy.reviews.removeFailed : copy.reviews.removePartial}
+              </p>
+            )}
+            <div>
+              <button
+                type="button"
+                aria-disabled={removing ? true : undefined}
+                onClick={confirm}
+                className={`${chipButton} border-0 bg-accent-solid text-on-accent`}
+              >
+                {removing ? copy.reviews.removing : status === "asking" ? copy.reviews.removeConfirm : copy.reviews.removeAgain}
+              </button>
+            </div>
+            {/*
+              Said politely once Regulars is slow to take the removal, under the button, which still
+              says Removing…; empty, and seen by no one, until then (the page says Removing… itself).
+            */}
+            <p role="status" aria-live="polite" className={slow ? "m-0 text-caption leading-[1.45] text-muted" : "sr-only"}>
+              {slow ? copy.reviews.stillRemoving : ""}
+            </p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** What the folded box says it holds, in the view's words. */
+function foldedTitle(count: number, view: View, state: ViewState, anyInside: boolean): string {
+  if (state === "unavailable") return copy.reviews.uncounted(count);
+  if (view === "circle") return anyInside ? copy.reviews.foldedMoreCircle(count) : copy.reviews.foldedAllCircle(count);
+  return anyInside ? copy.reviews.foldedMore(count) : copy.reviews.foldedAll(count);
+}
+
+/**
+ * The reviews of a place with its score from `view` (`score`, undefined while it is worked out;
+ * `state`, where the view's ranks stand): first `mine`, the review of the person signed in, under
+ * "Your review", with Edit and Remove (`removal`), whatever the view and whether it is worked out
+ * yet; then those inside the view under their heading, with "Rate this place" beside it when `rate`
+ * (a phone's page whose panel has no button), and the folded ones in their box, neither of them with
+ * the person's own, nor counting it. "Show them" opens and closes them: its one label stays, and
+ * `aria-expanded` says which. `now` says how long ago each was written.
+ */
+export function Reviews({
+  score,
+  mine,
+  removal,
+  view,
+  state,
+  wide,
+  rate,
+  now,
+}: {
+  score: PlaceScore | undefined;
+  mine: Review | undefined;
+  removal: RemoveReview;
+  view: View;
+  state: ViewState;
+  wide: boolean;
+  rate: boolean;
+  now: Date;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const foldedId = useId();
+  const titleId = useId();
+  const { inside, folded } = useMemo(() => {
+    const others = (reviews: readonly Review[] | undefined) => (reviews ?? []).filter((review) => review.id !== mine?.id);
+    return { inside: others(score?.inside), folded: others(score?.folded) };
+  }, [score, mine]);
+  const reviewers = useMemo(
+    () => [...(mine === undefined ? [] : [mine]), ...inside, ...folded].map((review) => review.reviewer),
+    [mine, inside, folded],
+  );
+  const names = useNames(reviewers);
+  const pictures = usePictures(reviewers);
+
+  return (
+    <div className={`flex flex-col ${wide ? "gap-[26px]" : "gap-[22px]"}`}>
+      {mine !== undefined && (
+        <YourReview
+          review={mine}
+          name={names.get(mine.reviewer) ?? copy.reviews.someone}
+          picture={pictures.get(mine.reviewer)}
+          now={now}
+          wide={wide}
+          removal={removal}
+        />
+      )}
+      {inside.length > 0 && (
+        <section className={`flex flex-col ${wide ? "gap-5" : "gap-[18px]"}`}>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+            <h2 className={sectionHeading(wide)}>{view === "circle" ? copy.reviews.headingCircle : copy.reviews.heading}</h2>
+            {rate && <RateLink />}
+          </div>
+          <ReviewList reviews={inside} names={names} pictures={pictures} now={now} wide={wide} folded={false} />
+        </section>
+      )}
+      {folded.length > 0 && (
+        <div className="flex flex-col gap-[18px]">
+          <section
+            className={`flex rounded-card border-token border-dashed border-line-dashed ${
+              wide ? "flex-wrap items-center gap-x-6 gap-y-3 p-[18px]" : "flex-col gap-2.5 p-4"
+            }`}
+          >
+            <div className={`flex min-w-0 flex-col gap-1.5 ${wide ? "flex-[1_1_320px]" : ""}`}>
+              <h2 id={titleId} className="m-0 text-body font-bold">
+                {foldedTitle(folded.length, view, state, inside.length > 0)}
+              </h2>
+              <p className="m-0 text-secondary leading-[1.45] text-muted">{copy.reviews.foldedNote}</p>
+            </div>
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-controls={foldedId}
+              aria-describedby={titleId}
+              onClick={() => setOpen((was) => !was)}
+              className="h-11 shrink-0 cursor-pointer self-start rounded-chip border-0 bg-surface px-4 font-text text-secondary font-bold text-ink wide:self-center"
+            >
+              {copy.reviews.show}
+            </button>
+          </section>
+          {/* Always on the page, so the button can name it as what it opens; empty and hidden while closed. */}
+          <div id={foldedId} hidden={!open}>
+            {open && <ReviewList reviews={folded} names={names} pictures={pictures} now={now} wide={wide} folded />}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

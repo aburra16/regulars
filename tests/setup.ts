@@ -1,0 +1,112 @@
+import "@testing-library/jest-dom/vitest";
+// jsdom has no IndexedDB, and a browser does: the places are saved there.
+import "fake-indexeddb/auto";
+
+import { cleanup } from "@testing-library/react";
+import { clear } from "idb-keyval";
+import { afterEach, beforeEach, vi } from "vitest";
+
+import { config } from "../src/config";
+import { forgetMapPages } from "../src/explore/mapMemory";
+import { forgetExploreIdx } from "../src/explore/returnPoint";
+import { forgetUnloadablePictures } from "../src/shell/unloadablePictures";
+import { forgetShownInMemory } from "../src/ui/shown";
+import { forgetThemeInMemory } from "../src/theme/theme";
+import { resetFakeMaplibre } from "./support/fakeMaplibre";
+import { noFetch, takeReached } from "./support/noFetch";
+
+// jsdom has no WebGL, so no map can be drawn. Every test gets the stand-in in place of the map
+// library: a page with a map works as it does in a browser, without tiles, and a test can play the
+// map's part (tests/support/fakeMaplibre.ts).
+vi.mock("maplibre-gl", () => import("./support/fakeMaplibre"));
+
+// The fixtures' signatures are fakes (tests/fixtures/README.md), so the check of a sample of a fresh
+// list's signatures (src/places/signatures.ts) gives every list back as it came, checking none. A mock,
+// not a setting, so that it holds for a test that loads the store afresh. The tests of the check sign
+// their own places and take the real one (tests/signatures.test.tsx). Vitest gives a mock only to the
+// first of two imports of it made at once (the second gets the real module), so the store loads the
+// check once (loadSignatureCheck), and a strict mode's second run of its effect waits on that load.
+vi.mock("../src/places/signatures", () => ({
+  SLICE_MS: 8,
+  checkSignatures: async (events: unknown[]) => ({ events, checked: 0, failed: 0 }),
+}));
+
+// The house's trust relays, the relay-list relays, the scoring constants and the relays' read extras as the config module sets them.
+const defaults = structuredClone({
+  relayListRelays: config.relayListRelays,
+  houseTrustRelays: config.houseTrustRelays,
+  scoring: config.scoring,
+  relayReadExtras: config.relayReadExtras,
+});
+
+// Every test starts with no map key, no review relays, no follow-list relays and no scorer override,
+// whatever the machine's .env.local says, and with the default trust relays, relay-list relays, scoring
+// and read extras, whatever a test before it set. Saved is out (`features.saved`, until saved lists exist), and no picture is known not to load:
+// a test that wants Saved, or a picture that fails, sets it. A test that wants something else sets it.
+//
+// My circle starts closed (config.features.circle), though the app has it open: open, a signed-in tab
+// asks Brainstorm, once the places are in, whether the person's circle is ready
+// (src/circle/CircleProvider.tsx), which a test must stub. The tests of My circle open it
+// (tests/circle.test.tsx, tests/circleScores.test.tsx).
+//
+// Follow starts on (config.features.follow), as development has it, so that the tests of the button,
+// of a change and of a person's page hold what is built. A production build has it off but for the
+// preview switch (ruling R39): the tests of that turn it off themselves (tests/followOff.test.tsx).
+beforeEach(() => {
+  config.features.circle = false;
+  config.features.saved = false;
+  config.features.follow = true;
+  forgetUnloadablePictures();
+  config.mapTilerKey = undefined;
+  config.reviewRelays = [];
+  config.devScorer = undefined;
+  config.relayListRelays = [...defaults.relayListRelays];
+  config.followListRelays = [];
+  config.houseTrustRelays = [...defaults.houseTrustRelays];
+  config.scoring = { ...defaults.scoring };
+  config.relayReadExtras = structuredClone(defaults.relayReadExtras);
+});
+
+// Tests never open a network socket. Anything that tries fails here, loudly, instead of
+// reaching a real server. Tests read places through a RelayReader (tests/support/memoryReader.ts).
+class NoSocket {
+  constructor() {
+    throw new Error("Tests must not open a network socket. Pass a RelayReader instead.");
+  }
+}
+globalThis.WebSocket = NoSocket as unknown as typeof WebSocket;
+
+// Nor do they reach the network over fetch (ruling R3): a test that needs it stubs it, and one that
+// calls the real one fails below, even where the code under test caught what it threw.
+globalThis.fetch = noFetch;
+
+// jsdom lays nothing out and scrolls nothing: it logs "not implemented" for window.scrollTo, which
+// the router calls on every page change. Tests that care about scrolling spy on this.
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "scrollTo", { configurable: true, writable: true, value: () => {} });
+}
+
+afterEach(async () => {
+  const reached = takeReached();
+  cleanup();
+  // Each test starts with nothing saved on the device, as on a first visit, and a page that has just been opened.
+  await clear();
+  forgetShownInMemory();
+  forgetExploreIdx();
+  forgetMapPages();
+  resetFakeMaplibre();
+  // A test that runs in Node, not jsdom, has no window.
+  if (typeof window !== "undefined") {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    // The page's theme as before any was set: the next test starts from the device's setting.
+    document.documentElement.removeAttribute("data-theme");
+    forgetThemeInMemory();
+    // The history of the window is the test's own: no entry index from a router that came before.
+    window.history.replaceState(null, "", "/");
+  }
+  // Last, once the next test's start is clean: a test that reached the network fails.
+  if (reached.length > 0) {
+    throw new Error(`A test called the real fetch: ${reached.join(", ")}. Stub fetch instead (vi.stubGlobal).`);
+  }
+});
