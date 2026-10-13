@@ -9,7 +9,8 @@ import { config } from "../config.ts";
  * and "signed out" may be said of the person (the M2b plan's ruling R7). No other "sign".
  * The Follow button and its lines (`copy.follow`) say "follow", "following" and "unfollow", and the
  * line on a reviewer's page that names who follows them says "followed"; nothing else in the file
- * says any of them (decision 44).
+ * says any of them (decision 44). One line of that group says "unfollowed", of a copy of the
+ * person's list kept before an unfollow (`follow.keptBeforeUnfollow`), and no other line may.
  */
 export const ALLOWED_PROTOCOL_STRINGS = {
   signInButton: "Continue with Nostr",
@@ -129,6 +130,9 @@ const personalize = "Personalize";
 
 /** The button that has the person's circle built again: on the Why page, and under a Follow button once someone is followed. */
 const updateNow = "Update now";
+
+/** The word that puts a question off, and changes nothing: in the panel My circle's half opens, and under a Follow button that asks before it uses a copy. */
+const notNow = "Not now";
 
 /** Times in words where English has them ("now", "yesterday"), in the app's language. */
 const relativeWords = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
@@ -336,7 +340,7 @@ export const copy = {
     /** The bar's ×, for a screen reader: puts the bar away before its time is up. */
     closeBar: "Close this message",
     /** In the panel My circle's half opens: closes it, asking Brainstorm nothing. */
-    notNow: "Not now",
+    notNow,
     /**
      * Beside the line that says nobody in the circle has rated places yet, when the person's scorer
      * was found with no ranks: whether its run is done, under way or failed is not known (ruling R10).
@@ -490,10 +494,11 @@ export const copy = {
   },
   /**
    * Following a reviewer (decision 44): the button beside a reviewer's name on a review, and on their
-   * page, and the lines under it; and the line on their page that names who follows them. The button
-   * adds them to the list of people the person follows, which their circle is built from. This group
-   * is the one place the app says "follow": everything else keeps "trust" (tests/copy.test.ts holds
-   * the rest of the copy to that).
+   * page, and the lines under it; the line on their page that names who follows them; and, on the
+   * person's own page, the copies of their list kept before each change, with the way to put one
+   * back. The button adds them to the list of people the person follows, which their circle is built
+   * from. This group is the one place the app says "follow": everything else keeps "trust"
+   * (tests/copy.test.ts holds the rest of the copy to that).
    */
   follow: {
     // DRAFT
@@ -546,6 +551,13 @@ export const copy = {
     /** The list of people the person follows could not be read, so it was not changed. Try again follows. */
     notLoaded: "We couldn't load the list of people you follow, so nothing was changed.",
     // DRAFT
+    /**
+     * The list was read, and a copy of it could not be kept in this browser first: said of a change
+     * that is never made without that copy (one built on a copy found elsewhere, at the person's
+     * say), and of a copy put back over a list. Try again follows.
+     */
+    notKept: "We couldn't keep a copy of your list in this browser, so nothing was changed.",
+    // DRAFT
     /** The person's add-on or phone app said no, or did not answer. Try again follows. */
     notApproved: "That wasn't approved, so nothing was changed.",
     // DRAFT
@@ -559,12 +571,69 @@ export const copy = {
     tryAgain: "Try again",
     // DRAFT
     /**
+     * Under the button, in place of a change that was not made: where the person's other apps keep
+     * their list could not be reached, and the list the change would be built on is a copy found
+     * elsewhere, which may be an old one. `date` is the day that copy was last changed, as the
+     * person's own language writes a day, with no time: only they know whether they have followed
+     * anyone since. Never how many people it holds (decision 19). `notNow` and `useThisCopy` follow.
+     */
+    copyFound: (date: string) =>
+      `We couldn't reach where your other apps keep your list. The newest copy we found was last changed on ${date}. If you have followed anyone since then, they would be lost.`,
+    /** Under `copyFound`, first: lets the question go, and changes nothing, in the words My circle's panel has for it. */
+    notNow,
+    // DRAFT
+    /** Beside `notNow`: the person's answer, which makes the change they pressed for on that copy. */
+    useThisCopy: "Use this copy",
+    // DRAFT
+    /**
      * On a reviewer's page, for a person signed in: the people they follow who follow this reviewer, by
      * name, one to three of them and never how many there are (decision 19): "Followed by Maya, who you
      * follow", "Followed by Maya and Jon, people you follow", "Followed by Maya, Jon and Dele, people
      * you follow".
      */
     followedBy: (...names: string[]) => `Followed by ${allOf(names)}, ${names.length === 1 ? "who" : "people"} you follow`,
+    // DRAFT
+    /**
+     * On the person's own page: the heading over the copies of their list that were kept in this
+     * browser, one before each change they made here. Never how many people a copy holds (decision 19).
+     */
+    keptHeading: "Earlier copies of who you follow",
+    // DRAFT
+    /** Under `keptHeading`: what the copies are, and what they are for. */
+    keptAbout: "Before each change you make here, Regulars keeps a copy of your list in this browser, so it can be put back.",
+    // DRAFT
+    /** A copy, by the change it was kept before: a tap of Follow, for the person named. When it was kept follows. */
+    keptBeforeFollow: (name: string) => `Before you followed ${name}`,
+    // DRAFT
+    /** The same, kept before an unfollow of the person named. The one line that says "unfollowed" (tests/copy.test.ts lets it through here alone). */
+    keptBeforeUnfollow: (name: string) => `Before you unfollowed ${name}`,
+    // DRAFT
+    /** The same, kept before a tap of Undo. */
+    keptBeforeUndo: "Before an Undo",
+    // DRAFT
+    /** The same, kept before another copy was put back: the list as it was then. */
+    keptBeforePutBack: "Before a copy was put back",
+    // DRAFT
+    /** Whom `keptBeforeFollow` and `keptBeforeUnfollow` name when the app has no name for them: never a code. */
+    keptSomeone: "someone",
+    // DRAFT
+    /** Beside a copy: asks whether to put it back (`putBackQuestion`), and changes nothing. */
+    putBack: "Put back",
+    // DRAFT
+    /** The asking, in place of `putBack`: what putting a copy back does, and what it loses. `keepAsItIs` and `putItBack` follow. */
+    putBackQuestion: "Putting this back replaces your list as it is now. Anyone you have followed since, here or in another app, would be lost.",
+    // DRAFT
+    /** Under `putBackQuestion`: replaces the person's list with the copy. `saving` while it is being saved. */
+    putItBack: "Put it back",
+    // DRAFT
+    /** Beside `putItBack`: closes the asking, and changes nothing. */
+    keepAsItIs: "Keep my list as it is",
+    // DRAFT
+    /** Once a copy has been put back. */
+    putBackDone: "Your list is as it was then.",
+    // DRAFT
+    /** The list was what the copy says already: nothing was changed. */
+    putBackAlready: "Your list is already as it was then.",
   },
   /**
    * A reviewer's page (the design, without its meter and its counts: decision 19): their name and

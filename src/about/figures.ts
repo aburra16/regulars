@@ -1,4 +1,4 @@
-import { formatInteger, safeLocale } from "../locale.ts";
+import { formatDay, formatInteger } from "../locale.ts";
 import type { Place } from "../places/place.ts";
 
 /** What the About page says of the places the app has. */
@@ -37,7 +37,5 @@ export function formatCount(n: number, locale: string): string {
  * everyone; a refresh at 23:25 UTC is not a day later for a person in Madeira.
  */
 export function formatRefreshed(seconds: number, locale: string): string {
-  return new Intl.DateTimeFormat(safeLocale(locale), { dateStyle: "long", timeZone: "UTC", numberingSystem: "latn" }).format(
-    new Date(seconds * 1000),
-  );
+  return formatDay(seconds, locale, "UTC");
 }

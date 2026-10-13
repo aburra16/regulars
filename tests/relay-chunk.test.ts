@@ -31,6 +31,11 @@ import { describe, expect, it } from "vitest";
 // route (src/person/PersonRoute.tsx), the fetch, and a person's address (src/person/npub.ts), which
 // every review's link to its reviewer's page needs. The same build is checked for that: one build
 // for both.
+//
+// The section of the person's own page that lists the copies kept of who they follow, with the way
+// to put one back (src/follow/KeptCopies.tsx), is a chunk of its own too: You fetches it once the
+// person has a copy to show (src/follow/loadKeptCopies.ts), and most visits open no such page. What
+// keeps the copies and puts one back is in the first screen's code, as the change that keeps them is.
 const ROOT = process.cwd();
 const RELAY_READER = /[\\/]src[\\/]nostr[\\/]relayReader\.ts$/;
 const NOSTRIFY = /[\\/]node_modules[\\/]@nostrify[\\/]/;
@@ -51,6 +56,10 @@ const PERSON_ROUTE = /[\\/]src[\\/]person[\\/]PersonRoute\.tsx$/;
 const LOAD_PERSON_PAGE = /[\\/]src[\\/]person[\\/]loadPersonPage\.ts$/;
 const NPUB = /[\\/]src[\\/]person[\\/]npub\.ts$/;
 const REVIEWS_ON_A_PLACE = /[\\/]src[\\/]place[\\/]Reviews\.tsx$/;
+const KEPT_COPIES = /[\\/]src[\\/]follow[\\/]KeptCopies\.tsx$/;
+const LOAD_KEPT_COPIES = /[\\/]src[\\/]follow[\\/]loadKeptCopies\.ts$/;
+const KEPT = /[\\/]src[\\/]follow[\\/]kept\.ts$/;
+const YOU_PAGE = /[\\/]src[\\/]you[\\/]YouPage\.tsx$/;
 /** The person page's own code: none of it is in the first screen. */
 const PERSON_PAGE_CODE = [PERSON_PAGE, PERSON_REVIEWS, REVIEWS_READ, FOLLOWED_BY];
 
@@ -181,5 +190,33 @@ describe("the person page's chunk", () => {
       expect(holds(page, code)).toBe(true);
       expect(chunks.filter((chunk) => holds(chunk, code))).toHaveLength(1);
     }
+  }, 120_000);
+});
+
+describe("the kept copies' chunk", () => {
+  it("holds the section that lists a person's kept copies, fetched when You has one to show, and it is not in the entry", async () => {
+    const chunks = await appChunks();
+    const holds = (chunk: Chunk | undefined, code: RegExp) => chunk?.moduleIds.some((id) => code.test(id)) === true;
+
+    const entries = chunks.filter((chunk) => chunk.isEntry);
+    expect(entries).toHaveLength(1);
+    const entry = entries[0]!;
+    // You, the fetch, and the keeping itself are in the first screen's code.
+    expect(holds(entry, YOU_PAGE)).toBe(true);
+    expect(holds(entry, LOAD_KEPT_COPIES)).toBe(true);
+    expect(holds(entry, KEPT)).toBe(true);
+    // The section is not, nor is it in anything the entry loads before it runs.
+    const byName = new Map(chunks.map((chunk) => [chunk.fileName, chunk]));
+    const eager = new Set<string>([entry.fileName]);
+    for (const name of eager) for (const imported of byName.get(name)?.imports ?? []) eager.add(imported);
+    expect([...eager].filter((name) => holds(byName.get(name), KEPT_COPIES))).toEqual([]);
+
+    // One chunk holds it, which the entry fetches when it is first needed, and which brings no curve
+    // of its own: a copy's signature is checked by the code that reads the copies.
+    const holding = chunks.filter((chunk) => holds(chunk, KEPT_COPIES));
+    expect(holding).toHaveLength(1);
+    expect(holding[0]!.isDynamicEntry).toBe(true);
+    expect(entry.dynamicImports).toContain(holding[0]!.fileName);
+    expect(holding[0]!.moduleIds.filter((id) => CURVES.test(id))).toEqual([]);
   }, 120_000);
 });

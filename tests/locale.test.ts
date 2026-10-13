@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { formatInteger, LOCALE_FALLBACK, safeLocale } from "../src/locale";
+import { formatRefreshed } from "../src/about/figures";
+import { formatDay, formatDayAndTime, formatInteger, LAST_MOMENT_S, LOCALE_FALLBACK, safeLocale } from "../src/locale";
 import { formatDistance, milesFor, readsMiles, usesMiles } from "../src/places/distance";
 import { withinChoices } from "../src/search/filters";
 import { zoneIs } from "./support/zone";
@@ -36,6 +37,79 @@ describe("safeLocale", () => {
       expect(() => new Intl.NumberFormat(safeLocale(locale))).not.toThrow();
       expect(() => new Intl.DateTimeFormat(safeLocale(locale))).not.toThrow();
     }
+  });
+});
+
+describe("formatDay", () => {
+  /** 6 March 2027, at six in the evening in Los Angeles: two in the morning of the 7th in Greenwich. */
+  const EVENING = Date.UTC(2027, 2, 7, 2, 0, 0) / 1000;
+
+  it.each([
+    ["en-US", "March 7, 2027"],
+    ["en-GB", "7 March 2027"],
+    ["pt-PT", "7 de março de 2027"],
+    ["de-DE", "7. März 2027"],
+    ["not a locale", "7 March 2027"],
+  ])("writes a day in %s as %j: long, with no time of day", (locale, shown) => {
+    expect(formatDay(EVENING, locale)).toBe(shown);
+  });
+
+  it("writes the day on the device's own clock, as the person reckons their days: the tests' clock is Greenwich's", () => {
+    expect(new Intl.DateTimeFormat().resolvedOptions().timeZone).toBe("UTC");
+    expect(formatDay(EVENING, "en-US")).toBe(formatDay(EVENING, "en-US", "UTC"));
+  });
+
+  it("writes the day it was where the zone says, when it is given one: an evening in Los Angeles is not the next day, as it is in Greenwich", () => {
+    expect(formatDay(EVENING, "en-US", "America/Los_Angeles")).toBe("March 6, 2027");
+    expect(formatDay(EVENING, "en-US", "UTC")).toBe("March 7, 2027");
+    expect(formatDay(EVENING, "en-US", "Asia/Tokyo")).toBe("March 7, 2027");
+  });
+
+  it("writes its numbers in Latin digits, whatever the language", () => {
+    const shown = formatDay(EVENING, "ar-EG");
+    expect(shown).toMatch(/\b7\b/);
+    expect(shown).toContain("2027");
+    expect(shown).not.toMatch(/[\u0660-\u0669\u06F0-\u06F9]/);
+  });
+
+  it("writes a time past what a date can hold as the last day one can, and never throws for it", () => {
+    for (const seconds of [8_640_000_000_001, Number.MAX_SAFE_INTEGER]) {
+      expect(() => formatDay(seconds, "en-US")).not.toThrow();
+      expect(formatDay(seconds, "en-US", "UTC")).toBe(formatDay(8_640_000_000_000, "en-US", "UTC"));
+    }
+    expect(formatDay(8_640_000_000_000, "en-US", "UTC")).toMatch(/275760$/);
+    expect(() => formatDay(-Number.MAX_SAFE_INTEGER, "en-US")).not.toThrow();
+  });
+
+  it("is what the About page's date is written by, for the day in Greenwich", () => {
+    for (const locale of ["en-US", "pt-PT", "ar-EG", "ja-JP"]) expect(formatRefreshed(EVENING, locale)).toBe(formatDay(EVENING, locale, "UTC"));
+  });
+});
+
+describe("formatDayAndTime", () => {
+  /** Five past nine on a morning in March, in Greenwich, as the tests' clock is. */
+  const MORNING = Date.UTC(2027, 2, 4, 9, 5, 0) / 1000;
+
+  it.each<[string, RegExp]>([
+    ["en-US", /^March 4, 2027 at 9:05\sAM$/],
+    ["en-GB", /^4 March 2027 at 09:05$/],
+    ["pt-PT", /^4 de março de 2027 às 09:05$/],
+    ["not a locale", /^4 March 2027 at 9:05\sam$/i],
+  ])("writes a moment in %s as its day, long, with its time of day: by the device's own clock", (locale, shown) => {
+    expect(formatDayAndTime(MORNING, locale)).toMatch(shown);
+  });
+
+  it("writes its numbers in Latin digits, whatever the language", () => {
+    const shown = formatDayAndTime(MORNING, "ar-EG");
+    expect(shown).toContain("2027");
+    expect(shown).not.toMatch(/[\u0660-\u0669\u06F0-\u06F9]/);
+  });
+
+  it("writes a time past what a date can hold as the last moment one can, and never throws for it: as the day alone is written", () => {
+    for (const seconds of [LAST_MOMENT_S + 1, Number.MAX_SAFE_INTEGER, -Number.MAX_SAFE_INTEGER]) expect(() => formatDayAndTime(seconds, "en-US")).not.toThrow();
+    expect(formatDayAndTime(Number.MAX_SAFE_INTEGER, "en-US")).toBe(formatDayAndTime(LAST_MOMENT_S, "en-US"));
+    expect(formatDayAndTime(LAST_MOMENT_S, "en-US")).toContain("275760");
+    expect(LAST_MOMENT_S).toBe(8_640_000_000_000);
   });
 });
 

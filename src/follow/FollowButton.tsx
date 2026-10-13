@@ -23,8 +23,11 @@ import { DoorPanel, heldKeyPressesNothing } from "../circle/Personalize.tsx";
 import { updateWord, updateWords } from "../circle/updateWords.ts";
 import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
+import { formatDay } from "../locale.ts";
+import { writtenOn } from "../reviews/when.ts";
+import { useLocale } from "../shell/useLocale.ts";
 import { quietLine, wordButton } from "../ui/Banner.tsx";
-import { scriptLang } from "../ui/scriptLang.ts";
+import { Named } from "../ui/Named.tsx";
 import { type FollowOf, useFollow } from "./FollowProvider.tsx";
 
 /*
@@ -40,11 +43,19 @@ import { type FollowOf, useFollow } from "./FollowProvider.tsx";
  * end, and what the button says comes from that list. Nothing but a press on the word Unfollow asks
  * for an unfollow: no pointer that moves, no focus that comes, no time that passes
  * (tests/followGuard.test.ts holds the code to the one place that asks). Which change Try again makes
- * again is the list's to say, never read off what the button says now (ruling R27). Nor does it reach
- * Brainstorm: Update now is the circle's own `update`, and Personalize here only opens Personalize's
- * panel, whose own button is the person's consent (decision 26). Nobody's rank, weight or count is
- * shown (decision 19), and a reviewer the view folds away has the same button and the same lines as
- * anyone.
+ * again is the list's to say, never read off what the button says now (ruling R27).
+ *
+ * A change may come back asking: where the person's other apps keep their list could not be
+ * reached, and it could only be built on a copy found elsewhere, which may be an old one. Then
+ * nothing was changed, and the lines say so, with the day that copy was last changed and two
+ * answers. Use this copy is the person's say, and the one press that gives it (the guard holds the
+ * code to that too): the session makes the change that asked, on that copy. Not now lets it go. The
+ * button itself is as it was before the press, and a press on it is a press, not an answer.
+ *
+ * Nor does it reach Brainstorm: Update now is the circle's own `update`, and Personalize here only
+ * opens Personalize's panel, whose own button is the person's consent (decision 26). Nobody's rank,
+ * weight or count is shown (decision 19), and a reviewer the view folds away has the same button
+ * and the same lines as anyone.
  *
  * What it draws of a change (`trouble`, `justFollowed`) it only draws: a button on a page just opened
  * may be given, for one drawing, what was said on the page before, so nothing here takes the focus,
@@ -69,21 +80,6 @@ export const UNFOLLOW_SHOWN_MS = 10_000;
  * quick taps are one tap too.
  */
 export const UNFOLLOW_GUARD_MS = 400;
-
-/** Where a person's name goes in a line that names them. */
-const NAME_MARK = "\u0000";
-
-/** A line with a person's name in it, the name kept apart from the sentence's direction. */
-function Named({ line, name }: { line: (name: string) => string; name: string }): JSX.Element {
-  const [before = "", after = ""] = line(NAME_MARK).split(NAME_MARK);
-  return (
-    <>
-      {before}
-      <bdi lang={scriptLang(name)}>{name}</bdi>
-      {after}
-    </>
-  );
-}
 
 /**
  * The button's shape (ruling R46), about half the size the design drew it: a pill, small beside a name
@@ -154,9 +150,20 @@ const LOOK = {
   saving: "cursor-default border-line-strong bg-ground text-muted",
 } as const;
 
+/** Where the day goes in the line that asks about a copy (`copy.follow.copyFound`). */
+const DAY_MARK = "\u0000";
+
+/**
+ * The line that asks about a copy: the size of the quiet lines under the button, no longer than a
+ * line of a review, and in the ink a review's words have. It says what the person could lose, and
+ * is not the quietest text in its row.
+ */
+const askingLine = "m-0 max-w-measure text-secondary leading-[1.4] text-ink-soft";
+
 /** The line for each way a change did not simply succeed. */
 const TROUBLE: Record<NonNullable<FollowOf["trouble"]>, string> = {
   "not-loaded": copy.follow.notLoaded,
+  "not-kept": copy.follow.notKept,
   "not-approved": copy.follow.notApproved,
   "not-saved": copy.follow.notSaved,
   unconfirmed: copy.follow.unconfirmed,
@@ -622,6 +629,16 @@ function CircleLines({ shown, account }: { shown: boolean; account: Account }): 
  * again, as is a tap of Follow, both of which put back what the unfollow took out (rulings R22, R28).
  * Undo and Try again go as they are tapped, and leave the focus on the button.
  *
+ * While the person is asked about a change to this one (`asking`), that is what the status says, in
+ * place of the rest: that the copy found may be an old one, with the day it was last changed, as
+ * their language writes a day and by their own clock, and never how many people it holds. Under it
+ * are its two answers, words like the others: Not now, which changes nothing and comes first, and
+ * Use this copy, which `onUseThisCopy` runs and nothing else does. Each goes as it is tapped, and
+ * leaves the focus on the button; as the asking comes, the focus stays on the button, which the
+ * person pressed. Undo's line is not drawn meanwhile: when Undo is what asked, Use this copy is
+ * that Undo, and Not now gives the line back for what is left of its time. A press of the button
+ * itself is no answer: it asks again, for the change that asked.
+ *
  * The main button's lines are under it, or in `linesIn` when the page gives a place for them: the
  * same lines, with the same words and the same focus, drawn there.
  */
@@ -641,11 +658,13 @@ function Shown({
   onUsed(): void;
 }): JSX.Element {
   const { clearUpdate } = useCircle();
+  const locale = useLocale();
   const button = useRef<HTMLButtonElement>(null);
   const troubleId = useId();
   const undoId = useId();
+  const askingId = useId();
 
-  const { state, trouble, canUndo, justFollowed } = of;
+  const { state, trouble, canUndo, justFollowed, asking } = of;
   const saving = state === "saving";
   const following = state === "following";
   const unfollow = useUnfollowShown(following, button);
@@ -690,12 +709,45 @@ function Shown({
     of.undo();
   };
 
+  // The person's answer to being asked about a copy: the one place that gives it, and the tap of
+  // Use this copy is the one thing that runs it. Which change it makes is the session's to say:
+  // the one that asked. A follow among them adds the person, as a tap of Follow does (ruling R24).
+  const onUseThisCopy = () => {
+    onUsed();
+    if (of.useThisCopy()) clearUpdate();
+  };
+
   /** What the polite status says, one line under another. */
   const lines: ReactNode[] = [];
-  /** The word beside them. One at most: Try again is not offered while Undo is. */
+  /** The word beside them, or the asking's two. Otherwise one at most: Try again is not offered while Undo is. */
   let word: ReactNode = null;
 
-  if (trouble !== null) {
+  if (asking !== null) {
+    // The words are the copy's, and the day is drawn where the line puts it: as one thing, never
+    // broken across two lines, and marked with the moment it stands for when a date can hold that.
+    const [before = "", after = ""] = copy.follow.copyFound(DAY_MARK).split(DAY_MARK);
+    lines.push(
+      <p key="asking" id={askingId} className={askingLine}>
+        {before}
+        <time dateTime={writtenOn(asking.changed)?.toISOString()} className="whitespace-nowrap">
+          {formatDay(asking.changed, locale)}
+        </time>
+        {after}
+      </p>,
+    );
+    word = (
+      // The two answers, in a row of their own under the line, whatever room there is beside it. The
+      // one that changes nothing comes first, as the one that keeps a list does where a copy is put back.
+      <div key="answers" className="flex basis-full flex-wrap gap-x-4">
+        <Word home={button} aria-describedby={askingId} onTap={of.notNow}>
+          {copy.follow.notNow}
+        </Word>
+        <Word home={button} aria-describedby={askingId} onTap={onUseThisCopy}>
+          {copy.follow.useThisCopy}
+        </Word>
+      </div>
+    );
+  } else if (trouble !== null) {
     lines.push(
       <p key="trouble" id={troubleId} className={quietLine}>
         {TROUBLE[trouble]}
@@ -711,7 +763,7 @@ function Shown({
     }
   }
 
-  if (canUndo) {
+  if (canUndo && asking === null) {
     lines.push(
       <p key="undo" id={undoId} className={quietLine}>
         <Named line={copy.follow.unfollowed} name={name} />
@@ -799,16 +851,18 @@ function Shown({
  * The Follow button for the person whose key is `pubkey`, named `name`, with its lines under it.
  *
  * It never shows for the person signed in themself, nor while their own list of who they follow is
- * not known (it has not been read, or could not be): never a wrong state. Signed out, there is no
- * small one, and the main one is a link to sign in.
+ * not known (it has not been read, or could not be): never a wrong state. It shows from a copy of
+ * that list the person has not agreed to yet, when that is what the session holds: a press then
+ * asks before anything is changed. Signed out, there is no small one, and the main one is a link to
+ * sign in.
  *
  * `small` is there only while there is something to tap or to say: the reviewer is not followed
  * (Follow, with Undo under it for ten seconds after an unfollow); a change to them is being saved; or
- * they were just followed here, a change to them went wrong, or this button was tapped, and it says
- * Following. Someone followed before the page was opened has no small button. It gives the row it is
- * in two things: the button, and its lines, which take a row of their own under it where the row
- * wraps. `main` is there in each of those states, and for someone followed all along; its lines are
- * under it, or where the page says (`linesIn`).
+ * they were just followed here, a change to them went wrong, the person is asked about one, or this
+ * button was tapped, and it says Following. Someone followed before the page was opened has no small
+ * button. It gives the row it is in two things: the button, and its lines, which take a row of their
+ * own under it where the row wraps. `main` is there in each of those states, and for someone
+ * followed all along; its lines are under it, or where the page says (`linesIn`).
  *
  * While Follow is not open (`config.features.follow`, ruling R39) it draws nothing, in either size,
  * for anyone: no button, and no link to sign in.
@@ -828,7 +882,7 @@ export function FollowButton({ pubkey, name, size, linesIn }: FollowButtonProps)
   if (me === who) return null;
   if (account === undefined) return size === "main" && !restoring ? <SignInToFollow name={name} /> : null;
   if (of.state === "unknown") return null;
-  const quiet = of.state === "following" && !of.justFollowed && of.trouble === null && usedFor !== who;
+  const quiet = of.state === "following" && !of.justFollowed && of.trouble === null && of.asking === null && usedFor !== who;
   if (size === "small" && quiet) return null;
   // A button of its own for each person: what one was shown, or pressed for, is never another's.
   return <Shown key={who} name={name} size={size} of={of} account={account} linesIn={size === "main" ? linesIn : undefined} onUsed={() => setUsedFor(who)} />;

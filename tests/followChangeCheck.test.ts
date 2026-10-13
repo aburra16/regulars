@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Account } from "../src/account/session";
 import { config } from "../src/config";
-import { changeFollow, FOLLOW_LOCK, type FollowOutcome, forgetFollowFloor } from "../src/follow/change";
+import { changeFollow, FOLLOW_LOCK, type FollowDeps, type FollowOutcome, forgetFollowFloor, putBackList } from "../src/follow/change";
+import { KEEP_WAIT_MS } from "../src/follow/kept";
 import { FOLLOW_READ_MS } from "../src/follow/read";
 import { ABSENT, buildFollowList, FOLLOW_LIST_TIME, pubkeyAt } from "./fixtures/follow-list";
 import { shapedEvent } from "./support/events";
@@ -38,11 +39,12 @@ function signer() {
 /** Aborts when each test ends: a change a test left under way ends there, and does not hold up the next. */
 let life: AbortController;
 
-/** The person follows `who`, over the relays of `w`. */
-function follow(w: World, who: string, opts: { by?: ReturnType<typeof signer>; signal?: AbortSignal } = {}): Promise<FollowOutcome> {
+/** The person follows `who`, over the relays of `w`, with `keep` to keep the list the follow is built on, when one is given. */
+function follow(w: World, who: string, opts: { by?: ReturnType<typeof signer>; signal?: AbortSignal; keep?: FollowDeps["keep"] } = {}): Promise<FollowOutcome> {
   const account: Account = { pubkey: ME, signer: opts.by ?? signer(), how: "browser" };
   const signal = opts.signal === undefined ? life.signal : AbortSignal.any([opts.signal, life.signal]);
-  return changeFollow(account, who, "follow", { readers: w.readers, writers: w.writers, now: () => NOW }, signal);
+  const deps: FollowDeps = { readers: w.readers, writers: w.writers, now: () => NOW, ...(opts.keep === undefined ? {} : { keep: opts.keep }) };
+  return changeFollow(account, who, "follow", deps, signal);
 }
 
 /** How a change ended, once it has: its outcome, or what it threw. Neither while it goes on. */
@@ -65,12 +67,13 @@ function checkCodeCannotBeFetched() {
   });
 }
 
-/** Holds the fetch of that code back, as on a connection that hangs, until the test ends. */
-function checkCodeDoesNotCome() {
+/** Holds the fetch of that code back, as on a connection that hangs, until the test ends. `asked` is called as the fetch begins. */
+function checkCodeDoesNotCome(asked: () => void = () => {}) {
   const held = new Promise<void>((resolve) => {
     comes = resolve;
   });
   vi.doMock("nostr-tools/pure", async () => {
+    asked();
     await held;
     return vi.importActual("nostr-tools/pure");
   });
@@ -104,6 +107,93 @@ afterEach(async () => {
 });
 
 describe("the check of what the signer returns, had before the signer is asked", () => {
+  // The three that play a list being kept, or a copy being put back, come before the rest: a test that
+  // leaves the fetch held back lets it come as it ends, and the test runner may hand what came then to
+  // the test after it.
+  it("is fetched only once the list the change is built on has been kept, and the signer is asked only once it has come: kept, then the check's code, then the signer", async () => {
+    const old = buildFollowList(SECRET);
+    const w = everywhere([old]);
+    const order: string[] = [];
+    const by = signer();
+    by.signEvent.mockImplementationOnce(async (asked) => {
+      order.push("the signer");
+      return finalizeEvent(structuredClone(asked), SECRET);
+    });
+    let keepIt!: (kept: boolean) => void;
+    const keeping = new Promise<boolean>((resolve) => {
+      keepIt = resolve;
+    });
+    const keep = vi.fn(async () => {
+      order.push("kept");
+      return keeping;
+    });
+    checkCodeDoesNotCome(() => order.push("the check's code"));
+    const ended = track(follow(w, ABSENT, { by, keep }));
+
+    // Well within the time a keeping has: this one answers in it.
+    await vi.advanceTimersByTimeAsync(KEEP_WAIT_MS / 2);
+    // The list is read, and is being kept: the check's code has not been asked for, nor the signer.
+    expect(order).toEqual(["kept"]);
+    expect(ended).toEqual({});
+
+    keepIt(true);
+    // Kept: now the code is fetched, and the signer waits for it.
+    await vi.waitFor(() => expect(order).toEqual(["kept", "the check's code"]));
+    await vi.advanceTimersByTimeAsync(FOLLOW_READ_MS);
+    expect(order).toEqual(["kept", "the check's code"]);
+    expect(by.signEvent).not.toHaveBeenCalled();
+
+    comes?.();
+    await vi.waitFor(() => expect(ended.outcome?.kind).toBe("saved"));
+    expect(order).toEqual(["kept", "the check's code", "the signer"]);
+    expect(ended.outcome).toMatchObject({ kind: "saved", kept: true });
+    expect(keep).toHaveBeenCalledTimes(1);
+  });
+
+  it("has kept the list though the check's code cannot then be fetched, and nothing is signed", async () => {
+    const old = buildFollowList(SECRET);
+    const w = everywhere([old]);
+    const by = signer();
+    const keep = vi.fn(async () => true);
+    checkCodeCannotBeFetched();
+
+    expect(await follow(w, ABSENT, { by, keep })).toEqual({ kind: "not-saved" });
+
+    expect(keep).toHaveBeenCalledTimes(1);
+    expect(by.signEvent).not.toHaveBeenCalled();
+    expect(w.published()).toEqual([]);
+  });
+
+  it("puts no copy back when the check's code cannot be fetched: the copy cannot be checked, so nothing is read, locked, kept or signed", async () => {
+    const locks = new FakeLocks();
+    useLocks(locks);
+    const copy = buildFollowList(SECRET);
+    // The list as it is now: one entry, where the copy has 1,200.
+    const now = finalizeEvent({ kind: 3, created_at: FOLLOW_LIST_TIME + 100, content: "", tags: [["p", ABSENT]] }, SECRET);
+    const w = everywhere([now]);
+    const by = signer();
+    const keep = vi.fn(async () => true);
+    const account: Account = { pubkey: ME, signer: by, how: "browser" };
+    const deps: FollowDeps = { readers: w.readers, writers: w.writers, now: () => NOW, keep };
+    checkCodeCannotBeFetched();
+
+    expect(await putBackList(account, copy, deps, life.signal)).toEqual({ kind: "not-saved" });
+
+    expect(locks.requests).toEqual([]);
+    expect(w.asked()).toEqual([]);
+    expect(keep).not.toHaveBeenCalled();
+    expect(by.signEvent).not.toHaveBeenCalled();
+    expect(w.published()).toEqual([]);
+    // Nor is a copy that is no copy taken for one then: it is not known to be either.
+    expect(await putBackList(account, { ...copy, content: "" }, deps, life.signal)).toEqual({ kind: "not-saved" });
+    // Once the code can be fetched, the same copy is put back, and the other is refused.
+    vi.doUnmock("nostr-tools/pure");
+    await expect(putBackList(account, { ...copy, content: "" }, deps, life.signal)).rejects.toBeInstanceOf(TypeError);
+    const saved = await putBackList(account, copy, deps, life.signal);
+    expect(saved.kind).toBe("saved");
+    expect(by.signEvent).toHaveBeenCalledTimes(1);
+  });
+
   it("stops the change with nothing signed when the check's code cannot be fetched: the person is not asked to approve what could not be saved", async () => {
     const w = everywhere([buildFollowList(SECRET)]);
     const by = signer();

@@ -86,10 +86,20 @@ function Session(): JSX.Element {
   );
 }
 
-/** A button's part of a page: what `useFollow` gives for `who`, in words, and its four taps. */
+/**
+ * A button's part of a page: what `useFollow` gives for `who`, in words, and its taps: the four that
+ * ask for a change, and the two answers to being asked about a copy (`use`, `not now`). While the
+ * person is asked, the words say so, with when the copy was last changed (`asking:<seconds>`).
+ */
 export function Person({ name, who }: { name: string; who: string }): JSX.Element {
   const of = useFollow(who);
-  const words = [of.state, of.trouble === null ? "" : `trouble:${of.trouble}`, of.canUndo ? "undo" : "", of.justFollowed ? "just" : ""];
+  const words = [
+    of.state,
+    of.trouble === null ? "" : `trouble:${of.trouble}`,
+    of.canUndo ? "undo" : "",
+    of.justFollowed ? "just" : "",
+    of.asking === null ? "" : `asking:${of.asking.changed}`,
+  ];
   return (
     <>
       <output data-testid={name}>{words.filter(Boolean).join(" ")}</output>
@@ -97,6 +107,8 @@ export function Person({ name, who }: { name: string; who: string }): JSX.Elemen
       <button type="button" onClick={of.unfollow}>{`unfollow ${name}`}</button>
       <button type="button" onClick={of.undo}>{`undo ${name}`}</button>
       <button type="button" onClick={of.retry}>{`retry ${name}`}</button>
+      <button type="button" onClick={() => of.useThisCopy()}>{`use ${name}`}</button>
+      <button type="button" onClick={of.notNow}>{`not now ${name}`}</button>
     </>
   );
 }
@@ -252,8 +264,8 @@ export const openInShell = (w: World, people: Record<string, string>) =>
 /** What the button named `name` is told. */
 export const says = (name: string) => screen.getByTestId(name).textContent;
 
-/** A tap on one of the button's four. */
-export const tap = (name: string, what: "follow" | "unfollow" | "undo" | "retry") =>
+/** A tap on one of the button's four, or on one of the two answers to being asked about a copy. */
+export const tap = (name: string, what: "follow" | "unfollow" | "undo" | "retry" | "use" | "not now") =>
   fireEvent.click(screen.getByRole("button", { name: `${what} ${name}` }));
 
 /** A tap on Sign out, or on signing in with the add-on as it is now. */

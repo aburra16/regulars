@@ -52,7 +52,7 @@ const WITHOUT_FRIEND = finalizeEvent(
 );
 const TAKEN_OUT = [{ index: FRIEND_AT, tag: ["p", FRIEND] }];
 /** How that unfollow ends when it is saved. */
-const UNFOLLOWED: FollowOutcome = { kind: "saved", list: WITHOUT_FRIEND, confirmed: true, removed: TAKEN_OUT };
+const UNFOLLOWED: FollowOutcome = { kind: "saved", list: WITHOUT_FRIEND, confirmed: true, kept: false, removed: TAKEN_OUT };
 
 /** The list an Undo of that unfollow leaves: the one before it, at a later time. */
 const PUT_BACK = finalizeEvent({ kind: 3, created_at: FOLLOW_LIST_TIME + 20, content: LIST.content, tags: LIST.tags }, SECRET);
@@ -167,7 +167,7 @@ describe("what the provider asks changeFollow for", () => {
     }
 
     // Neither signal aborts when its change ends: only when the session does.
-    await follow.ends({ kind: "saved", list: WITH_STRANGER, confirmed: true });
+    await follow.ends({ kind: "saved", list: WITH_STRANGER, confirmed: true, kept: false });
     await waitFor(() => expect(says("stranger")).toBe("following just"));
     expect(asked(0).signal.aborted).toBe(false);
     tapSession("sign out");
@@ -191,7 +191,7 @@ describe("what the provider asks changeFollow for", () => {
     expect(asked(1)).toMatchObject({ by: ME, who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
     // Put back: the button says Following, and not that they were just followed, as nothing has
     // changed for the person's circle (ruling R23). There is nothing more to undo, and no timer left.
-    await undo.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await undo.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     expect(says("friend")).toBe("following");
     expect(vi.getTimerCount()).toBe(0);
     tap("friend", "undo");
@@ -207,14 +207,14 @@ describe("what the provider asks changeFollow for", () => {
     const undo = nextChange();
     tap("friend", "undo");
     // Saved, though it could not be read back: it says so, and still not that they were just followed.
-    await undo.ends({ kind: "saved", list: PUT_BACK, confirmed: false });
+    await undo.ends({ kind: "saved", list: PUT_BACK, confirmed: false, kept: false });
     expect(says("friend")).toBe("following trouble:unconfirmed");
 
     // A tap of Follow says it, as before.
     const follow = nextChange();
     tap("stranger", "follow");
     const withBoth = finalizeEvent({ kind: 3, created_at: FOLLOW_LIST_TIME + 30, content: LIST.content, tags: [...LIST.tags, ["p", ABSENT]] }, SECRET);
-    await follow.ends({ kind: "saved", list: withBoth, confirmed: true });
+    await follow.ends({ kind: "saved", list: withBoth, confirmed: true, kept: false });
 
     expect(says("stranger")).toBe("following just");
     expect(says("friend")).toBe("following trouble:unconfirmed");
@@ -249,7 +249,7 @@ describe("what the provider asks changeFollow for", () => {
     expect(asked(1)).toMatchObject({ by: ME, who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
 
     // Put back, as by Undo: Following, not just followed (ruling R23), nothing more to undo, and no timer left.
-    await follow.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await follow.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     expect(says("friend")).toBe("following");
     expect(vi.getTimerCount()).toBe(0);
     tap("friend", "undo");
@@ -269,7 +269,7 @@ describe("what the provider asks changeFollow for", () => {
     tap("friend", "follow");
 
     expect(asked(1).action).toBe("follow");
-    await follow.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await follow.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     expect(says("friend")).toBe("following just");
   });
 
@@ -298,7 +298,7 @@ describe("what the provider asks changeFollow for", () => {
     const unfollow = nextChange();
     tap("friend", "unfollow");
 
-    await unfollow.ends({ kind: "saved", list: WITHOUT_FRIEND, confirmed: true });
+    await unfollow.ends({ kind: "saved", list: WITHOUT_FRIEND, confirmed: true, kept: false });
 
     expect(says("friend")).toBe("not-following");
     expect(vi.getTimerCount()).toBe(0);
@@ -338,7 +338,7 @@ describe("an Undo that did not save (ruling R22)", () => {
     expect(asked(2)).toMatchObject({ by: ME, who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
     expect(asked(2).action).toEqual(asked(1).action);
 
-    await again.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await again.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     expect(says("friend")).toBe("following");
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -354,7 +354,7 @@ describe("an Undo that did not save (ruling R22)", () => {
     const again = nextChange();
     tap("friend", "undo");
     expect(asked(2).action).toEqual({ restore: TAKEN_OUT, left: WITHOUT_FRIEND.id });
-    await again.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await again.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     expect(says("friend")).toBe("following");
   });
 
@@ -430,7 +430,7 @@ describe("an Undo that did not save (ruling R22)", () => {
     const retry = nextChange();
     tap("friend", "retry");
     expect(asked(3).action).toEqual({ restore: TAKEN_OUT, left: WITHOUT_FRIEND.id });
-    await retry.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await retry.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     expect(says("friend")).toBe("following");
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -447,7 +447,7 @@ describe("an Undo that did not save (ruling R22)", () => {
     tap("friend", "retry");
 
     expect(asked(2).action).toBe("follow");
-    await retry.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await retry.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     expect(says("friend")).toBe("following just");
   });
 
@@ -499,7 +499,7 @@ describe("what went wrong, and the change it was about (ruling R27)", () => {
   async function anotherFollowedLeaving(list: typeof LIST) {
     const follow = nextChange();
     tap("another", "follow");
-    await follow.ends({ kind: "saved", list, confirmed: true });
+    await follow.ends({ kind: "saved", list, confirmed: true, kept: false });
     expect(says("another")).toBe("following just");
   }
 
@@ -597,7 +597,7 @@ describe("what went wrong, and the change it was about (ruling R27)", () => {
     await opened();
     const follow = nextChange();
     tap("stranger", "follow");
-    await follow.ends({ kind: "saved", list: WITH_STRANGER, confirmed: false });
+    await follow.ends({ kind: "saved", list: WITH_STRANGER, confirmed: false, kept: false });
     expect(says("stranger")).toBe("following trouble:unconfirmed just");
 
     // A later list, which another's follow saved, has no stranger in it.
@@ -624,7 +624,7 @@ describe("what went wrong, and the change it was about (ruling R27)", () => {
   });
 
   it.each([
-    ["a follow", "stranger", "follow", { kind: "saved", list: WITH_STRANGER, confirmed: false }, "following trouble:unconfirmed just"],
+    ["a follow", "stranger", "follow", { kind: "saved", list: WITH_STRANGER, confirmed: false, kept: false }, "following trouble:unconfirmed just"],
     ["an unfollow", "friend", "unfollow", { ...UNFOLLOWED, confirmed: false }, "not-following trouble:unconfirmed undo"],
   ] as const)("has nothing to try again after %s that was saved and not checked, nor when nothing went wrong", async (_, name, what, outcome, told) => {
     await opened();
@@ -705,7 +705,7 @@ describe("a change that ends once its session is over", () => {
     tap("stranger", "follow");
     expect(says("stranger")).toBe("saving");
     expect(change).toHaveBeenCalledTimes(3);
-    await again.ends({ kind: "saved", list: WITH_STRANGER, confirmed: true });
+    await again.ends({ kind: "saved", list: WITH_STRANGER, confirmed: true, kept: false });
     expect(says("stranger")).toBe("following just");
   });
 });
@@ -754,8 +754,472 @@ describe("a change that fails in a way changeFollow has no name for", () => {
     const again = nextChange();
     tap("stranger", "follow");
     expect(says("stranger")).toBe("saving");
-    await again.ends({ kind: "saved", list: WITH_STRANGER, confirmed: true });
+    await again.ends({ kind: "saved", list: WITH_STRANGER, confirmed: true, kept: false });
     expect(says("stranger")).toBe("following just");
     expect(says("friend")).toBe("following trouble:not-saved");
+  });
+});
+
+describe("a change that says the person may be asked, and what the provider gives changeFollow as their say", () => {
+  /** The copy a change says they may be asked about, made up: its id, and when it was last changed. */
+  const COPY = { id: "c0".repeat(32), changed: FOLLOW_LIST_TIME - 60 * 60 * 24 * 365 };
+  const ASK: FollowOutcome = { kind: "ask", copy: COPY };
+  /** The say the provider gave `changeFollow` the `nth` time it asked for a change (from 0): the id of a list, or nothing. */
+  const said = (nth: number) => change.mock.calls[nth]![5];
+  /** How a follow of the stranger ends when it is made by the person's say. */
+  const FOLLOWED_BY_SAY: FollowOutcome = { kind: "saved", list: WITH_STRANGER, confirmed: true, kept: true, bySay: true };
+
+  it("gives no say with a tap of Follow, of Unfollow, of Undo or of Try again, in a session in which nothing was agreed to", async () => {
+    await opened();
+    const unfollow = nextChange();
+    tap("friend", "unfollow");
+    await unfollow.ends(UNFOLLOWED);
+    const undo = nextChange();
+    tap("friend", "undo");
+    await undo.ends({ kind: "not-approved" });
+    const follow = nextChange();
+    tap("stranger", "follow");
+    await follow.ends({ kind: "not-saved" });
+    const again = nextChange();
+    tap("stranger", "retry");
+    await again.ends({ kind: "not-saved" });
+
+    expect(change).toHaveBeenCalledTimes(4);
+    for (const nth of [0, 1, 2, 3]) expect(said(nth)).toBeUndefined();
+  });
+
+  it("asks the person, and says nothing went wrong: the button is as it was, with when the copy was last changed", async () => {
+    await opened();
+    const follow = nextChange();
+    tap("stranger", "follow");
+    expect(says("stranger")).toBe("saving");
+
+    await follow.ends(ASK);
+
+    expect(says("stranger")).toBe(`not-following asking:${COPY.changed}`);
+    expect(says("friend")).toBe("following");
+    expect(says("another")).toBe("not-following");
+    // Nothing is held from it, and nothing is left running.
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each<[string, "follow" | "unfollow", string, string]>([
+    ["a follow", "follow", "stranger", ABSENT],
+    ["an unfollow", "unfollow", "friend", FRIEND],
+  ])("gives, with Use this copy, the id of the copy they were asked about and nothing else, for %s: the very change that asked", async (_, action, name, who) => {
+    await opened();
+    const first = nextChange();
+    tap(name, action);
+    await first.ends(ASK);
+    const second = nextChange();
+
+    tap(name, "use");
+
+    expect(says(name)).toBe("saving");
+    expect(change).toHaveBeenCalledTimes(2);
+    expect(asked(1)).toMatchObject({ by: ME, who, action });
+    expect(said(1)).toBe(COPY.id);
+    await second.ends({ kind: "not-approved" });
+    expect(says(name)).toContain("trouble:not-approved");
+  });
+
+  it("gives, with Use this copy, exactly what Undo was to put back, though Undo's ten seconds ended while they were asked; and its offer ends once it is put back", async () => {
+    await opened();
+    const unfollow = nextChange();
+    tap("friend", "unfollow");
+    await unfollow.ends(UNFOLLOWED);
+    const undo = nextChange();
+    tap("friend", "undo");
+    await undo.ends(ASK);
+    // Asked, and Undo is offered still for what is left of its time.
+    expect(says("friend")).toBe(`not-following undo asking:${COPY.changed}`);
+    await after(UNDO_MS);
+    expect(says("friend")).toBe(`not-following asking:${COPY.changed}`);
+    const again = nextChange();
+
+    tap("friend", "use");
+
+    expect(change).toHaveBeenCalledTimes(3);
+    expect(asked(2)).toMatchObject({ by: ME, who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
+    // The very thing Undo asked for, not one like it.
+    expect(asked(2).action).toBe(asked(1).action);
+    expect(said(2)).toBe(COPY.id);
+    await again.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: true, bySay: true });
+    expect(says("friend")).toBe("following");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("gives, with Use this copy after Try again asked, the change that had failed, and never what the button would do by now", async () => {
+    await opened();
+    const unfollow = nextChange();
+    tap("friend", "unfollow");
+    await unfollow.ends({ kind: "not-approved" });
+    expect(says("friend")).toBe("following trouble:not-approved");
+    const retried = nextChange();
+    tap("friend", "retry");
+    await retried.ends(ASK);
+    expect(says("friend")).toBe(`following asking:${COPY.changed}`);
+    const answered = nextChange();
+
+    tap("friend", "use");
+
+    expect(asked(2)).toMatchObject({ who: FRIEND, action: "unfollow" });
+    expect(said(2)).toBe(COPY.id);
+    await answered.ends(UNFOLLOWED);
+  });
+
+  it("does nothing on Use this copy for someone they are not asked about, nor once Not now has let the asking go", async () => {
+    await opened();
+    const follow = nextChange();
+    tap("stranger", "follow");
+    await follow.ends(ASK);
+
+    tap("friend", "use");
+    tap("another", "use");
+    tap("another", "not now");
+    expect(says("stranger")).toContain("asking");
+    tap("stranger", "not now");
+    expect(says("stranger")).toBe("not-following");
+    tap("stranger", "use");
+    await settle();
+
+    expect(change).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks about one person at a time: a change for another that asks takes the first one's place, and one that comes to a list lets it go", async () => {
+    await opened();
+    const first = nextChange();
+    tap("stranger", "follow");
+    await first.ends(ASK);
+    const second = nextChange();
+    tap("friend", "unfollow");
+    // While the second is read for, the first is asked still.
+    expect(says("stranger")).toContain("asking");
+    const other = { id: "d1".repeat(32), changed: COPY.changed + 500 };
+
+    await second.ends({ kind: "ask", copy: other });
+
+    expect(says("stranger")).toBe("not-following");
+    expect(says("friend")).toBe(`following asking:${other.changed}`);
+    // A change for a third person that is saved, on a read to trust: nothing is asked of anyone after it.
+    const third = nextChange();
+    tap("another", "follow");
+    expect(says("friend")).toContain("asking");
+    await third.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", ANOTHER]], 30), confirmed: true, kept: false });
+    expect(says("friend")).toBe("following");
+    tap("friend", "use");
+    await settle();
+    expect(change).toHaveBeenCalledTimes(3);
+  });
+
+  it.each<[string, FollowOutcome]>([
+    ["was not loaded", { kind: "not-loaded" }],
+    ["was not approved", { kind: "not-approved" }],
+    ["was not saved", { kind: "not-saved" }],
+  ])("keeps what they are asked about one person when a change to another %s: nothing was learned of the list", async (_, outcome) => {
+    await opened();
+    const first = nextChange();
+    tap("stranger", "follow");
+    await first.ends(ASK);
+    const second = nextChange();
+    tap("friend", "unfollow");
+
+    await second.ends(outcome);
+
+    expect(says("stranger")).toBe(`not-following asking:${COPY.changed}`);
+  });
+
+  it("gives, after a change made by their say has saved, the id of the list it saved with every tap after it; and then of the list the next one saved", async () => {
+    await opened();
+    const first = nextChange();
+    tap("stranger", "follow");
+    await first.ends(ASK);
+    const answered = nextChange();
+    tap("stranger", "use");
+    await answered.ends(FOLLOWED_BY_SAY);
+    expect(says("stranger")).toBe("following just");
+
+    const next = nextChange();
+    tap("friend", "unfollow");
+    expect(said(2)).toBe(WITH_STRANGER.id);
+    const then = listOf([...WITHOUT_FRIEND.tags, ["p", ABSENT]], 40);
+    await next.ends({ kind: "saved", list: then, confirmed: true, kept: true, bySay: true, removed: TAKEN_OUT });
+
+    const undo = nextChange();
+    tap("friend", "undo");
+    expect(said(3)).toBe(then.id);
+    await undo.ends({ kind: "not-approved" });
+    // A change that did not save changes nothing of it.
+    const last = nextChange();
+    tap("another", "follow");
+    expect(said(4)).toBe(then.id);
+    await last.ends({ kind: "not-saved" });
+  });
+
+  it("is not begun by a change made by their say that was saved and could not be checked: the list it saved is not known to be the newest, and the next tap is given no say", async () => {
+    await opened();
+    const first = nextChange();
+    tap("stranger", "follow");
+    await first.ends(ASK);
+    const answered = nextChange();
+    tap("stranger", "use");
+    // Saved, and not confirmed: a relay refused it as older than one it holds, or it was not read back.
+    await answered.ends({ kind: "saved", list: WITH_STRANGER, confirmed: false, kept: true, bySay: true });
+    expect(says("stranger")).toBe("following trouble:unconfirmed just");
+
+    const next = nextChange();
+    tap("friend", "unfollow");
+    expect(said(2)).toBeUndefined();
+    // And once one is confirmed, that list is gone on from.
+    const mine = listOf(WITH_STRANGER.tags.filter((_, place) => place !== FRIEND_AT), 50);
+    await next.ends({ kind: "saved", list: mine, confirmed: true, kept: true, bySay: true, removed: TAKEN_OUT });
+    const then = nextChange();
+    tap("another", "follow");
+    expect(said(3)).toBe(mine.id);
+    // A later one that could not be checked leaves the confirmed one as it was: no newer list of this tab's is known.
+    const unchecked = listOf([...mine.tags, ["p", ANOTHER]], 60);
+    await then.ends({ kind: "saved", list: unchecked, confirmed: false, kept: true, bySay: true });
+    const last = nextChange();
+    tap("another", "unfollow");
+    expect(said(4)).toBe(mine.id);
+    await last.ends({ kind: "not-approved" });
+  });
+
+  it("is not begun by a change saved on a read to trust, nor by one that changed nothing; and what was agreed to before stays through them", async () => {
+    await opened();
+    // Saved, with no say asked for or noted: a read to trust.
+    const trusted = nextChange();
+    tap("stranger", "follow");
+    await trusted.ends({ kind: "saved", list: WITH_STRANGER, confirmed: true, kept: true });
+    const second = nextChange();
+    tap("another", "follow");
+    expect(said(1)).toBeUndefined();
+    // Found to be so already, on a copy they said yes to: nothing was saved, so there is no list of this tab's to go on from.
+    await second.ends({ kind: "unchanged", list: WITH_STRANGER, bySay: true });
+    const third = nextChange();
+    tap("friend", "unfollow");
+    expect(said(2)).toBeUndefined();
+
+    // Once one made by their say has saved, a later one saved on a read to trust does not take it away.
+    const mine = listOf(WITH_STRANGER.tags.filter((_, place) => place !== FRIEND_AT), 50);
+    await third.ends({ kind: "saved", list: mine, confirmed: true, kept: true, bySay: true, removed: TAKEN_OUT });
+    const fourth = nextChange();
+    tap("another", "follow");
+    expect(said(3)).toBe(mine.id);
+    await fourth.ends({ kind: "saved", list: listOf([...mine.tags, ["p", ANOTHER]], 60), confirmed: true, kept: false });
+    const fifth = nextChange();
+    tap("another", "unfollow");
+    expect(said(4)).toBe(mine.id);
+    await fifth.ends({ kind: "not-approved" });
+  });
+
+  it("forgets what was agreed to at sign-out, and for whoever signs in next", async () => {
+    await opened();
+    const first = nextChange();
+    tap("stranger", "follow");
+    await first.ends(ASK);
+    const answered = nextChange();
+    tap("stranger", "use");
+    await answered.ends(FOLLOWED_BY_SAY);
+
+    tapSession("sign out");
+    tapSession("sign in");
+    await waitFor(() => expect(says("friend")).toBe("following"));
+    const again = nextChange();
+    tap("another", "follow");
+    expect(said(2)).toBeUndefined();
+    await again.ends({ kind: "not-approved" });
+
+    installAddOn(OTHER_SECRET);
+    tapSession("sign in");
+    await waitFor(() => expect(signedInNow()).toBe(SOMEONE_ELSE));
+    await waitFor(() => expect(says("friend")).toBe("not-following"));
+    const theirs = nextChange();
+    tap("friend", "follow");
+    expect(asked(3).by).toBe(SOMEONE_ELSE);
+    expect(said(3)).toBeUndefined();
+    await theirs.ends({ kind: "not-approved" });
+  });
+
+  it("leaves nothing behind when it says so after its session is over: nobody is asked anything", async () => {
+    await opened();
+    const follow = nextChange();
+    tap("stranger", "follow");
+
+    tapSession("sign out");
+    await follow.ends(ASK);
+    tapSession("sign in");
+    await waitFor(() => expect(says("friend")).toBe("following"));
+
+    expect(says("stranger")).toBe("not-following");
+    tap("stranger", "use");
+    await settle();
+    expect(change).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for the very change that asked, with no say, on any tap for that person while they are asked: never another", async () => {
+    await opened();
+    const unfollow = nextChange();
+    tap("friend", "unfollow");
+    await unfollow.ends(UNFOLLOWED);
+    const undo = nextChange();
+    tap("friend", "undo");
+    await undo.ends(ASK);
+    // Undo's ten seconds are over: a tap of Follow would be a plain follow, were they not asked.
+    await after(UNDO_MS);
+    expect(says("friend")).toBe(`not-following asking:${COPY.changed}`);
+    const again = nextChange();
+
+    tap("friend", "follow");
+
+    expect(says("friend")).toBe("saving");
+    expect(change).toHaveBeenCalledTimes(3);
+    // What Undo was to put back, the very thing, and no answer with it.
+    expect(asked(2).action).toBe(asked(1).action);
+    expect(asked(2)).toMatchObject({ who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
+    expect(said(2)).toBeUndefined();
+    const newer = { id: "e2".repeat(32), changed: COPY.changed + 60 };
+    await again.ends({ kind: "ask", copy: newer });
+    expect(says("friend")).toBe(`not-following asking:${newer.changed}`);
+
+    // And their answer makes that same change, on the copy they were last shown.
+    const answered = nextChange();
+    tap("friend", "use");
+    expect(asked(3).action).toBe(asked(1).action);
+    expect(said(3)).toBe(newer.id);
+    await answered.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: true, bySay: true });
+    expect(says("friend")).toBe("following");
+  });
+
+  it("asks for the change that asked whichever of the hook's taps is made for that person: an unfollow that asked is an unfollow again", async () => {
+    await opened();
+    const first = nextChange();
+    tap("friend", "unfollow");
+    await first.ends(ASK);
+    expect(says("friend")).toBe(`following asking:${COPY.changed}`);
+    const second = nextChange();
+
+    // The button offers no follow of someone followed; were one asked for, it is the unfollow that is asked again.
+    tap("friend", "follow");
+
+    expect(asked(1)).toMatchObject({ who: FRIEND, action: "unfollow" });
+    expect(said(1)).toBeUndefined();
+    await second.ends({ kind: "not-approved" });
+  });
+
+  it("asks nothing about a change the list held has already: a follow of someone it names, an unfollow of someone it does not", async () => {
+    await opened();
+    const follow = nextChange();
+    tap("friend", "follow");
+    await follow.ends(ASK);
+    expect(says("friend")).toBe("following");
+    const unfollow = nextChange();
+    tap("stranger", "unfollow");
+    await unfollow.ends(ASK);
+    expect(says("stranger")).toBe("not-following");
+
+    tap("friend", "use");
+    tap("stranger", "use");
+    await settle();
+    expect(change).toHaveBeenCalledTimes(2);
+  });
+
+  it.each<[string, FollowOutcome]>([
+    ["was not approved", { kind: "not-approved" }],
+    ["could not be kept a copy for", { kind: "not-kept" }],
+    ["was not saved", { kind: "not-saved" }],
+    ["was not loaded", { kind: "not-loaded" }],
+  ])("makes again, on Try again, the very change their answer was for when that %s: what Undo was to put back, though its ten seconds are over, and with no say", async (_, outcome) => {
+    await opened();
+    const unfollow = nextChange();
+    tap("friend", "unfollow");
+    await unfollow.ends(UNFOLLOWED);
+    const undo = nextChange();
+    tap("friend", "undo");
+    await undo.ends(ASK);
+    await after(UNDO_MS);
+    const answered = nextChange();
+    tap("friend", "use");
+    await answered.ends(outcome);
+    expect(says("friend")).toBe(`not-following trouble:${outcome.kind}`);
+    const again = nextChange();
+
+    tap("friend", "retry");
+
+    expect(change).toHaveBeenCalledTimes(4);
+    // The very thing Undo asked for, not a follow in its place: and no answer goes with a press of Try again.
+    expect(asked(3).action).toBe(asked(1).action);
+    expect(asked(3)).toMatchObject({ who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
+    expect(said(3)).toBeUndefined();
+    // Failing again, it is still that change that Try again makes.
+    await again.ends({ kind: "not-saved" });
+    const third = nextChange();
+    tap("friend", "retry");
+    expect(asked(4).action).toBe(asked(1).action);
+    await third.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: true });
+    expect(says("friend")).toBe("following");
+  });
+
+  it("makes again, on Try again, the change that a press in place of an answer asked for again, when that was not made", async () => {
+    await opened();
+    const unfollow = nextChange();
+    tap("friend", "unfollow");
+    await unfollow.ends(UNFOLLOWED);
+    const undo = nextChange();
+    tap("friend", "undo");
+    await undo.ends(ASK);
+    await after(UNDO_MS);
+    // The button is pressed in place of an answer, and this time the list could not be loaded.
+    const pressed = nextChange();
+    tap("friend", "follow");
+    await pressed.ends({ kind: "not-loaded" });
+    expect(says("friend")).toBe("not-following trouble:not-loaded");
+    const again = nextChange();
+
+    tap("friend", "retry");
+
+    expect(asked(3).action).toBe(asked(1).action);
+    expect(said(3)).toBeUndefined();
+    await again.ends({ kind: "not-approved" });
+  });
+
+  it("keeps Try again a plain follow for a follow their answer was for: nothing but the change that asked is made again", async () => {
+    await opened();
+    const first = nextChange();
+    tap("stranger", "follow");
+    await first.ends(ASK);
+    const answered = nextChange();
+    tap("stranger", "use");
+    await answered.ends({ kind: "not-approved" });
+    const again = nextChange();
+
+    tap("stranger", "retry");
+
+    expect(asked(2)).toMatchObject({ who: ABSENT, action: "follow" });
+    expect(said(2)).toBeUndefined();
+    await again.ends({ kind: "saved", list: WITH_STRANGER, confirmed: true, kept: false });
+    expect(says("stranger")).toBe("following just");
+  });
+
+  it("lets the asking go when the person is tapped for again, and asks again if that change says so", async () => {
+    await opened();
+    const first = nextChange();
+    tap("stranger", "follow");
+    await first.ends(ASK);
+    const second = nextChange();
+
+    tap("stranger", "follow");
+
+    // A press of the button, not their answer: no say goes with it, and it is saving, with nothing asked meanwhile.
+    expect(says("stranger")).toBe("saving");
+    expect(said(1)).toBeUndefined();
+    const newer = { id: "e2".repeat(32), changed: COPY.changed + 60 };
+    await second.ends({ kind: "ask", copy: newer });
+    expect(says("stranger")).toBe(`not-following asking:${newer.changed}`);
+    // And their answer is for the copy they were last shown.
+    const third = nextChange();
+    tap("stranger", "use");
+    expect(said(2)).toBe(newer.id);
+    await third.ends({ kind: "not-approved" });
   });
 });

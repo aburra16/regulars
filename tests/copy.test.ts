@@ -108,11 +108,19 @@ const indexHtml = new DOMParser().parseFromString(
 // through, each as a whole word, in any case, and no other: "followers", "follows", "unfollowed" and
 // the rest are an offence there too, as is every other banned word. Anywhere else the word is an
 // offence in every form, as before.
+//
+// One line of the group may say one form more: a copy of the person's list kept before an unfollow
+// says so of itself ("Before you unfollowed Maya"), and has no other word for it. "Unfollowed" is
+// let through at that line's key and at no other, in the group or out of it.
 const FOLLOW_GROUP = /^follow\./;
 const FOLLOW_FORMS = new RegExp(`\\b(?:un)?follow${INFLECTIONS}\\b`, "gi");
 const NAMED_FORMS = new Set(["follow", "following", "unfollow", "followed"]);
+/** The one line that may say "unfollowed": the key itself, or the key called with a name. */
+const SAYS_UNFOLLOWED = /^follow\.keptBeforeUnfollow(?:\(|$)/;
 const allowedThere = (leaf: Leaf, word: string) =>
-  word === "follow" && FOLLOW_GROUP.test(leaf.path) && (leaf.text.match(FOLLOW_FORMS) ?? []).every((form) => NAMED_FORMS.has(form.toLowerCase()));
+  word === "follow" &&
+  FOLLOW_GROUP.test(leaf.path) &&
+  (leaf.text.match(FOLLOW_FORMS) ?? []).every((form) => NAMED_FORMS.has(form.toLowerCase()) || (form.toLowerCase() === "unfollowed" && SAYS_UNFOLLOWED.test(leaf.path)));
 
 const offencesIn = (leaves: Leaf[]) =>
   leaves
@@ -208,7 +216,7 @@ describe("copy", () => {
     ]);
   });
 
-  it("lets through, under the Follow button's group, only the forms it is given: follow, following, unfollow (decision 44) and followed (ruling R31)", () => {
+  it("lets through, under the Follow button's group, only the forms it is given: follow, following, unfollow (decision 44) and followed (ruling R31); and unfollowed in the one line that says a copy was kept before an unfollow", () => {
     // In any case, each as a whole word.
     const named: Leaf[] = [
       "Follow",
@@ -224,6 +232,7 @@ describe("copy", () => {
       "Followed by Maya and Jon, people you follow",
       "followed",
       "FOLLOWED",
+      "Before you followed Maya",
     ].map((text, i) => ({ path: `follow.sample${i}`, text }));
     expect(offencesIn(named)).toEqual([]);
 
@@ -235,6 +244,7 @@ describe("copy", () => {
       "She follows you",
       "Follows",
       "Unfollowed",
+      "Before you unfollowed Maya",
       "Unfollowing",
       "Unfollows",
       "Following and followers",
@@ -245,8 +255,26 @@ describe("copy", () => {
     );
     // "Followed" is the Follow group's alone: under any other key it is caught, as every form is.
     expect(offencesIn([{ path: "person.someLine", text: "Followed by Maya, people you follow" }]).map((offence) => offence.banned)).toEqual([["follow"]]);
-    // And the group's own strings are all of the four.
+
+    // "Unfollowed" is one line's alone: what a copy kept before an unfollow says of itself, as the copy
+    // module gives it, whoever it names. There it is let through, with the group's four.
+    const itsLine = [`follow.keptBeforeUnfollow`, `follow.keptBeforeUnfollow(["Maya"])`, `follow.keptBeforeUnfollow(["Sample",3])`];
+    expect(offencesIn(itsLine.map((path) => ({ path, text: "Before you unfollowed Maya" })))).toEqual([]);
+    expect(offencesIn([{ path: itsLine[1]!, text: "Before you unfollowed Maya, who you follow" }])).toEqual([]);
+    // Under every other key of the group it is an offence, as it is outside the group: the line beside it, a key
+    // that only begins as that line's does, and a line of the button's.
+    const elsewhere = [`follow.keptBeforeFollow(["Maya"])`, "follow.keptBeforeUnfollowed", "follow.keptBeforeUnfollow.more", "follow.unfollowed", "follow.putBackDone", "you.someLine"];
+    expect(offencesIn(elsewhere.map((path) => ({ path, text: "Before you unfollowed Maya" }))).map((offence) => [offence.path, offence.banned])).toEqual(
+      elsewhere.map((path) => [path, ["follow"]]),
+    );
+    // And that line may say no other form for it: the rest are an offence there too.
+    expect(offencesIn([{ path: itsLine[1]!, text: "Before you unfollowed your followers" }]).map((offence) => offence.banned)).toEqual([["follow"]]);
+    expect(offencesIn([{ path: itsLine[1]!, text: "Unfollowing Maya" }]).map((offence) => offence.banned)).toEqual([["follow"]]);
+
+    // And the group's own strings are all of the four, but for that one line.
     expect(offencesIn(leavesOf(copy.follow, "follow"))).toEqual([]);
+    const sayUnfollowed = leavesOf(copy.follow, "follow").filter((leaf) => /\bunfollowed\b/i.test(leaf.text));
+    expect(new Set(sayUnfollowed.map((leaf) => leaf.path.replace(/\(.*$/, "")))).toEqual(new Set(["follow.keptBeforeUnfollow"]));
   });
 
   it("has the words given for a reviewer's page (drafts): who of the people the person follows also does, by name, and never how many", () => {
@@ -291,6 +319,67 @@ describe("copy", () => {
     expect(copy.follow.tryAgain).toBe("Try again");
     // The button's name for a screen reader, which hears whom it is for (an addition to the brief's list).
     expect(copy.follow.followNamed("Maya")).toBe("Follow Maya");
+  });
+
+  it("has the words given for asking before a change is built on a copy found elsewhere (drafts)", () => {
+    expect(copy.follow.copyFound("March 6, 2027")).toBe(
+      "We couldn't reach where your other apps keep your list. The newest copy we found was last changed on March 6, 2027. If you have followed anyone since then, they would be lost.",
+    );
+    expect(copy.follow.useThisCopy).toBe("Use this copy");
+    // The app's own words for putting something off, where it has them already.
+    expect(copy.follow.notNow).toBe("Not now");
+    expect(copy.follow.notNow).toBe(copy.circle.notNow);
+    // None of it says a word of the network's, nor counts anyone: the only digits are the date it is given.
+    const lines = [copy.follow.copyFound("then"), copy.follow.useThisCopy, copy.follow.notNow];
+    expect(lines.filter((text) => bannedWordsIn(text).filter((word) => word !== "follow").length > 0)).toEqual([]);
+    expect(lines.filter((text) => /\d/.test(text))).toEqual([]);
+    expect(lines.join(" ")).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("has the words given for a change that was not made because no copy of the list could be kept (draft)", () => {
+    expect(copy.follow.notKept).toBe("We couldn't keep a copy of your list in this browser, so nothing was changed.");
+    // It is not the line for a list that could not be loaded: that is another thing going wrong.
+    expect(copy.follow.notKept).not.toBe(copy.follow.notLoaded);
+    expect(bannedWordsIn(copy.follow.notKept)).toEqual([]);
+  });
+
+  it("has the words given for the copies of the person's list kept before each change, and for putting one back (drafts)", () => {
+    expect(copy.follow.keptHeading).toBe("Earlier copies of who you follow");
+    expect(copy.follow.keptAbout).toBe("Before each change you make here, Regulars keeps a copy of your list in this browser, so it can be put back.");
+    // A row, by what the copy was kept for.
+    expect(copy.follow.keptBeforeFollow("Maya")).toBe("Before you followed Maya");
+    expect(copy.follow.keptBeforeUnfollow("Maya")).toBe("Before you unfollowed Maya");
+    expect(copy.follow.keptBeforeUndo).toBe("Before an Undo");
+    expect(copy.follow.keptBeforePutBack).toBe("Before a copy was put back");
+    // Whom, when the app has no name for them: never a code.
+    expect(copy.follow.keptSomeone).toBe("someone");
+    expect(copy.follow.putBack).toBe("Put back");
+    // The asking, and its two answers.
+    expect(copy.follow.putBackQuestion).toBe(
+      "Putting this back replaces your list as it is now. Anyone you have followed since, here or in another app, would be lost.",
+    );
+    expect(copy.follow.putItBack).toBe("Put it back");
+    expect(copy.follow.keepAsItIs).toBe("Keep my list as it is");
+    // How it ended.
+    expect(copy.follow.putBackDone).toBe("Your list is as it was then.");
+    expect(copy.follow.putBackAlready).toBe("Your list is already as it was then.");
+    // None of them counts anyone: a copy does not say how many people it holds (decision 19).
+    const { follow } = copy;
+    const lines = [
+      follow.keptHeading,
+      follow.keptAbout,
+      follow.keptBeforeFollow("Maya"),
+      follow.keptBeforeUnfollow("Maya"),
+      follow.keptBeforeUndo,
+      follow.keptBeforePutBack,
+      follow.putBack,
+      follow.putBackQuestion,
+      follow.putItBack,
+      follow.keepAsItIs,
+      follow.putBackDone,
+      follow.putBackAlready,
+    ];
+    expect(lines.filter((text) => /\d/.test(text))).toEqual([]);
   });
 
   it("names Update now and Personalize under the Follow button as the pages they come from do", () => {

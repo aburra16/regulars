@@ -6,12 +6,13 @@ import { isHex64 } from "../nostr/shapes.ts";
 
 /*
  * The rules of a follow list (kind 3): which of several is the newest, who one names, the one entry
- * a follow or an unfollow changes, and what Undo puts back. A list is one record that saving
- * replaces everywhere, and other clients write it in many shapes, so a change touches one entry and
- * keeps the rest exactly as it was: every other tag in its order, tags that are not follows, entries
- * this app cannot read, and the `content` old clients filled with a map of relays. Everything here
- * is pure; reading a list from relays and writing one is `changeFollow` (src/follow/change.ts), the
- * only place that does.
+ * a follow or an unfollow changes, what Undo puts back, and a kept copy put back whole. A list is
+ * one record that saving replaces everywhere, and other clients write it in many shapes, so a change
+ * touches one entry and keeps the rest exactly as it was: every other tag in its order, tags that
+ * are not follows, entries this app cannot read, and the `content` old clients filled with a map of
+ * relays. A copy that is put back goes back as it was, the whole of it, by the same care
+ * (`withWholeList`). Everything here is pure; reading a list from relays and writing one is
+ * src/follow/change.ts, the only place that does.
  */
 
 /** The kind of a follow list (NIP-02). */
@@ -163,4 +164,30 @@ export function withRestored(list: NostrEvent | null, removed: readonly Removed[
   if (list.id === left && eachHasItsPlace) entries.forEach(({ index }, at) => tags.splice(index, 0, theirs[at]!));
   else tags.push(...theirs);
   return { kind: FOLLOW_KIND, created_at: timeAfter(list, now), tags, content: list.content };
+}
+
+/** Whether two lists of tags are the same: as many, each the same value for value, in the same order. */
+function sameTags(a: readonly (readonly string[])[], b: readonly (readonly string[])[]): boolean {
+  return a.length === b.length && a.every((tag, at) => tag.length === b[at]!.length && tag.every((value, i) => value === b[at]![i]));
+}
+
+/**
+ * The list a kept copy is put back as: the `content` of `copy` and its tags, every one of them as
+ * the copy wrote it and in its order, and nothing of `newest`, the newest list the relays hold now
+ * (null: none), which it replaces whole. Null when `newest` is that list already: the same `content`,
+ * and the same tags in the same order, value for value (a key in the other case of hex is another
+ * value). The result is made at `now`, or one second after `newest` when that is later, so that it
+ * is the newer of the two everywhere; the copy's own time is not looked at.
+ *
+ * It reads nothing of who `copy` is by: whoever calls it has checked that it is the person's own
+ * list, validly signed (`putBackList`, src/follow/change.ts, the one caller).
+ */
+export function withWholeList(copy: NostrEvent, newest: NostrEvent | null, now: number): EventTemplate | null {
+  if (newest !== null && newest.content === copy.content && sameTags(newest.tags, copy.tags)) return null;
+  return {
+    kind: FOLLOW_KIND,
+    created_at: newest === null ? now : timeAfter(newest, now),
+    tags: copy.tags.map((tag) => [...tag]),
+    content: copy.content,
+  };
 }

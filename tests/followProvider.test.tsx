@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import { FOLLOW_SETTLE_MS, forgetFollowFloor } from "../src/follow/change";
+import { keptCopies } from "../src/follow/kept";
 import { FOLLOW_READ_MS } from "../src/follow/read";
 import { FOLLOW_REREAD_MS, sameVisit, UNDO_MS } from "../src/follow/FollowProvider";
 import { TOWNS_WAIT_MS } from "../src/places/store";
@@ -94,6 +95,9 @@ const ALSO_ABSENT = pubkeyAt(20_001);
 
 /** How many times each follow-list relay was asked for a follow list, in their order. */
 const listReads = (w: World) => FOLLOW_RELAYS.map((url) => w.relays[url]!.asked.filter(asksForList).length);
+
+/** `event` as a relay sends it: its seven fields, without the mark nostr-tools leaves on an event it signed. */
+const asSent = ({ id, pubkey, created_at, kind, tags, content, sig }: NostrEvent): NostrEvent => ({ id, pubkey, created_at, kind, tags, content, sig });
 
 /** The newest follow list the relay at `url` holds. */
 const newestOn = (w: World, url: string) =>
@@ -329,6 +333,48 @@ describe("a follow", () => {
       expect(newestOn(w, url)?.content).toBe(LIST.content);
     }
     expect(followedNow()).toEqual([...FOLLOWED_IN_LIST, ABSENT]);
+  });
+
+  it("has the list it is built on kept in the browser before the add-on is asked, as the relays sent it, with what the tap was for and when", async () => {
+    const addOn = signedInAs(SECRET);
+    const w = everywhere([LIST]);
+    await openSignedIn(w, { stranger: ABSENT, friend: FRIEND });
+    await waitFor(() => expect(says("stranger")).toBe("not-following"));
+    expect(await keptCopies(ME)).toEqual([]);
+    const asked = asksFirst(addOn, SECRET);
+    const tapped = Math.floor(Date.now() / 1000);
+
+    tap("stranger", "follow");
+    await waitFor(() => expect(addOn.signEvent).toHaveBeenCalledTimes(1));
+
+    // Kept already, while the person has yet to approve the change: the list as the relays hold it, byte for byte.
+    const copies = await keptCopies(ME);
+    expect(copies.map((copy) => [copy.list, copy.for])).toEqual([[asSent(LIST), { did: "follow", who: ABSENT }]]);
+    expect(JSON.stringify(copies[0]!.list)).toBe(JSON.stringify(asSent(LIST)));
+    expect(copies[0]!.at).toBeGreaterThanOrEqual(tapped);
+    expect(copies[0]!.at).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
+
+    await asked.yes();
+    await waitFor(() => expect(says("stranger")).toBe("following just"));
+    // An unfollow keeps the list the follow saved, over it: the newest first.
+    const followed = newestOn(w, NOS)!;
+    tap("friend", "unfollow");
+    await waitFor(() => expect(says("friend")).toContain("not-following"));
+    expect((await keptCopies(ME)).map((copy) => [copy.list.id, copy.for])).toEqual([
+      [followed.id, { did: "unfollow", who: FRIEND }],
+      [LIST.id, { did: "follow", who: ABSENT }],
+    ]);
+    // And Undo keeps the one the unfollow left.
+    const unfollowed = newestOn(w, NOS)!;
+    tap("friend", "undo");
+    await waitFor(() => expect(says("friend")).toBe("following"));
+    expect((await keptCopies(ME)).map((copy) => [copy.list.id, copy.for])).toEqual([
+      [unfollowed.id, { did: "undo", who: FRIEND }],
+      [followed.id, { did: "unfollow", who: FRIEND }],
+      [LIST.id, { did: "follow", who: ABSENT }],
+    ]);
+    // Nobody else's copies are there, nor any under another person's key.
+    expect(await keptCopies(SOMEONE_ELSE)).toEqual([]);
   });
 
   it("is not started again by a tap while it is saving", async () => {
@@ -1431,18 +1477,23 @@ describe("a read of the person's own list that cannot be trusted (rulings R43, R
     expect(followedNow()).toEqual(FOLLOWED_IN_LIST);
   });
 
-  it("does not take what it could not trust for the newest list this tab has seen: a change is not held to it", async () => {
-    signedInAs(SECRET);
+  it.each([
+    // Too few of the app's relays hold it for the person to be asked about it: nothing is shown.
+    ["two of the app's relays hold it, and nothing is shown", [LIST], [], "unknown"],
+    // Every one holds it: it is shown, as a copy the person has not agreed to (tests/followProviderAsk.test.tsx).
+    ["all three hold it, and the buttons draw from it", [LIST], [LIST], "not-following"],
+  ])("takes the list a read found for one this tab has seen, though the read could not be trusted: a change that finds only an older list is not made (%s)", async (_, most, third, shown) => {
+    const addOn = signedInAs(SECRET);
     // The relay they write to is out; the app's relays hold a list.
-    const w = world({ [NOS]: relay([LIST]), [DIRECTORY]: relay([LIST, theirs]), [BIG]: relay([LIST]), [OWN]: relay() });
+    const w = world({ [NOS]: relay(most), [DIRECTORY]: relay([...most, theirs]), [BIG]: relay(third), [OWN]: relay() });
     w.relays[OWN]!.down = true;
     await openSignedIn(w, { stranger: ABSENT });
     await waitFor(() => expect(listReads(w)).toEqual([1, 1, 1]));
     await settle();
-    expect(says("stranger")).toBe("unknown");
+    expect(says("stranger")).toBe(shown);
 
-    // Their relay answers now, and every relay holds an older list than the one that was not trusted.
-    // Were that one remembered, the change's own read would be older than it, and stop.
+    // Their relay answers now, and every relay holds an older list than the one the page's read found.
+    // The change's own read is one to trust, and has missed a list this tab knows of: it stops.
     const older = buildFollowList(SECRET, FOLLOW_LIST_TIME - 100);
     for (const url of FOLLOW_RELAYS) w.relays[url]!.held.splice(0, Number.POSITIVE_INFINITY, older, theirs);
     w.relays[OWN]!.down = false;
@@ -1450,8 +1501,9 @@ describe("a read of the person's own list that cannot be trusted (rulings R43, R
 
     tap("stranger", "follow");
 
-    await waitFor(() => expect(says("stranger")).toBe("following just"));
-    expect(newestOn(w, OWN)?.tags).toEqual([...older.tags, ["p", ABSENT]]);
+    await waitFor(() => expect(says("stranger")).toBe(`${shown} trouble:not-loaded`));
+    expect(addOn.signEvent).not.toHaveBeenCalled();
+    expect(w.published()).toEqual([]);
   });
 
   it("shows the list when the relay list is found and one relay it writes to answers, though another is out", async () => {

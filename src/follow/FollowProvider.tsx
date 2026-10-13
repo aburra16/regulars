@@ -8,9 +8,11 @@ import { isNewer } from "../nostr/events.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import { isFormOver } from "../review/paths.ts";
 import { type Relays, useRelays } from "../score/ScoresProvider.tsx";
-import { changeFollow, type FollowOutcome, forgetFollowFloor, raiseFollowFloor } from "./change.ts";
+import { changeFollow, type FollowDeps, type FollowOutcome, forgetFollowFloor, raiseFollowFloor } from "./change.ts";
+import { keepCopy } from "./kept.ts";
+import { CopiesContext, OwnCopies } from "./keptStore.ts";
 import { followed, type Removed } from "./list.ts";
-import { followRelaysWith, newListQuorum, readOwnList } from "./read.ts";
+import { copyToAsk, enoughAnswered, readOwnList } from "./read.ts";
 
 /*
  * The follow list of the person signed in, held for the session so that a button can say Follow or
@@ -26,8 +28,15 @@ import { followRelaysWith, newListQuorum, readOwnList } from "./read.ts";
  *
  * Nothing here signs or sends (tests/followGuard.test.ts holds this module to that): it reads, and
  * it calls `changeFollow`, on a tap of Follow, Unfollow, Undo or Try again (which makes again the
- * one of those changes that was not made) and at no other time. Nothing here is logged: a list, its
- * entries and the relays a person keeps it on are theirs.
+ * one of those changes that was not made), and on a press of Use this copy (which makes the one of
+ * those changes the person was asked about, on the copy they were shown), and at no other time.
+ * Nothing here is logged: a list, its entries and the relays a person keeps it on are theirs.
+ *
+ * Every such change is given the keeping of the list it is built on (`keepCopy`, ./kept.ts): a copy
+ * in this browser, kept before the changed list is signed. Those copies, and the putting back of
+ * one, are another store's (`OwnCopies`, ./keptStore.ts), which this one makes and serves: it says
+ * who is signed in and whether Follow is open, tells it when the session changes, when a write has
+ * ended and when the person leaves a page, and takes from it the list a copy put back has left.
  *
  * What a change left to say (that it went wrong, or that a follow was just made) is held for the
  * person it was about, not for a button: every button for them on the page says the same, one that
@@ -42,6 +51,24 @@ import { followRelaysWith, newListQuorum, readOwnList } from "./read.ts";
  * longer agrees with it: a follow that "did not save" of someone the list now names was made after
  * all (ruling R27).
  *
+ * One read that is not one to trust still gives the buttons a list to draw from: no relay the
+ * person writes to answered, and several of the app's relays hold the same list (`copyToAsk`,
+ * ./read.ts). That list may not be their newest, so it is held as one they have not agreed to
+ * (`Session.unagreed`): the buttons say Follow and Following from it, and nothing is ever written
+ * on the strength of it. It is a list this tab has seen, as every list a read finds is, whatever
+ * the read's standing: no change is built on an older one (`raiseFollowFloor`), which only ever
+ * stops a change. A press goes to `changeFollow` as any does, which reads afresh and, in that same
+ * case, makes no change and says the person may be asked (`ask`). The session then holds what was
+ * asked for, for the person it was about (`Asking`), and the button says when the copy was last
+ * changed, with two answers. Use this copy asks `changeFollow` for that very change again, with
+ * the id of the list they were shown (`useCopy`); Not now lets the asking go; and a tap of that
+ * person's button, in place of an answer, asks for that same change again and no other. One person
+ * is asked about at a time.
+ * After a change made by their say has saved and been read back as the newest, the list it saved
+ * is the one they are taken to have agreed to build on for the rest of the session
+ * (`Session.allowed`), so the next change asks nothing while that very list is still the newest;
+ * any other newest, and they are asked again.
+ *
  * While Follow is not open (`config.features.follow`, ruling R39) none of this happens: nothing is
  * known of anyone, no relay is asked anything, and a tap is no change. The store holds itself to
  * that (`OwnFollows`), whatever a component that uses it does.
@@ -51,7 +78,8 @@ import { followRelaysWith, newListQuorum, readOwnList } from "./read.ts";
  * What a button for a person shows:
  * - `unknown`: nobody is signed in, or the list of the person who is has not been read, or could not
  *   be: no button says Follow or Following, as either might be wrong;
- * - `not-following`, `following`: as the list has it;
+ * - `not-following`, `following`: as the list has it. The list may be one that could not be trusted,
+ *   which the person has not agreed to yet: a press then asks them first (`FollowOf.asking`);
  * - `saving`: a change to this person's place in the list is under way.
  */
 export type FollowState = "unknown" | "not-following" | "following" | "saving";
@@ -64,7 +92,7 @@ export interface FollowOf {
    * on the next tap, gone once the person has left the page, and gone once the list held no longer
    * agrees with it (ruling R27). The same on every button for them.
    */
-  trouble: "not-loaded" | "not-approved" | "not-saved" | "unconfirmed" | null;
+  trouble: "not-loaded" | "not-kept" | "not-approved" | "not-saved" | "unconfirmed" | null;
   /**
    * True for 10 s after an unfollow by this person in this tab (`UNDO_MS`), unless Undo has put them
    * back or another tap has followed them since; not while a tap of Undo is being saved. An Undo that
@@ -78,14 +106,39 @@ export interface FollowOf {
    */
   justFollowed: boolean;
   /**
+   * Set while the person signed in is asked about a change to this person: their press was not
+   * made, as no relay they write to answered, and the list the change would be built on is a copy
+   * found on the app's relays, which may not be their newest. `changed` is when that copy was last
+   * changed, in seconds: what they are told, as only they know whether they have followed anyone
+   * since. Null when they are not asked. One person is asked about at a time, and it goes:
+   * - on the next tap for them: their answer (`useThisCopy`), or a tap of their button, which asks
+   *   for that same change again; and on `notNow`;
+   * - when a change to anyone comes back asking, which takes its place; and when a change to anyone
+   *   is saved, or finds the list so already;
+   * - when the page's read is one to trust (a relay of the person's own answered, say) and finds
+   *   the copy they were shown, or a newer list; and when any read of the page's finds a newer
+   *   list than that copy. Not when it finds only an older one, or none: it has missed the copy;
+   * - once the list held has this person as the change would leave them;
+   * - when the person leaves the page, and with the session.
+   * The same on every button for them.
+   */
+  asking: { changed: number } | null;
+  /**
    * Follows the person: for a tap of Follow. While Undo is offered for them it is that Undo, which
    * puts them back as they were (ruling R28). Nothing while a change to them is under way, or nobody
    * is signed in. Whether it began a plain follow: one that adds them to the list, which the last
    * update of the person's circle did not count. Not an Undo, which adds nobody, and not a tap that
    * began nothing. The button asks, and does not work it out from what it shows (ruling R24).
+   * While the person is asked about a change to this one (`asking`), it is that change asked for
+   * again, with no answer: what Undo was to put back, though Undo's ten seconds are over.
    */
   follow(): boolean;
-  /** Unfollows the person: for a press of Unfollow, which the button says before it unfollows. Nothing while a change to them is under way, or nobody is signed in. */
+  /**
+   * Unfollows the person: for a press of Unfollow, which the button says before it unfollows. Nothing
+   * while a change to them is under way, or nobody is signed in. While the person is asked about a
+   * change to this one, it is that change asked for again, as for `follow`: an asking is for the
+   * change the button offers, so under a button that says Unfollow it is an unfollow's.
+   */
   unfollow(): void;
   /**
    * Follows the person again, with what the unfollow took out of the list put back as it was and
@@ -100,6 +153,16 @@ export interface FollowOf {
    * plain follow, as `follow` says.
    */
   retry(): boolean;
+  /**
+   * Makes the change the person was asked about (`asking`), on the copy they were shown: for a
+   * press of Use this copy, and for nothing else (tests/followGuard.test.ts holds the code to
+   * that). It is the very change that asked, kept with the asking: a follow, an unfollow, or what
+   * Undo puts back, exactly. Nothing unless they are asked about this person. Whether it began a
+   * plain follow, as `follow` says.
+   */
+  useThisCopy(): boolean;
+  /** Lets the asking go, and changes nothing: for a press of Not now. Nothing unless the person is asked about this one. */
+  notNow(): void;
 }
 
 /** How long Undo is offered after an unfollow, in milliseconds. */
@@ -114,10 +177,10 @@ export const UNDO_MS = 10_000;
 export const FOLLOW_REREAD_MS = 30_000;
 
 /** What a button is told of a person beside the taps: `FollowOf` without them. */
-type Told = Pick<FollowOf, "state" | "trouble" | "canUndo" | "justFollowed">;
+type Told = Pick<FollowOf, "state" | "trouble" | "canUndo" | "justFollowed" | "asking">;
 
 /** What every button is told while nobody is signed in. */
-const NOTHING_KNOWN: Told = { state: "unknown", trouble: null, canUndo: false, justFollowed: false };
+const NOTHING_KNOWN: Told = { state: "unknown", trouble: null, canUndo: false, justFollowed: false, asking: null };
 
 /** What a change does to the list: a follow, an unfollow, or putting back what an unfollow took out (`changeFollow`). */
 type Action = Parameters<typeof changeFollow>[2];
@@ -144,6 +207,14 @@ interface Trouble {
   how: NonNullable<FollowOf["trouble"]>;
   /** What it meant to do: to follow them (a tap of Follow, or of Undo), or to unfollow them. What Try again does again. */
   meant: "follow" | "unfollow";
+  /**
+   * The change itself, as it was asked for, when it was made through an asking: by the person's
+   * answer (Use this copy), or by a press in place of one. Try again then makes that very change
+   * again, and not what `meant` would make of a tap now: what Undo was to put back, as it was,
+   * though Undo's ten seconds ended while they were asked, where a plain follow would add a bare
+   * entry. Left out for a change no asking was part of.
+   */
+  exact?: Action;
 }
 
 /** What the session holds of one person a button was tapped for. */
@@ -161,6 +232,25 @@ interface Person {
   undo: Undo | undefined;
 }
 
+/**
+ * What the person signed in is asked about: a change that was not made, as it could only be built
+ * on a copy of their list that may not be their newest. Held from the change's end until it is
+ * answered or overtaken (`FollowOf.asking` lists each way it goes): they answer, or tap again for
+ * that person; a change to anyone asks in its place, or comes to a list; a read to trust finds the
+ * copy or a newer list, or any read finds a newer one; the list held has the person so already;
+ * they go to another page; or the session ends.
+ */
+interface Asking {
+  /** Whom the change is to, by their key in lower case. */
+  who: string;
+  /** The change that asked, exactly as it was asked for: what Use this copy makes again. Undo's is what its unfollow took out, kept here though Undo's own time ends meanwhile. */
+  action: Action;
+  /** The copy `changeFollow` said they may be asked about: its id, which their answer is for, and when it was last changed. */
+  copy: { id: string; changed: number };
+  /** What a button is told of it: the same object for as long as it is this asking. */
+  told: { changed: number };
+}
+
 /** What is held for the person signed in, from their sign-in until they sign out or someone else signs in. */
 interface Session {
   /** The person, with the signer their changes are signed with. */
@@ -169,23 +259,50 @@ interface Session {
   stop: AbortController;
   /** Their follow list: undefined until it is read, null once it is known that they have none. */
   list: NostrEvent | null | undefined;
+  /**
+   * Whether `list` is a copy the person has not agreed to: found by the page's own read when that
+   * was not one to trust, on enough of the app's relays that they may be asked about it
+   * (`copyToAsk`, ./read.ts). It is held for the buttons to draw from and for nothing else: a
+   * press asks before anything is built on it, and it is read again as a list that is not known
+   * is. A newer list that a later read or a change comes to takes its place, as does that very
+   * list once a read to trust finds it; an older one never does. A later read that is not one to
+   * trust and finds a newer list lets go of it: by another copy to ask about, or by none, and then
+   * no button is drawn. It is a list this tab has seen (`raiseFollowFloor`), as every list a read
+   * finds is: nothing is built on an older one. A list that a change made by the person's say
+   * found to be so already, with nothing saved, is such a copy too: it is that same copy. False
+   * for a list a read to trust found, for one a change saved, and for one a change built on a read
+   * to trust found.
+   */
+  unagreed: boolean;
   /** Who `list` names: null until it is read. The same array until the list changes. */
   followed: readonly string[] | null;
-  /** The same keys with whose list they are (`useOwnFollowed`): null until it is read. The same object for as long as `followed` is the same array. */
+  /** The same keys with whose list they are (`useOwnFollowed`): null until it is read, and while it is a copy the person has not agreed to (`unagreed`). The same object for as long as `followed` is the same array. */
   owned: OwnFollowed | null;
   /** The same keys, for a button's question of one person: made once when the list is held, so that an answer takes no longer for a long list. */
   follows: ReadonlySet<string>;
   /** Whether the list is being read. */
   reading: boolean;
   /**
-   * When the last read that left the list unknown ended; undefined until one has. No read is begun
-   * for `FOLLOW_REREAD_MS` from then. By the clock that only goes forward (`performance.now()`), not
-   * the device's date, which can be set: put back, it would keep the list unread for as long as it
-   * was put back by.
+   * When the last read ended that left the list unknown, or held only as a copy the person has not
+   * agreed to (`unagreed`); undefined until one has. No read is begun for `FOLLOW_REREAD_MS` from
+   * then. By the clock that only goes forward (`performance.now()`), not the device's date, which
+   * can be set: put back, it would keep the list unread for as long as it was put back by.
    */
   unread: number | undefined;
   /** The people a button was tapped for, by key. */
   people: Map<string, Person>;
+  /** What the person is asked about; null when nothing. One at a time: the next change that asks takes its place. */
+  asking: Asking | null;
+  /**
+   * The id of the list the person is taken to have agreed to build on, with no relay of their own
+   * answering: the list the last change made by their say saved and read back as the newest, in
+   * this session. So it is only ever a list this tab itself saved after they said to use a copy
+   * they were shown, and a change goes on by it only while that very list is the newest
+   * (`changeFollow`'s `allowed`). Undefined until such a change has saved and been confirmed: one
+   * that could not be checked begins nothing, and leaves what was there. It lasts the session, as what this tab has seen of the list
+   * does: not let go of when a page is left, and gone with the session.
+   */
+  allowed: string | undefined;
 }
 
 /** Who a person follows, with who that person is: a list is one person's, and is never to be taken for the next person's. */
@@ -198,15 +315,12 @@ export interface OwnFollowed {
 
 /**
  * Whether no list from the relays in `answered` is enough to say the person follows nobody: only
- * when as many of the app's follow-list relays answered as a first list needs (`newListQuorum`, more
- * than half of them and no fewer than three). One relay's nothing proves nothing, as some keep no
- * lists, and a button that said Follow of someone the person follows would be wrong. The person's
- * own relays do not make up the number.
+ * when as many of the app's follow-list relays answered as a first list needs (`enoughAnswered`,
+ * ./read.ts: more than half of them and no fewer than three). One relay's nothing proves nothing, as
+ * some keep no lists, and a button that said Follow of someone the person follows would be wrong.
+ * The person's own relays do not make up the number.
  */
-function followsNobody(answered: readonly string[]): boolean {
-  const ours = new Set(followRelaysWith(null).relays);
-  return answered.filter((url) => ours.has(url)).length >= newListQuorum(ours.size);
-}
+const followsNobody = enoughAnswered;
 
 /**
  * The session's own follow list, which `FollowProvider` holds for the hooks below. It reads the list
@@ -235,8 +349,22 @@ class OwnFollows {
     return config.features.follow ? this.#session : null;
   }
 
+  /**
+   * The copies kept of the list of the session's person, and the putting back of one
+   * (./keptStore.ts). It serves this store's session, and none of its own: through `#live`, so that
+   * it reads and writes nothing while Follow is not open, which it looks at itself besides.
+   */
+  readonly copies: OwnCopies;
+
   constructor(relays: Relays) {
     this.#relays = relays;
+    this.copies = new OwnCopies({
+      live: () => {
+        const session = this.#live();
+        return session === null ? null : { account: session.account, signal: session.stop.signal, writing: () => this.#writingFor(session) };
+      },
+      wasPutBack: (signal, list) => this.#wasPutBack(signal, list),
+    });
   }
 
   /**
@@ -258,8 +386,9 @@ class OwnFollows {
 
   /**
    * Who the person signed in follows, with whose list it is (`OwnFollowed`): the person the session
-   * is for. Null until their list is read, and when nobody is signed in. The same object until the
-   * list changes.
+   * is for. Null until their list is read, and when nobody is signed in; and while the list held is
+   * a copy they have not agreed to, which the buttons draw from and nothing else is told of. The
+   * same object until the list changes.
    */
   readonly owned = (): OwnFollowed | null => this.#live()?.owned ?? null;
 
@@ -280,16 +409,20 @@ class OwnFollows {
           account,
           stop: new AbortController(),
           list: undefined,
+          unagreed: false,
           followed: null,
           owned: null,
           follows: new Set(),
           reading: false,
           unread: undefined,
           people: new Map(),
+          asking: null,
+          allowed: undefined,
         };
       }
     }
     this.#readIfShown();
+    this.copies.sessionChanged();
   }
 
   /**
@@ -313,19 +446,26 @@ class OwnFollows {
       canUndo: person?.undo !== undefined && !person.saving,
       // Only beside a button that says Following.
       justFollowed: state === "following" && person?.justFollowed === true,
+      // Only for the one person the asking is about: a tap for them ends it as it begins a change.
+      asking: session.asking?.who === who ? session.asking.told : null,
     };
   }
 
   /**
    * The person signed in has gone to another page. What a change left to say was for the page it
-   * was said on (ruling R19): how one went wrong, and that a follow was just made, are let go of,
-   * for everyone. Not Undo, which has its ten seconds wherever the person goes; and not a change
-   * under way, whose end is told on the page they are on by then.
+   * was said on (ruling R19): how one went wrong, that a follow was just made, and what the person
+   * was asked about, are let go of, for everyone. Not Undo, which has its ten seconds wherever the
+   * person goes; and not a change under way, whose end is told on the page they are on by then.
    */
   leftPage(): void {
+    // How a putting back of a copy ended is for the page it was said on too.
+    this.copies.leftPage();
     const session = this.#live();
     if (session === null) return;
-    let said = false;
+    // What the person was asked about was asked on that page: it goes as the other lines do. What
+    // they agreed to for the session (`allowed`) stays.
+    let said = session.asking !== null;
+    session.asking = null;
     for (const person of session.people.values()) {
       if (person.trouble === null && !person.justFollowed) continue;
       person.trouble = null;
@@ -341,8 +481,16 @@ class OwnFollows {
    * is `changeFollow`'s, start to end, and may be asked for before the list here has been read: it
    * reads the list itself. A follow while Undo is offered for `who` is that Undo (`undo`). Whether a
    * plain follow was begun: a follow that is no Undo, and that was started.
+   *
+   * While the person is asked about a change to `who`, a tap for them is that change asked for
+   * again, whatever `action` says: the one that asked, kept with the asking, and never another. It
+   * goes with no answer, so it asks again, with the copy as it is found then. So a press of the
+   * button, made in place of an answer once Undo has asked and its ten seconds are over, is still
+   * that Undo, with what it was to put back as it was, and no plain follow in its place.
    */
   change(who: string, action: "follow" | "unfollow"): boolean {
+    const asking = this.#live()?.asking;
+    if (asking !== undefined && asking !== null && asking.who === who) return this.#start(who, asking.action, "asking") && asking.action === "follow";
     // A follow of someone Undo is offered for is that Undo, whichever control asked for it: what the
     // unfollow took out goes back as it was, so nothing of it is lost in its ten seconds (ruling R28).
     const offered = action === "follow" ? this.#live()?.people.get(who)?.undo : undefined;
@@ -365,52 +513,109 @@ class OwnFollows {
    * was asked for, kept with how it ended, and not what the list held would make of a tap now
    * (ruling R27). Nothing when nothing went wrong for them, or the change was saved and only its
    * check failed. Whether a plain follow was begun, as `change` says.
+   *
+   * A change that was made through an asking is made again as it was (`Trouble.exact`), with no
+   * answer: so it reads afresh, and where the person is still to be asked, asks them again. What
+   * Undo was to put back is put back by it, though Undo's ten seconds are long over.
    */
   retry(who: string): boolean {
     const trouble = this.#live()?.people.get(who)?.trouble;
-    return trouble !== undefined && trouble !== null && trouble.how !== "unconfirmed" && this.change(who, trouble.meant);
+    if (trouble === undefined || trouble === null || trouble.how === "unconfirmed") return false;
+    if (trouble.exact !== undefined) return this.#start(who, trouble.exact, "asking") && trouble.exact === "follow";
+    return this.change(who, trouble.meant);
+  }
+
+  /**
+   * Makes the change the person was asked about for `who`, on the copy they were shown: for a press
+   * of Use this copy, their answer, and for nothing else. It is the change that asked, kept with
+   * the asking, and never what the list held or the button would make of a tap now: a follow, an
+   * unfollow, or what Undo puts back, as it was. `changeFollow` is asked for it again with the id
+   * of that copy, and makes it only if its own fresh read finds that very list, kept first; another
+   * list the newest, and it asks again. Nothing unless the person is asked about `who`, nor while a
+   * change to them is under way. Whether a plain follow was begun, as `change` says.
+   */
+  useCopy(who: string): boolean {
+    const asking = this.#live()?.asking;
+    if (asking === undefined || asking === null || asking.who !== who) return false;
+    return this.#start(who, asking.action, { answer: asking.copy.id }) && asking.action === "follow";
+  }
+
+  /** Lets go of what the person was asked about for `who`, and changes nothing: for a press of Not now. Nothing unless they are asked about `who`. */
+  notNow(who: string): void {
+    const session = this.#live();
+    if (session === null || session.asking?.who !== who) return;
+    session.asking = null;
+    this.#changed();
   }
 
   /**
    * Starts a change to `who`'s place in the list, on a tap, unless one is under way, nobody is signed
    * in, or Follow is not open. Whether it started one.
+   *
+   * `through` says that the change is made through an asking: `{ answer }`, with the id of the copy
+   * the person has just said to use, for a press of Use this copy (`useCopy`) and no other tap; or
+   * `"asking"`, with no answer, for a press made in place of an answer and for Try again after
+   * either. Such a change is remembered as it is if it goes wrong, for Try again (`Trouble.exact`).
+   * Without an answer, the change is given what they are taken to have agreed to for the session
+   * (`Session.allowed`: the list the last change made by their say saved), or nothing. Either is
+   * the id of one list, and `changeFollow` goes by it only when its own fresh read finds that very
+   * list the newest, with no relay of the person's own answering.
    */
-  #start(who: string, action: Action): boolean {
+  #start(who: string, action: Action, through?: "asking" | { answer: string }): boolean {
     const session = this.#live();
     if (session === null) return false;
     const person: Person = session.people.get(who) ?? { saving: false, trouble: null, justFollowed: false, undo: undefined };
     session.people.set(who, person);
     if (person.saving) return false;
     person.saving = true;
-    // The tap ends what the last change left to say. A tap of Follow or Unfollow ends its Undo too,
-    // with what that had to put back; a tap of Undo keeps both until it is known to have saved, as
-    // one that did not is tapped again (ruling R22).
+    // The tap ends what the last change left to say, and what the person was asked about for them:
+    // it is answered, or asked again. A tap of Follow or Unfollow ends its Undo too, with what that
+    // had to put back; a tap of Undo keeps both until it is known to have saved, as one that did
+    // not is tapped again (ruling R22).
     person.trouble = null;
     person.justFollowed = false;
+    if (session.asking?.who === who) session.asking = null;
     if (!isUndo(action)) this.#endUndo(person);
     this.#changed();
 
     // The session's signal, and no other: it aborts when the person signs out or someone else signs
     // in, and when the app goes away. Not when the change has ended, nor when its button has gone:
     // slower relays are still being sent the list on it then (`FOLLOW_SETTLE_MS`, ./change.ts).
-    const { readers, writers } = this.#relays;
-    changeFollow(session.account, who, action, { readers, writers }, session.stop.signal).then(
-      (outcome) => this.#over(session, person, action, outcome),
-      () => this.#over(session, person, action, null),
+    const say = typeof through === "object" ? through.answer : session.allowed;
+    const asked = through !== undefined;
+    changeFollow(session.account, who, action, this.#writingFor(session), session.stop.signal, say).then(
+      (outcome) => this.#over(session, who, person, action, asked, outcome),
+      () => this.#over(session, who, person, action, asked, null),
     );
     return true;
   }
 
   /**
+   * What a write to the list of the session's person is made with: the app's relays, the device's
+   * clock, and the keeping of the list it is built on, in this browser, under that person's key and
+   * by that same clock (`keepCopy`, ./kept.ts).
+   */
+  #writingFor(session: Session): FollowDeps {
+    const { readers, writers } = this.#relays;
+    const { pubkey } = session.account;
+    const now = () => Math.floor(Date.now() / 1000);
+    return { readers, writers, now, keep: (list, why, spare) => keepCopy(pubkey, list, why, now(), spare) };
+  }
+
+  /**
    * Reads the list when a component shows it, someone is signed in, and it is neither known nor being
-   * read. Not within `FOLLOW_REREAD_MS` of a read that left it unknown: it is a wait and no more, with
-   * no timer, so a page that stays open is not read for again, and the first button to appear once
-   * the wait is over has the list read. A new session has no wait. A tap is not held up by it: a
-   * change reads the list itself. Nothing while Follow is not open.
+   * read. Not within `FOLLOW_REREAD_MS` of a read that left it unknown, or held only as a copy the
+   * person has not agreed to: it is a wait and no more, with no timer, so a page that stays open is
+   * not read for again, and the first button to appear once the wait is over has the list read. A
+   * new session has no wait. A tap is not held up by it: a change reads the list itself. Nothing
+   * while Follow is not open.
    */
   #readIfShown(): void {
     const session = this.#live();
-    if (session === null || this.#listeners.size === 0 || session.list !== undefined || session.reading) return;
+    if (session === null || this.#listeners.size === 0 || session.reading) return;
+    // Known, by a read to trust or by a change: it is not read again. A copy the person has not
+    // agreed to is not that, and is read for again as a list that is not known is.
+    if (session.list !== undefined && !session.unagreed) return;
     if (session.unread !== undefined && performance.now() - session.unread < FOLLOW_REREAD_MS) return;
     session.reading = true;
     void this.#read(session);
@@ -422,28 +627,76 @@ class OwnFollows {
    * that is not one to trust (their relay list could not be read, or no relay it writes to
    * answered: rulings R43 and R44), and one that finds no list and too few relays to say there is
    * none (`followsNobody`), leave the list unknown: no button shows, and one that appears once
-   * `FOLLOW_REREAD_MS` have passed has it read again. What a read that is not trusted found is
-   * neither shown nor taken for the newest list this tab has seen.
+   * `FOLLOW_REREAD_MS` have passed has it read again.
+   *
+   * One read that is not one to trust gives the buttons a list all the same: the one the person may
+   * be asked about (`copyToAsk`, ./read.ts, which a change asks too). It is held as a copy they
+   * have not agreed to (`Session.unagreed`), for the buttons to draw from and for nothing more: a
+   * press that would change it comes back asking, as `changeFollow` reads afresh and decides for
+   * itself. Whether no list means that the person follows nobody is never asked of such a read.
+   * Any other read that is not one to trust holds nothing. It takes a copy that is held away in
+   * one case: when the newest list it found is newer than that copy, which is then known not to
+   * be the newest, and no button is drawn from it (`#letGo`). And what the person is asked about
+   * goes whenever a read finds a newer list than the copy they were shown. The same list on fewer
+   * relays, an older list, and a read that found no list or could not learn where it is kept, take
+   * nothing away: such a read has told nothing, or has missed a list this tab has seen.
+   *
+   * Every list a read finds is one this tab has seen from then on (`raiseFollowFloor`), whatever
+   * the read's standing and whether or not it is held: no change is built on an older one.
    */
   async #read(session: Session): Promise<void> {
     const { pubkey } = session.account;
     const { signal } = session.stop;
     const { readers } = this.#relays;
     try {
-      const { list, answered, trusted } = await readOwnList(pubkey, readers, signal);
-      if (this.#session !== session || !trusted) return;
-      // The list on screen from here on: a change is never built on one older than it (ruling R18).
+      const read = await readOwnList(pubkey, readers, signal);
+      if (this.#session !== session) return;
+      const { list, answered } = read;
+      // A list of theirs, checked as theirs by the reader: this tab has seen it from here on,
+      // whether or not the read is one to trust and whether or not a button draws from it, and no
+      // change is built on an older one (ruling R18). That only ever stops a change.
       if (list !== null) raiseFollowFloor(pubkey, list);
-      if ((list !== null || followsNobody(answered)) && this.#hold(session, list)) this.#changed();
+      const { asking } = session;
+      /** Whether the read found a newer list than the copy the person is asked about: that copy is then known not to be the newest. */
+      const overtaken = asking !== null && list !== null && isNewer(list, { id: asking.copy.id, created_at: asking.copy.changed });
+      if (!read.trusted) {
+        // Not their list as far as it can be known. In one case it is shown, not yet agreed to.
+        const copy = copyToAsk(read, Math.floor(Date.now() / 1000));
+        let told = false;
+        if (copy !== null) told = this.#hold(session, copy, true);
+        // No list to ask about, and the newest it found is a newer list than the copy held: on
+        // too few relays to ask about, but enough to know that the copy is not the newest. No
+        // button is drawn from that. The same list on fewer relays, an older one, and a read that
+        // found none, say nothing against it, and it stays.
+        else if (session.unagreed && list !== null && session.list !== null && session.list !== undefined && isNewer(list, session.list)) told = this.#letGo(session);
+        // What they are asked about is one copy, shown with its date: a newer list found, and the
+        // asking is let go of with it, whether or not there is another copy to ask about.
+        if (overtaken) {
+          session.asking = null;
+          told = true;
+        }
+        if (told) this.#changed();
+        return;
+      }
+      let told = (list !== null || followsNobody(answered)) && this.#hold(session, list);
+      // A read to trust: where their other apps keep their list was reached (a relay of their own
+      // answered), or the app's relays are where it is. There is no more to ask them about a copy
+      // found elsewhere: a press is an ordinary change. Not when it found only an older list than
+      // that copy, or none: it has then missed a list this tab has seen, and tells nothing.
+      if (asking !== null && (overtaken || list?.id === asking.copy.id)) {
+        session.asking = null;
+        told = true;
+      }
+      if (told) this.#changed();
     } catch {
       // Stopped (the person signed out, or someone else signed in), or something unexpected went
       // wrong: a relay that fails or is slow is not thrown for. Either way nothing of it is kept: the
-      // list stays unknown, and no button says Follow or Following.
+      // list stays as it was, unknown when it was, and then no button says Follow or Following.
     } finally {
       session.reading = false;
-      // Still unknown, however the read ended: it is not read again for a while. (A session that
-      // has ended is asked nothing more, so what is noted of it is never looked at.)
-      if (session.list === undefined) session.unread = performance.now();
+      // Still not known for sure, however the read ended: it is not read again for a while. (A
+      // session that has ended is asked nothing more, so what is noted of it is never looked at.)
+      if (session.list === undefined || session.unagreed) session.unread = performance.now();
     }
   }
 
@@ -452,35 +705,75 @@ class OwnFollows {
    * read that ends after a change has saved a newer list does not put the older one back. What was
    * said of anyone that the list no longer agrees with is let go of (`#agree`). Whether what is held
    * changed; the caller tells the listeners.
+   *
+   * `unagreed` is for a copy the person has not agreed to (`Session.unagreed`): from the page's own
+   * read, or from a change made by their say that saved nothing. Whichever kind the list held and
+   * the new one are, a newer one takes the older one's place and an older one never does: every
+   * list held is one this tab has seen, so a read that finds only an older one has missed it. The
+   * very list that is held takes its own place only to be surer: a copy not agreed to, once a read
+   * to trust finds it or a change saves or builds on it.
    */
-  #hold(session: Session, list: NostrEvent | null): boolean {
+  #hold(session: Session, list: NostrEvent | null, unagreed = false): boolean {
     const held = session.list;
     if (held === null && list === null) return false;
-    if (held !== undefined && held !== null && (list === null || !isNewer(list, held))) return false;
+    if (held !== undefined && held !== null) {
+      // Older than the list held, or none where one is held: the read that found it has missed a
+      // list this tab has seen, and what is held stays, whichever of the two is the surer.
+      if (list === null || isNewer(held, list)) return false;
+      // The very list that is held: nothing changes, unless it was a copy not agreed to and is
+      // now found by a read to trust, or saved or built on by a change.
+      if (list.id === held.id && (unagreed || !session.unagreed)) return false;
+    }
     session.list = list;
+    session.unagreed = unagreed;
     session.followed = Object.freeze(followed(list));
-    session.owned = Object.freeze({ owner: session.account.pubkey.toLowerCase(), followed: session.followed });
+    // Whose list it is, for what reads other people's records from it: not told of a copy the
+    // person has not agreed to, which is for the buttons alone.
+    session.owned = unagreed ? null : Object.freeze({ owner: session.account.pubkey.toLowerCase(), followed: session.followed });
     session.follows = new Set(session.followed);
     this.#agree(session);
     return true;
   }
 
   /**
-   * A change has ended: `outcome` is how, or null when it failed in a way `changeFollow` has no name
-   * for. Nothing of it is kept when its session is over (the person signed out, or someone else
-   * signed in): it was given up.
+   * Lets go of a copy the person has not agreed to: the list is not known again, no button says
+   * Follow or Following, and it is read for again as a list that is not known is. Nothing unless
+   * what is held is such a copy. Whether what is held changed; the caller tells the listeners.
    */
-  #over(session: Session, person: Person, action: Action, outcome: FollowOutcome | null): void {
+  #letGo(session: Session): boolean {
+    if (!session.unagreed) return false;
+    session.list = undefined;
+    session.unagreed = false;
+    session.followed = null;
+    session.owned = null;
+    session.follows = new Set();
+    return true;
+  }
+
+  /**
+   * A change to `who` has ended: `outcome` is how, or null when it failed in a way `changeFollow` has
+   * no name for. `asked` is whether it was made through an asking (`#start`). Nothing of it is kept
+   * when its session is over (the person signed out, or someone else signed in): it was given up.
+   */
+  #over(session: Session, who: string, person: Person, action: Action, asked: boolean, outcome: FollowOutcome | null): void {
     if (this.#session !== session) return;
     person.saving = false;
     // What the change meant to do, for Try again: Undo is a follow, of the kind that puts back.
     const meant = action === "unfollow" ? "unfollow" : "follow";
+    /** How it went wrong, with what Try again makes again: the change itself, when it was made through an asking. */
+    const wrong = (how: Trouble["how"]): Trouble => (asked ? { how, meant, exact: action } : { how, meant });
     if (outcome === null) {
       // Not a change given up, as its session goes on. Nothing `changeFollow` does once it has sent a
       // list fails so, so no list was saved. An Undo that ended so is offered still (ruling R22).
-      person.trouble = { how: "not-saved", meant };
+      person.trouble = wrong("not-saved");
+    } else if (outcome.kind === "ask") {
+      // Not made: it could only be built on a copy that may not be the person's newest list, and
+      // they are asked. What was asked for is kept as it was, for their answer (`useCopy`); it takes
+      // the place of whatever they were asked before, for anyone. Nothing went wrong, and nothing
+      // of the list is held from it. An Undo that ended so is offered still.
+      session.asking = { who, action, copy: outcome.copy, told: Object.freeze({ changed: outcome.copy.changed }) };
     } else if (outcome.kind === "saved" || outcome.kind === "unchanged") {
-      if (outcome.kind === "saved" && !outcome.confirmed) person.trouble = { how: "unconfirmed", meant };
+      if (outcome.kind === "saved" && !outcome.confirmed) person.trouble = wrong("unconfirmed");
       // Followed by a tap of Follow, by this change or already: the line under the button says what
       // that means for the person's circle. Not when Undo put them back, as nothing has changed for
       // it (ruling R23).
@@ -496,14 +789,43 @@ class OwnFollows {
         }, UNDO_MS);
         person.undo = { timer, restore: outcome.removed, left: outcome.list.id };
       }
-      // What the buttons show comes from the list the change saved, or found to be so already.
-      this.#hold(session, outcome.list);
+      // What the buttons show comes from the list the change saved, or found to be so already. One
+      // found to be so by the person's say alone is the copy they were shown, with nothing saved:
+      // it is no more known to be their newest for that, and is held as such a copy still, which
+      // nothing else is told of and which is read for again.
+      this.#hold(session, outcome.list, outcome.kind === "unchanged" && outcome.bySay === true);
+      // The list was read afresh, and built on or found to be so already: by a read to trust (a
+      // relay of the person's own answered, say), or by their say. What they were asked about
+      // before, for anyone, was an earlier reading of it, and is let go of.
+      session.asking = null;
+      // Made by the person's say, on the copy they were shown, and confirmed: the list it saved is
+      // one this tab made at their word and read back as the newest, and the next change may be
+      // built on that very list with no second asking. Not for a change built on a read to trust,
+      // of which they were asked nothing. And not for one that could not be checked: a relay may
+      // have refused it as older than a list it holds, so this tab has been told its list may not
+      // be the newest, and the person is asked again.
+      if (outcome.kind === "saved" && outcome.bySay === true && outcome.confirmed) session.allowed = outcome.list.id;
     } else {
-      // Not loaded, not approved or not saved. An Undo that ended so is offered still, with what it
-      // puts back, for what is left of its ten seconds (ruling R22): they are not begun again.
-      person.trouble = { how: outcome.kind, meant };
+      // Not loaded, not kept, not approved or not saved. An Undo that ended so is offered still, with
+      // what it puts back, for what is left of its ten seconds (ruling R22): they are not begun again.
+      person.trouble = wrong(outcome.kind);
     }
     // What was just noted is held to the list too: a follow that failed of someone it names already.
+    this.#agree(session);
+    // The change kept the list it was built on, on its way: the copies may be one more.
+    this.copies.written();
+    this.#changed();
+  }
+
+  /**
+   * A kept copy was put back and saved, in the session whose signal is `signal` (`OwnCopies`):
+   * `list` is the person's list from here on, and what the buttons show comes from it. Nothing
+   * when that session is over.
+   */
+  #wasPutBack(signal: AbortSignal, list: NostrEvent): void {
+    const session = this.#session;
+    if (session === null || session.stop.signal !== signal) return;
+    this.#hold(session, list);
     this.#agree(session);
     this.#changed();
   }
@@ -513,16 +835,24 @@ class OwnFollows {
    * replaced by each change the person makes, to anyone, and by a read: what was said of someone
    * before may not be so of them now.
    *
-   * How a change went wrong: one that was not made (not loaded, not approved, not saved) left the
-   * person as they were, so it is let go of once the list has them the other way, a follow of
-   * someone it now names, an unfollow of someone it no longer does; it was made after all, by a
-   * relay that took it without saying so, or in another app. One that was saved and not checked
+   * How a change went wrong: one that was not made (not loaded, not kept, not approved, not saved)
+   * left the person as they were, so it is let go of once the list has them the other way, a
+   * follow of someone it now names, an unfollow of someone it no longer does; it was made after
+   * all, by a relay that took it without saying so, or in another app. One that was saved and not checked
    * left them as the change put them, so it is let go of once the list has them as they were
    * before. With it goes what Try again would do. And the offer of Undo, once the list names the
    * person again: there is nothing to put back. Nothing while the list is not known.
+   *
+   * And what the person is asked about, once the list held has them as that change would leave
+   * them: named, for a follow or what Undo puts back; not named, for an unfollow. There is then
+   * nothing to ask. So an asking is always for a change the button offers from the list held: a
+   * follow's is never open under a button that says Following, nor an unfollow's under one that
+   * says Follow.
    */
   #agree(session: Session): void {
     if (session.list === undefined) return;
+    const { asking } = session;
+    if (asking !== null && session.follows.has(asking.who) === (asking.action !== "unfollow")) session.asking = null;
     for (const [who, person] of session.people) {
       const named = session.follows.has(who);
       const { trouble } = person;
@@ -564,12 +894,14 @@ const FollowContext = createContext<OwnFollows | null>(null);
 
 /**
  * Holds the follow list of the person signed in, for the buttons and pages below it (`useFollow`,
- * `useOwnFollowed`). It must be inside the account provider, whose person it follows, and the scores
- * provider, whose readers and writers it uses (`useRelays`): the app's readers check each event's
- * signature, as a follow list is anyone's to write in a person's name. It reads nothing until a
- * component below it uses one of the hooks while someone is signed in, and it writes nothing: a tap
- * goes through `changeFollow`. Signing out, someone else signing in, and the app going away each
- * stop what is under way and let go of what was held. While Follow is not open
+ * `useOwnFollowed`), and gives them the store of the copies kept of it in this browser, for the page
+ * that lists them (`usePutBack`, ./keptStore.ts). It must be inside the account provider, whose
+ * person it follows, and the scores provider, whose readers and writers it uses (`useRelays`): the
+ * app's readers check each event's signature, as a follow list is anyone's to write in a person's
+ * name. It reads nothing until a component below it uses one of the hooks while someone is signed
+ * in, and it writes nothing: a tap goes through `changeFollow`, and a press of Put it back through
+ * `putBackList`, which the copies' store calls. Signing out, someone else signing in, and the app
+ * going away each stop what is under way and let go of what was held. While Follow is not open
  * (`config.features.follow`) it reads nothing at all, and no tap is a change.
  */
 export function FollowProvider({ children }: { children: ReactNode }): JSX.Element {
@@ -582,7 +914,11 @@ export function FollowProvider({ children }: { children: ReactNode }): JSX.Eleme
   // The app going away: what is under way is stopped.
   useLayoutEffect(() => () => store.setAccount(undefined), [store]);
 
-  return <FollowContext value={store}>{children}</FollowContext>;
+  return (
+    <FollowContext value={store}>
+      <CopiesContext value={store.copies}>{children}</CopiesContext>
+    </FollowContext>
+  );
 }
 
 /** For a tree with no `FollowProvider`: nothing to listen to. */
@@ -597,6 +933,10 @@ const nobodyKnown = () => null;
  * that appears `FOLLOW_REREAD_MS` after it, or later); a tap then is still a change, which reads the
  * list itself. When nobody is signed in, `pubkey` is no key, or there is no `FollowProvider` above, the
  * state is `unknown` and the taps do nothing.
+ *
+ * `asking` is set while the person is asked about a change to `pubkey` that could only be built on a
+ * copy of their list found on the app's relays. `useThisCopy` is their answer, and makes that change:
+ * call it from the press of Use this copy and from nothing else.
  */
 export function useFollow(pubkey: string): FollowOf {
   const store = useContext(FollowContext);
@@ -617,6 +957,10 @@ export function useFollow(pubkey: string): FollowOf {
         if (who !== null) store?.undo(who);
       },
       retry: () => who !== null && store?.retry(who) === true,
+      useThisCopy: () => who !== null && store?.useCopy(who) === true,
+      notNow: () => {
+        if (who !== null) store?.notNow(who);
+      },
     }),
     [store, who],
   );
@@ -629,8 +973,9 @@ export function useFollow(pubkey: string): FollowOf {
 }
 
 /**
- * Who the person signed in follows, with whose list it is; null until it is read, and when signed
- * out. For what reads other people's records from a person's list (who of them follows someone),
+ * Who the person signed in follows, with whose list it is; null until it is read, when signed out,
+ * and while what is held is a copy of their list they have not agreed to (the buttons alone draw
+ * from that). For what reads other people's records from a person's list (who of them follows someone),
  * and so must know the list for that person's: when someone else signs in with no sign-out between,
  * the list of the person before is still held for the drawing the account changes in (the provider
  * is told of the account after it), and its `owner` says it is not theirs. A button needs no such

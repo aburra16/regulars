@@ -15,7 +15,8 @@ import {
   forgetFollowFloor,
   raiseFollowFloor,
 } from "../src/follow/change";
-import { FOLLOW_READ_MS, NEW_LIST_QUORUM } from "../src/follow/read";
+import { KEEP_WAIT_MS, type KeptFor } from "../src/follow/kept";
+import { AGREE_MIN, COPY_AHEAD_S, COPY_NOT_BEFORE_S, FOLLOW_READ_MS, NEW_LIST_QUORUM } from "../src/follow/read";
 import type { RelayReader, RelayWriter } from "../src/nostr/events";
 import { PUBLISH_TIMEOUT_MS, SIGN_TIMEOUT_MS } from "../src/nostr/send";
 import {
@@ -53,7 +54,8 @@ import {
 import { FakeLocks, useLocks } from "./support/locks";
 
 /*
- * Changing a follow list (kind 3): `changeFollow`, the only code that writes one. A list is one
+ * Changing a follow list (kind 3): `changeFollow`, the only code that changes an entry of one (a kept
+ * copy put back whole is `putBackList`'s: tests/followPutBack.test.ts). A list is one
  * record, and saving it replaces the whole of it in every app the person uses, so these hold the
  * change to its safeguards: one at a time, read fresh, never a guessed list, one entry changed and
  * the rest as it was, the signed event exactly what was built, saved where it was read, read back.
@@ -102,6 +104,10 @@ interface Options {
   now?: number;
   signWithin?: number;
   how?: How;
+  /** What keeps the list a change is built on (`FollowDeps.keep`). Default: nothing does. */
+  keep?: FollowDeps["keep"];
+  /** The id of the list the person said to build on, though the read is not one to trust. Default: they said nothing. */
+  allowed?: string;
 }
 
 /**
@@ -116,9 +122,9 @@ type Action = Parameters<typeof changeFollow>[2];
 /** The person follows or unfollows `who`, or has what an unfollow took out of their list put back, over the relays of `w`. */
 function change(w: World, who: string, action: Action, opts: Options = {}, tab = changeFollow): Promise<FollowOutcome> {
   const account: Account = { pubkey: ME, signer: opts.by ?? signer(), how: opts.how ?? "browser" };
-  const deps: FollowDeps = { readers: w.readers, writers: w.writers, now: () => opts.now ?? NOW, signWithin: opts.signWithin };
+  const deps: FollowDeps = { readers: w.readers, writers: w.writers, now: () => opts.now ?? NOW, signWithin: opts.signWithin, ...(opts.keep === undefined ? {} : { keep: opts.keep }) };
   const signal = opts.signal === undefined ? life.signal : AbortSignal.any([opts.signal, life.signal]);
-  return tab(account, who, action, deps, signal);
+  return opts.allowed === undefined ? tab(account, who, action, deps, signal) : tab(account, who, action, deps, signal, opts.allowed);
 }
 
 /** `event` as a relay sends it: its seven fields, without the mark nostr-tools leaves on an event it signed. */
@@ -177,7 +183,7 @@ describe("a follow, on a list of 1,200 entries", () => {
     const outcome = await change(w, ABSENT, "follow", { by });
 
     const saved = savedBy(outcome);
-    expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: true });
+    expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: true, kept: false });
     expect(verifyEvent(saved)).toBe(true);
     expect(saved.pubkey).toBe(ME);
     expect(saved.kind).toBe(3);
@@ -243,6 +249,7 @@ describe("an unfollow, on a list of 1,200 entries", () => {
       kind: "saved",
       list: saved,
       confirmed: true,
+      kept: false,
       removed: [
         { index: DUPLICATE_AT, tag: ["p", DUPLICATED] },
         { index: DUPLICATE_AGAIN_AT, tag: ["p", DUPLICATED, "wss://relay.example.test", "met twice"] },
@@ -303,7 +310,7 @@ describe("Undo: putting back what an unfollow took out (ruling R20)", () => {
 
     const back = savedBy(outcome);
     // Saved as any change is, and with nothing to undo in its turn.
-    expect(outcome).toEqual({ kind: "saved", list: back, confirmed: true });
+    expect(outcome).toEqual({ kind: "saved", list: back, confirmed: true, kept: false });
     expect(verifyEvent(back)).toBe(true);
     expect(JSON.stringify(back.tags)).toBe(JSON.stringify(old.tags));
     expect(back.content).toBe(old.content);
@@ -512,6 +519,257 @@ describe("Undo: putting back what an unfollow took out (ruling R20)", () => {
     expect(Object.values(w.relays).flatMap((each) => each.asked)).toEqual([]);
     expect(by.signEvent).not.toHaveBeenCalled();
     expect(w.published()).toEqual([]);
+  });
+});
+
+describe("the list a change is built on, kept before the signer is asked", () => {
+  /** What keeps a copy, as the app's does: it notes what it was handed, in the order things happen, and says `answer`. */
+  function keeper(order: string[] = [], answer: boolean | (() => Promise<boolean>) = true) {
+    return vi.fn(async (_list: NostrEvent, _why: KeptFor): Promise<boolean> => {
+      order.push("kept");
+      return typeof answer === "function" ? answer() : answer;
+    });
+  }
+
+  /** A signer that notes when it is asked, among what `order` holds. */
+  function signerIn(order: string[]) {
+    const by = signer();
+    by.signEvent.mockImplementation(async (asked) => {
+      order.push("signer");
+      return finalizeEvent(structuredClone(asked), SECRET);
+    });
+    return by;
+  }
+
+  /** The person unfollows `who`: what Undo is given of it. */
+  async function undoOf(w: World, who: string) {
+    const outcome = await change(w, who, "unfollow");
+    if (outcome.kind !== "saved" || outcome.removed === undefined) throw new Error("Not an unfollow that saved");
+    return { left: outcome.list, undo: { restore: outcome.removed, left: outcome.list.id } };
+  }
+
+  it.each<[string, Action, string, KeptFor]>([
+    ["a follow", "follow", ABSENT, { did: "follow", who: ABSENT }],
+    ["an unfollow", "unfollow", DUPLICATED, { did: "unfollow", who: DUPLICATED }],
+    ["a follow asked for in upper-case hex, by the key in lower case", "follow", ABSENT.toUpperCase(), { did: "follow", who: ABSENT }],
+  ])("keeps the list as the relays sent it for %s, once, before the signer is asked, and says it was kept", async (_, action, who, why) => {
+    const old = buildFollowList(SECRET);
+    const w = everywhere([old]);
+    const order: string[] = [];
+    const keep = keeper(order);
+
+    const outcome = await change(w, who, action, { by: signerIn(order), keep });
+
+    expect(order).toEqual(["kept", "signer"]);
+    expect(keep).toHaveBeenCalledTimes(1);
+    // The list and what for, and no more: a change names no copy that must not give way, as it puts none back.
+    expect(keep.mock.calls[0]).toHaveLength(2);
+    const [list, keptFor] = keep.mock.calls[0]!;
+    expect(keptFor).toEqual(why);
+    // The event as the relays sent it, byte for byte: its seven fields, every tag in its order, the signature whole.
+    expect(list).toEqual(asSent(old));
+    expect(JSON.stringify(list)).toBe(JSON.stringify(asSent(old)));
+    expect(verifyEvent({ ...list })).toBe(true);
+    expect(outcome).toMatchObject({ kind: "saved", confirmed: true, kept: true });
+  });
+
+  it("keeps the list an Undo is built on: the one the unfollow left, kept for an Undo", async () => {
+    const w = everywhere([buildFollowList(SECRET)]);
+    const { left, undo } = await undoOf(w, pubkeyAt(10));
+    const order: string[] = [];
+    const keep = keeper(order);
+
+    const outcome = await change(w, pubkeyAt(10), undo, { by: signerIn(order), keep, now: NOW + 5 });
+
+    expect(order).toEqual(["kept", "signer"]);
+    expect(keep.mock.calls).toEqual([[asSent(left), { did: "undo", who: pubkeyAt(10) }]]);
+    expect(outcome).toMatchObject({ kind: "saved", kept: true });
+  });
+
+  it("keeps the newest list the relays hold, which is the one it builds on", async () => {
+    const older = buildFollowList(SECRET, FOLLOW_LIST_TIME - 100);
+    const newest = finalizeEvent({ kind: 3, created_at: FOLLOW_LIST_TIME, content: older.content, tags: [...older.tags, ["p", ALSO_ABSENT]] }, SECRET);
+    const w = world({ [NOS]: relay([older]), [DIRECTORY]: relay([newest]), [BIG]: relay() });
+    const keep = keeper();
+
+    const saved = savedBy(await change(w, ABSENT, "follow", { keep }));
+
+    expect(keep.mock.calls.map(([list]) => list)).toEqual([asSent(newest)]);
+    expect(saved.tags).toEqual([...newest.tags, ["p", ABSENT]]);
+  });
+
+  it("keeps nothing for a first list: a new account has no list to keep", async () => {
+    const w = everywhere([]);
+    const keep = keeper();
+
+    const outcome = await change(w, ABSENT, "follow", { keep });
+
+    expect(savedBy(outcome).tags).toEqual([["p", ABSENT]]);
+    expect(keep).not.toHaveBeenCalled();
+    expect(outcome).toMatchObject({ kind: "saved", kept: false });
+  });
+
+  it.each<[string, FollowDeps["keep"]]>([
+    ["says it could not keep it", async () => false],
+    ["fails", () => Promise.reject(new DOMException("The quota has been exceeded.", "QuotaExceededError"))],
+    [
+      "throws as it is asked",
+      () => {
+        throw new Error("no storage");
+      },
+    ],
+    ["answers with something that is no yes", (async () => "kept") as unknown as FollowDeps["keep"]],
+  ])("goes on with the change, and says the list was not kept, when what keeps it %s", async (_, keep) => {
+    const old = buildFollowList(SECRET);
+    const w = everywhere([old]);
+
+    const outcome = await change(w, ABSENT, "follow", { keep });
+
+    const saved = savedBy(outcome);
+    expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: true, kept: false });
+    expect(saved.tags).toEqual([...old.tags, ["p", ABSENT]]);
+    for (const url of [NOS, DIRECTORY, BIG]) expect(w.relays[url]!.writer.published).toEqual([saved]);
+  });
+
+  it("goes on with the change with nothing to keep it by, and says the list was not kept", async () => {
+    const outcome = await change(everywhere([buildFollowList(SECRET)]), ABSENT, "follow");
+
+    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: true, kept: false });
+  });
+
+  it("says what an unfollow took out beside whether the list was kept", async () => {
+    const outcome = await change(everywhere([buildFollowList(SECRET)]), pubkeyAt(8), "unfollow", { keep: keeper() });
+
+    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: true, kept: true, removed: [{ index: 8, tag: ["p", pubkeyAt(8)] }] });
+  });
+
+  it("keeps nothing for a change that signs nothing: one that is so already, and one whose list could not be loaded", async () => {
+    const keep = keeper();
+    const old = buildFollowList(SECRET);
+
+    expect((await change(everywhere([old]), pubkeyAt(0), "follow", { keep })).kind).toBe("unchanged");
+    // A read that cannot be trusted: the relay the person writes to is out, and too few of the app's relays hold the list to ask about it.
+    const untrusted = world({ [NOS]: relay([old]), [DIRECTORY]: relay([old, relayList([[OWN, "write"]])]), [BIG]: relay(), [OWN]: down() });
+    expect(await change(untrusted, ABSENT, "follow", { keep })).toEqual({ kind: "not-loaded" });
+    // One the person is asked about: all three hold it. Nothing is kept for the asking.
+    const asking = world({ [NOS]: relay([old]), [DIRECTORY]: relay([old, relayList([[OWN, "write"]])]), [BIG]: relay([old]), [OWN]: down() });
+    expect((await change(asking, ABSENT, "follow", { keep })).kind).toBe("ask");
+    // A list older than one this tab has seen.
+    raiseFollowFloor(ME, buildFollowList(SECRET, FOLLOW_LIST_TIME + 100));
+    expect(await change(everywhere([old]), ABSENT, "follow", { keep })).toEqual({ kind: "not-loaded" });
+
+    expect(keep).not.toHaveBeenCalled();
+  });
+
+  it("has kept the list though the signer then says no: the copy is there whatever becomes of the change", async () => {
+    const old = buildFollowList(SECRET);
+    const keep = keeper();
+    const by = signer();
+    by.signEvent.mockRejectedValueOnce(new Error("The person said no"));
+
+    expect(await change(everywhere([old]), ABSENT, "follow", { by, keep })).toEqual({ kind: "not-approved" });
+    expect(keep.mock.calls.map(([list]) => list)).toEqual([asSent(old)]);
+  });
+
+  it("signs what was built, whatever what keeps the list does to the list it is handed", async () => {
+    const old = buildFollowList(SECRET);
+    // The list as it was: what keeps it is handed the very list the relays hold here, and changes it.
+    const was = structuredClone(asSent(old));
+    const w = everywhere([old]);
+    const by = signer();
+    const meddling = async (list: NostrEvent) => {
+      list.tags.length = 1;
+      list.content = "";
+      list.created_at += 10_000;
+      return true;
+    };
+
+    const saved = savedBy(await change(w, ABSENT, "follow", { by, keep: meddling }));
+
+    expect(by.signEvent).toHaveBeenCalledWith({ kind: 3, created_at: NOW, content: was.content, tags: [...was.tags, ["p", ABSENT]] });
+    expect(saved.tags).toEqual([...was.tags, ["p", ABSENT]]);
+    expect(saved.content).toBe(was.content);
+  });
+
+  it("waits for it under the change's signal: when the keeping never ends, a change that is stopped ends at once, the signer was never asked, and the next change is free to go", async () => {
+    const locks = new FakeLocks();
+    useLocks(locks);
+    const old = buildFollowList(SECRET);
+    const w = everywhere([old]);
+    const by = signer();
+    const stop = new AbortController();
+    const ended = track(change(w, ABSENT, "follow", { by, signal: stop.signal, keep: () => new Promise<never>(() => {}) }));
+
+    await vi.advanceTimersByTimeAsync(KEEP_WAIT_MS - 1);
+    // The list is read, and the change waits for its copy: nothing is signed meanwhile.
+    expect(ended).toEqual({});
+    expect(by.signEvent).not.toHaveBeenCalled();
+
+    const reason = new Error("signed out");
+    stop.abort(reason);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ended.error).toBe(reason);
+    expect(by.signEvent).not.toHaveBeenCalled();
+    expect(w.published()).toEqual([]);
+
+    // The tab's turn and the browser's lock went with it.
+    expect(savedBy(await change(w, ALSO_ABSENT, "follow")).tags).toEqual([...old.tags, ["p", ALSO_ABSENT]]);
+    expect(locks.requests).toEqual([FOLLOW_LOCK, FOLLOW_LOCK]);
+  });
+
+  it("does not ask the signer while the list is being kept", async () => {
+    const w = everywhere([buildFollowList(SECRET)]);
+    const by = signer();
+    let keepIt!: (kept: boolean) => void;
+    const keeping = new Promise<boolean>((resolve) => {
+      keepIt = resolve;
+    });
+    const ended = track(change(w, ABSENT, "follow", { by, keep: () => keeping }));
+
+    // Well within the time a keeping has: this one answers in it.
+    await vi.advanceTimersByTimeAsync(KEEP_WAIT_MS / 2);
+    expect(by.signEvent).not.toHaveBeenCalled();
+    expect(ended).toEqual({});
+
+    keepIt(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(by.signEvent).toHaveBeenCalledTimes(1);
+    expect(ended.outcome).toMatchObject({ kind: "saved", kept: true });
+  });
+
+  it("waits for its copy no longer than the keeping's own time, whatever keeps it: one that never answers has not kept the list, and the change goes on", async () => {
+    const locks = new FakeLocks();
+    useLocks(locks);
+    const old = buildFollowList(SECRET);
+    const w = everywhere([old]);
+    const by = signer();
+    // Something else than the app's own keeping, which has no limit of its own.
+    const ended = track(change(w, ABSENT, "follow", { by, keep: () => new Promise<never>(() => {}) }));
+
+    await vi.advanceTimersByTimeAsync(KEEP_WAIT_MS - 1);
+    expect(by.signEvent).not.toHaveBeenCalled();
+    expect(ended).toEqual({});
+
+    await vi.advanceTimersByTimeAsync(1);
+    // Not kept, and not held up: the signer is asked, and the change is saved as any other.
+    expect(by.signEvent).toHaveBeenCalledTimes(1);
+    const saved = savedBy(ended.outcome);
+    expect(ended.outcome).toEqual({ kind: "saved", list: saved, confirmed: true, kept: false });
+    expect(saved.tags).toEqual([...old.tags, ["p", ABSENT]]);
+    // The tab's turn and the lock were let go of with it, and no timer of the wait is left.
+    expect(vi.getTimerCount()).toBe(0);
+    expect((await change(w, ALSO_ABSENT, "follow")).kind).toBe("saved");
+    expect(locks.requests).toEqual([FOLLOW_LOCK, FOLLOW_LOCK]);
+    expect(KEEP_WAIT_MS).toBe(2_000);
+  });
+
+  it("leaves no timer of that wait behind once the list is kept, or the keeping has failed", async () => {
+    const w = everywhere([buildFollowList(SECRET)]);
+
+    await change(w, ABSENT, "follow", { keep: async () => true });
+    expect(vi.getTimerCount()).toBe(0);
+    await change(w, ALSO_ABSENT, "follow", { keep: () => Promise.reject(new Error("no storage")) });
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
@@ -1044,7 +1302,7 @@ describe("when the relays send no list (Review Focus 4)", () => {
     const outcome = await change(w, ABSENT, "follow", { by });
 
     const saved = savedBy(outcome);
-    expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: true });
+    expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: true, kept: false });
     expect(by.signEvent).toHaveBeenCalledWith({ kind: 3, created_at: NOW, content: "", tags: [["p", ABSENT]] });
     expect(saved).toMatchObject({ kind: 3, pubkey: ME, created_at: NOW, content: "", tags: [["p", ABSENT]] });
     for (const url of [NOS, DIRECTORY, BIG]) expect(w.relays[url]!.writer.published).toEqual([saved]);
@@ -1322,21 +1580,32 @@ describe("a read of the person's own list that cannot be trusted (rulings R43, R
     expect(w.published()).toHaveLength(sent);
   });
 
-  it("does not take a list it could not trust for the newest this tab has seen: a later change is not held to it", async () => {
-    // The relay the person writes to is out, and the app's relays hold a list.
-    const stale = buildFollowList(SECRET);
-    const w = world({ [NOS]: relay([stale]), [DIRECTORY]: relay([stale, theirs()]), [BIG]: relay([stale]), [OWN]: down() });
-    expect(await change(w, ABSENT, "follow")).toEqual({ kind: "not-loaded" });
+  it.each<[string, (list: NostrEvent) => World]>([
+    ["every one of the app's relays holds it, and the person is asked about it", (list) => world({ [NOS]: relay([list]), [DIRECTORY]: relay([list, theirs()]), [BIG]: relay([list]), [OWN]: down() })],
+    ["two of the app's relays hold it, and nothing is asked", (list) => world({ [NOS]: relay([list]), [DIRECTORY]: relay([list, theirs()]), [BIG]: relay(), [OWN]: down() })],
+    ["one relay the person only reads from holds it", (list) => world({ [NOS]: relay(), [DIRECTORY]: relay([relayList([[OWN, "write"], [READS, "read"]])]), [BIG]: relay(), [OWN]: down(), [READS]: relay([list]) })],
+  ])("takes a list a read found for one this tab has seen, though the read could not be trusted (%s): a later change that finds only an older list is not loaded", async (_, relaysOf) => {
+    // The relay the person writes to is out, and other relays hold a list of theirs.
+    const seen = buildFollowList(SECRET);
+    const w = relaysOf(seen);
+    expect((await change(w, ABSENT, "follow")).kind).toMatch(/^(?:ask|not-loaded)$/);
 
-    // Their relay answers now, and every relay holds an older list than the one that was not trusted.
-    // Were that one remembered, this read would be older than it, and stop.
+    // Their relay answers now, and every relay holds an older list than the one that was seen. The
+    // read is one to trust: and it has missed a list this tab knows of, which a change built on the
+    // older one would take the place of everywhere.
     const older = buildFollowList(SECRET, FOLLOW_LIST_TIME - 100);
     for (const url of [NOS, DIRECTORY, BIG]) w.relays[url]!.held.splice(0, Number.POSITIVE_INFINITY, older, theirs());
-    w.relays[OWN]!.reader = relay([older]).reader;
+    for (const url of [OWN, READS]) if (w.relays[url] !== undefined) w.relays[url] = relay([older]);
+    const by = signer();
+    const keep = vi.fn(async () => true);
 
-    const saved = savedBy(await change(w, ABSENT, "follow"));
+    expect(await change(w, ABSENT, "follow", { by, keep })).toEqual({ kind: "not-loaded" });
 
-    expect(saved.tags).toEqual([...older.tags, ["p", ABSENT]]);
+    expect(keep).not.toHaveBeenCalled();
+    expectNothingWritten(w, by);
+    // Once what it had seen is forgotten, as at sign-out, the older list is the newest there is.
+    forgetFollowFloor();
+    expect(savedBy(await change(w, ABSENT, "follow")).tags).toEqual([...older.tags, ["p", ABSENT]]);
   });
 
   describe("and the ways through that are as they were", () => {
@@ -1411,6 +1680,495 @@ describe("a read of the person's own list that cannot be trusted (rulings R43, R
       const by = signer();
       expect(await change(isOut, ABSENT, "follow", { by })).toEqual({ kind: "not-loaded" });
       expectNothingWritten(isOut, by);
+    });
+  });
+});
+
+describe("when no relay the person writes to answers, and several of the app's relays hold the same list: the person is asked", () => {
+  const SIX = [NOS, DIRECTORY, BIG, FOURTH, FIFTH, SIXTH];
+  /** A year, in seconds. */
+  const YEAR = 60 * 60 * 24 * 365;
+  /** The person's list as it was a year ago: the copy their other apps once sent to the relays most apps use. */
+  const lastYears = () => buildFollowList(SECRET, FOLLOW_LIST_TIME - YEAR);
+  /** Their list now, with someone followed last week, which only the relay they write to holds. */
+  const thisWeeks = () => finalizeEvent({ kind: 3, created_at: FOLLOW_LIST_TIME, content: lastYears().content, tags: [...lastYears().tags, ["p", ALSO_ABSENT]] }, SECRET);
+  const theirs = () => relayList([[OWN, "write"]]);
+
+  /** The relay they write to is out, and each of the app's three holds `old` (the directory their relay list too). */
+  const asking = (old: NostrEvent, own: () => Relay = down): World =>
+    world({ [NOS]: relay([old]), [DIRECTORY]: relay([old, theirs()]), [BIG]: relay([old]), [OWN]: own() });
+
+  /** What keeps a copy: it says `answer`, and a test sees what it was handed, and when among what `order` holds. */
+  const keeper = (answer = true, order: string[] = []) =>
+    vi.fn(async (_list: NostrEvent, _why: KeptFor, _spare?: string): Promise<boolean> => {
+      order.push("kept");
+      return answer;
+    });
+
+  /** Nothing was asked of the signer, and no relay was sent anything. */
+  function expectNothingWritten(w: World, by: ReturnType<typeof signer>) {
+    expect(by.signEvent).not.toHaveBeenCalled();
+    expect(w.published()).toEqual([]);
+    for (const each of [...Object.values(w.relays), w.reviews]) expect(each.writer.published).toEqual([]);
+  }
+
+  describe("asking", () => {
+    it.each<[string, Action, string]>([
+      ["a follow", "follow", ABSENT],
+      ["a follow of someone the copy names already", "follow", pubkeyAt(8)],
+      ["an unfollow of someone the copy names", "unfollow", pubkeyAt(8)],
+      ["an unfollow of someone it does not name", "unfollow", ABSENT],
+      ["what Undo puts back", { restore: [{ index: 8, tag: ["p", pubkeyAt(8)] }], left: "ab".repeat(32) }, pubkeyAt(8)],
+    ])("asks for %s, with the copy's id and when it was last changed: nothing is signed, sent or kept", async (_, action, who) => {
+      const old = lastYears();
+      const w = asking(old);
+      const by = signer();
+      const keep = keeper();
+
+      const outcome = await change(w, who, action, { by, keep });
+
+      expect(outcome).toEqual({ kind: "ask", copy: { id: old.id, changed: old.created_at } });
+      expect(keep).not.toHaveBeenCalled();
+      expectNothingWritten(w, by);
+    });
+
+    it("asks about the newest of the lists the app's relays hold, when three of six hold it and their relay holds a newer one out of reach", async () => {
+      config.followListRelays = [...SIX];
+      const old = lastYears();
+      const w = world({
+        [NOS]: relay([old]),
+        [DIRECTORY]: relay([old, theirs()]),
+        [BIG]: relay([old]),
+        [FOURTH]: relay(),
+        [FIFTH]: down(),
+        [SIXTH]: relay(),
+        [OWN]: relay([thisWeeks()], { reads: failingWhen(() => true) }),
+      });
+      const by = signer();
+
+      expect(await change(w, ABSENT, "follow", { by })).toEqual({ kind: "ask", copy: { id: old.id, changed: old.created_at } });
+      expectNothingWritten(w, by);
+      expect(AGREE_MIN).toBe(3);
+    });
+
+    it("takes the copy it asks about for a list this tab has seen: a later change that finds only an older list is not loaded, though their relay answers", async () => {
+      const old = lastYears();
+      const w = asking(old);
+      expect((await change(w, ABSENT, "follow")).kind).toBe("ask");
+
+      // Their relay answers now, and every relay holds an older list than the copy.
+      const older = buildFollowList(SECRET, FOLLOW_LIST_TIME - 2 * YEAR);
+      for (const url of [NOS, DIRECTORY, BIG]) w.relays[url]!.held.splice(0, Number.POSITIVE_INFINITY, older, theirs());
+      w.relays[OWN] = relay([older]);
+      const by = signer();
+
+      expect(await change(w, ABSENT, "follow", { by })).toEqual({ kind: "not-loaded" });
+      expectNothingWritten(w, by);
+    });
+
+    it("asks about the same list as often as it is the newest: the list it has seen is that list, and no older one", async () => {
+      const old = lastYears();
+      const w = asking(old);
+      const asked = { kind: "ask", copy: { id: old.id, changed: old.created_at } };
+
+      expect(await change(w, ABSENT, "follow")).toEqual(asked);
+      expect(await change(w, ABSENT, "follow")).toEqual(asked);
+      expect(await change(w, ALSO_ABSENT, "unfollow")).toEqual(asked);
+      // And their say for it, given after it was asked about, makes the change on it.
+      const outcome = await change(w, ABSENT, "follow", { keep: keeper(), allowed: old.id });
+      expect(outcome).toMatchObject({ kind: "saved", kept: true, bySay: true });
+      expect(savedBy(outcome).tags).toEqual([...old.tags, ["p", ABSENT]]);
+    });
+
+    it("asks nothing about an older copy than one it has asked about, and builds nothing on it: three relays hold a list of the first of the month, three one of the month before, and the first three stop answering", async () => {
+      config.followListRelays = [...SIX];
+      const older = lastYears();
+      const newer = finalizeEvent({ kind: 3, created_at: older.created_at + 30 * 24 * 60 * 60, content: older.content, tags: [...older.tags, ["p", ALSO_ABSENT]] }, SECRET);
+      const w = world({ [NOS]: relay([newer]), [DIRECTORY]: relay([newer, theirs()]), [BIG]: relay([newer]), [FOURTH]: relay([older]), [FIFTH]: relay([older]), [SIXTH]: relay([older]), [OWN]: down() });
+      // The newest of all, on three relays: the person is asked about that.
+      expect(await change(w, ABSENT, "follow")).toEqual({ kind: "ask", copy: { id: newer.id, changed: newer.created_at } });
+
+      // Those three no longer send a list (the directory still answers for the relay list). The newest
+      // found is the older one, with three agreeing: and this tab has seen a newer.
+      for (const url of [NOS, DIRECTORY, BIG]) w.relays[url]!.listsDown = true;
+      const by = signer();
+      const keep = keeper();
+
+      expect(await change(w, ABSENT, "follow", { by, keep })).toEqual({ kind: "not-loaded" });
+      // Nor by a say for the older one, were one given.
+      expect(await change(w, ABSENT, "follow", { by, keep, allowed: older.id })).toEqual({ kind: "not-loaded" });
+
+      expect(keep).not.toHaveBeenCalled();
+      expectNothingWritten(w, by);
+    });
+
+    it("builds nothing on the list it saved by their say once it has asked about a newer one: the next read finds the saved list on three relays again, and it is not the newest this tab has seen", async () => {
+      const old = lastYears();
+      const w = asking(old);
+      const saved = savedBy(await change(w, ABSENT, "follow", { keep: keeper(), allowed: old.id }));
+
+      // Another app's newer list reaches the app's relays: a press is asked about that.
+      const since = finalizeEvent({ kind: 3, created_at: saved.created_at + 500, content: saved.content, tags: saved.tags.slice(0, 40) }, SECRET);
+      for (const url of [NOS, DIRECTORY, BIG]) w.relays[url]!.held.push(since);
+      expect(await change(w, ALSO_ABSENT, "follow", { keep: keeper(), allowed: saved.id, now: NOW + 600 })).toEqual({ kind: "ask", copy: { id: since.id, changed: since.created_at } });
+
+      // The relays send the saved list again, and no newer one. Their say was for that list: but this tab was just shown a newer.
+      for (const url of [NOS, DIRECTORY, BIG]) w.relays[url]!.held.splice(w.relays[url]!.held.indexOf(since), 1);
+      const by = signer();
+      const keep = keeper();
+
+      expect(await change(w, ALSO_ABSENT, "follow", { by, keep, allowed: saved.id, now: NOW + 700 })).toEqual({ kind: "not-loaded" });
+
+      expect(keep).not.toHaveBeenCalled();
+      expect(by.signEvent).not.toHaveBeenCalled();
+    });
+
+    it("does not ask about a copy older than a list this tab has seen: it is not the newest, and is not loaded", async () => {
+      const old = lastYears();
+      raiseFollowFloor(ME, thisWeeks());
+      const w = asking(old);
+      const by = signer();
+
+      expect(await change(w, ABSENT, "follow", { by })).toEqual({ kind: "not-loaded" });
+      // Nor is it built on because the person said so of it.
+      expect(await change(w, ABSENT, "follow", { by, keep: keeper(), allowed: old.id })).toEqual({ kind: "not-loaded" });
+      expectNothingWritten(w, by);
+    });
+
+    it.each<[string, (old: NostrEvent) => World]>([
+      ["two of the app's three hold it, and the third holds none", (old) => world({ [NOS]: relay([old]), [DIRECTORY]: relay([old, theirs()]), [BIG]: relay(), [OWN]: down() })],
+      ["two hold it, and the third holds an older one", (old) => world({ [NOS]: relay([old]), [DIRECTORY]: relay([old, theirs()]), [BIG]: relay([buildFollowList(SECRET, FOLLOW_LIST_TIME - 2 * 60 * 60 * 24 * 365)]), [OWN]: down() })],
+      ["two hold it, and the third does not answer", (old) => world({ [NOS]: relay([old]), [DIRECTORY]: relay([old, theirs()]), [BIG]: down(), [OWN]: down() })],
+      [
+        "two of the app's hold it, and so does a relay the person only reads from: that one is none of the app's",
+        (old) => world({ [NOS]: relay([old]), [DIRECTORY]: relay([old, relayList([[OWN, "write"], [READS, "read"]])]), [BIG]: relay(), [OWN]: down(), [READS]: relay([old]) }),
+      ],
+      ["no list is found at all, though all three answer", () => world({ [NOS]: relay(), [DIRECTORY]: relay([theirs()]), [BIG]: relay(), [OWN]: down() })],
+    ])("is not loaded, and does not ask, when %s", async (_, relaysOf) => {
+      const old = lastYears();
+      const w = relaysOf(old);
+      const by = signer();
+      const keep = keeper();
+
+      expect(await change(w, ABSENT, "follow", { by, keep })).toEqual({ kind: "not-loaded" });
+      // And the person's say for that list changes nothing: it is given for a read they may be asked about, and for no other.
+      expect(await change(w, ABSENT, "follow", { by, keep, allowed: old.id })).toEqual({ kind: "not-loaded" });
+
+      expect(keep).not.toHaveBeenCalled();
+      expectNothingWritten(w, by);
+    });
+
+    it("is not loaded, and does not ask, when the relay list could not be read, though five of the app's six relays hold the same list", async () => {
+      config.followListRelays = [...SIX];
+      const old = lastYears();
+      const holding = Object.fromEntries(SIX.filter((url) => url !== DIRECTORY).map((url) => [url, relay([old])]));
+      const w = world({ ...holding, [DIRECTORY]: down(), [OWN]: relay([thisWeeks(), theirs()]) });
+      const by = signer();
+      const keep = keeper();
+
+      expect(await change(w, ABSENT, "follow", { by, keep })).toEqual({ kind: "not-loaded" });
+      expect(await change(w, ABSENT, "follow", { by, keep, allowed: old.id })).toEqual({ kind: "not-loaded" });
+
+      expect(keep).not.toHaveBeenCalled();
+      expectNothingWritten(w, by);
+      // No relay was asked for the list: it is not known where it is.
+      expect(w.asked().filter(asksForList)).toEqual([]);
+    });
+
+    it.each<[string, number, "ask" | "not-loaded"]>([
+      ["a day after the device's clock, to the second", NOW + COPY_AHEAD_S, "ask"],
+      ["a second more than a day after the device's clock", NOW + COPY_AHEAD_S + 1, "not-loaded"],
+      ["the first second of 2020", COPY_NOT_BEFORE_S, "ask"],
+      ["the last second of 2019", COPY_NOT_BEFORE_S - 1, "not-loaded"],
+    ])("goes by the copy's date: one dated %s ends %s, and what is not asked about is not built on by any say", async (_, at, ends) => {
+      const copy = buildFollowList(SECRET, at);
+      const w = asking(copy);
+      const by = signer();
+      const keep = keeper();
+
+      const outcome = await change(w, ABSENT, "follow", { by, keep });
+
+      expect(outcome).toEqual(ends === "ask" ? { kind: "ask", copy: { id: copy.id, changed: at } } : { kind: "not-loaded" });
+      // The person's say for that very list makes the change where they may be asked, and nothing where they may not.
+      const said = await change(w, ABSENT, "follow", { by, keep, allowed: copy.id });
+      if (ends === "ask") {
+        expect(said).toMatchObject({ kind: "saved", kept: true, bySay: true });
+        expect(savedBy(said).created_at).toBe(Math.max(NOW, at + 1));
+      } else {
+        expect(said).toEqual({ kind: "not-loaded" });
+        expect(keep).not.toHaveBeenCalled();
+        expectNothingWritten(w, by);
+      }
+    });
+
+    it("goes by the clock the change is given, as the list it signs does", async () => {
+      const copy = buildFollowList(SECRET, NOW + COPY_AHEAD_S + 1);
+      const w = asking(copy);
+
+      expect(await change(w, ABSENT, "follow")).toEqual({ kind: "not-loaded" });
+      expect(await change(w, ABSENT, "follow", { now: NOW + 1 })).toEqual({ kind: "ask", copy: { id: copy.id, changed: copy.created_at } });
+    });
+
+    it("is an ordinary change, asking nothing, when the relay the person writes to answers: built on the newest, though nothing keeps it", async () => {
+      const old = lastYears();
+      const now = thisWeeks();
+      const w = asking(old, () => relay([now]));
+
+      const outcome = await change(w, ABSENT, "follow");
+
+      const saved = savedBy(outcome);
+      expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: true, kept: false });
+      expect(saved.tags).toEqual([...now.tags, ["p", ABSENT]]);
+    });
+
+    it("is an ordinary change when the person is known to have no relay list: the app's relays are where their list is", async () => {
+      const old = lastYears();
+      const w = everywhere([old]);
+
+      const outcome = await change(w, ABSENT, "follow", { allowed: "cd".repeat(32) });
+
+      expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: true, kept: false });
+      expect(savedBy(outcome).tags).toEqual([...old.tags, ["p", ABSENT]]);
+    });
+  });
+
+  describe("with the person's say, for the very list they were shown", () => {
+    it("saves that list with the one entry more, having kept it first, and says it was made by their say", async () => {
+      const old = lastYears();
+      const w = asking(old);
+      const order: string[] = [];
+      const keep = keeper(true, order);
+      const by = signer();
+      by.signEvent.mockImplementation(async (asked) => {
+        order.push("signer");
+        return finalizeEvent(structuredClone(asked), SECRET);
+      });
+
+      const outcome = await change(w, ABSENT, "follow", { by, keep, allowed: old.id });
+
+      const saved = savedBy(outcome);
+      expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: true, kept: true, bySay: true });
+      expect(verifyEvent(saved)).toBe(true);
+      // Exactly that list, with one entry more: every tag as it was and in its place, the content as it was.
+      expect(saved.tags).toEqual([...old.tags, ["p", ABSENT]]);
+      expect(saved.content).toBe(old.content);
+      expect(saved.created_at).toBe(NOW);
+      expect(by.signEvent).toHaveBeenCalledTimes(1);
+      expect(by.signEvent).toHaveBeenCalledWith({ kind: 3, created_at: NOW, content: old.content, tags: [...old.tags, ["p", ABSENT]] });
+      // The copy was kept before the signer was asked: the list as the relays sent it, byte for byte.
+      expect(order).toEqual(["kept", "signer"]);
+      expect(keep.mock.calls).toEqual([[asSent(old), { did: "follow", who: ABSENT }]]);
+      expect(JSON.stringify(keep.mock.calls[0]![0])).toBe(JSON.stringify(asSent(old)));
+    });
+
+    it("sends it where a change is sent: to the relays that answered, and to the relay the person writes to, which may take it late or not at all", async () => {
+      const old = lastYears();
+      const w = asking(old);
+
+      const saved = savedBy(await change(w, ABSENT, "follow", { keep: keeper(), allowed: old.id }));
+
+      for (const url of [NOS, DIRECTORY, BIG]) expect(w.relays[url]!.writer.published).toEqual([saved]);
+      // Their own relay was tried, and once more, as its failure may pass.
+      expect(w.relays[OWN]!.writer.signals).toHaveLength(2);
+      expect(w.reviews.writer.published).toEqual([]);
+    });
+
+    it.each<[string, Action, string]>([
+      ["an unfollow", "unfollow", pubkeyAt(8)],
+      ["what Undo puts back", { restore: [{ index: 3, tag: ["p", ABSENT, "wss://relay.example.test", "back"] }], left: "ab".repeat(32) }, ABSENT],
+    ])("makes %s by the same say, on that list", async (_, action, who) => {
+      const old = lastYears();
+      const w = asking(old);
+      const keep = keeper();
+
+      const outcome = await change(w, who, action, { keep, allowed: old.id });
+
+      const saved = savedBy(outcome);
+      expect(outcome).toMatchObject({ kind: "saved", confirmed: true, kept: true, bySay: true });
+      if (action === "unfollow") {
+        expect(saved.tags).toEqual(old.tags.filter((_, at) => at !== 8));
+        expect(outcome).toMatchObject({ removed: [{ index: 8, tag: ["p", pubkeyAt(8)] }] });
+      } else {
+        // Not the list the unfollow left: what it took out goes at the end, as it wrote it.
+        expect(saved.tags).toEqual([...old.tags, ["p", ABSENT, "wss://relay.example.test", "back"]]);
+      }
+      expect(keep).toHaveBeenCalledTimes(1);
+    });
+
+    it.each<[string, FollowDeps["keep"] | undefined]>([
+      ["nothing keeps it", undefined],
+      ["what keeps it says it could not", async () => false],
+      ["what keeps it fails", () => Promise.reject(new DOMException("The quota has been exceeded.", "QuotaExceededError"))],
+      [
+        "what keeps it throws as it is asked",
+        () => {
+          throw new Error("no storage");
+        },
+      ],
+      ["what keeps it answers with something that is no yes", (async () => "kept") as unknown as FollowDeps["keep"]],
+    ])("is not kept, and nothing is signed or sent, when %s: no net, no leap, and it says that the keeping is what failed", async (_, keep) => {
+      const old = lastYears();
+      const w = asking(old);
+      const by = signer();
+
+      expect(await change(w, ABSENT, "follow", { by, keep, allowed: old.id })).toEqual({ kind: "not-kept" });
+
+      expectNothingWritten(w, by);
+    });
+
+    it("is not kept once the keeping has not answered in its time: the list was not kept, and nothing is signed", async () => {
+      const old = lastYears();
+      const w = asking(old);
+      const by = signer();
+      const ended = track(change(w, ABSENT, "follow", { by, keep: () => new Promise<never>(() => {}), allowed: old.id }));
+
+      await vi.advanceTimersByTimeAsync(KEEP_WAIT_MS - 1);
+      expect(ended).toEqual({});
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(ended.outcome).toEqual({ kind: "not-kept" });
+      expectNothingWritten(w, by);
+    });
+
+    it("says not kept only where a copy is needed and could not be had: a change built on a read to trust goes on without one, and a list that could not be read is not loaded", async () => {
+      const old = lastYears();
+      const refuses = async () => false;
+
+      // A read to trust: saved, with nothing kept.
+      expect(await change(everywhere([old]), ABSENT, "follow", { keep: refuses })).toMatchObject({ kind: "saved", kept: false });
+      // Too few relays hold the copy to ask about it: the keeping is never asked.
+      const few = world({ [NOS]: relay([old]), [DIRECTORY]: relay([old, theirs()]), [BIG]: relay(), [OWN]: down() });
+      expect(await change(few, ABSENT, "follow", { keep: refuses, allowed: old.id })).toEqual({ kind: "not-loaded" });
+    });
+
+    it("asks again, with the list now found, when another list is the newest: the say was for the one they were shown, and allows no other", async () => {
+      const old = lastYears();
+      // Since they were asked, another app's change has reached the app's relays.
+      const since = finalizeEvent({ kind: 3, created_at: old.created_at + 500, content: old.content, tags: old.tags.slice(0, 40) }, SECRET);
+      const w = asking(since);
+      const by = signer();
+      const keep = keeper();
+
+      expect(await change(w, ABSENT, "follow", { by, keep, allowed: old.id })).toEqual({ kind: "ask", copy: { id: since.id, changed: since.created_at } });
+
+      expect(keep).not.toHaveBeenCalled();
+      expectNothingWritten(w, by);
+    });
+
+    it("asks again when the list they said yes to is on one relay still, and three hold a newer one", async () => {
+      config.followListRelays = [...SIX];
+      const old = lastYears();
+      const since = finalizeEvent({ kind: 3, created_at: old.created_at + 500, content: old.content, tags: old.tags.slice(0, 40) }, SECRET);
+      const w = world({ [NOS]: relay([since]), [DIRECTORY]: relay([since, theirs()]), [BIG]: relay([since]), [FOURTH]: relay([old]), [FIFTH]: relay([old]), [SIXTH]: relay([old]), [OWN]: down() });
+      const by = signer();
+
+      expect(await change(w, ABSENT, "follow", { by, keep: keeper(), allowed: old.id })).toEqual({ kind: "ask", copy: { id: since.id, changed: since.created_at } });
+      expectNothingWritten(w, by);
+    });
+
+    it("never makes a first list: with no list found there is nothing they could have said yes to", async () => {
+      // Every one of the app's relays answers with nothing, and shows no sign of the account; their relay is out.
+      const w = world({ [NOS]: relay(), [DIRECTORY]: relay([theirs()]), [BIG]: relay(), [OWN]: down() });
+      const by = signer();
+      const keep = keeper();
+
+      expect(await change(w, ABSENT, "follow", { by, keep, allowed: lastYears().id })).toEqual({ kind: "not-loaded" });
+
+      expect(keep).not.toHaveBeenCalled();
+      expectNothingWritten(w, by);
+    });
+
+    it("is unchanged, keeping, signing and sending nothing, when that list is so already, and says whose say it stands on", async () => {
+      const old = lastYears();
+      const w = asking(old);
+      const by = signer();
+      const keep = keeper();
+
+      expect(await change(w, pubkeyAt(8), "follow", { by, keep, allowed: old.id })).toEqual({ kind: "unchanged", list: asSent(old), bySay: true });
+
+      expect(keep).not.toHaveBeenCalled();
+      expectNothingWritten(w, by);
+    });
+
+    it("is an ordinary change when a relay the person writes to answers after all: built on the newest, with no say needed and none noted", async () => {
+      const old = lastYears();
+      const now = thisWeeks();
+      const w = asking(old, () => relay([now]));
+
+      const outcome = await change(w, ABSENT, "follow", { allowed: old.id });
+
+      const saved = savedBy(outcome);
+      // Not kept, as nothing keeps it here, and saved all the same: it stands on a read to trust.
+      expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: true, kept: false });
+      expect(saved.tags).toEqual([...now.tags, ["p", ABSENT]]);
+    });
+
+    it("holds the next change to the list it saved: one that finds only the copy again is not loaded, and is not asked about", async () => {
+      const old = lastYears();
+      const w = asking(old, () => relay([], { reads: failingWhen(() => true) }));
+      const saved = savedBy(await change(w, ABSENT, "follow", { keep: keeper(), allowed: old.id }));
+
+      // The relays go back to the copy: the list this tab saved is on none that answers.
+      for (const url of [NOS, DIRECTORY, BIG]) w.relays[url]!.held.splice(0, Number.POSITIVE_INFINITY, old, theirs());
+      const by = signer();
+      expect(await change(w, ALSO_ABSENT, "follow", { by, keep: keeper(), allowed: saved.id })).toEqual({ kind: "not-loaded" });
+      expect(await change(w, ALSO_ABSENT, "follow", { by, keep: keeper(), allowed: old.id })).toEqual({ kind: "not-loaded" });
+      expect(by.signEvent).not.toHaveBeenCalled();
+    });
+
+    it("goes on from the list it saved, by the say given for that list, when that is the newest the relays hold", async () => {
+      const old = lastYears();
+      const w = asking(old);
+      const saved = savedBy(await change(w, ABSENT, "follow", { keep: keeper(), allowed: old.id }));
+      const keep = keeper();
+
+      // The say for the copy allows nothing now: the newest is the list that was saved.
+      expect(await change(w, ALSO_ABSENT, "follow", { keep, allowed: old.id, now: NOW + 5 })).toEqual({ kind: "ask", copy: { id: saved.id, changed: saved.created_at } });
+      const next = await change(w, ALSO_ABSENT, "follow", { keep, allowed: saved.id, now: NOW + 5 });
+
+      expect(next).toMatchObject({ kind: "saved", kept: true, bySay: true });
+      expect(savedBy(next).tags).toEqual([...old.tags, ["p", ABSENT], ["p", ALSO_ABSENT]]);
+      expect(keep.mock.calls.map(([list]) => list.id)).toEqual([saved.id]);
+    });
+
+    it.each<[string, unknown]>([
+      ["a word", "yes"],
+      ["true", true],
+      ["an id in upper-case hex", "AB".repeat(32)],
+      ["an id that is too short", "ab".repeat(31)],
+      ["a list", { id: "ab".repeat(32) }],
+      ["nothing at all, said as null", null],
+    ])("rejects a say that is not the id of a list (%s) with a TypeError, before anything is read", async (_, said) => {
+      const w = asking(lastYears());
+      const by = signer();
+
+      await expect(change(w, ABSENT, "follow", { by, keep: keeper(), allowed: said as string })).rejects.toThrow(TypeError);
+
+      expect(w.asked()).toEqual([]);
+      expectNothingWritten(w, by);
+    });
+
+    it("is not approved, and nothing is sent, when the signer says no: the copy that was kept stays kept", async () => {
+      const old = lastYears();
+      const w = asking(old);
+      const keep = keeper();
+      const by = signer();
+      by.signEvent.mockRejectedValueOnce(new Error("The person said no"));
+
+      expect(await change(w, ABSENT, "follow", { by, keep, allowed: old.id })).toEqual({ kind: "not-approved" });
+
+      expect(keep).toHaveBeenCalledTimes(1);
+      expect(w.published()).toEqual([]);
+    });
+
+    it("is not saved, and nothing is sent, when the signer returns another list than the one that was built", async () => {
+      const old = lastYears();
+      const w = asking(old);
+      const by = signer();
+      by.signEvent.mockImplementationOnce(async (asked) => finalizeEvent({ ...structuredClone(asked), tags: [["p", ABSENT]] }, SECRET));
+
+      expect(await change(w, ABSENT, "follow", { by, keep: keeper(), allowed: old.id })).toEqual({ kind: "not-saved" });
+      expect(w.published()).toEqual([]);
     });
   });
 });
@@ -1768,7 +2526,7 @@ describe("saving", () => {
 
     const outcome = await change(w, ABSENT, "follow");
 
-    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: true });
+    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: true, kept: false });
     expect(w.relays[DIRECTORY]!.asked.filter(asksForList)).toHaveLength(2);
     expect(w.relays[NOS]!.asked.filter(asksForList)).toHaveLength(1);
     expect(w.relays[BIG]!.asked.filter(asksForList)).toHaveLength(1);
@@ -1786,7 +2544,7 @@ describe("saving", () => {
     const outcome = await change(w, ABSENT, "follow");
 
     const saved = savedBy(outcome);
-    expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: true });
+    expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: true, kept: false });
     for (const each of Object.values(w.relays)) expect(each.writer.published).toEqual([saved, saved]);
   });
 
@@ -1808,7 +2566,7 @@ describe("saving", () => {
     expect(ended).toEqual({});
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: true });
+    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: true, kept: false });
     // Read back from the two that had taken it by then, and not from the silent one.
     expect(w.relays[DIRECTORY]!.asked.filter(asksForList)).toHaveLength(2);
     expect(w.relays[BIG]!.asked.filter(asksForList)).toHaveLength(2);
@@ -1834,7 +2592,7 @@ describe("saving", () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: true });
+    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: true, kept: false });
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -1847,7 +2605,7 @@ describe("saving", () => {
     expect(ended).toEqual({});
     await vi.advanceTimersByTimeAsync(1);
 
-    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: true });
+    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: true, kept: false });
     expect(w.relays[NOS]!.asked.filter(asksForList)).toHaveLength(2);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -1864,7 +2622,7 @@ describe("saving", () => {
     await vi.advanceTimersByTimeAsync(FOLLOW_SETTLE_MS - 1);
     expect(ended).toEqual({});
     await vi.advanceTimersByTimeAsync(1);
-    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: true });
+    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: true, kept: false });
     // Both that had taken it by then are read back.
     expect(w.relays[DIRECTORY]!.asked.filter(asksForList)).toHaveLength(2);
     expect(w.relays[BIG]!.asked.filter(asksForList)).toHaveLength(2);
@@ -1885,7 +2643,7 @@ describe("saving", () => {
     await vi.advanceTimersByTimeAsync(10_000 + FOLLOW_SETTLE_MS - 1);
     expect(ended).toEqual({});
     await vi.advanceTimersByTimeAsync(1);
-    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: true });
+    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: true, kept: false });
 
     await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
     expect(vi.getTimerCount()).toBe(0);
@@ -1934,7 +2692,7 @@ describe("saving", () => {
     // It was built on the first's list, read from the relays that had taken it, and the final list has both.
     expect(two.tags).toEqual([...old.tags, ["p", ABSENT], ["p", ALSO_ABSENT]]);
     expect(two.created_at).toBe(one.created_at + 1);
-    expect(second.outcome).toEqual({ kind: "saved", list: two, confirmed: true });
+    expect(second.outcome).toEqual({ kind: "saved", list: two, confirmed: true, kept: false });
     for (const url of [NOS, DIRECTORY, BIG]) expect(w.relays[url]!.writer.published).toEqual([one, two]);
     // NOS holds the second, the newer, and never took the first.
     expect(w.relays[NOS]!.held).toContainEqual(two);
@@ -1998,7 +2756,7 @@ describe("reading it back", () => {
     const outcome = await change(w, ABSENT, "follow");
 
     const saved = savedBy(outcome);
-    expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: false });
+    expect(outcome).toEqual({ kind: "saved", list: saved, confirmed: false, kept: false });
     // The list it gives is the one it saved, not the other app's.
     expect(saved.tags).toEqual([...old.tags, ["p", ABSENT]]);
   });
@@ -2010,7 +2768,7 @@ describe("reading it back", () => {
 
     const outcome = await change(w, ABSENT, "follow");
 
-    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: false });
+    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: false, kept: false });
   });
 
   it("is confirmed when one relay that took it sends it back as the newest, though another lags", async () => {
@@ -2019,7 +2777,7 @@ describe("reading it back", () => {
 
     const outcome = await change(w, ABSENT, "follow");
 
-    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: true });
+    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: true, kept: false });
   });
 
   it.each([
@@ -2037,7 +2795,7 @@ describe("reading it back", () => {
       const outcome = await change(w, ABSENT, "follow");
 
       // That relay holds a newer list than the one built on: this one is saved, and is not the newest everywhere.
-      expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: false });
+      expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: false, kept: false });
       expect(w.relays[DIRECTORY]!.held).toContainEqual(savedBy(outcome));
     },
   );
@@ -2052,7 +2810,7 @@ describe("reading it back", () => {
 
     const outcome = await change(w, ABSENT, "follow");
 
-    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: false });
+    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: false, kept: false });
     expect(w.relays[NOS]!.writer.published).toHaveLength(2);
   });
 
@@ -2067,7 +2825,7 @@ describe("reading it back", () => {
 
     const outcome = await change(w, ABSENT, "follow");
 
-    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: false });
+    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: false, kept: false });
     expect(w.relays[NOS]!.writer.published).toHaveLength(2);
   });
 
@@ -2081,7 +2839,7 @@ describe("reading it back", () => {
 
     const outcome = await change(w, ABSENT, "follow");
 
-    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: false });
+    expect(outcome).toEqual({ kind: "saved", list: savedBy(outcome), confirmed: false, kept: false });
     expect(w.relays[NOS]!.held).toContainEqual(savedBy(outcome));
     expect(w.relays[NOS]!.asked.filter(asksForList)).toHaveLength(2);
   });
@@ -2104,7 +2862,7 @@ describe("reading it back", () => {
 
     await vi.advanceTimersByTimeAsync(FOLLOW_READ_MS);
 
-    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: false });
+    expect(ended.outcome).toEqual({ kind: "saved", list: savedBy(ended.outcome), confirmed: false, kept: false });
   });
 });
 

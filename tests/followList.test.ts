@@ -2,7 +2,7 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { describe, expect, it } from "vitest";
 
-import { FOLLOW_KIND, followed, names, newestList, type Removed, removedBy, withFollow, withoutFollow, withRestored } from "../src/follow/list";
+import { FOLLOW_KIND, followed, names, newestList, type Removed, removedBy, withFollow, withoutFollow, withRestored, withWholeList } from "../src/follow/list";
 import {
   ABSENT,
   buildFollowList,
@@ -484,5 +484,96 @@ describe("an unfollow and then Undo", () => {
       expect(back.tags).toEqual(old.tags);
       expect(back.content).toBe(old.content);
     }
+  });
+});
+
+describe("withWholeList", () => {
+  /** The list as it is now: what the copy's was, with someone taken out, someone added and another content. */
+  function since(copy: NostrEvent, at = FOLLOW_LIST_TIME + 100): NostrEvent {
+    return finalizeEvent({ kind: FOLLOW_KIND, created_at: at, content: "", tags: [...copy.tags.slice(1), ["p", ABSENT]] }, SECRET);
+  }
+
+  it("is the copy's content and its tags exactly, every one of 1,200 in its order, entries that are no follows among them", () => {
+    const copy = buildFollowList(SECRET);
+
+    const back = withWholeList(copy, since(copy), FOLLOW_LIST_TIME + 500)!;
+
+    expect(back.kind).toBe(3);
+    expect(back.content).toBe(FOLLOW_LIST_CONTENT);
+    expect(back.tags).toHaveLength(FOLLOW_LIST_SIZE);
+    expect(JSON.stringify(back.tags)).toBe(JSON.stringify(copy.tags));
+    // Nothing of the newest is in it: neither who it added, nor its content.
+    expect(names(back, ABSENT)).toBe(false);
+    // And nothing but a list to sign: no id, no key and no signature of the copy's.
+    expect(Object.keys(back).sort()).toEqual(["content", "created_at", "kind", "tags"]);
+  });
+
+  it("is made now, or one second after the newest when that is later, so that it is the newer of the two everywhere", () => {
+    const copy = buildFollowList(SECRET);
+    const newest = since(copy, FOLLOW_LIST_TIME + 100);
+
+    expect(withWholeList(copy, newest, FOLLOW_LIST_TIME + 500)!.created_at).toBe(FOLLOW_LIST_TIME + 500);
+    expect(withWholeList(copy, newest, FOLLOW_LIST_TIME + 100)!.created_at).toBe(FOLLOW_LIST_TIME + 101);
+    // A device whose clock is behind the newest list, and behind the copy itself.
+    expect(withWholeList(copy, newest, 0)!.created_at).toBe(FOLLOW_LIST_TIME + 101);
+  });
+
+  it("is made now when there is no list: the copy's own time is not looked at", () => {
+    const copy = buildFollowList(SECRET);
+
+    const back = withWholeList(copy, null, FOLLOW_LIST_TIME - 9_000)!;
+
+    expect(back.created_at).toBe(FOLLOW_LIST_TIME - 9_000);
+    expect(back.tags).toEqual(copy.tags);
+    expect(back.content).toBe(copy.content);
+  });
+
+  it("is nothing when the newest list has the same content and the same tags in the same order already", () => {
+    const copy = buildFollowList(SECRET);
+    // The same list, saved again later by another app: another event, and the very list the copy holds.
+    const same = finalizeEvent({ kind: FOLLOW_KIND, created_at: FOLLOW_LIST_TIME + 100, content: copy.content, tags: copy.tags.map((tag) => [...tag]) }, SECRET);
+
+    expect(withWholeList(copy, same, FOLLOW_LIST_TIME + 500)).toBeNull();
+    expect(withWholeList(copy, copy, FOLLOW_LIST_TIME + 500)).toBeNull();
+  });
+
+  it.each<[string, (copy: NostrEvent) => Pick<NostrEvent, "tags" | "content">]>([
+    ["has another content", (copy) => ({ tags: copy.tags, content: "" })],
+    ["has one tag more", (copy) => ({ tags: [...copy.tags, ["p", ABSENT]], content: copy.content })],
+    ["has one tag fewer", (copy) => ({ tags: copy.tags.slice(0, -1), content: copy.content })],
+    ["has two tags in each other's place", (copy) => ({ tags: [copy.tags[1]!, copy.tags[0]!, ...copy.tags.slice(2)], content: copy.content })],
+    ["has one value of one tag changed", (copy) => ({ tags: copy.tags.map((tag, at) => (at === 2 ? [...tag.slice(0, -1), "another-name"] : tag)), content: copy.content })],
+    ["has one tag a value shorter", (copy) => ({ tags: copy.tags.map((tag, at) => (at === 2 ? tag.slice(0, -1) : tag)), content: copy.content })],
+    ["names someone in the other case of hex", (copy) => ({ tags: copy.tags.map((tag, at) => (at === 0 ? ["p", tag[1]!.toUpperCase()] : tag)), content: copy.content })],
+  ])("is the copy whole when the newest list %s: only the very same list is left alone", (_, changed) => {
+    const copy = buildFollowList(SECRET);
+    const newest = finalizeEvent({ kind: FOLLOW_KIND, created_at: FOLLOW_LIST_TIME + 100, ...changed(copy) }, SECRET);
+
+    const back = withWholeList(copy, newest, FOLLOW_LIST_TIME + 500)!;
+
+    expect(back.tags).toEqual(copy.tags);
+    expect(back.content).toBe(copy.content);
+  });
+
+  it("puts back an empty list, and a list of entries that are no follows, as they are", () => {
+    const empty = finalizeEvent({ kind: FOLLOW_KIND, created_at: FOLLOW_LIST_TIME, content: "", tags: [] }, SECRET);
+    const odd = finalizeEvent({ kind: FOLLOW_KIND, created_at: FOLLOW_LIST_TIME, content: "{}", tags: [[], ["p"], ["client", "an-app"]] }, SECRET);
+    const newest = buildFollowList(SECRET, FOLLOW_LIST_TIME + 100);
+
+    expect(withWholeList(empty, newest, FOLLOW_LIST_TIME + 500)).toEqual({ kind: 3, created_at: FOLLOW_LIST_TIME + 500, content: "", tags: [] });
+    expect(withWholeList(odd, newest, FOLLOW_LIST_TIME + 500)).toEqual({ kind: 3, created_at: FOLLOW_LIST_TIME + 500, content: "{}", tags: [[], ["p"], ["client", "an-app"]] });
+  });
+
+  it("leaves what it is given as it was, and shares no tag with it", () => {
+    const copy = buildFollowList(SECRET);
+    const newest = since(copy);
+    const before = structuredClone([copy.tags, newest.tags]);
+
+    const back = withWholeList(copy, newest, FOLLOW_LIST_TIME + 500)!;
+    back.tags[0]![1] = "changed";
+    back.tags.push(["p", ABSENT]);
+
+    expect([copy.tags, newest.tags]).toEqual(before);
+    expect(verifyEvent({ ...copy })).toBe(true);
   });
 });

@@ -3,9 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
 import {
+  AGREE_MIN,
+  COPY_AHEAD_S,
+  COPY_NOT_BEFORE_S,
   FOLLOW_READ_MS,
   MAX_FOLLOW_RELAYS,
+  type OwnListRead,
   accountShowsUse,
+  copyToAsk,
+  enoughAnswered,
   followRelaysWith,
   newListQuorum,
   readFollowList,
@@ -510,6 +516,38 @@ describe("newListQuorum: how many of the app's follow-list relays must answer be
   });
 });
 
+describe("enoughAnswered: whether enough of the app's follow-list relays answered a read for their nothing to be believed", () => {
+  const SIX = [DIRECTORY, "wss://nos.lol", "wss://relay.primal.net", "wss://relay.damus.io", "wss://nostr.mom", "wss://nostr.oxtr.dev"];
+
+  it("is so when more than half of them answered, and no fewer than three: four of six, three of three", () => {
+    config.followListRelays = [...SIX];
+    expect(enoughAnswered(SIX.slice(0, 4))).toBe(true);
+    expect(enoughAnswered(SIX.slice(0, 3))).toBe(false);
+    expect(enoughAnswered(SIX)).toBe(true);
+
+    config.followListRelays = SIX.slice(0, 3);
+    expect(enoughAnswered(SIX.slice(0, 3))).toBe(true);
+    expect(enoughAnswered(SIX.slice(0, 2))).toBe(false);
+  });
+
+  it("counts only the app's own: a person's relays that answered do not make up the number", () => {
+    config.followListRelays = [...SIX];
+
+    expect(enoughAnswered([A, B, C, ...SIX.slice(0, 3)])).toBe(false);
+    expect(enoughAnswered([A, ...SIX.slice(0, 4)])).toBe(true);
+  });
+
+  it("counts a relay as the app is set up with it, however its address is written there, and never with fewer than three", () => {
+    config.followListRelays = ["wss://NOS.lol/", DIRECTORY, "wss://relay.primal.net"];
+    expect(enoughAnswered(["wss://nos.lol", DIRECTORY, "wss://relay.primal.net"])).toBe(true);
+
+    config.followListRelays = [DIRECTORY, "wss://nos.lol"];
+    expect(enoughAnswered([DIRECTORY, "wss://nos.lol"])).toBe(false);
+    config.followListRelays = [];
+    expect(enoughAnswered([])).toBe(false);
+  });
+});
+
 describe("reviewRelaysBeside", () => {
   it("gives the review relays that are not among a person's follow relays, each once, as addresses", () => {
     config.reviewRelays = [SEARCH, "wss://NOS.lol/", "wss://search.brainstorm.world/", "wss://reviews.example.com"];
@@ -675,7 +713,7 @@ describe("readOwnList: where a person's own list is read", () => {
 
     const read = await readOwnList(ALICE, readersOver({ [DIRECTORY]: down(), "wss://nos.lol": nos }), new AbortController().signal);
 
-    expect(read).toEqual({ relayList: { is: "unknown" }, relays: [], writes: [], list: null, answered: [], trusted: false });
+    expect(read).toEqual({ relayList: { is: "unknown" }, relays: [], writes: [], list: null, answered: [], trusted: false, ownAnswered: false, agreed: 0 });
     expect(nos.requests.filter(asksFor(3))).toEqual([]);
   });
 });
@@ -695,7 +733,16 @@ describe("readOwnList: whether what it found may be acted on (rulings R43 and R4
   it("is trusted when the relay list is known to be none: the list the app's relays hold is the list", async () => {
     const found = await read(readersOver({ [NOS]: createMemoryReader([newest]) }));
 
-    expect(found).toEqual({ relayList: { is: "none" }, relays: [DIRECTORY, NOS], writes: [], list: newest, answered: [DIRECTORY, NOS], trusted: true });
+    expect(found).toEqual({
+      relayList: { is: "none" },
+      relays: [DIRECTORY, NOS],
+      writes: [],
+      list: newest,
+      answered: [DIRECTORY, NOS],
+      trusted: true,
+      ownAnswered: false,
+      agreed: 1,
+    });
   });
 
   it("is trusted with no list at all when the relay list is none: how many answered is the caller's to weigh", async () => {
@@ -809,6 +856,208 @@ describe("readOwnList: whether what it found may be acted on (rulings R43 and R4
 
     expect(found).toMatchObject({ list: newest, answered: [A, DIRECTORY], trusted: true });
     expect(FOLLOW_READ_MS).toBe(6_000);
+  });
+});
+
+describe("readOwnList: whether a relay of the person's own answered, and how many of the app's relays hold the newest list", () => {
+  const SIX = [DIRECTORY, "wss://nos.lol", "wss://relay.primal.net", "wss://relay.damus.io", "wss://nostr.mom", "wss://nostr.oxtr.dev"];
+  const OTHERS = SIX.slice(1);
+  const down = () => createMemoryReader([], { failWith: new Error("down") });
+  const older = list([BOB], { created_at: 1_690_000_000 });
+  const newest = list([BOB, CAROL], { created_at: 1_700_000_500 });
+  /** Alice's relay list: she writes to A, and reads from C. */
+  const theirs = relayList([[A, "write"], [C, "read"]]);
+  const read = (readers: (url: string) => RelayReader) => readOwnList(ALICE, readers, new AbortController().signal);
+
+  /**
+   * The six follow-list relays, each holding what `holds` gives for it (the directory, which is one
+   * of them, holds her relay list besides), with the relay she writes to as `own` makes it.
+   */
+  function six(holds: (url: string, at: number) => NostrEvent[] | "out", own: RelayReader = down()): (url: string) => RelayReader {
+    const held: Record<string, RelayReader> = { [A]: own };
+    SIX.forEach((url, at) => {
+      const events = holds(url, at);
+      if (events === "out") held[url] = url === DIRECTORY ? failingFor(3, createMemoryReader([theirs])) : down();
+      else held[url] = createMemoryReader(url === DIRECTORY ? [...events, theirs] : events);
+    });
+    return readersOver(held);
+  }
+
+  beforeEach(() => {
+    config.reviewRelays = [SEARCH];
+    config.followListRelays = [...SIX];
+  });
+
+  it("asks for agreement among three: fewer of the app's relays holding a list show nothing of how widely it was sent", () => {
+    expect(AGREE_MIN).toBe(3);
+  });
+
+  it("counts every one of the app's relays when each holds the newest list, and says her own relay did not answer", async () => {
+    const found = await read(six(() => [newest]));
+
+    expect(found).toMatchObject({ relayList: { is: "found" }, writes: [A], list: newest, ownAnswered: false, agreed: 6, trusted: false });
+    expect(found.answered).toEqual([C, ...SIX]);
+  });
+
+  it.each([
+    [2, 2],
+    [3, 3],
+    [5, 5],
+  ])("counts %i of six when that many hold the list and the rest hold none", async (holding, agreed) => {
+    const found = await read(six((_, at) => (at < holding ? [newest] : [])));
+
+    expect(found).toMatchObject({ list: newest, ownAnswered: false, agreed, trusted: false });
+    expect(found.answered).toHaveLength(7);
+  });
+
+  it("does not count one of the app's relays that holds an older list: it has not the newest", async () => {
+    const found = await read(six((_, at) => (at === 2 ? [older] : [newest])));
+
+    expect(found).toMatchObject({ list: newest, agreed: 5 });
+  });
+
+  it("counts only the relay that holds a newer list than the others, when one does: the others hold a list that is not the newest", async () => {
+    const found = await read(six((_, at) => (at === 2 ? [newest] : [older])));
+
+    expect(found).toMatchObject({ list: newest, agreed: 1 });
+  });
+
+  it("does not count one of the app's relays that is out: only those that answered can hold it", async () => {
+    const found = await read(six((_, at) => (at === 4 ? "out" : [newest])));
+
+    expect(found).toMatchObject({ list: newest, agreed: 5 });
+    expect(found.answered).not.toContain(SIX[4]);
+    // The directory out for lists, and answering for her relay list, is one that did not answer either.
+    expect(await read(six((url) => (url === DIRECTORY ? "out" : [newest])))).toMatchObject({ relayList: { is: "found" }, list: newest, agreed: 5 });
+  });
+
+  it("goes by a relay's own newest list when it sends more than one: an older one beside it changes nothing", async () => {
+    const found = await read(six((_, at) => (at === 1 ? [older, newest] : [newest])));
+
+    expect(found).toMatchObject({ list: newest, agreed: 6 });
+    // And a relay whose newest is another list of the same second is not counted: it is not the same list.
+    const twin = list([CAROL], { created_at: newest.created_at, id: "f".repeat(64) });
+    expect(await read(six((_, at) => (at < 2 ? [twin] : [newest])))).toMatchObject({ list: newest, agreed: 4 });
+  });
+
+  it("says her own relay answered when it sends the newest list, and counts none of the app's: they hold an older one", async () => {
+    const found = await read(six(() => [older], createMemoryReader([newest])));
+
+    expect(found).toMatchObject({ list: newest, ownAnswered: true, agreed: 0, trusted: true });
+  });
+
+  it("says her own relay answered when it sends an older list than the app's relays hold, and counts those", async () => {
+    const found = await read(six(() => [newest], createMemoryReader([older])));
+
+    expect(found).toMatchObject({ list: newest, ownAnswered: true, agreed: 6, trusted: true });
+  });
+
+  it("says her own relay answered when it answers with no list", async () => {
+    const found = await read(six((_, at) => (at < 3 ? [newest] : []), createMemoryReader([])));
+
+    expect(found).toMatchObject({ list: newest, ownAnswered: true, agreed: 3, trusted: true });
+  });
+
+  it("counts none of her own relays among the app's: the one she reads from holds the newest, and no relay of the app's does", async () => {
+    const readers = six(() => [older]);
+    const found = await read((url) => (url === C ? createMemoryReader([newest]) : readers(url)));
+
+    // It is no relay she writes to, either: its answer is not her own relay's.
+    expect(found).toMatchObject({ list: newest, ownAnswered: false, agreed: 0, trusted: false });
+  });
+
+  it("counts a relay she writes to that is one of the app's own, once, and says her own relay answered", async () => {
+    const both = relayList([[A, "write"], ["wss://NOS.lol/", "write"]]);
+    const held: Record<string, RelayReader> = { [A]: down(), [DIRECTORY]: createMemoryReader([both, newest]) };
+    for (const url of OTHERS) held[url] = createMemoryReader([newest]);
+
+    const found = await read(readersOver(held));
+
+    expect(found).toMatchObject({ writes: [A, "wss://nos.lol"], list: newest, ownAnswered: true, agreed: 6, trusted: true });
+  });
+
+  it("counts none when no list is found, however many answer", async () => {
+    const found = await read(six(() => []));
+
+    expect(found).toMatchObject({ list: null, ownAnswered: false, agreed: 0, trusted: false });
+    expect(found.answered).toHaveLength(7);
+  });
+
+  it("says no relay of her own answered when she has none to write to: no relay list, or one that names none the app can use", async () => {
+    const none = readersOver(Object.fromEntries(SIX.map((url) => [url, createMemoryReader([newest])])));
+    expect(await read(none)).toMatchObject({ relayList: { is: "none" }, writes: [], list: newest, ownAnswered: false, agreed: 6, trusted: true });
+
+    const unusable = relayList([["ws://plain.example.com", "write"], [C, "read"]]);
+    const held = Object.fromEntries(SIX.map((url) => [url, createMemoryReader(url === DIRECTORY ? [unusable, newest] : [newest])]));
+    expect(await read(readersOver(held))).toMatchObject({ relayList: { is: "found" }, writes: [], list: newest, ownAnswered: false, agreed: 6, trusted: true });
+  });
+
+  it("counts the app's relays as it is set up with them, each once, however an address is written", async () => {
+    config.followListRelays = [DIRECTORY, "wss://NOS.lol/", "wss://nos.lol", "wss://relay.primal.net"];
+    const held: Record<string, RelayReader> = { [A]: down(), [DIRECTORY]: createMemoryReader([theirs, newest]), "wss://nos.lol": createMemoryReader([newest]), "wss://relay.primal.net": createMemoryReader([newest]) };
+
+    expect(await read(readersOver(held))).toMatchObject({ list: newest, agreed: 3 });
+  });
+});
+
+describe("copyToAsk: the one read a person may be asked about", () => {
+  const found: OwnListRead["relayList"] = { is: "found", write: [A], read: [] };
+  /** The device's clock, in seconds, and a list made a while before it. */
+  const NOW = 1_700_001_000;
+  const newest = list([BOB, CAROL], { created_at: 1_700_000_500 });
+  /** A read in which every condition holds: her relay list found, a relay it writes to that the app can use, none of those heard from, a list, and three of the app's relays holding it. */
+  const asking: OwnListRead = { relayList: found, relays: [A, DIRECTORY], writes: [A], list: newest, answered: [DIRECTORY], trusted: false, ownAnswered: false, agreed: 3 };
+  /** That read, with its list dated `at`. */
+  const dated = (at: number): OwnListRead => ({ ...asking, list: list([BOB], { created_at: at }) });
+
+  it("gives the list the read found when every condition holds", () => {
+    expect(copyToAsk(asking, NOW)).toBe(newest);
+    expect(copyToAsk({ ...asking, agreed: 6 }, NOW)).toBe(newest);
+  });
+
+  it.each<[string, Partial<OwnListRead>]>([
+    ["the relay list could not be read", { relayList: { is: "unknown" } }],
+    ["the person is known to have no relay list", { relayList: { is: "none" } }],
+    ["the relay list names no relay to write to that the app can use", { writes: [] }],
+    ["a relay the person writes to answered", { ownAnswered: true }],
+    ["no list was found", { list: null }],
+    ["two of the app's relays hold the list", { agreed: 2 }],
+    ["none of the app's relays holds the list", { agreed: 0 }],
+    ["the read is one to trust", { trusted: true }],
+  ])("gives none when %s, though every other condition holds", (_, other) => {
+    expect(copyToAsk({ ...asking, ...other }, NOW)).toBeNull();
+  });
+
+  it("gives none for what a read that could not learn where the list is kept comes to", () => {
+    expect(copyToAsk({ relayList: { is: "unknown" }, relays: [], writes: [], list: null, answered: [], trusted: false, ownAnswered: false, agreed: 0 }, NOW)).toBeNull();
+  });
+
+  describe("a copy whose date says nothing a person can weigh", () => {
+    it("is asked about when it is dated up to a day after the device's clock, and not when a second more: a clock set a little wrong is no reason, a day that has not come is", () => {
+      expect(COPY_AHEAD_S).toBe(24 * 60 * 60);
+      expect(copyToAsk(dated(NOW), NOW)).not.toBeNull();
+      expect(copyToAsk(dated(NOW + COPY_AHEAD_S), NOW)).not.toBeNull();
+      expect(copyToAsk(dated(NOW + COPY_AHEAD_S + 1), NOW)).toBeNull();
+      expect(copyToAsk(dated(Number.MAX_SAFE_INTEGER), NOW)).toBeNull();
+    });
+
+    it("is asked about when it is dated from the first second of 2020 in Greenwich on, and not when a second before", () => {
+      expect(COPY_NOT_BEFORE_S).toBe(Date.UTC(2020, 0, 1) / 1000);
+      expect(copyToAsk(dated(COPY_NOT_BEFORE_S), NOW)).not.toBeNull();
+      expect(copyToAsk(dated(COPY_NOT_BEFORE_S - 1), NOW)).toBeNull();
+      expect(copyToAsk(dated(0), NOW)).toBeNull();
+    });
+
+    it("goes by the clock it is given: the same copy is a day too far ahead for an earlier clock, and not for a later one", () => {
+      const copy = dated(NOW + COPY_AHEAD_S + 1);
+      expect(copyToAsk(copy, NOW)).toBeNull();
+      expect(copyToAsk(copy, NOW + 1)).toBe(copy.list);
+    });
+
+    it("gives none whatever else holds: a list dated so is not asked about with every relay holding it", () => {
+      expect(copyToAsk({ ...dated(NOW + COPY_AHEAD_S + 1), agreed: 6 }, NOW)).toBeNull();
+      expect(copyToAsk({ ...dated(COPY_NOT_BEFORE_S - 1), agreed: 6 }, NOW)).toBeNull();
+    });
   });
 });
 

@@ -244,7 +244,7 @@ describe("Follow, on a person's page", () => {
     expect(change).toHaveBeenCalledTimes(1);
     // The Undo ends as soon as it is asked for: the key is still down when the button says Following again.
     const putBack = finalizeEvent({ kind: 3, created_at: Math.floor(Date.now() / 1000) + 60, content: MAYA_LIST.content, tags: MAYA_LIST_WITH_SOL.tags }, MAYA_SECRET);
-    change.mockResolvedValueOnce({ kind: "saved", list: putBack, confirmed: true });
+    change.mockResolvedValueOnce({ kind: "saved", list: putBack, confirmed: true, kept: false });
     act(() => undo.focus());
 
     await user.keyboard("{Enter>6/}");

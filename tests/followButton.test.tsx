@@ -1,5 +1,6 @@
 import type { NostrEvent } from "@nostrify/nostrify";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { verifyEvent } from "nostr-tools/pure";
 import { type JSX, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,9 +9,10 @@ import { useCircleDoor } from "../src/circle/CircleDoor";
 import { CircleContext, type CircleValue, POLL_MS } from "../src/circle/CircleProvider";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
-import { changeFollow, type FollowOutcome } from "../src/follow/change";
+import { changeFollow, FOLLOW_SETTLE_MS, type FollowOutcome } from "../src/follow/change";
 import { FollowButton, UNFOLLOW_GUARD_MS, UNFOLLOW_SHOWN_MS } from "../src/follow/FollowButton";
 import { UNDO_MS } from "../src/follow/FollowProvider";
+import { keptCopies } from "../src/follow/kept";
 import { TOWNS_WAIT_MS } from "../src/places/store";
 import { pubkeyAt } from "./fixtures/follow-list";
 import { barRegion } from "./support/app";
@@ -48,6 +50,7 @@ import {
   WITHOUT_FRIEND,
 } from "./support/followScene";
 import { shapedEvent } from "./support/events";
+import { expectNoNumbersAboutPeople } from "./support/noNumbers";
 import { asksForList, BIG, DIRECTORY, everywhere, FOLLOW_RELAYS, NOS, relay, world as followWorld, type World as FollowWorld } from "./support/followWorld";
 
 /*
@@ -699,7 +702,7 @@ describe("Update now, under a follow", () => {
     // Someone else is followed now: what the update came to was said before this follow, and is let go of.
     const follow = nextChange();
     await user.click(buttonIn("other")!);
-    await follow.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER], ["p", OUTSIDER]], 20), confirmed: true });
+    await follow.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER], ["p", OUTSIDER]], 20), confirmed: true, kept: false });
 
     expect(circleSaid("other")).toHaveTextContent(copy.follow.countsAfterUpdate);
     expect(wordIn("other", copy.follow.updateNow)).toBeInTheDocument();
@@ -817,19 +820,19 @@ describe("Update now, under a follow", () => {
     await unfollow.ends(UNFOLLOWED);
     const undo = nextChange();
     await user.click(wordIn("it", copy.follow.undo)!);
-    await undo.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await undo.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     expect(circle.clearUpdate).not.toHaveBeenCalled();
 
     // A tap of Follow in Undo's ten seconds, which is that Undo (ruling R28): it puts back what was there, and adds nobody.
     // (Unfollowed first, by the mouse, which comes back to the button from Undo.)
     const again = nextChange();
     await unfollowByMouse(user, buttonIn("it")!);
-    await again.ends({ kind: "saved", list: listOf(WITHOUT_FRIEND.tags, 30), confirmed: true, removed: TAKEN_OUT });
+    await again.ends({ kind: "saved", list: listOf(WITHOUT_FRIEND.tags, 30), confirmed: true, kept: false, removed: TAKEN_OUT });
     expect(buttonIn("it")).toHaveTextContent(copy.follow.follow);
     const back = nextChange();
     await user.click(buttonIn("it")!);
     expect(asked(3).action).toEqual({ restore: TAKEN_OUT, left: listOf(WITHOUT_FRIEND.tags, 30).id });
-    await back.ends({ kind: "saved", list: listOf(LIST.tags, 40), confirmed: true });
+    await back.ends({ kind: "saved", list: listOf(LIST.tags, 40), confirmed: true, kept: false });
     expect(circle.clearUpdate).not.toHaveBeenCalled();
 
     // An unfollow that was not made, tried again: an unfollow still. (The pointer has not left the
@@ -846,14 +849,14 @@ describe("Update now, under a follow", () => {
     // An Undo that was not made, tried again with Follow while it is offered still: that Undo.
     const taken = nextChange();
     await user.click(wordIn("it", copy.follow.tryAgain)!);
-    await taken.ends({ kind: "saved", list: listOf(WITHOUT_FRIEND.tags, 50), confirmed: true, removed: TAKEN_OUT });
+    await taken.ends({ kind: "saved", list: listOf(WITHOUT_FRIEND.tags, 50), confirmed: true, kept: false, removed: TAKEN_OUT });
     const notPutBack = nextChange();
     await user.click(wordIn("it", copy.follow.undo)!);
     await notPutBack.ends({ kind: "not-saved" });
     const putBack = nextChange();
     await user.click(buttonIn("it")!);
     expect(asked(8).action).toEqual({ restore: TAKEN_OUT, left: listOf(WITHOUT_FRIEND.tags, 50).id });
-    await putBack.ends({ kind: "saved", list: listOf(LIST.tags, 60), confirmed: true });
+    await putBack.ends({ kind: "saved", list: listOf(LIST.tags, 60), confirmed: true, kept: false });
     expect(circle.clearUpdate).not.toHaveBeenCalled();
     expect(circle.update).not.toHaveBeenCalled();
 
@@ -868,7 +871,7 @@ describe("Update now, under a follow", () => {
     await user.click(wordIn("other", copy.follow.tryAgain)!);
     expect(asked(10)).toEqual({ who: STRANGER, action: "follow" });
     expect(circle.clearUpdate).toHaveBeenCalledTimes(2);
-    await tried.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER]], 70), confirmed: true });
+    await tried.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER]], 70), confirmed: true, kept: false });
     expect(circle.clearUpdate).toHaveBeenCalledTimes(2);
     expect(circle.update).not.toHaveBeenCalled();
   });
@@ -974,7 +977,7 @@ describe("Personalize, under a follow", () => {
     // Unfollowed from the other button for the same person: the line goes from both, and the panel with it.
     const unfollow = nextChange();
     await unfollowByMouse(user, buttonIn("rail")!);
-    await unfollow.ends({ kind: "saved", list: listOf(LIST.tags, 20), confirmed: true, removed: [{ index: LIST.tags.length, tag: ["p", STRANGER] }] });
+    await unfollow.ends({ kind: "saved", list: listOf(LIST.tags, 20), confirmed: true, kept: false, removed: [{ index: LIST.tags.length, tag: ["p", STRANGER] }] });
     expect(within(part("it")).queryByText(copy.circle.consent)).not.toBeInTheDocument();
     expect(doorNow()).toBe("closed");
 
@@ -983,7 +986,7 @@ describe("Personalize, under a follow", () => {
     await after(UNDO_MS);
     const again = nextChange();
     await user.click(buttonIn("rail")!);
-    await again.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER]], 30), confirmed: true });
+    await again.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER]], 30), confirmed: true, kept: false });
     expect(circleSaid("it")).toHaveTextContent(copy.follow.countsOnceBuilt);
     expect(opener()).toHaveAttribute("aria-expanded", "false");
     expect(within(part("it")).queryByText(copy.circle.consent)).not.toBeInTheDocument();
@@ -1034,6 +1037,7 @@ describe("Unfollow, shown before it is done (ruling R47)", () => {
     kind: "saved",
     list: listOf(LIST.tags, 20),
     confirmed: true,
+    kept: false,
     removed: [{ index: LIST.tags.length, tag: ["p", STRANGER] }],
   };
   /** Someone else the person follows, beside Fay. */
@@ -1243,7 +1247,7 @@ describe("Unfollow, shown before it is done (ruling R47)", () => {
       // Followed again from there (which is Undo): Following, as right after any follow, the pointer not having left.
       const back = nextChange();
       await user.click(button);
-      await back.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER]], 30), confirmed: true });
+      await back.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER]], 30), confirmed: true, kept: false });
       expectSays(button, "following");
     });
 
@@ -1824,7 +1828,7 @@ describe("Unfollow, shown before it is done (ruling R47)", () => {
       fireEvent.click(buttonIn("other")!);
       expect(wordIn("it", copy.follow.undo)).toHaveFocus();
 
-      await other.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER]], 30), confirmed: true });
+      await other.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER]], 30), confirmed: true, kept: false });
 
       expect(wordIn("it", copy.follow.undo)).not.toBeInTheDocument();
       await waitFor(() => expect(button).toHaveFocus());
@@ -2316,7 +2320,7 @@ describe("unfollowing, and Undo", () => {
     expect(buttonIn("it")).toHaveTextContent(copy.follow.saving);
     expect(buttonIn("it")).toHaveFocus();
     expect(wordIn("it", copy.follow.undo)).not.toBeInTheDocument();
-    await undo.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await undo.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
 
     expect(buttonIn("it")).toHaveTextContent(copy.follow.following);
     expect(buttonIn("it")).toHaveFocus();
@@ -2338,7 +2342,7 @@ describe("unfollowing, and Undo", () => {
     const back = nextChange();
     await user.click(buttonIn("it")!);
     expect(asked(1)).toEqual({ who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
-    await back.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await back.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
 
     expect(buttonIn("it")).toHaveTextContent(copy.follow.following);
     expectNothingSaid("it");
@@ -2364,10 +2368,10 @@ describe("unfollowing, and Undo", () => {
     // (Followed again, and unfollowed by two clicks: the pointer has not left the button since the follow.)
     const again = nextChange();
     await user.click(buttonIn("it")!);
-    await again.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await again.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     const second = nextChange();
     await unfollowInTwo(() => user.click(buttonIn("it")!), buttonIn("it")!);
-    await second.ends({ kind: "saved", list: listOf(WITHOUT_FRIEND.tags, 30), confirmed: true, removed: TAKEN_OUT });
+    await second.ends({ kind: "saved", list: listOf(WITHOUT_FRIEND.tags, 30), confirmed: true, kept: false, removed: TAKEN_OUT });
     expect(wordIn("it", copy.follow.undo)).toBeInTheDocument();
     act(() => buttonIn("other")!.focus());
     await after(UNDO_MS);
@@ -2382,7 +2386,7 @@ describe("unfollowing, and Undo", () => {
     await unfollowByMouse(user, buttonIn("it")!);
     await unfollow.ends(UNFOLLOWED);
     // The Undo ends as soon as it is asked for: the key is still down when the button says Following.
-    change.mockResolvedValueOnce({ kind: "saved", list: PUT_BACK, confirmed: true });
+    change.mockResolvedValueOnce({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     act(() => wordIn("it", copy.follow.undo)!.focus());
 
     await user.keyboard("{Enter>6/}");
@@ -2402,7 +2406,7 @@ describe("unfollowing, and Undo", () => {
     const unfollow = nextChange();
     await unfollowByMouse(user, button);
     expect(asked(1)).toEqual({ who: STRANGER, action: "unfollow" });
-    await unfollow.ends({ kind: "saved", list: listOf(LIST.tags, 20), confirmed: true, removed: [{ index: LIST.tags.length, tag: ["p", STRANGER] }] });
+    await unfollow.ends({ kind: "saved", list: listOf(LIST.tags, 20), confirmed: true, kept: false, removed: [{ index: LIST.tags.length, tag: ["p", STRANGER] }] });
     expect(buttonIn("it")).toBe(button);
     expect(button).toHaveTextContent(copy.follow.follow);
     expect(changeSaid("it")).toHaveTextContent(copy.follow.unfollowed("Sol"));
@@ -2411,7 +2415,7 @@ describe("unfollowing, and Undo", () => {
     // Undo: Following again, on the same button, though nothing has just been said of them.
     const undo = nextChange();
     await user.click(wordIn("it", copy.follow.undo)!);
-    await undo.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER]], 30), confirmed: true });
+    await undo.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER]], 30), confirmed: true, kept: false });
     expect(buttonIn("it")).toBe(button);
     expect(button).toHaveTextContent(copy.follow.following);
     expect(button).toHaveFocus();
@@ -2563,7 +2567,7 @@ describe("when it can't be done", () => {
     // first one without saying so in time. It saved, and its list is the one held now.
     const other = nextChange();
     await user.click(buttonIn("other")!);
-    await other.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER], ["p", OUTSIDER]], 20), confirmed: true });
+    await other.ends({ kind: "saved", list: listOf([...LIST.tags, ["p", STRANGER], ["p", OUTSIDER]], 20), confirmed: true, kept: false });
 
     // Sol's button says Following, with nothing wrong under it and nothing to try again.
     expect(buttonIn("it")).toHaveTextContent(copy.follow.following);
@@ -2589,7 +2593,7 @@ describe("when it can't be done", () => {
     // Sol is followed, and the list that change saved has no Fay in it: another app took her out.
     const other = nextChange();
     await user.click(buttonIn("other")!);
-    await other.ends({ kind: "saved", list: listOf([...WITHOUT_FRIEND.tags, ["p", STRANGER]], 20), confirmed: true });
+    await other.ends({ kind: "saved", list: listOf([...WITHOUT_FRIEND.tags, ["p", STRANGER]], 20), confirmed: true, kept: false });
 
     expect(buttonIn("it")).toHaveTextContent(copy.follow.follow);
     expectNothingSaid("it");
@@ -2607,7 +2611,7 @@ describe("when it can't be done", () => {
     const follow = nextChange();
     await user.click(buttonIn("it")!);
 
-    await follow.ends({ kind: "saved", list: WITH_STRANGER, confirmed: false });
+    await follow.ends({ kind: "saved", list: WITH_STRANGER, confirmed: false, kept: false });
 
     expect(buttonIn("it")).toHaveTextContent(copy.follow.following);
     expect(changeSaid("it")).toHaveTextContent(copy.follow.unconfirmed);
@@ -2657,7 +2661,7 @@ describe("a tap in a browser that does not focus a button it is tapped on (Safar
     await waitFor(() => expect(buttonIn("it")).toHaveFocus());
     expect(wordIn("it", copy.follow.undo)).not.toBeInTheDocument();
     expect(buttonIn("it")).toHaveTextContent(copy.follow.saving);
-    await undo.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await undo.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
     expect(buttonIn("it")).toHaveFocus();
   });
 
@@ -2783,7 +2787,7 @@ describe("the main button's lines, drawn where the page says (`linesIn`)", () =>
 
     const back = nextChange();
     await user.click(undo);
-    await back.ends({ kind: "saved", list: PUT_BACK, confirmed: true });
+    await back.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: false });
 
     expect(button).toHaveTextContent(copy.follow.following);
     expect(undo).not.toBeInTheDocument();
@@ -2814,5 +2818,612 @@ describe("the main button's lines, drawn where the page says (`linesIn`)", () =>
 
     expect(changeSaid("button")).toHaveTextContent(copy.follow.notApproved);
     expect(part("lines")).toBeEmptyDOMElement();
+  });
+});
+
+describe("asked before a change is built on a copy found elsewhere", () => {
+  /** The copy a change says the person may be asked about, made up: its id, and when it was last changed (an afternoon in Greenwich). */
+  const COPY = { id: "c0".repeat(32), changed: Date.UTC(2027, 2, 6, 16, 30, 0) / 1000 };
+  const ASK: FollowOutcome = { kind: "ask", copy: COPY };
+  /** The line, for a browser in American English whose clock is Greenwich's, as the tests' is. */
+  const LINE =
+    "We couldn't reach where your other apps keep your list. The newest copy we found was last changed on March 6, 2027. If you have followed anyone since then, they would be lost.";
+  /** The say the button's press gave `changeFollow` the `nth` time (from 0): the id of a list, or nothing. */
+  const said = (nth: number) => change.mock.calls[nth]![5];
+  const useWord = (label: string) => wordIn(label, copy.follow.useThisCopy);
+  const notNowWord = (label: string) => wordIn(label, copy.follow.notNow);
+
+  /** The page once a press of Follow on the button in `label` has come back asking. */
+  async function asking(buttons: Record<string, Shown> = { it: MAIN }, opts: PageOptions = {}, label = Object.keys(buttons)[0]!) {
+    const page = await opened(buttons, opts);
+    const follow = nextChange();
+    const user = person();
+    await user.click(buttonIn(label)!);
+    await follow.ends(ASK);
+    return { ...page, user };
+  }
+
+  it.each([
+    ["the small one", SMALL, "h-7"],
+    ["the main one", MAIN, "h-8"],
+  ])("says so under %s, with when the copy was last changed and its two answers; the button is as it was, and nothing more was asked for", async (_, shown, tall) => {
+    const page = await opened({ it: shown });
+    const button = buttonIn("it")!;
+    const follow = nextChange();
+    const user = person();
+    await user.click(button);
+    expect(button).toHaveTextContent(copy.follow.saving);
+
+    await follow.ends(ASK);
+
+    // The button: Follow again, on, the same size, with the focus still on it.
+    expect(buttonIn("it")).toBe(button);
+    expect(button).toHaveTextContent(copy.follow.follow);
+    expect(button).toHaveAccessibleName(copy.follow.followNamed("Sol"));
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(button).toHaveClass(tall);
+    expect(button).toHaveFocus();
+    // The line, in the button's own polite status, and nothing else in it: no longer than a line of a
+    // review, and in the ink a review's words have, not the quiet lines' muted one. It says what would be lost.
+    expect(copy.follow.copyFound("March 6, 2027")).toBe(LINE);
+    expect(changeSaid("it")).toHaveTextContent(LINE);
+    expect(changeSaid("it").querySelectorAll("p")).toHaveLength(1);
+    expect(changeSaid("it").querySelector("p")).toHaveClass("text-secondary", "max-w-measure", "text-ink-soft");
+    expect(changeSaid("it").querySelector("p")).not.toHaveClass("text-muted");
+    // The day is one thing: marked as a time, by the moment it stands for, and never broken across two lines.
+    const day = changeSaid("it").querySelector("time")!;
+    expect(day).toHaveTextContent(/^March 6, 2027$/);
+    expect(day).toHaveAttribute("datetime", "2027-03-06T16:30:00.000Z");
+    expect(day).toHaveClass("whitespace-nowrap");
+    expect(circleSaid("it")).toBeEmptyDOMElement();
+    // Its two answers, in words, the one that changes nothing first: each a touch target both ways, said
+    // with the line. They are in a row of their own under the line, whatever room there is beside it.
+    const [use, later] = [useWord("it")!, notNowWord("it")!];
+    expect(within(part("it")).getAllByRole("button")).toEqual([button, later, use]);
+    expect(later.compareDocumentPosition(use) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(use.parentElement).toBe(later.parentElement);
+    expect(use.parentElement).toHaveClass("flex", "basis-full", "flex-wrap", "gap-x-4");
+    for (const word of [use, later]) {
+      expect(word).toHaveClass("min-h-touch", "min-w-touch", "text-secondary");
+      expect(word).toHaveAccessibleDescription(LINE);
+      expect(word).toHaveAttribute("type", "button");
+    }
+    expect(copy.follow.useThisCopy).toBe("Use this copy");
+    expect(copy.follow.notNow).toBe("Not now");
+    expect(wordIn("it", copy.follow.tryAgain)).not.toBeInTheDocument();
+    // One change was asked for, with no say: and it wrote nothing.
+    expect(change).toHaveBeenCalledTimes(1);
+    expect(said(0)).toBeUndefined();
+    expect(page.w.published()).toEqual([]);
+  });
+
+  it("makes the change that asked on Use this copy, with the id of the copy as the person's say: Saving…, the words gone, the focus on the button", async () => {
+    const circle = circleOf({});
+    const { user } = await asking({ it: MAIN }, { circle });
+    const button = buttonIn("it")!;
+    expect(circle.clearUpdate).toHaveBeenCalledTimes(1);
+    const second = nextChange();
+
+    await user.click(useWord("it")!);
+
+    expect(change).toHaveBeenCalledTimes(2);
+    expect(asked(1)).toEqual({ who: STRANGER, action: "follow" });
+    expect(said(1)).toBe(COPY.id);
+    expect(button).toHaveTextContent(copy.follow.saving);
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveFocus();
+    expectNothingSaid("it");
+    expect(within(part("it")).getAllByRole("button")).toEqual([button]);
+    // It is a follow that adds them: what Update now last came to is let go of, as for a tap of Follow.
+    expect(circle.clearUpdate).toHaveBeenCalledTimes(2);
+
+    // And the outcome a change has: followed, with what that means for their circle.
+    await second.ends({ ...FOLLOWED, kept: true, bySay: true } as FollowOutcome);
+    expect(button).toHaveTextContent(copy.follow.following);
+    expect(button).toHaveFocus();
+    expect(changeSaid("it")).toBeEmptyDOMElement();
+    expect(circleSaid("it")).toHaveTextContent(copy.follow.countsAfterUpdate);
+  });
+
+  it.each<[string, FollowOutcome, string]>([
+    ["was not approved", { kind: "not-approved" }, copy.follow.notApproved],
+    ["could not be loaded", { kind: "not-loaded" }, copy.follow.notLoaded],
+    ["was not made, as no copy of the list could be kept first", { kind: "not-kept" }, copy.follow.notKept],
+    ["did not save", { kind: "not-saved" }, copy.follow.notSaved],
+  ])("says so when the change made on Use this copy %s, with Try again, as for any change", async (_, outcome, line) => {
+    const { user } = await asking();
+    const second = nextChange();
+    await user.click(useWord("it")!);
+
+    await second.ends(outcome);
+
+    expect(buttonIn("it")).toHaveTextContent(copy.follow.follow);
+    expect(changeSaid("it")).toHaveTextContent(line);
+    expect(changeSaid("it")).not.toHaveTextContent(LINE);
+    expect(wordIn("it", copy.follow.tryAgain)).toBeInTheDocument();
+    expect(useWord("it")).not.toBeInTheDocument();
+  });
+
+  it("takes the line away on Not now, with the focus back on the button, and asks for nothing", async () => {
+    const { user, w } = await asking({ it: SMALL });
+    const button = buttonIn("it")!;
+
+    await user.click(notNowWord("it")!);
+
+    expectNothingSaid("it");
+    expect(within(part("it")).getAllByRole("button")).toEqual([button]);
+    expect(button).toHaveTextContent(copy.follow.follow);
+    await waitFor(() => expect(button).toHaveFocus());
+    expect(change).toHaveBeenCalledTimes(1);
+    expect(w.published()).toEqual([]);
+  });
+
+  it("asks again on a press of the button itself, which is no answer: a change with no say, and the line once more", async () => {
+    const { user } = await asking();
+    const button = buttonIn("it")!;
+    const second = nextChange();
+
+    await user.click(button);
+
+    expect(change).toHaveBeenCalledTimes(2);
+    expect(asked(1)).toEqual({ who: STRANGER, action: "follow" });
+    expect(said(1)).toBeUndefined();
+    expect(button).toHaveTextContent(copy.follow.saving);
+    expectNothingSaid("it");
+    await second.ends({ kind: "ask", copy: { id: "d1".repeat(32), changed: COPY.changed + 2 * 24 * 60 * 60 } });
+    expect(button).toHaveTextContent(copy.follow.follow);
+    expect(changeSaid("it")).toHaveTextContent(copy.follow.copyFound("March 8, 2027"));
+  });
+
+  it("asks before an unfollow too: the button says Following, as before the press, and Use this copy unfollows", async () => {
+    const user = person();
+    await opened({ it: MAIN_FRIEND });
+    const button = buttonIn("it")!;
+    const unfollow = nextChange();
+    await unfollowByMouse(user, button);
+    expect(asked(0)).toEqual({ who: FRIEND, action: "unfollow" });
+
+    await unfollow.ends(ASK);
+
+    expect(button).toHaveTextContent(copy.follow.following);
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(changeSaid("it")).toHaveTextContent(LINE);
+    // A press on it shows Unfollow, and changes nothing, as ever; the line stays.
+    await user.click(button);
+    expect(button).toHaveTextContent(copy.follow.unfollow);
+    expect(change).toHaveBeenCalledTimes(1);
+    expect(changeSaid("it")).toHaveTextContent(LINE);
+
+    const second = nextChange();
+    await user.click(useWord("it")!);
+    expect(asked(1)).toEqual({ who: FRIEND, action: "unfollow" });
+    expect(said(1)).toBe(COPY.id);
+    await second.ends({ ...UNFOLLOWED, kept: true, bySay: true } as FollowOutcome);
+    expect(button).toHaveTextContent(copy.follow.follow);
+    expect(wordIn("it", copy.follow.undo)).toBeInTheDocument();
+  });
+
+  it("asks in Undo's place when Undo asked: its two answers and no third word; Not now gives Undo back for what is left of its time, and Use this copy puts back what Undo was to", async () => {
+    const user = person();
+    await opened({ it: MAIN_FRIEND });
+    const button = buttonIn("it")!;
+    const unfollow = nextChange();
+    await unfollowByMouse(user, button);
+    await unfollow.ends(UNFOLLOWED);
+    const undo = nextChange();
+    await user.click(wordIn("it", copy.follow.undo)!);
+
+    await undo.ends(ASK);
+
+    expect(changeSaid("it")).toHaveTextContent(LINE);
+    expect(changeSaid("it")).not.toHaveTextContent(copy.follow.unfollowed("Fay"));
+    expect(within(part("it")).getAllByRole("button")).toEqual([button, notNowWord("it"), useWord("it")]);
+    // Not now: the asking goes, and Undo is offered still.
+    await user.click(notNowWord("it")!);
+    expect(changeSaid("it")).toHaveTextContent(copy.follow.unfollowed("Fay"));
+    expect(changeSaid("it")).not.toHaveTextContent(LINE);
+    // Undo again, asked again, and their answer makes it: what the unfollow took out, and the list it left.
+    const again = nextChange();
+    await user.click(wordIn("it", copy.follow.undo)!);
+    await again.ends(ASK);
+    const answered = nextChange();
+    await user.click(useWord("it")!);
+    expect(asked(3)).toEqual({ who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
+    expect(said(3)).toBe(COPY.id);
+    await answered.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: true, bySay: true });
+    expect(button).toHaveTextContent(copy.follow.following);
+    expectNothingSaid("it");
+  });
+
+  it("repeats what Undo was to put back on a press of the button once Undo has asked and its ten seconds are over: the press is no plain follow, and Use this copy puts back the same", async () => {
+    const user = person();
+    await opened({ it: MAIN_FRIEND });
+    const button = buttonIn("it")!;
+    const unfollow = nextChange();
+    await unfollowByMouse(user, button);
+    await unfollow.ends(UNFOLLOWED);
+    const undo = nextChange();
+    await user.click(wordIn("it", copy.follow.undo)!);
+    await undo.ends(ASK);
+    await after(UNDO_MS);
+    expect(button).toHaveTextContent(copy.follow.follow);
+    expect(changeSaid("it")).toHaveTextContent(LINE);
+    const again = nextChange();
+
+    await user.click(button);
+
+    expect(asked(2)).toEqual({ who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
+    expect(said(2)).toBeUndefined();
+    await again.ends(ASK);
+    const answered = nextChange();
+    await user.click(useWord("it")!);
+    expect(asked(3)).toEqual({ who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
+    expect(said(3)).toBe(COPY.id);
+    await answered.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: true, bySay: true });
+    expect(button).toHaveTextContent(copy.follow.following);
+  });
+
+  it("makes again, on Try again, what Undo was to put back when Use this copy was not approved, once Undo's ten seconds are over: no plain follow in its place", async () => {
+    const user = person();
+    await opened({ it: MAIN_FRIEND });
+    const button = buttonIn("it")!;
+    const unfollow = nextChange();
+    await unfollowByMouse(user, button);
+    await unfollow.ends(UNFOLLOWED);
+    const undo = nextChange();
+    await user.click(wordIn("it", copy.follow.undo)!);
+    await undo.ends(ASK);
+    await after(UNDO_MS);
+    const answered = nextChange();
+    await user.click(useWord("it")!);
+    await answered.ends({ kind: "not-approved" });
+    expect(changeSaid("it")).toHaveTextContent(copy.follow.notApproved);
+    const again = nextChange();
+
+    await user.click(wordIn("it", copy.follow.tryAgain)!);
+
+    expect(asked(3)).toEqual({ who: FRIEND, action: { restore: TAKEN_OUT, left: WITHOUT_FRIEND.id } });
+    expect(said(3)).toBeUndefined();
+    await again.ends({ kind: "saved", list: PUT_BACK, confirmed: true, kept: true, bySay: true });
+    expect(button).toHaveTextContent(copy.follow.following);
+  });
+
+  it("asks when Try again asked, and Use this copy makes again the change that had failed", async () => {
+    const user = person();
+    await opened({ it: SMALL });
+    const first = nextChange();
+    await user.click(buttonIn("it")!);
+    await first.ends({ kind: "not-approved" });
+    const retried = nextChange();
+    await user.click(wordIn("it", copy.follow.tryAgain)!);
+
+    await retried.ends(ASK);
+
+    expect(changeSaid("it")).toHaveTextContent(LINE);
+    expect(changeSaid("it")).not.toHaveTextContent(copy.follow.notApproved);
+    expect(wordIn("it", copy.follow.tryAgain)).not.toBeInTheDocument();
+    const answered = nextChange();
+    await user.click(useWord("it")!);
+    expect(asked(2)).toEqual({ who: STRANGER, action: "follow" });
+    expect(said(2)).toBe(COPY.id);
+    await answered.ends({ ...FOLLOWED, kept: true, bySay: true } as FollowOutcome);
+  });
+
+  it("says the same on every button for the person, and draws the small one, which would not be there for someone followed, while it is asked", async () => {
+    const user = person();
+    await opened({ rail: MAIN_FRIEND, review: { ...MAIN_FRIEND, size: "small" }, other: SMALL });
+    expect(part("review")).toBeEmptyDOMElement();
+    const unfollow = nextChange();
+    await unfollowByMouse(user, buttonIn("rail")!);
+
+    await unfollow.ends(ASK);
+
+    for (const label of ["rail", "review"]) {
+      expect(buttonIn(label)).toHaveTextContent(copy.follow.following);
+      expect(changeSaid(label)).toHaveTextContent(LINE);
+      expect(useWord(label)).toBeInTheDocument();
+      expect(notNowWord(label)).toBeInTheDocument();
+    }
+    // Nobody else is asked anything.
+    expectNothingSaid("other");
+    // Not now, from either, is for them all: and the small one, with nothing more to say, is gone again.
+    await user.click(notNowWord("review")!);
+    expectNothingSaid("rail");
+    expect(part("review")).toBeEmptyDOMElement();
+    expect(change).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks about one person at a time: a press for another that asks takes the line from the first", async () => {
+    const { user } = await asking({ it: SMALL, other: { pubkey: OUTSIDER, name: "Odile", size: "small" } });
+    const second = nextChange();
+    await user.click(buttonIn("other")!);
+    // Asked of the first still, while the second is read for.
+    expect(changeSaid("it")).toHaveTextContent(LINE);
+
+    await second.ends(ASK);
+
+    expectNothingSaid("it");
+    expect(useWord("it")).not.toBeInTheDocument();
+    expect(changeSaid("other")).toHaveTextContent(LINE);
+    const answered = nextChange();
+    await user.click(useWord("other")!);
+    expect(asked(2)).toEqual({ who: OUTSIDER, action: "follow" });
+    await answered.ends({ kind: "not-approved" });
+  });
+
+  it("goes when the person goes to another page, and is not there when they come back", async () => {
+    const { goTo } = await asking({ it: MAIN });
+
+    await goTo("/elsewhere");
+
+    expect(buttonIn("it")).toHaveTextContent(copy.follow.follow);
+    expectNothingSaid("it");
+    expect(useWord("it")).not.toBeInTheDocument();
+    await goTo("/");
+    expectNothingSaid("it");
+    expect(change).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, Shown]>([
+    ["the small button", SMALL],
+    ["the main button", MAIN],
+  ])("makes one change for Enter held down on Use this copy under %s: the key, still down on the button once that has ended, makes no other", async (_, shown) => {
+    const { user } = await asking({ it: shown });
+    // The change ends as soon as it is asked for, asking again: the answers are back while the key is down.
+    change.mockResolvedValueOnce({ kind: "ask", copy: { id: "d1".repeat(32), changed: COPY.changed } });
+    act(() => useWord("it")!.focus());
+
+    await user.keyboard("{Enter>6/}");
+
+    await waitFor(() => expect(changeSaid("it")).toHaveTextContent(LINE));
+    expect(change).toHaveBeenCalledTimes(2);
+    expect(said(1)).toBe(COPY.id);
+    // The word went with the focus on it: the button has it, and the key held down there asked for nothing.
+    expect(buttonIn("it")).toHaveFocus();
+  });
+
+  it("asks for nothing for Enter held down on Not now: the line goes, and the key, still down on the button, presses nothing", async () => {
+    const { user } = await asking({ it: SMALL });
+    act(() => notNowWord("it")!.focus());
+
+    await user.keyboard("{Enter>6/}");
+
+    expectNothingSaid("it");
+    await waitFor(() => expect(buttonIn("it")).toHaveFocus());
+    expect(change).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks once for Enter held down on the button: the key, still down once the asking is there, neither asks again nor answers", async () => {
+    const user = person();
+    await opened({ it: MAIN });
+    change.mockResolvedValueOnce(ASK);
+    act(() => buttonIn("it")!.focus());
+
+    await user.keyboard("{Enter>6/}");
+
+    await waitFor(() => expect(changeSaid("it")).toHaveTextContent(LINE));
+    expect(change).toHaveBeenCalledTimes(1);
+    expect(buttonIn("it")).toHaveFocus();
+  });
+
+  it("leaves the focus on the button as the asking comes, and Tab goes to the answer that changes nothing first", async () => {
+    const { user } = await asking({ it: MAIN });
+    expect(buttonIn("it")).toHaveFocus();
+
+    await user.tab();
+    expect(notNowWord("it")).toHaveFocus();
+    await user.tab();
+    expect(useWord("it")).toHaveFocus();
+    expect(change).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers nothing by itself: time that passes, a pointer that moves, the focus that comes and goes, and a press elsewhere ask for no change", async () => {
+    const { user } = await asking({ it: MAIN, other: { pubkey: OUTSIDER, name: "Odile", size: "main" } });
+
+    await user.hover(useWord("it")!);
+    await user.unhover(useWord("it")!);
+    await user.hover(buttonIn("it")!);
+    await user.tab();
+    await user.tab();
+    await user.tab({ shift: true });
+    await user.pointer([{ keys: "[TouchA]", target: part("other") }]);
+    await after(UNFOLLOW_SHOWN_MS + UNDO_MS);
+
+    expect(change).toHaveBeenCalledTimes(1);
+    expect(changeSaid("it")).toHaveTextContent(LINE);
+    expect(useWord("it")).toBeInTheDocument();
+  });
+
+  it("leaves the focus on the button when an answer is tapped in a browser that does not focus what is tapped, and the answer goes", async () => {
+    await asking({ it: MAIN });
+    const second = nextChange();
+    act(() => (document.activeElement as HTMLElement | null)?.blur());
+    expect(document.body).toHaveFocus();
+
+    fireEvent.click(useWord("it")!);
+
+    await waitFor(() => expect(buttonIn("it")).toHaveFocus());
+    expect(useWord("it")).not.toBeInTheDocument();
+    await second.ends(ASK);
+    // And Not now the same.
+    act(() => (document.activeElement as HTMLElement | null)?.blur());
+    fireEvent.click(notNowWord("it")!);
+    await waitFor(() => expect(buttonIn("it")).toHaveFocus());
+    expect(notNowWord("it")).not.toBeInTheDocument();
+    expect(change).toHaveBeenCalledTimes(2);
+  });
+
+  it("draws the line for a copy dated past what a date can hold, too: the page stands, and the day is the last one a date can", async () => {
+    // No change asks about a copy dated so (tests/followRead.test.ts): the button stands whatever it is told.
+    await opened({ it: MAIN });
+    const follow = nextChange();
+    await person().click(buttonIn("it")!);
+
+    await follow.ends({ kind: "ask", copy: { id: COPY.id, changed: Number.MAX_SAFE_INTEGER } });
+
+    expect(changeSaid("it")).toHaveTextContent(/last changed on September 13, 275760\. If you have followed anyone since then/);
+    expect(changeSaid("it").querySelector("time")).not.toHaveAttribute("datetime");
+    expect(useWord("it")).toBeInTheDocument();
+  });
+
+  it("writes the day in the person's own language, with no time of day", async () => {
+    vi.spyOn(navigator, "language", "get").mockReturnValue("pt-PT");
+
+    await asking({ it: MAIN });
+
+    expect(changeSaid("it")).toHaveTextContent("last changed on 6 de março de 2027.");
+    expect(changeSaid("it")).not.toHaveTextContent(/\d\d?:\d\d/);
+  });
+
+  it("writes the day it was on the person's own clock: a list changed on an evening in Los Angeles was not changed the day after, as it was in Greenwich", async () => {
+    const was = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+      await opened({ it: MAIN });
+      const follow = nextChange();
+      await person().click(buttonIn("it")!);
+      // Six in the evening of the 6th there: two in the morning of the 7th in Greenwich.
+      await follow.ends({ kind: "ask", copy: { id: COPY.id, changed: Date.UTC(2027, 2, 7, 2, 0, 0) / 1000 } });
+
+      expect(changeSaid("it")).toHaveTextContent("last changed on March 6, 2027.");
+    } finally {
+      process.env.TZ = was;
+    }
+  });
+
+  it("shows no number about anyone, and says no word of the network's: the line's only digits are the day's", async () => {
+    await asking({ it: MAIN, review: SMALL });
+
+    expectNoNumbersAboutPeople([87.37, 64.2]);
+    for (const label of ["it", "review"]) {
+      const text = part(label).textContent ?? "";
+      expect(text.replace("March 6, 2027", "")).not.toMatch(/\d/);
+      expect(text).not.toMatch(/npub|nostr|\brelays?\b|\bkeys?\b|pubkey|\bevents?\b/i);
+      for (const element of part(label).querySelectorAll("*")) {
+        for (const attribute of ["aria-label", "aria-description", "title"]) expect(element.getAttribute(attribute) ?? "").not.toMatch(/\d|npub|nostr|relay|pubkey/i);
+      }
+    }
+  });
+
+  describe("drawn where the page says (`linesIn`)", () => {
+    function Apart({ shown }: { shown: Shown }): JSX.Element {
+      const [place, setPlace] = useState<HTMLElement | null>(null);
+      return (
+        <>
+          <section aria-label="button">
+            <FollowButton {...shown} linesIn={place} />
+          </section>
+          <section aria-label="lines" ref={setPlace} />
+        </>
+      );
+    }
+
+    it("draws the line and its answers in that place, and Not now there gives the focus back to the button", async () => {
+      signedInAs(SECRET);
+      config.houseTrustRelays = [];
+      await openPageInShell(relays(), <Apart shown={MAIN} />);
+      await waitFor(() => expect(buttonIn("button")).not.toBeNull());
+      await after(TOWNS_WAIT_MS);
+      const user = person();
+      const button = buttonIn("button")!;
+      const follow = nextChange();
+      await user.click(button);
+
+      await follow.ends(ASK);
+
+      expect(changeSaid("lines")).toHaveTextContent(LINE);
+      expect(within(part("lines")).getAllByRole("button")).toEqual([notNowWord("lines"), useWord("lines")]);
+      expect(within(part("button")).getAllByRole("button")).toEqual([button]);
+      expect(part("button")).not.toHaveTextContent(LINE);
+
+      await user.click(notNowWord("lines")!);
+      expectNothingSaid("lines");
+      await waitFor(() => expect(button).toHaveFocus());
+    });
+  });
+
+  describe("over the relays themselves: a list followed from last week, out of reach, and a copy a year old on three relays", () => {
+    const OWN = "wss://own.example.test";
+    /** A year, in seconds. The fixture's list was made on 14 November 2023, in Greenwich. */
+    const YEAR = 60 * 60 * 24 * 365;
+    /** Their list as it was a year ago, which the app's three relays still hold; and as it is now, with the people followed since. */
+    const lastYears = listOf(LIST.tags, -YEAR);
+    const thisWeeks = listOf([...LIST.tags, ["p", OUTSIDER], ["p", pubkeyAt(20_002)]], 0);
+    const theirs = shapedEvent({ kind: 10002, pubkey: ME, tags: [["r", OWN, "write"]] });
+    const LAST_YEARS_LINE = copy.follow.copyFound("November 14, 2022");
+    const asSent = ({ id, pubkey, created_at, kind, tags, content, sig }: NostrEvent): NostrEvent => ({ id, pubkey, created_at, kind, tags, content, sig });
+
+    /** The page for that person: their own relay, which alone holds their newest list, is out. */
+    async function openOnTheCopy() {
+      const addOn = signedInAs(SECRET);
+      const own = relay([thisWeeks]);
+      own.down = true;
+      const w = followWorld({ [NOS]: relay([lastYears]), [DIRECTORY]: relay([lastYears, theirs]), [BIG]: relay([lastYears]), [OWN]: own, [CIRCLE_RELAY]: relay() });
+      await openButtons({ it: MAIN, friend: MAIN_FRIEND }, { w });
+      await waitFor(() => expect(buttonIn("it")).not.toBeNull());
+      await after(TOWNS_WAIT_MS);
+      return { w, addOn, user: person() };
+    }
+
+    it("draws the buttons from the copy, and a press of Follow signs nothing and shows the line with last year's date", async () => {
+      const { w, addOn, user } = await openOnTheCopy();
+      expect(buttonIn("it")).toHaveTextContent(copy.follow.follow);
+      expect(buttonIn("friend")).toHaveTextContent(copy.follow.following);
+
+      await user.click(buttonIn("it")!);
+
+      await waitFor(() => expect(changeSaid("it")).toHaveTextContent(LAST_YEARS_LINE));
+      expect(buttonIn("it")).toHaveTextContent(copy.follow.follow);
+      expect(addOn.signEvent).not.toHaveBeenCalled();
+      expect(w.published()).toEqual([]);
+      expect(await keptCopies(ME)).toEqual([]);
+      // The change was the real one, asked once, with no say.
+      expect(change).toHaveBeenCalledTimes(1);
+      expect(said(0)).toBeUndefined();
+    });
+
+    it("sends nothing to any relay, and keeps no copy, on Not now", async () => {
+      const { w, addOn, user } = await openOnTheCopy();
+      await user.click(buttonIn("it")!);
+      await waitFor(() => expect(notNowWord("it")).toBeInTheDocument());
+
+      await user.click(notNowWord("it")!);
+      await after(FOLLOW_SETTLE_MS);
+
+      expectNothingSaid("it");
+      expect(addOn.signEvent).not.toHaveBeenCalled();
+      expect(w.published()).toEqual([]);
+      for (const each of Object.values(w.relays)) expect(each.writer.published).toEqual([]);
+      expect(await keptCopies(ME)).toEqual([]);
+      expect(change).toHaveBeenCalledTimes(1);
+    });
+
+    it("saves last year's list with the one entry more on Use this copy, having kept last year's list first, byte for byte, so that it can be put back", async () => {
+      const { w, addOn, user } = await openOnTheCopy();
+      await user.click(buttonIn("it")!);
+      await waitFor(() => expect(useWord("it")).toBeInTheDocument());
+
+      await user.click(useWord("it")!);
+
+      await waitFor(() => expect(buttonIn("it")).toHaveTextContent(copy.follow.following));
+      expect(addOn.signEvent).toHaveBeenCalledTimes(1);
+      // The list that was saved: last year's, every entry as it was and in its place, and the one more.
+      for (const url of FOLLOW_RELAYS) {
+        const [saved, ...more] = w.relays[url]!.writer.published;
+        expect(more).toEqual([]);
+        expect(saved!.tags).toEqual([...lastYears.tags, ["p", STRANGER]]);
+        expect(saved!.content).toBe(lastYears.content);
+      }
+      // The people followed since are not in it: that is what the line told them, and what the copy is for.
+      expect(w.relays[NOS]!.writer.published[0]!.tags).not.toContainEqual(["p", OUTSIDER]);
+      // The copy kept first is last year's list as the relays sent it: a list of theirs, validly signed,
+      // which the page that lists their copies can put back.
+      const copies = await keptCopies(ME);
+      expect(copies.map((each) => [each.list, each.for])).toEqual([[asSent(lastYears), { did: "follow", who: STRANGER }]]);
+      expect(JSON.stringify(copies[0]!.list)).toBe(JSON.stringify(asSent(lastYears)));
+      expect(verifyEvent({ ...copies[0]!.list })).toBe(true);
+      // Their answer was for that very list.
+      expect(said(1)).toBe(lastYears.id);
+    });
   });
 });

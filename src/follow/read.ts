@@ -8,8 +8,8 @@ import { FOLLOW_KIND, names, newestList } from "./list.ts";
 
 /*
  * Reading a person's follow list (kind 3) from several relays, and telling an account that has been
- * used from a new one. Nothing here writes: `changeFollow` (src/follow/change.ts) decides from what
- * these find. A list is one record that other apps replace too, so the newest of those several
+ * used from a new one. Nothing here writes: what writes a list (src/follow/change.ts) decides from
+ * what these find. A list is one record that other apps replace too, so the newest of those several
  * relays hold is the one to build on, and a relay that did not answer is never taken for one with
  * no list. Lists are read from the person's own relays and the follow-list relays, not from the
  * review relays as such: the search relay keeps none (ruling R12). This reads through the `Readers`
@@ -20,7 +20,15 @@ import { FOLLOW_KIND, names, newestList } from "./list.ts";
  * alike: their relay list, the relays it gives, their list on those, and whether what was found may
  * be acted on (rulings R43 to R45). A person's newest list is on the relays they write to. So a read
  * that could not learn of those relays, or that heard from none of them, has not read the person's
- * list: an older copy on one of the app's relays is not it, and nothing is built on it or shown from it.
+ * list: an older copy on one of the app's relays is not it, and nothing is built on it by the app's
+ * own say.
+ *
+ * One such read may be put to the person: their relay list was found, no relay it writes to answered,
+ * and several of the app's relays hold the same list (`copyToAsk`, the one place that says so). That
+ * several hold it shows only that it was once sent widely, never that it is the newest: someone who
+ * now writes to a relay of their own alone has an old list on many. Only the person knows whether
+ * they have followed anyone since it was made, so the agreement decides whether they may be asked,
+ * and their answer decides the change (src/follow/change.ts).
  *
  * Every read here asks not to wait on a relay that is out (`OUT_IS_NO_ANSWER`, ruling R40): a relay
  * whose connection is refused or lost before it says anything fails at once, not when its time is
@@ -47,6 +55,32 @@ export const MAX_FOLLOW_RELAYS = 16;
 export const NEW_LIST_QUORUM = 3;
 
 /**
+ * The fewest of the app's follow-list relays that must hold the very same list as their newest of a
+ * person, when no relay the person writes to answers, before the person may be asked whether to
+ * build on it (`copyToAsk`). Fewer show nothing of how widely the list was sent, and the person is
+ * not asked. It is no proof that the list is their newest, with however many: only that it is a
+ * list of theirs that their other apps once sent to the relays most apps use.
+ */
+export const AGREE_MIN = 3;
+
+/**
+ * The earliest a copy may be dated for the person to be asked about it (`copyToAsk`): the first
+ * second of 2020 in Greenwich, in seconds since the epoch. The person is shown the day the copy was
+ * last changed, and asked whether they have followed anyone since: a list dated before any they
+ * could be using now is no date to weigh, and is more likely a clock that was wrong than a list
+ * that old.
+ */
+export const COPY_NOT_BEFORE_S = 1_577_836_800;
+
+/**
+ * How far past the device's clock a copy may be dated and still be asked about (`copyToAsk`), in
+ * seconds: a day, for a clock that is set a little wrong, here or where the list was made. A list
+ * dated later than that was last changed on a day that has not come, which nobody can have followed
+ * anyone since.
+ */
+export const COPY_AHEAD_S = 86_400;
+
+/**
  * How many of the app's follow-list relays must answer before their nothing is believed, when
  * `appRelays` of them were asked: more than half, and never fewer than `NEW_LIST_QUORUM` (ruling
  * R16). Of six, four: three that never held the person's list cannot stand for the three that hold
@@ -55,6 +89,20 @@ export const NEW_LIST_QUORUM = 3;
  */
 export function newListQuorum(appRelays: number): number {
   return Math.max(NEW_LIST_QUORUM, Math.floor(appRelays / 2) + 1);
+}
+
+/** The app's own follow-list relays, as the addresses a list is read from: each once (`followRelaysWith`). */
+const appRelays = (): Set<string> => new Set(followRelaysWith(null).relays);
+
+/**
+ * Whether as many of the app's follow-list relays are among `answered`, the relays that answered a
+ * read of a person's list, as must answer before their nothing is believed (`newListQuorum`: more
+ * than half of them, and no fewer than three). The person's own relays do not make up the number:
+ * only the app's are counted, wherever the list was read. It says nothing of what they answered.
+ */
+export function enoughAnswered(answered: readonly string[]): boolean {
+  const ours = appRelays();
+  return answered.filter((url) => ours.has(url)).length >= newListQuorum(ours.size);
 }
 
 /** How every read for a follow list is made: a relay that is out is one that did not answer, at once (ruling R40). */
@@ -143,6 +191,48 @@ export interface FollowRead {
   answered: string[];
 }
 
+/** What the relays hold of a person's follow list, with which of them hold the newest (`readLists`). */
+interface ListsRead extends FollowRead {
+  /**
+   * Those of `answered` whose own newest list by the person is `list`, the very same event (its
+   * id), in their order. None when no list was found. A relay that holds an older list, another
+   * list of the same second, or none, is not among them.
+   */
+  holders: string[];
+}
+
+/**
+ * What each of `relays` holds of the follow list of `pubkey`, read side by side, each relay once
+ * however often it is named: the newest list of all (by time, then the lower id: NIP-01), the relays
+ * that answered, and those of them whose own newest list is that one. Throws only when `signal`
+ * aborts.
+ */
+async function readLists(pubkey: string, relays: readonly string[], readers: Readers, signal: AbortSignal): Promise<ListsRead> {
+  signal.throwIfAborted();
+  // A list is replaceable: a relay keeps one per person, so one is all there is to ask for.
+  const filter: NostrFilter = { kinds: [FOLLOW_KIND], authors: [pubkey], limit: 1 };
+  // Each relay once, at its first place: one named twice is one relay, with one answer.
+  const each = [...new Set(relays)];
+  const reads = await Promise.allSettled(each.map((url) => ask(url, filter, readers, signal)));
+  signal.throwIfAborted();
+
+  const answered: string[] = [];
+  /** The newest list each of `answered` sent, in their order; null for one that sent none. */
+  const sent: Array<NostrEvent | null> = [];
+  reads.forEach((read, at) => {
+    if (read.status !== "fulfilled") return;
+    answered.push(each[at]!);
+    // A relay may send more than it was asked for: its newest by this person is what it holds.
+    sent.push(newestList(read.value, pubkey));
+  });
+  const list = newestList(
+    sent.filter((event) => event !== null),
+    pubkey,
+  );
+  const holders = list === null ? [] : answered.filter((_, at) => sent[at]?.id === list.id);
+  return { list, answered, holders };
+}
+
 /**
  * The newest follow list of `pubkey` across `relays` (by time, then the lower id: NIP-01), read side
  * by side, each relay once however often it is named. A relay that fails or is slow is left out of
@@ -155,22 +245,8 @@ export async function readFollowList(
   readers: Readers,
   signal: AbortSignal,
 ): Promise<FollowRead> {
-  signal.throwIfAborted();
-  // A list is replaceable: a relay keeps one per person, so one is all there is to ask for.
-  const filter: NostrFilter = { kinds: [FOLLOW_KIND], authors: [pubkey], limit: 1 };
-  // Each relay once, at its first place: one named twice is one relay, with one answer.
-  const each = [...new Set(relays)];
-  const reads = await Promise.allSettled(each.map((url) => ask(url, filter, readers, signal)));
-  signal.throwIfAborted();
-
-  const answered: string[] = [];
-  const events: NostrEvent[] = [];
-  reads.forEach((read, at) => {
-    if (read.status !== "fulfilled") return;
-    answered.push(each[at]!);
-    events.push(...read.value);
-  });
-  return { list: newestList(events, pubkey), answered };
+  const { list, answered } = await readLists(pubkey, relays, readers, signal);
+  return { list, answered };
 }
 
 /** What the relays say of a person's own follow list, and whether it may be acted on (`readOwnList`). */
@@ -187,9 +263,52 @@ export interface OwnListRead extends FollowRead {
    * either names no relay to write to that the app can use (`writes` is empty: the read stands on
    * the app's relays) or at least one of those answered (rulings R43 and R44). Never when the relay
    * list is not known. Not trusted, `list` is whatever the relays that did answer sent, and is no
-   * base for anything.
+   * base for anything by the app's own say: at most the person may be asked about it (`copyToAsk`).
    */
   trusted: boolean;
+  /**
+   * Whether a relay of the person's own was heard from: their relay list names a relay to write to
+   * that the app can use (`writes` is not empty), and at least one of those answered. Not so when
+   * they have no relay list, or it names none, though the read is then one to trust.
+   */
+  ownAnswered: boolean;
+  /**
+   * How many of the app's follow-list relays (`config.followListRelays`), among those that answered,
+   * sent `list` as their newest list by this person: the very same event, by its id. A relay that
+   * holds an older list, or none, or did not answer, is not counted, and nor is a relay of the
+   * person's own that is not one of the app's. 0 when no list was found.
+   */
+  agreed: number;
+}
+
+/**
+ * The copy of their list that the person whose read is `read` may be asked about, whether to build a
+ * change on it though the read is not one to trust; null when they may not be asked. `now` is the
+ * time, in seconds, by the clock of whoever asks: a change gives its own, and the page the device's.
+ * The one place that says when: a change (src/follow/change.ts) and the page's own read
+ * (src/follow/FollowProvider.tsx) both ask here. Every one of these must hold:
+ *
+ *   - the read is not one to trust (one that is needs no asking);
+ *   - their relay list was found;
+ *   - it names a relay to write to that the app can use;
+ *   - none of those answered: where their other apps keep their list could not be reached;
+ *   - a list was found;
+ *   - at least `AGREE_MIN` of the app's follow-list relays hold that very list as their newest;
+ *   - the list is dated no earlier than `COPY_NOT_BEFORE_S`, and no later than `COPY_AHEAD_S` after
+ *     `now`: what the person is asked turns on the day it was last changed, and a date outside
+ *     those says nothing they can weigh.
+ *
+ * In every other read that is not one to trust there is nothing to ask: where the list is kept is
+ * not known, or no list was found, or too few relays hold what was, or its date is no date. What
+ * this gives is never the newest list for certain, and nothing may be built on it but by the
+ * person's own say, given for that very list.
+ */
+export function copyToAsk(read: OwnListRead, now: number): NostrEvent | null {
+  if (read.trusted) return null;
+  if (read.relayList.is !== "found" || read.writes.length === 0 || read.ownAnswered) return null;
+  if (read.list === null || read.agreed < AGREE_MIN) return null;
+  if (read.list.created_at < COPY_NOT_BEFORE_S || read.list.created_at > now + COPY_AHEAD_S) return null;
+  return read.list;
 }
 
 /**
@@ -211,18 +330,25 @@ export interface OwnListRead extends FollowRead {
  * have answered (`newListQuorum`), and for a list to be started, an account that shows no use
  * (`accountShowsUse`).
  *
+ * It says two things more, which decide nothing here: whether a relay of the person's own was heard
+ * from (`ownAnswered`), and how many of the app's relays hold the newest list (`agreed`). A read
+ * that is not one to trust may be put to the person when they say so (`copyToAsk`).
+ *
  * The page's read and a change's fresh read are both this, with the same times. A read is never
  * kept for a change: a change calls it anew. Throws only when `signal` aborts.
  */
 export async function readOwnList(pubkey: string, readers: Readers, signal: AbortSignal): Promise<OwnListRead> {
   signal.throwIfAborted();
   const relayList = await readRelayList(pubkey, readers, signal, FOLLOW_READ_MS, OUT_IS_NO_ANSWER);
-  if (relayList.is === "unknown") return { relayList, relays: [], writes: [], list: null, answered: [], trusted: false };
+  if (relayList.is === "unknown") return { relayList, relays: [], writes: [], list: null, answered: [], trusted: false, ownAnswered: false, agreed: 0 };
   const { relays, writes } = followRelaysWith(relayList.is === "found" ? relayList : null);
-  const { list, answered } = await readFollowList(pubkey, relays, readers, signal);
+  const { list, answered, holders } = await readLists(pubkey, relays, readers, signal);
+  const ownAnswered = writes.some((url) => answered.includes(url));
   // With relays of their own to write to, one of those must have been heard from (ruling R44).
-  const trusted = writes.length === 0 || writes.some((url) => answered.includes(url));
-  return { relayList, relays, writes, list, answered, trusted };
+  const trusted = writes.length === 0 || ownAnswered;
+  const ours = appRelays();
+  const agreed = holders.filter((url) => ours.has(url)).length;
+  return { relayList, relays, writes, list, answered, trusted, ownAnswered, agreed };
 }
 
 /**

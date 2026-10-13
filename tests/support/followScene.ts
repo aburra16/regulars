@@ -54,8 +54,8 @@ export const WITHOUT_FRIEND = listOf(LIST.tags.filter((_, place) => place !== FR
 export const TAKEN_OUT = [{ index: FRIEND_AT, tag: ["p", FRIEND] }];
 export const PUT_BACK = listOf(LIST.tags, 20);
 /** How a follow of the stranger ends when it is saved, and an unfollow of the friend. */
-export const FOLLOWED: FollowOutcome = { kind: "saved", list: WITH_STRANGER, confirmed: true };
-export const UNFOLLOWED: FollowOutcome = { kind: "saved", list: WITHOUT_FRIEND, confirmed: true, removed: TAKEN_OUT };
+export const FOLLOWED: FollowOutcome = { kind: "saved", list: WITH_STRANGER, confirmed: true, kept: false };
+export const UNFOLLOWED: FollowOutcome = { kind: "saved", list: WITHOUT_FRIEND, confirmed: true, kept: false, removed: TAKEN_OUT };
 
 /** The scorer of a person's circle, and its relay. Made up. */
 export const CIRCLE_SCORER = "5c0e".repeat(16);
