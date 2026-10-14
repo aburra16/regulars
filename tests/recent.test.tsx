@@ -14,6 +14,7 @@ import { distanceKm, formatDistance } from "../src/places/distance";
 import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { FEED_FRESH_MS, FEED_PAGE, RecentFeed } from "../src/recent/feed";
+import { REMOVAL_REQUESTS_AT_ONCE } from "../src/reviews/removals";
 import { REVIEW_KIND } from "../src/reviews/review";
 import { FLUSH_WINDOW_MS, ScoresStore } from "../src/score/store";
 import { VIEW_STORAGE_KEY } from "../src/view/ViewProvider";
@@ -623,6 +624,82 @@ describe("Trending: paging", () => {
     expect(feedReads(net)).toHaveLength(4);
   });
 
+  it("leaves out a review its author removed, read beside the reviews, and pages on as it would have", async () => {
+    const reviews = longFeed();
+    const bobs = reviews[50]!;
+    // Bob removed his review in another app, by id and by address, as both apps write a removal.
+    const removal = shapedEvent({
+      kind: 5,
+      pubkey: BOB,
+      created_at: at(0),
+      tags: [["e", bobs.id], ["a", `${REVIEW_KIND}:${BOB}:place:${JACAFE.address}`], ["k", String(REVIEW_KIND)]],
+    });
+    const net = network({ reviews: [...reviews, removal] });
+    const user = userEvent.setup();
+    await openRecent(net);
+    await listsExactly(["Alice Bento's review of Jacafé, 11 minutes ago", "Erin's review of Jacafé, 3 hours ago"]);
+    // The removals of each page's reviews were asked for, by id and by address.
+    const removalReads = net.log.filter(({ url, filter }) => url === SEARCH && filter.kinds?.includes(5));
+    expect(removalReads.map(({ filter }) => Object.keys(filter).find((key) => key.startsWith("#")))).toEqual(["#e", "#a", "#e", "#a", "#e", "#a"]);
+    expect(removalReads[0]?.filter["#e"]).toEqual(reviews.slice(0, 100).map((review) => review.id));
+    // The pages are as without the removal: three by themselves, each from the oldest of the last.
+    expect(feedReads(net).map(({ filter }) => filter.until)).toEqual([undefined, at(99) - 1, at(199) - 1]);
+
+    await user.click(screen.getByRole("button", { name: copy.recent.showOlder }));
+    await waitFor(() => expect(listed().at(-1)).toBe("Frank's review of Jacafé, 5 hours ago"));
+    expect(listed()).toHaveLength(3);
+    expect(feedReads(net).at(-1)?.filter).toMatchObject({ until: at(299) - 1 });
+    expect(await screen.findByText(copy.recent.end)).toBeInTheDocument();
+  });
+
+  it("never has more than two requests for removals open at a relay, though each page needs four and the pages read by themselves come one on another", async () => {
+    // Two relays of 350 reviews each: a page brings 200, whose ids and addresses take two requests each.
+    config.reviewRelays = [SEARCH, SECOND];
+    const net = network({ reviews: longFeed() });
+    net.second = Array.from({ length: 350 }, (_, i) => reviewOf(stranger(1_000 + i), MAIA, 4, `Second ${i}.`, at(i) + 30));
+    const open = new Map<string, number>();
+    const most = new Map<string, number>();
+    const asked = new Map<string, number>();
+    // Each request for removals stays open a moment, so that any sent beside it overlaps it.
+    const readers = (url: string): RelayReader => ({
+      async *req(filter, signal) {
+        if (!filter.kinds?.includes(5)) {
+          yield* net.readers(url).req(filter, signal);
+          return;
+        }
+        open.set(url, (open.get(url) ?? 0) + 1);
+        asked.set(url, (asked.get(url) ?? 0) + 1);
+        most.set(url, Math.max(most.get(url) ?? 0, open.get(url)!));
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          yield* net.readers(url).req(filter, signal);
+        } finally {
+          open.set(url, open.get(url)! - 1);
+        }
+      },
+    });
+    await openApp("/trending", { events: placeEvents, entries: ["/trending"], px: PHONE, readers });
+
+    await waitFor(() => expect(feedReads(net)).toHaveLength(3));
+    // Three pages, four requests for removals each, at each relay.
+    await waitFor(() => expect([asked.get(SEARCH), asked.get(SECOND)]).toEqual([12, 12]));
+    await waitFor(() => expect([open.get(SEARCH), open.get(SECOND)]).toEqual([0, 0]));
+    expect([most.get(SEARCH), most.get(SECOND)]).toEqual([REMOVAL_REQUESTS_AT_ONCE, REMOVAL_REQUESTS_AT_ONCE]);
+    expect(REMOVAL_REQUESTS_AT_ONCE).toBe(2);
+  });
+
+  it("reads the newest reviews from the relays reviews are read from, and lists one only a relay that is not posted to has", async () => {
+    // Reviews are posted to the search relay, and read there and at the second, which only Brainstorm writes to.
+    config.reviewRelays = [SEARCH];
+    config.reviewReadRelays = [SEARCH, SECOND];
+    const net = network({ reviews: [reviewOf(BOB, MAIA, 5, "Fresh fish, slow service.", NOW_S - 25 * HOUR)] });
+    net.second = [reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR)];
+    await openRecent(net);
+
+    await listsExactly([ALICE_AT_JACAFE, BOB_AT_MAIA]);
+    expect(net.log.filter(({ url, filter }) => url === SECOND && filter["#m"] !== undefined)).toHaveLength(1);
+  });
+
   it("stops reading by itself once 20 count", async () => {
     // 250 reviews; the house trusts the people who wrote the newest 25.
     const reviews = Array.from({ length: 250 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `Review ${i}.`, at(i)));
@@ -1124,6 +1201,32 @@ describe("the scores store, for Recent", () => {
 });
 
 describe("the feed", () => {
+  it("goes on reading the removals of the pages after one whose removals could not be taken in", async () => {
+    // 150 reviews, two pages; the first page's has a removal.
+    const reviews = Array.from({ length: 150 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `Review ${i}.`, at(i)));
+    const removal = shapedEvent({ kind: 5, pubkey: stranger(0), created_at: at(0), tags: [["e", reviews[0]!.id]] });
+    const net = network({ reviews: [...reviews, removal] });
+    const feed = new RecentFeed(net.readers);
+    // Something that hears the feed fails once, as the first removal is taken in.
+    let failed = false;
+    feed.subscribe(() => {
+      if (failed || feed.snapshot().removals.length === 0) return;
+      failed = true;
+      throw new Error("A listener failed");
+    });
+    const notes = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const removalReads = () => net.log.filter(({ filter }) => filter.kinds?.includes(5));
+    feed.start();
+    feed.open();
+    await vi.waitFor(() => expect(failed).toBe(true));
+
+    await feed.readOlder();
+    await vi.waitFor(() => expect(removalReads()).toHaveLength(4));
+    expect(removalReads()[2]?.filter["#e"]).toEqual(reviews.slice(100).map((review) => review.id));
+    expect(notes).toHaveBeenCalledWith(expect.stringContaining("removals"), expect.any(Error));
+    feed.stop();
+  });
+
   it("starts again from the newest page when it no longer reaches the reviews it holds", async () => {
     const old = Array.from({ length: 50 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `Old ${i}.`, NOW_S - 60 * (i + 1)));
     const net = network({ reviews: old });
@@ -1225,6 +1328,31 @@ describe("the feed", () => {
     expect(feed.snapshot().events).toHaveLength(FEED_PAGE);
     expect(feed.snapshot().events.every((ev) => ev.content.startsWith("New"))).toBe(true);
     expect(feed.snapshot()).toMatchObject({ pages: 1, older: "idle", end: false });
+    feed.stop();
+  });
+
+  it("holds the removals of the reviews it reads apart from them, for the session: paging and pruning never see one", async () => {
+    const reviews = Array.from({ length: 50 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `Review ${i}.`, at(i)));
+    // The 3rd's removal by its author; one of the 4th's dated two days ahead, which does not count.
+    const removal = shapedEvent({ kind: 5, pubkey: stranger(2), created_at: NOW_S - 10 * HOUR, tags: [["e", reviews[2]!.id]] });
+    const ahead = shapedEvent({ kind: 5, pubkey: stranger(3), created_at: NOW_S + 48 * HOUR, tags: [["e", reviews[3]!.id]] });
+    const net = network({ reviews: [...reviews, removal, ahead] });
+    const feed = new RecentFeed(net.readers);
+    feed.start();
+    feed.open();
+    await vi.waitFor(() => expect(feed.snapshot().removals).toEqual([removal]));
+    expect(feed.snapshot().events).toHaveLength(50);
+    expect(feed.snapshot()).toMatchObject({ pages: 1, end: true, oldest: at(49) });
+
+    // The newest page again, two minutes on, holds every review there is: what it held before goes,
+    // and the removal stays.
+    net.reviews.splice(net.reviews.indexOf(removal), 1);
+    vi.setSystemTime(NOW_S * 1000 + FEED_FRESH_MS + 1_000);
+    feed.open();
+    await vi.waitFor(() => expect(feed.snapshot().newer).toBe("idle"));
+    await settle();
+    expect(feed.snapshot().removals).toEqual([removal]);
+    expect(feed.snapshot().events).toHaveLength(50);
     feed.stop();
   });
 

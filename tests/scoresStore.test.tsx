@@ -9,11 +9,13 @@ import { SESSION_KEY } from "../src/account/session";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import type { RelayReader } from "../src/nostr/events";
+import { parsePlaces } from "../src/places/load";
 import type { Place } from "../src/places/place";
 import { PlacesProvider } from "../src/places/store";
+import { reviewStamp } from "../src/review/post";
 import { REVIEW_KIND } from "../src/reviews/review";
 import { ScoresProvider, useScoresStore } from "../src/score/ScoresProvider";
-import { FLUSH_WINDOW_MS, HELD_REVIEWS_KEY, REMOVED_REVIEWS_KEY } from "../src/score/store";
+import { FLUSH_WINDOW_MS, HELD_REVIEWS_KEY, REMOVED_REVIEWS_KEY, ScoresStore } from "../src/score/store";
 import { useListScores } from "../src/score/useListScores";
 import { useNames, usePictures, useScore, useScoreActions, useScores } from "../src/score/useScore";
 import raw from "./fixtures/funchal-items.json";
@@ -260,10 +262,12 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 }
 
+/** The requests a review relay was sent for reviews (not for their removals), in order. */
+const forReviews = (reader: MemoryReader) => reader.requests.filter((filter) => filter.kinds?.includes(REVIEW_KIND));
 /** The requests a review relay was sent for reviews by place address (`#a`), in order. */
-const byA = (reader: MemoryReader) => reader.requests.filter((filter) => filter["#a"] !== undefined);
+const byA = (reader: MemoryReader) => forReviews(reader).filter((filter) => filter["#a"] !== undefined);
 /** The requests a review relay was sent for reviews by their `d`, in order. */
-const byD = (reader: MemoryReader) => reader.requests.filter((filter) => filter["#d"] !== undefined);
+const byD = (reader: MemoryReader) => forReviews(reader).filter((filter) => filter["#d"] !== undefined);
 /** The `#a` of every request for reviews by place address, in order. */
 const batchesOf = (reader: MemoryReader) => byA(reader).map((filter) => filter["#a"]);
 /** The `d` a review of each of `batch` may have: the bare address, or after `place:` (decision 16). */
@@ -1186,6 +1190,77 @@ describe("ScoresProvider: the person's own reviews (for writing and removing the
       all[0],
     ]);
   });
+
+  it("gives the record behind the review the page shows for a person, under any d and any filing, for an edit to be built on", async () => {
+    config.reviewRelays = [SEARCH];
+    const placeD = reviewOf(ALICE, JACAFE, 5, { created_at: 1_700_000_300 });
+    placeD.tags.push(["price", "2"]);
+    // Written by another app: the bare address as its d, and no a.
+    const bareD = shapedEvent({ kind: REVIEW_KIND, pubkey: ALICE, created_at: 1_700_000_200, tags: [["d", JACAFE], ["s", "2"]] });
+    const otherFiling = reviewOf(ALICE, JACAFE_AGAIN, 4, { created_at: 1_700_000_100 });
+    // Newer, but of another place; and newer at the same d, but dated more than a day ahead: neither stands for Jacafé.
+    const elsewhere = reviewOf(ALICE, OTHER, 3, { created_at: 1_700_000_900 });
+    const future = reviewOf(ALICE, JACAFE, 1, { created_at: Math.floor(Date.now() / 1000) + 2 * 86_400 });
+    const bob = reviewOf(BOB, JACAFE, 3);
+    const { readers } = houseNetwork([placeD, bareD, otherFiling, elsewhere, future, bob], [rankOf(ALICE, 80), rankOf(BOB, 30)]);
+    const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), {
+      readers,
+      placeEvents: [...places, jacafeAgain()],
+    });
+    const newest = (pubkey: string, address: string) => result.current.actions.ownNewest(pubkey, address);
+    const shown = (pubkey: string) => result.current.reviews.find((review) => review.reviewer === pubkey)?.id;
+
+    await waitFor(() => expect(newest(ALICE, JACAFE)).toEqual(placeD));
+    expect(shown(ALICE)).toBe(placeD.id);
+    expect(newest(ALICE, JACAFE_AGAIN)).toEqual(placeD);
+    expect(newest(BOB, JACAFE)).toEqual(bob);
+    expect(newest(CAROL, JACAFE)).toBeUndefined();
+
+    // Removed, it is not theirs any more: the next newest is, as the page shows it.
+    act(() => result.current.actions.noteRemoval(`${REVIEW_KIND}:${ALICE}:place:${JACAFE}`, 1_700_000_300));
+    expect(newest(ALICE, JACAFE)).toEqual(bareD);
+    expect(shown(ALICE)).toBe(bareD.id);
+
+    // An own review held, posted in this tab and not read back yet, is theirs, as the page shows it.
+    const own = reviewOf(ALICE, JACAFE_AGAIN, 1, { created_at: 1_700_000_400 });
+    act(() => result.current.actions.noteOwnReview(own));
+    expect(newest(ALICE, JACAFE)).toEqual(own);
+    expect(shown(ALICE)).toBe(own.id);
+  });
+
+  it("gives the person's record read so far for a place filed twice while its other filing is still being read, though the page shows none yet", async () => {
+    config.reviewRelays = [SEARCH];
+    const alice = reviewOf(ALICE, JACAFE, 4, { created_at: 1_700_000_000 });
+    // The relay answers for Jacafé's first filing, and holds every request that names the other.
+    const memory = createMemoryReader([alice]);
+    let held = 0;
+    const search: RelayReader = {
+      async *req(filter, signal) {
+        if ([...(filter["#a"] ?? []), ...(filter["#d"] ?? [])].some((value) => value.endsWith(JACAFE_AGAIN))) {
+          held += 1;
+          await new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+        }
+        yield* memory.req(filter, signal);
+      },
+    };
+    const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
+    const store = new ScoresStore(readers);
+    store.start();
+    try {
+      // Jacafé is asked for before the store knows it is filed twice: its first filing is read alone.
+      store.want([JACAFE]);
+      await waitFor(() => expect(store.readStateOf(JACAFE)).toBe("read"));
+      store.setPlaces(parsePlaces([...places, jacafeAgain()]));
+      await waitFor(() => expect(held).toBe(2));
+
+      expect(store.readStateOf(JACAFE)).toBe("reading");
+      expect(store.reviewsOf(JACAFE)).toEqual([]);
+      expect(store.ownNewest(ALICE, JACAFE)).toEqual(alice);
+      expect(store.ownNewest(ALICE, JACAFE_AGAIN)).toEqual(alice);
+    } finally {
+      store.stop();
+    }
+  });
 });
 
 describe("ScoresProvider: the person's own reviews, held through a reload (Review Focus 1)", () => {
@@ -1401,6 +1476,323 @@ describe("ScoresProvider: the person's removals, kept for the tab (Review Focus 
   });
 });
 
+describe("ScoresProvider: removals read where the reviews are (NIP-09)", () => {
+  /** The list hub, which the places are read from: reviews are read there too, and never posted there. */
+  const HUB = "wss://dcosl.brainstorm.world";
+
+  /** The address a removal names `review` by: `34259:<reviewer>:<d>`. */
+  const addressOf = (review: NostrEvent) => `${REVIEW_KIND}:${review.pubkey}:${review.tags.find((tag) => tag[0] === "d")?.[1] ?? ""}`;
+
+  /** `review`'s removal by its author, by id and by address, with the kind, as both apps write one, dated `createdAt`. */
+  const removalOf = (review: NostrEvent, createdAt = review.created_at + 60) =>
+    shapedEvent({
+      kind: 5,
+      pubkey: review.pubkey,
+      created_at: createdAt,
+      tags: [["e", review.id], ["a", addressOf(review)], ["k", String(REVIEW_KIND)]],
+    });
+
+  /** The requests a relay was sent for removals, in order. */
+  const removalReads = (reader: MemoryReader) => reader.requests.filter((filter) => filter.kinds?.includes(5));
+
+  /** A relay over `events` that answers for reviews at once, and holds each request for removals until it is opened. */
+  function holdingRemovals(events: NostrEvent[]) {
+    const memory = createMemoryReader(events);
+    let open!: () => void;
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let held = 0;
+    const reader: MemoryReader & { open(): void; readonly held: number } = {
+      requests: memory.requests,
+      open: () => open(),
+      get held() {
+        return held;
+      },
+      async *req(filter, signal) {
+        if (filter.kinds?.includes(5)) {
+          held += 1;
+          await new Promise<void>((resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+            void opened.then(resolve);
+          });
+        }
+        yield* memory.req(filter, signal);
+      },
+    };
+    return reader;
+  }
+
+  it("shows a review two relays send, then takes it down once its removal is read from one: the place is as if it was never there", async () => {
+    config.reviewRelays = [SEARCH, MIRROR];
+    const alice = reviewOf(ALICE, JACAFE, 5, { created_at: 1_700_000_000 });
+    const bob = reviewOf(BOB, JACAFE, 3, { created_at: 1_700_000_100 });
+    const mirror = holdingRemovals([alice, removalOf(alice)]);
+    const { readers, search } = houseNetwork([alice, bob], [rankOf(ALICE, 80), rankOf(BOB, 30)], { [MIRROR]: mirror });
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+
+    // Shown as soon as they are read: the removals are asked for after.
+    await waitFor(() => expect(result.current.score?.counted).toBe(2));
+    expect(idsOf(result.current.reviews)).toEqual([bob.id, alice.id]);
+    await waitFor(() => expect(mirror.held).toBe(2));
+    expect(idsOf(result.current.reviews)).toEqual([bob.id, alice.id]);
+
+    act(() => mirror.open());
+    await waitFor(() => expect(idsOf(result.current.reviews)).toEqual([bob.id]));
+    expect(result.current.score).toMatchObject({ score: 3, counted: 1, outside: 0 });
+
+    // Each relay that answered was asked for the removals of every review read, by id and by address,
+    // with what a read from it adds.
+    for (const [reader, extras] of [
+      [search, { search: "include:spam" }],
+      [mirror, {}],
+    ] as const) {
+      const asked = removalReads(reader);
+      expect(asked).toHaveLength(2);
+      expect(asked[0]).toEqual({ kinds: [5], "#e": expect.any(Array), limit: 500, ...extras });
+      expect([...asked[0]!["#e"]!].sort()).toEqual([alice.id, bob.id].sort());
+      expect(asked[1]).toEqual({ kinds: [5], "#a": expect.any(Array), limit: 500, ...extras });
+      expect([...asked[1]!["#a"]!].sort()).toEqual([addressOf(alice), addressOf(bob)].sort());
+    }
+  });
+
+  it("still shows a review when its removals can't be read", async () => {
+    config.reviewRelays = [SEARCH];
+    const alice = reviewOf(ALICE, JACAFE, 5);
+    // The relay sends the reviews, and fails every request for removals.
+    const memory = createMemoryReader([alice, removalOf(alice)]);
+    let failed = 0;
+    const search: RelayReader = {
+      async *req(filter, signal) {
+        if (filter.kinds?.includes(5)) {
+          failed += 1;
+          throw new Error("The relay answered 503");
+        }
+        yield* memory.req(filter, signal);
+      },
+    };
+    const { readers } = houseNetwork([], [rankOf(ALICE, 80)], { [SEARCH]: search });
+    const { result } = renderStore(() => useScore(JACAFE), { readers });
+
+    await waitFor(() => expect(failed).toBeGreaterThan(0));
+    await settle();
+    expect(idsOf(result.current.reviews)).toEqual([alice.id]);
+    expect(result.current.read).toBe("read");
+    expect(result.current.score).toMatchObject({ score: 5, counted: 1, outside: 0 });
+  });
+
+  it("holds a removal it has read for the session: a review read again is still taken down when the relay no longer sends its removal", async () => {
+    config.reviewRelays = [SEARCH];
+    const alice = reviewOf(ALICE, JACAFE, 5, { created_at: 1_700_000_000 });
+    const bob = reviewOf(BOB, JACAFE, 3, { created_at: 1_700_000_000 });
+    const removal = removalOf(alice);
+    const events = [alice, bob, removal];
+    const { readers } = houseNetwork(events, [rankOf(ALICE, 80), rankOf(BOB, 30)]);
+    const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), { readers });
+    await waitFor(() => expect(idsOf(result.current.reviews)).toEqual([bob.id]));
+
+    // The relay no longer sends the removal, and still sends the review. Bob's edit, read in the same
+    // go, shows when that read has landed.
+    events.splice(events.indexOf(removal), 1);
+    const bobEdited = reviewOf(BOB, JACAFE, 2, { created_at: 1_700_000_050 });
+    events.push(bobEdited);
+    act(() => result.current.actions.refresh());
+    await waitFor(() => expect(idsOf(result.current.reviews)).toEqual([bobEdited.id]));
+    await settle();
+    expect(idsOf(result.current.reviews)).toEqual([bobEdited.id]);
+    expect(result.current.score).toMatchObject({ score: 2, counted: 1, outside: 0 });
+  });
+
+  it("reads reviews, and their removals, at a read relay where reviews are not posted, and names only where they are", async () => {
+    config.reviewRelays = [SEARCH];
+    config.reviewReadRelays = [SEARCH, HUB];
+    const alice = reviewOf(ALICE, JACAFE, 5);
+    const hub = createMemoryReader([alice, profileOf(ALICE, { name: "Alice" })]);
+    const { readers, search } = houseNetwork([profileOf(ALICE, { name: "Alice" })], [rankOf(ALICE, 80)], { [HUB]: hub });
+    const { result } = renderStore(() => ({ ...useScore(JACAFE), names: useNames([ALICE]) }), { readers });
+
+    await waitFor(() => expect(result.current.score).toMatchObject({ score: 5, counted: 1, outside: 0 }));
+    expect(idsOf(result.current.reviews)).toEqual([alice.id]);
+    await waitFor(() => expect(result.current.names.get(ALICE)).toBe("Alice"));
+    await waitFor(() => expect(removalReads(hub)).toHaveLength(2));
+    expect(removalReads(search)).toHaveLength(2);
+    // Names and pictures are read from the review relays alone.
+    expect(hub.requests.filter((filter) => filter.kinds?.includes(0))).toEqual([]);
+    expect(search.requests.filter((filter) => filter.kinds?.includes(0))).toHaveLength(1);
+  });
+
+  it("dates the person's next review a second after their removal read from a relay, dated an hour ahead, and that review stands", async () => {
+    config.reviewRelays = [SEARCH];
+    const now = Math.floor(Date.now() / 1000);
+    const alice = reviewOf(ALICE, JACAFE, 4, { created_at: now - 86_400 });
+    const aliceAgain = reviewOf(ALICE, JACAFE_AGAIN, 3, { created_at: now - 2 * 86_400 });
+    // Hers of the place, under either filing; and Bob's, naming her review, which takes nothing down.
+    const removal = removalOf(alice, now + 3_600);
+    const removalAgain = removalOf(aliceAgain, now + 1_800);
+    const bobs = shapedEvent({ kind: 5, pubkey: BOB, created_at: now + 7_200, tags: [["a", addressOf(alice)]] });
+    const events = [alice, aliceAgain, removal, removalAgain, bobs];
+    const { readers } = houseNetwork(events, [rankOf(ALICE, 80)]);
+    const { result } = renderStore(() => ({ ...useScore(JACAFE), actions: useScoreActions() }), {
+      readers,
+      placeEvents: [...places, jacafeAgain()],
+    });
+    const { actions } = result.current;
+
+    await waitFor(() => expect(actions.ownRemovedAt(ALICE, JACAFE)).toBe(now + 3_600));
+    expect(actions.ownRemovedAt(ALICE, JACAFE_AGAIN)).toBe(now + 3_600);
+    expect(actions.ownRemovedAt(BOB, JACAFE)).toBeUndefined();
+    expect(actions.ownRemovedAt(ALICE, OTHER)).toBeUndefined();
+    await waitFor(() => expect(result.current.read).toBe("read"));
+    expect(result.current.reviews).toEqual([]);
+    // What a removal of her review must name is her reviews, and no removal.
+    expect(idsOf(actions.ownCoordinates(ALICE, JACAFE))).toEqual([alice.id, aliceAgain.id]);
+
+    const stamp = reviewStamp(now, actions.ownCoordinates(ALICE, JACAFE), actions.ownRemovedAt(ALICE, JACAFE));
+    expect(stamp).toBe(now + 3_601);
+    const next = reviewOf(ALICE, JACAFE, 5, { created_at: stamp });
+    act(() => actions.noteOwnReview(next));
+    expect(idsOf(result.current.reviews)).toEqual([next.id]);
+
+    // Read back from the relay, beside the removal: it stands, and the tab holds it no longer.
+    events.push(next);
+    act(() => actions.refresh());
+    await waitFor(() => expect(window.sessionStorage.getItem(HELD_REVIEWS_KEY)).toBeNull());
+    await settle();
+    expect(idsOf(result.current.reviews)).toEqual([next.id]);
+    expect(result.current.score).toMatchObject({ score: 5, counted: 1, outside: 0 });
+  });
+});
+
+describe("ScoresStore.readSettled: what an edit waits for before it is built", () => {
+  /** A relay over `events` whose reads of reviews, and of removals, each wait until that kind is let go of. */
+  function gatedByKind(events: NostrEvent[]) {
+    const memory = createMemoryReader(events);
+    const gates = new Map<number, { open: () => void; opened: Promise<void>; waiting: number }>();
+    for (const kind of [REVIEW_KIND, 5]) {
+      let open!: () => void;
+      const opened = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      gates.set(kind, { open, opened, waiting: 0 });
+    }
+    const reader: RelayReader = {
+      async *req(filter, signal) {
+        const gate = gates.get(filter.kinds?.[0] ?? -1);
+        if (gate !== undefined) {
+          gate.waiting += 1;
+          await new Promise<void>((resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+            void gate.opened.then(resolve);
+          });
+        }
+        yield* memory.req(filter, signal);
+      },
+    };
+    return { reader, gate: (kind: number) => gates.get(kind)! };
+  }
+
+  /** Whether `promise` has settled, once what is queued has run. */
+  async function settledYet(promise: Promise<void>): Promise<boolean> {
+    let settled = false;
+    promise.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    await settle();
+    return settled;
+  }
+
+  const stores: ScoresStore[] = [];
+  afterEach(() => {
+    for (const store of stores.splice(0)) store.stop();
+  });
+
+  /** A store reading from `search`, started. */
+  const storeOver = (search: RelayReader) => {
+    const { readers } = houseNetwork([], [], { [SEARCH]: search });
+    const store = new ScoresStore(readers);
+    stores.push(store);
+    store.start();
+    return store;
+  };
+
+  it("is settled at once for a place nobody is reading, and when there is nowhere to read reviews", async () => {
+    config.reviewRelays = [SEARCH];
+    const store = storeOver(createMemoryReader([]));
+    await expect(store.readSettled(JACAFE, new AbortController().signal)).resolves.toBeUndefined();
+    config.reviewRelays = [];
+    store.want([OTHER]);
+    await expect(store.readSettled(OTHER, new AbortController().signal)).resolves.toBeUndefined();
+  });
+
+  it("waits for the place's reviews, then for the removals of them, and is settled once both are in", async () => {
+    config.reviewRelays = [SEARCH];
+    const alice = reviewOf(ALICE, JACAFE, 4);
+    const removal = shapedEvent({ kind: 5, pubkey: ALICE, created_at: alice.created_at + 60, tags: [["e", alice.id]] });
+    const search = gatedByKind([alice, removal]);
+    const store = storeOver(search.reader);
+    store.want([JACAFE]);
+
+    const settled = store.readSettled(JACAFE, new AbortController().signal);
+    await waitFor(() => expect(search.gate(REVIEW_KIND).waiting).toBe(2));
+    expect(await settledYet(settled)).toBe(false);
+
+    // The reviews are in: the removals of them are being read.
+    search.gate(REVIEW_KIND).open();
+    await waitFor(() => expect(search.gate(5).waiting).toBe(2));
+    expect(store.readStateOf(JACAFE)).toBe("read");
+    expect(idsOf(store.reviewsOf(JACAFE))).toEqual([alice.id]);
+    expect(await settledYet(settled)).toBe(false);
+
+    search.gate(5).open();
+    await settled;
+    expect(store.reviewsOf(JACAFE)).toEqual([]);
+  });
+
+  it("is settled when the place's reviews could not be read: an edit is built on what is known", async () => {
+    config.reviewRelays = [SEARCH];
+    const store = storeOver(createMemoryReader([], { failWith: new Error("The relay answered 503") }));
+    store.want([JACAFE]);
+    await store.readSettled(JACAFE, new AbortController().signal);
+    expect(store.readStateOf(JACAFE)).toBe("failed");
+  });
+
+  it("is settled when a new round of reading lets go of the removals' reads, under way or waiting their turn", async () => {
+    config.reviewRelays = [SEARCH];
+    // Three batches of places, each with a review: two reads of removals go out, and the third waits its turn.
+    const places = Array.from({ length: 150 }, (_, n) => placeNo(n));
+    const search = gatedByKind([0, 50, 100].map((n) => reviewOf(ALICE, placeNo(n), 4)));
+    search.gate(REVIEW_KIND).open();
+    const store = storeOver(search.reader);
+    store.want(places);
+    await waitFor(() => expect(places.every((address) => store.readStateOf(address) === "read")).toBe(true));
+    await waitFor(() => expect(search.gate(5).waiting).toBe(4));
+
+    const underWay = store.readSettled(placeNo(0), new AbortController().signal);
+    const waiting = store.readSettled(placeNo(100), new AbortController().signal);
+    expect(await settledYet(underWay)).toBe(false);
+    expect(await settledYet(waiting)).toBe(false);
+    // Read again (Try again): those reads are let go of, and the places, read before, are not waited on.
+    act(() => store.refresh());
+    await underWay;
+    await waiting;
+  });
+
+  it("stops waiting, with the signal's reason, when the signal aborts", async () => {
+    config.reviewRelays = [SEARCH];
+    const search = gatedByKind([]);
+    const store = storeOver(search.reader);
+    store.want([JACAFE]);
+    const controller = new AbortController();
+    const settled = store.readSettled(JACAFE, controller.signal);
+    await waitFor(() => expect(search.gate(REVIEW_KIND).waiting).toBe(2));
+
+    const reason = new DOMException("The review form was closed", "AbortError");
+    controller.abort(reason);
+    await expect(settled).rejects.toBe(reason);
+  });
+});
+
 describe("useNames", () => {
   it("asks for each reviewer's profile once, 100 to a request, and names them by display_name, else name", async () => {
     config.reviewRelays = [SEARCH, MIRROR];
@@ -1581,7 +1973,8 @@ describe("the relay code, kept out of the first screen", () => {
    * Stands in for src/nostr/relayReader.ts, counting how often it is loaded and asked for a reader,
    * and gives fresh copies of the app's modules, which load it. A module that has loaded it once
    * keeps what it loaded, whatever a later test mocks, so each test needs copies of its own. Their
-   * config is set as tests/setup.ts sets the shared one, with the production review relay.
+   * config is set as tests/setup.ts sets the shared one, with the production review relay to post to
+   * and to read from.
    */
   async function withRelayCode(relays: Record<string, RelayReader>, { failFirst = false } = {}) {
     const loaded = vi.fn();
@@ -1594,7 +1987,7 @@ describe("the relay code, kept out of the first screen", () => {
       return { readerFor: opened };
     });
     const { config: fresh } = await import("../src/config");
-    Object.assign(fresh, { mapTilerKey: undefined, devScorer: undefined, reviewRelays: [SEARCH] });
+    Object.assign(fresh, { mapTilerKey: undefined, devScorer: undefined, reviewRelays: [SEARCH], reviewReadRelays: [SEARCH] });
     return { loaded, opened };
   }
 
@@ -1648,7 +2041,7 @@ describe("the relay code, kept out of the first screen", () => {
     act(() => result.current.actions.refresh());
     await waitFor(() => expect(result.current.reviews).toHaveLength(1));
     expect(loaded).toHaveBeenCalledTimes(2);
-    expect(search.requests).toHaveLength(2);
+    expect(forReviews(search)).toHaveLength(2);
   });
 
   it("is loaded once Explore's list is on a phone, which asks for its places' reviews in one go", async () => {
@@ -1709,6 +2102,7 @@ describe("the relay code, kept out of the first screen", () => {
     const { loaded, opened } = await withRelayCode({});
     const { config: fresh } = await import("../src/config");
     fresh.reviewRelays = [];
+    fresh.reviewReadRelays = [];
     const { openApp: open } = await import("./support/app");
     await open("/", { px, events: places });
 

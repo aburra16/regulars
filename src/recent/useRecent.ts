@@ -86,14 +86,16 @@ export function useRecent(): Recent {
   useEffect(() => feed.open(), [feed]);
 
   // Every review of a place on the list, one per reviewer per place (across a place's filings, the
-  // newest winning), newest first. A review of a place not on the list is left out.
+  // newest winning), newest first, less those a removal read from the relays takes down, by the feed
+  // or by the scores store. A review of a place not on the list is left out.
   const reviews = useMemo(() => {
-    void version; // The person's own reviews, and those they removed, change with it.
+    void version; // The person's own reviews, those removed, and the store's removals change with it.
     if (indexes === undefined) return [];
     // The person's own reviews read for a place's page, no older than the feed has read back to.
     const since = snapshot.oldest ?? Number.POSITIVE_INFINITY;
-    return reviewsOfListedPlaces(latestReviews(store.withOwn(snapshot.events, me, since)), indexes.byAddress);
-  }, [store, snapshot.events, snapshot.oldest, version, me, indexes]);
+    const values = [...snapshot.events, ...snapshot.removals];
+    return reviewsOfListedPlaces(latestReviews(store.withOwn(values, me, since)), indexes.byAddress);
+  }, [store, snapshot.events, snapshot.removals, snapshot.oldest, version, me, indexes]);
 
   const reviewers = useMemo(() => [...new Set(reviews.map(({ review }) => review.reviewer))], [reviews]);
   useEffect(() => store.wantRanks(reviewers), [store, reviewers]);

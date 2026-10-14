@@ -6,7 +6,7 @@ import { useOwnPubkey } from "../account/useOwnPubkey.ts";
 import { copy } from "../copy/en.ts";
 import type { Place } from "../places/place.ts";
 import type { Review } from "../reviews/review.ts";
-import type { WholeStars } from "../reviews/write.ts";
+import { REVIEW_WORDS_MAX, type WholeStars } from "../reviews/write.ts";
 import { useScore } from "../score/useScore.ts";
 import { primaryButton } from "../ui/Banner.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
@@ -208,6 +208,8 @@ export function ReviewForm({ place, wide, posting }: { place: Place; wide: boole
 
   const pad = wide ? "" : "px-gutter-phone";
   const word = stars === undefined ? "" : (copy.review.starWords[stars - 1] ?? "");
+  /** Whether the words are at the most the field takes, or past it (a longer review written elsewhere). */
+  const full = text.length >= REVIEW_WORDS_MAX;
 
   return (
     <form
@@ -236,6 +238,7 @@ export function ReviewForm({ place, wide, posting }: { place: Place; wide: boole
           id={textId}
           rows={5}
           dir="auto"
+          maxLength={REVIEW_WORDS_MAX}
           value={text}
           onChange={(event) => {
             keep({ stars, text: event.target.value });
@@ -249,6 +252,14 @@ export function ReviewForm({ place, wide, posting }: { place: Place; wide: boole
         />
         <p id={hintId} className="m-0 text-caption text-muted">
           {copy.review.textHint}
+        </p>
+        {/*
+          Said politely once the words reach the most the field takes; a longer review written
+          elsewhere opens whole, and says so too. While it says nothing it stays, so that a screen
+          reader hears it when it does, and takes no room.
+        */}
+        <p role="status" aria-live="polite" className={full ? "m-0 text-caption text-muted" : "sr-only"}>
+          {full ? copy.review.wordsFull : ""}
         </p>
       </section>
 

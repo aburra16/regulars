@@ -52,6 +52,21 @@ const defaults = structuredClone({
 // Follow starts on (config.features.follow), as development has it, so that the tests of the button,
 // of a change and of a person's page hold what is built. A production build has it off but for the
 // preview switch (ruling R39): the tests of that turn it off themselves (tests/followOff.test.tsx).
+//
+// Reviews are read (config.reviewReadRelays) where they are posted (config.reviewRelays) in
+// development: one setting gives both. So in a test too, until the test sets the read relays apart: a
+// test that sets the review relays reads reviews there, and one that sets the read relays reads them
+// there alone. Each test starts with them following the review relays again.
+let reviewReadRelays: string[] | undefined;
+Object.defineProperty(config, "reviewReadRelays", {
+  configurable: true,
+  enumerable: true,
+  get: () => reviewReadRelays ?? config.reviewRelays,
+  set: (relays: string[]) => {
+    reviewReadRelays = relays;
+  },
+});
+
 beforeEach(() => {
   config.features.circle = false;
   config.features.saved = false;
@@ -59,6 +74,7 @@ beforeEach(() => {
   forgetUnloadablePictures();
   config.mapTilerKey = undefined;
   config.reviewRelays = [];
+  reviewReadRelays = undefined;
   config.devScorer = undefined;
   config.relayListRelays = [...defaults.relayListRelays];
   config.followListRelays = [];

@@ -3,13 +3,15 @@ import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { readWithin } from "../account/writeRelays.ts";
 import { config } from "../config.ts";
 import { asEvent, type Readers } from "../nostr/events.ts";
+import { holdRemovals, removalFilters, removalsFrom } from "../reviews/removals.ts";
 import { REVIEW_KIND } from "../reviews/review.ts";
 
 /*
- * The reading of one person's reviews of places, for their page: from the review relays a page at a
- * time, newest first, for as long as the page is open, and held in memory for that long. It holds
- * review events and where the reading of them stands; which of them the page shows, the page works
- * out (./usePersonReviews.ts), as Trending does from its feed (src/recent/feed.ts). Nothing here
+ * The reading of one person's reviews of places, for their page: from the relays reviews are read from
+ * (`config.reviewReadRelays`) a page at a time, newest first, for as long as the page is open, and
+ * held in memory for that long, with the removals of them (NIP-09) those relays send. It holds review
+ * events, removals and where the reading of the reviews stands; which of them the page shows, the page
+ * works out (./usePersonReviews.ts), as Trending does from its feed (src/recent/feed.ts). Nothing here
  * writes, and nothing is kept once the page is left: its reads are stopped.
  *
  * Each relay is read on its own: how far its reading has got is a cursor, and the step from one page
@@ -19,6 +21,11 @@ import { REVIEW_KIND } from "../reviews/review.ts";
  * Nothing here loads the relay code: the app's readers import it when they first read
  * (src/nostr/relayCode.ts).
  */
+
+/** Prints a note for developers. Never shown to a person, and not in the production build. */
+function debug(message: string, ...details: unknown[]): void {
+  if (import.meta.env.DEV) console.debug(`[person] ${message}`, ...details);
+}
 
 /** How many reviews one page asks each relay for, beyond those it is known to send again. */
 export const PERSON_PAGE = 20;
@@ -109,6 +116,11 @@ type Asked = "idle" | "reading" | "failed";
 export interface ReadSnapshot {
   /** Every review event read, in no order, each once. */
   events: readonly NostrEvent[];
+  /**
+   * Every removal read that counts (`countsAsRemoval`), in no order, each once: read after each page,
+   * of the reviews it brought, and held apart from them, so that no page, cursor or time sees one.
+   */
+  removals: readonly NostrEvent[];
   /** The first page: not asked for yet, being read, read, or failed with nothing read. */
   first: Asked | "read";
   /** The next page back in time. */
@@ -151,7 +163,18 @@ export class ReviewsRead {
   #life: AbortController | null = null;
 
   readonly #events = new Map<string, NostrEvent>();
-  /** Each review relay, by its address as the app is set up with it, and how far its reading has got. */
+  /** The removals read, by id (`ReadSnapshot.removals`). */
+  readonly #removals = new Map<string, NostrEvent>();
+  /**
+   * The reading of the removals of the pages read, one page's after another's (`#page`): pages read by
+   * themselves come one on another, and a relay is sent no more than `REMOVAL_REQUESTS_AT_ONCE`
+   * requests for removals at once.
+   */
+  #removalReads: Promise<void> = Promise.resolve();
+  /**
+   * Each relay reviews are read from, by its address as the app is set up with it, and how far its
+   * reading has got.
+   */
   readonly #cursors: Map<string, Cursor>;
   #first: ReadSnapshot["first"] = "idle";
   #more: Asked = "idle";
@@ -164,7 +187,7 @@ export class ReviewsRead {
     readers: Readers,
   ) {
     this.#readers = readers;
-    this.#cursors = new Map(config.reviewRelays.map((url) => [url, FIRST_ASK]));
+    this.#cursors = new Map(config.reviewReadRelays.map((url) => [url, FIRST_ASK]));
   }
 
   /** Calls `listener` after each change. Returns what stops it. */
@@ -179,6 +202,7 @@ export class ReviewsRead {
   readonly snapshot = (): ReadSnapshot => {
     this.#snapshot ??= {
       events: [...this.#events.values()],
+      removals: [...this.#removals.values()],
       first: this.#first,
       more: this.#more,
       end: this.#atEnd(),
@@ -268,7 +292,9 @@ export class ReviewsRead {
    * person's reviews of places (`m` is `place`, decision 17), newest first, up to where that relay's
    * last page ended (`Cursor`). What comes is held, each event once, whichever relays sent it, and
    * each relay's reading moves on (`stepCursor`): one that did not answer is left when another did,
-   * and stands where it stood when none did. Whether any relay answered.
+   * and stands where it stood when none did. Then, without the page waiting, the relays that answered
+   * are asked for the removals of the reviews the page brought (`#readRemovals`), once those of the
+   * pages before it are read. Whether any relay answered.
    */
   async #page(signal: AbortSignal): Promise<boolean> {
     const asked = [...this.#cursors].filter(([, cursor]) => askedStill(cursor));
@@ -288,23 +314,51 @@ export class ReviewsRead {
     );
     if (signal.aborted) return false;
     const answering = reads.filter((read) => read.status === "fulfilled").length;
+    const answered: string[] = [];
+    const brought = new Map<string, NostrEvent>();
     reads.forEach((read, at) => {
       const [url, cursor] = asked[at]!;
       if (read.status !== "fulfilled") {
         this.#cursors.set(url, stepCursor(cursor, null, answering > 0));
         return;
       }
+      answered.push(url);
       const times: number[] = [];
       for (const value of read.value) {
         const ev = asEvent(value);
         // Only what was asked for: a review, by this person.
         if (ev === null || ev.kind !== REVIEW_KIND || ev.pubkey !== this.pubkey) continue;
         this.#events.set(ev.id, ev);
+        brought.set(ev.id, ev);
         times.push(ev.created_at);
       }
       this.#cursors.set(url, stepCursor(cursor, { count: read.value.length, times }, answering > 1));
     });
+    const filters = removalFilters([...brought.values()]);
+    this.#removalReads = this.#removalReads
+      .then(() => this.#readRemovals(answered, filters, signal))
+      // One page's removals that could not be taken in stop none of the next pages'.
+      .catch((error: unknown) => debug("a page's removals could not be taken in", error));
     return answering > 0;
+  }
+
+  /**
+   * Asks each of `relays` for the removals `filters` name (`removalFilters`), side by side, the
+   * requests to one relay `REMOVAL_REQUESTS_AT_ONCE` at a time (`removalsFrom`), each within
+   * `PERSON_READ_MS` and failing at once when it is out, as a page is read. Each removal that counts is
+   * held (`holdRemovals`), apart from the reviews, and the page is told when one is new. A relay that
+   * fails gives none, and the reviews show as they did; nothing is taken once the page is left.
+   */
+  async #readRemovals(relays: readonly string[], filters: readonly NostrFilter[], signal: AbortSignal): Promise<void> {
+    if (relays.length === 0 || filters.length === 0 || signal.aborted) return;
+    const reads = await Promise.allSettled(
+      relays.map((url) =>
+        removalsFrom(filters, (filter) => readWithin(url, filter, this.#readers, signal, PERSON_READ_MS, { failFast: true })),
+      ),
+    );
+    if (signal.aborted) return;
+    const values = reads.flatMap((read) => (read.status === "fulfilled" ? read.value : []));
+    if (holdRemovals(this.#removals, values, Date.now() / 1000)) this.#changed();
   }
 
   /** Whether no relay is left to ask: each is done, or has been left for the visit. */

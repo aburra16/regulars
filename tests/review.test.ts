@@ -1,7 +1,16 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { latestReviews, newestPerReviewer, parseReview, REVIEW_KIND, type Review, starsOf } from "../src/reviews/review";
+import {
+  latestReviews,
+  newestPerReviewer,
+  parseReview,
+  photosOf,
+  REVIEW_KIND,
+  type Review,
+  starsOf,
+  wordsOf,
+} from "../src/reviews/review";
 import { hex64, shapedEvent } from "./support/events";
 
 const FILER = "4bded2172075221ead393a0baec9c530238ec192c2a9cdbbc7754ba8c3357b64";
@@ -9,6 +18,9 @@ const PLACE = `39999:${FILER}:osm-way-993221389`;
 const OTHER_PLACE = `39999:${FILER}:osm-node-4417361789`;
 const ALICE = hex64("a");
 const BOB = hex64("b");
+/** Photos' addresses, as another app puts them in a review (NIP-92). */
+const PHOTO = "https://blossom.example/abc.jpg";
+const SECOND_PHOTO = "https://blossom.example/def.png";
 
 /** A review as brief § 4.1 draws it: 4 stars of `PLACE` by Alice, with `fields` over it. */
 const review = (fields: Partial<NostrEvent> = {}): NostrEvent =>
@@ -163,6 +175,79 @@ describe("parseReview", () => {
     expect(parseReview(review({ tags: [["d", PLACE]] }))).toMatchObject({ stars: null, text: review().content });
     expect(parseReview(review({ content: "" }))).toMatchObject({ stars: 4, text: "" });
   });
+
+  it("reads the words without the photos' addresses that another app put after them", () => {
+    const ev = review({
+      content: `Get the grilled oysters and sit at the bar.\n${PHOTO}`,
+      tags: [...review().tags, ["imeta", `url ${PHOTO}`, "m image/jpeg"]],
+    });
+    expect(parseReview(ev)?.text).toBe("Get the grilled oysters and sit at the bar.");
+    expect(latestReviews([ev])[0]?.text).toBe("Get the grilled oysters and sit at the bar.");
+  });
+});
+
+describe("photosOf and wordsOf: a review's photos, and its words without their addresses, as Brainstorm reads them", () => {
+  it("finds a photo's address in the url part of an imeta tag, wherever that part is, trimmed", () => {
+    expect(photosOf([["imeta", `url ${PHOTO}`]])).toEqual([PHOTO]);
+    expect(photosOf([["imeta", "m image/jpeg", `url ${PHOTO}`, "dim 640x480"]])).toEqual([PHOTO]);
+    expect(photosOf([["imeta", `url   ${PHOTO}  `]])).toEqual([PHOTO]);
+  });
+
+  it("finds each photo once, in the order the tags give them, and nothing where an imeta has no url part", () => {
+    expect(
+      photosOf([
+        ["imeta", `url ${SECOND_PHOTO}`],
+        ["s", "4"],
+        ["imeta", `url ${PHOTO}`],
+        ["imeta", `url ${SECOND_PHOTO}`],
+      ]),
+    ).toEqual([SECOND_PHOTO, PHOTO]);
+    expect(photosOf([["imeta", "m image/jpeg"]])).toEqual([]);
+    expect(photosOf([["imeta"], ["imeta", "url "], ["imeta", "url   "]])).toEqual([]);
+    // Only the first url part of a tag names its photo.
+    expect(photosOf([["imeta", `url ${PHOTO}`, `url ${SECOND_PHOTO}`]])).toEqual([PHOTO]);
+    expect(photosOf([["url", PHOTO], ["r", PHOTO]])).toEqual([]);
+  });
+
+  it("takes out one photo on a line after the words", () => {
+    expect(wordsOf(`Get the bolo.\n${PHOTO}`, [["imeta", `url ${PHOTO}`]])).toBe("Get the bolo.");
+  });
+
+  it("takes out two photos, each on its line", () => {
+    const tags = [
+      ["imeta", `url ${PHOTO}`],
+      ["imeta", `url ${SECOND_PHOTO}`],
+    ];
+    expect(wordsOf(`Get the bolo.\n${PHOTO}\n${SECOND_PHOTO}`, tags)).toBe("Get the bolo.");
+  });
+
+  it("takes out every time the content gives the same address", () => {
+    expect(wordsOf(`${PHOTO}\nGet the bolo.\n${PHOTO}`, [["imeta", `url ${PHOTO}`]])).toBe("Get the bolo.");
+  });
+
+  it("takes out an address in the middle of a sentence, and leaves the rest of the sentence as it is", () => {
+    expect(wordsOf(`See ${PHOTO} for the menu`, [["imeta", `url ${PHOTO}`]])).toBe("See  for the menu");
+  });
+
+  it("finds the address of an imeta whose url part is not its first", () => {
+    expect(wordsOf(`Get the bolo.\n${PHOTO}`, [["imeta", "m image/jpeg", `url ${PHOTO}`]])).toBe("Get the bolo.");
+  });
+
+  it("leaves an address that no imeta names, and takes out nothing for an imeta with no url part", () => {
+    expect(wordsOf(`Get the bolo.\n${PHOTO}`, [["imeta", "m image/jpeg"]])).toBe(`Get the bolo.\n${PHOTO}`);
+    expect(wordsOf(`Get the bolo.\n${PHOTO}`, [])).toBe(`Get the bolo.\n${PHOTO}`);
+  });
+
+  it("takes out the spaces and tabs before a line break, and trims the ends", () => {
+    expect(wordsOf(`Get the bolo. \t \n${PHOTO}`, [["imeta", `url ${PHOTO}`]])).toBe("Get the bolo.");
+    expect(wordsOf(`Get the bolo. ${PHOTO}\nSit outside.`, [["imeta", `url ${PHOTO}`]])).toBe("Get the bolo.\nSit outside.");
+    expect(wordsOf("  Get the bolo. \nSit outside.\n\n", [])).toBe("Get the bolo.\nSit outside.");
+  });
+
+  it("gives no words for a review that is a photo alone", () => {
+    expect(wordsOf(PHOTO, [["imeta", `url ${PHOTO}`]])).toBe("");
+    expect(wordsOf(`\n${PHOTO}\n`, [["imeta", `url ${PHOTO}`]])).toBe("");
+  });
 });
 
 describe("latestReviews (Review Focus 2)", () => {
@@ -239,6 +324,77 @@ describe("latestReviews (Review Focus 2)", () => {
   it("passes over values that are not reviews of a place", () => {
     const ev = review();
     expect(latestReviews([null, review({ kind: 1 }), { ...ev, sig: "nope" }, ev]).map((r) => r.id)).toEqual([ev.id]);
+  });
+});
+
+describe("latestReviews, with the removals among what the relays sent (NIP-09)", () => {
+  /** Thursday 8 October 2026, 12:00 UTC, in seconds: the time on the device. */
+  const NOW = 1_791_460_800;
+  const DAY = 86_400;
+
+  /** A removal by `pubkey` (Alice unless named) with `tags`, dated `createdAt`. */
+  const removal = (tags: string[][], createdAt = NOW, pubkey = ALICE) => shapedEvent({ kind: 5, pubkey, created_at: createdAt, tags });
+  /** The address a removal names Alice's review at `d` by. */
+  const addressAt = (d: string, pubkey = ALICE) => `${REVIEW_KIND}:${pubkey}:${d}`;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"], now: NOW * 1000 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("leaves out a review whose removal names it by e and by a, with k, in either order", () => {
+    const record = review({ created_at: NOW - DAY });
+    const removed = removal([["e", record.id], ["a", addressAt(PLACE)], ["k", String(REVIEW_KIND)]]);
+    expect(latestReviews([record, removed])).toEqual([]);
+    expect(latestReviews([removed, record])).toEqual([]);
+  });
+
+  it("leaves out a review whose removal names it by e alone", () => {
+    const record = review({ created_at: NOW - DAY });
+    expect(latestReviews([record, removal([["e", record.id]], NOW - 2 * DAY)])).toEqual([]);
+  });
+
+  it("keeps a newer review at the d a removal named by a", () => {
+    const removed = review({ created_at: NOW - DAY });
+    const newer = review({ created_at: NOW - DAY + 60, tags: [["d", PLACE], ["a", PLACE], ["s", "5"]] });
+    const values = [removed, removal([["a", addressAt(PLACE)]], NOW - DAY + 30), newer];
+    expect(latestReviews(values).map((r) => r.id)).toEqual([newer.id]);
+  });
+
+  it("does not bring back an older version at the same d when the newest is taken down by e", () => {
+    const older = review({ created_at: NOW - 2 * DAY, tags: [["d", PLACE], ["a", PLACE], ["s", "2"]] });
+    const newest = review({ created_at: NOW - DAY });
+    expect(latestReviews([older, newest, removal([["e", newest.id]])])).toEqual([]);
+  });
+
+  it("does not bring back an older review of the place under another d when the newest is taken down", () => {
+    const olderElsewhere = review({ created_at: NOW - 2 * DAY, tags: [["d", `place:${PLACE}`], ["a", PLACE], ["s", "2"]] });
+    const newest = review({ created_at: NOW - DAY });
+    const bob = review({ pubkey: BOB });
+    const reviews = latestReviews([olderElsewhere, newest, bob, removal([["e", newest.id]])]);
+    expect(reviews.map((r) => r.id)).toEqual([bob.id]);
+  });
+
+  it("ignores a removal by anyone but the review's author", () => {
+    const record = review({ created_at: NOW - DAY });
+    const byBob = removal([["e", record.id], ["a", addressAt(PLACE)]], NOW, BOB);
+    expect(latestReviews([record, byBob]).map((r) => r.id)).toEqual([record.id]);
+  });
+
+  it("ignores a removal dated more than a day ahead of the device's clock, and counts one an hour ahead", () => {
+    const record = review({ created_at: NOW - DAY });
+    const tags = [["a", addressAt(PLACE)]];
+    expect(latestReviews([record, removal(tags, NOW + 2 * DAY)]).map((r) => r.id)).toEqual([record.id]);
+    expect(latestReviews([record, removal(tags, NOW + 3_600)])).toEqual([]);
+  });
+
+  it("takes down only what a removal names: another review of the same person stays", () => {
+    const here = review({ created_at: NOW - DAY });
+    const there = review({ created_at: NOW - DAY, tags: [["d", OTHER_PLACE], ["s", "3"]] });
+    expect(latestReviews([here, there, removal([["e", here.id], ["a", addressAt(PLACE)]])]).map((r) => r.id)).toEqual([there.id]);
   });
 });
 

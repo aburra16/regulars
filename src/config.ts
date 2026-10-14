@@ -16,6 +16,12 @@ const searchRelay = "wss://search.brainstorm.world";
 const publicReviewRelays = ["wss://nos.lol", "wss://relay.primal.net"];
 
 /**
+ * The list hub: the relay the places are read from (`placesRelay`), where Brainstorm publishes the
+ * reviews written on it too. Reviews are read there, and never posted there (`reviewReadRelays`).
+ */
+const hubRelay = "wss://dcosl.brainstorm.world";
+
+/**
  * Where a person's follow list is read and saved in production, beside their own relays: Purplepages
  * and five public relays. Six, as a first list is made for a new account only when more than half of
  * them answer, and one or two are often out of reach (rulings R14 and R16).
@@ -108,11 +114,18 @@ interface Config {
    */
   connectRelay: string;
   /**
-   * Where reviews (kind 34259) are posted to and read from. In production, Brainstorm's search relay
-   * (decision 16) and two public relays (decision 29); in development, VITE_REVIEW_RELAYS, and none
-   * when it is unset.
+   * Where reviews (kind 34259) are posted to, and where a post counts as made. In production,
+   * Brainstorm's search relay (decision 16) and two public relays (decision 29); in development,
+   * VITE_REVIEW_RELAYS, and none when it is unset. Names and pictures are read here too.
    */
   reviewRelays: string[];
+  /**
+   * Where reviews, and the removals of them (kind 5), are read: by the places' pages and lists, a
+   * person's page and Recent. In production, the review relays and the list hub (`hubRelay`), where
+   * Brainstorm publishes reviews too; the hub is read, never written. In development, the review
+   * relays as VITE_REVIEW_RELAYS gives them, and never the hub.
+   */
+  reviewReadRelays: string[];
   /**
    * What a read from a relay adds to its filter, by the relay's URL. The search relay leaves out what
    * it takes for spam unless asked with `search: "include:spam"`; the app draws its own line
@@ -179,7 +192,7 @@ export const config: Config = {
   houseHex: npubToHex(houseNpub),
   headerCoordinate:
     "39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:food-and-drink-places",
-  placesRelay: "wss://dcosl.brainstorm.world",
+  placesRelay: hubRelay,
   placesSignatureSample: 64,
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
   mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
@@ -187,6 +200,9 @@ export const config: Config = {
   connectRelay: "wss://relay.nsec.app",
   // In a production build `import.meta.env.DEV` is false, so none of these variables is read there.
   reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay, ...publicReviewRelays],
+  reviewReadRelays: import.meta.env.DEV
+    ? relayList(import.meta.env.VITE_REVIEW_RELAYS)
+    : [searchRelay, ...publicReviewRelays, hubRelay],
   relayReadExtras: { [searchRelay]: { search: "include:spam" } },
   relayListRelays: ["wss://purplepag.es"],
   followListRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_FOLLOW_LIST_RELAYS) : [...publicFollowListRelays],

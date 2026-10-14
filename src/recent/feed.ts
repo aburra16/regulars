@@ -1,14 +1,16 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
 import { config } from "../config.ts";
-import { asEvent, type RelayReader, readAll, withReadExtras } from "../nostr/events.ts";
+import { asEvent, type ReadOptions, type RelayReader, readAll, withReadExtras } from "../nostr/events.ts";
 import { appReaders } from "../nostr/relayCode.ts";
+import { holdRemovals, removalFilters, removalsFrom } from "../reviews/removals.ts";
 import { REVIEW_KIND } from "../reviews/review.ts";
 
 /*
- * The newest reviews of places, wherever the places are (Recent): read from the
- * review relays a page at a time, newest first, and held in memory for the session, so that Back to
- * Recent finds the same list. The feed holds review events and where the reading of them stands;
+ * The newest reviews of places, wherever the places are (Recent): read from the relays reviews are
+ * read from (`config.reviewReadRelays`) a page at a time, newest first, and held in memory for the
+ * session, so that Back to Recent finds the same list, with the removals of them (NIP-09) those
+ * relays send. The feed holds review events, removals and where the reading of the reviews stands;
  * which of them the page shows, and whose they are, it works out with the scores store
  * (src/recent/useRecent.ts). Switching the view reads nothing here.
  *
@@ -30,11 +32,23 @@ export const FEED_ENOUGH = 20;
  */
 export const FEED_AUTO_PAGES = 3;
 
+/**
+ * How the reviews, and the removals of them, are read from each relay: not waiting on one that is out
+ * (ruling R40), which fails at once, so that it holds up no page the others have answered. A relay
+ * that is slow to send, once it has said anything, is waited for under its limits, as before.
+ */
+const REVIEW_READS: ReadOptions = { failFast: true };
+
 /** How long the newest page read stays the newest: a visit to Recent after that reads it again. */
 export const FEED_FRESH_MS = 120_000;
 
 /** A reader for each relay, by its URL. */
 type Readers = (url: string) => RelayReader;
+
+/** Prints a note for developers. Never shown to a person, and not in the production build. */
+function debug(message: string, ...details: unknown[]): void {
+  if (import.meta.env.DEV) console.debug(`[recent] ${message}`, ...details);
+}
 
 /**
  * Where a read of the feed stands: not under way, under way, or failed (no review relay answered).
@@ -46,6 +60,12 @@ export type FeedRead = "idle" | "reading" | "failed";
 export interface FeedSnapshot {
   /** Every review event read, in no order. */
   events: readonly NostrEvent[];
+  /**
+   * Every removal read that counts (`countsAsRemoval`), in no order, each once, held for the session:
+   * read after each page, of the reviews it brought, and held apart from them, so that no page, time
+   * or pruning sees one.
+   */
+  removals: readonly NostrEvent[];
   /** The first page: not asked for yet, being read, read, or failed with nothing read. */
   first: FeedRead | "read";
   /** The next page back in time ("Show older reviews", or read by itself). */
@@ -71,6 +91,8 @@ export interface FeedSnapshot {
 interface Page {
   /** What every relay sent, a review sent by two of them twice. */
   events: NostrEvent[];
+  /** The relays that answered: where the removals of its reviews are asked for. */
+  answered: string[];
   /** Whether a relay sent as many as were asked for: there may be more, further back. */
   full: boolean;
   /** Whether every review relay answered. */
@@ -107,6 +129,14 @@ export class RecentFeed {
   #wanted = false;
 
   readonly #events = new Map<string, NostrEvent>();
+  /** The removals read, by id (`FeedSnapshot.removals`). */
+  readonly #removals = new Map<string, NostrEvent>();
+  /**
+   * The reading of the removals of the pages kept, one page's after another's (`#keep`): pages read by
+   * themselves come one on another, and a relay is sent no more than `REMOVAL_REQUESTS_AT_ONCE`
+   * requests for removals at once.
+   */
+  #removalReads: Promise<void> = Promise.resolve();
   #first: FeedSnapshot["first"] = "idle";
   #older: FeedRead = "idle";
   #newer: FeedRead = "idle";
@@ -140,6 +170,7 @@ export class RecentFeed {
   readonly snapshot = (): FeedSnapshot => {
     this.#snapshot ??= {
       events: [...this.#events.values()],
+      removals: [...this.#removals.values()],
       first: this.#first,
       older: this.#older,
       newer: this.#newer,
@@ -217,7 +248,7 @@ export class RecentFeed {
       this.#changed();
       return;
     }
-    this.#keep(page.events);
+    this.#keep(page, signal);
     this.#pages += 1;
     this.#oldest = page.reach ?? this.#oldest;
     this.#end = !page.full && page.complete;
@@ -225,11 +256,14 @@ export class RecentFeed {
     this.#changed();
   };
 
-  /** Reads the first page: the newest reviews there are. With no review relays there are none to read. */
+  /**
+   * Reads the first page: the newest reviews there are. With no relays to read reviews from there are
+   * none to read.
+   */
   async #readFirst(): Promise<void> {
     const signal = this.#life?.signal;
     if (signal === undefined || this.#first === "reading") return;
-    if (config.reviewRelays.length === 0) {
+    if (config.reviewReadRelays.length === 0) {
       this.#first = "read";
       this.#end = true;
       this.#changed();
@@ -244,7 +278,7 @@ export class RecentFeed {
       this.#changed();
       return;
     }
-    this.#keep(page.events);
+    this.#keep(page, signal);
     this.#pages = 1;
     this.#oldest = page.reach;
     this.#end = !page.full && page.complete;
@@ -292,16 +326,17 @@ export class RecentFeed {
         for (const [id, ev] of this.#events) if (ev.created_at > from) this.#events.delete(id);
       }
     }
-    this.#keep(page.events);
+    this.#keep(page, signal);
     this.#readAt = Date.now();
     this.#newer = "idle";
     this.#changed();
   }
 
   /**
-   * One page from every review relay, side by side: the reviews of places (`m` is `place`, decision
-   * 17), newest first, at most `FEED_PAGE` from each, those up to `until` (that second included)
-   * when it is given. Null when no relay answered, or `signal` aborted.
+   * One page from every relay reviews are read from, side by side, a relay that is out failing at once
+   * (`REVIEW_READS`): the reviews of places (`m` is `place`, decision 17), newest first, at most
+   * `FEED_PAGE` from each, those up to `until` (that second included) when it is given. Null when no
+   * relay answered, or `signal` aborted.
    */
   async #page(until: number | undefined, signal: AbortSignal): Promise<Page | null> {
     const filter: NostrFilter = {
@@ -310,9 +345,10 @@ export class RecentFeed {
       limit: FEED_PAGE,
       ...(until === undefined ? {} : { until }),
     };
+    const relays = [...config.reviewReadRelays];
     const reads = await Promise.allSettled(
       // A reader that cannot be made fails its relay's read, as a read that fails does.
-      config.reviewRelays.map(async (url) => readAll(this.#readers(url), filter, signal)),
+      relays.map(async (url) => readAll(this.#readers(url), filter, signal, REVIEW_READS)),
     );
     if (signal.aborted) return null;
     const answered = reads.flatMap((read) => (read.status === "fulfilled" ? [read.value] : []));
@@ -331,12 +367,47 @@ export class RecentFeed {
       if (values.length >= FEED_PAGE && oldest !== undefined && (fullReach === undefined || oldest > fullReach)) fullReach = oldest;
     }
     const full = answered.some((values) => values.length >= FEED_PAGE);
-    return { events, full, complete: answered.length === reads.length, reach: (full ? fullReach : undefined) ?? oldestOf(events) };
+    return {
+      events,
+      answered: relays.filter((_, at) => reads[at]?.status === "fulfilled"),
+      full,
+      complete: answered.length === reads.length,
+      reach: (full ? fullReach : undefined) ?? oldestOf(events),
+    };
   }
 
-  /** Holds `events`, once each. */
-  #keep(events: readonly NostrEvent[]): void {
-    for (const ev of events) this.#events.set(ev.id, ev);
+  /**
+   * Holds the reviews of `page`, once each; then, without waiting, asks the relays that answered it
+   * for their removals (`#readRemovals`), once the removals of the pages kept before it are read.
+   */
+  #keep(page: Page, signal: AbortSignal): void {
+    for (const ev of page.events) this.#events.set(ev.id, ev);
+    const filters = removalFilters(page.events);
+    this.#removalReads = this.#removalReads
+      .then(() => this.#readRemovals(page.answered, filters, signal))
+      // One page's removals that could not be taken in stop none of the next pages'.
+      .catch((error: unknown) => debug("a page's removals could not be taken in", error));
+  }
+
+  /**
+   * Asks each of `relays` for the removals `filters` name (`removalFilters`), side by side, the
+   * requests to one relay `REMOVAL_REQUESTS_AT_ONCE` at a time (`removalsFrom`), as a page is read
+   * (`REVIEW_READS`).
+   * Each removal that counts is held for the session (`holdRemovals`), apart from the reviews, and the
+   * page is told when one is new. A relay that fails gives none, and the reviews show as they did;
+   * nothing is taken once the feed is stopped.
+   */
+  async #readRemovals(relays: readonly string[], filters: readonly NostrFilter[], signal: AbortSignal): Promise<void> {
+    if (relays.length === 0 || filters.length === 0 || signal.aborted) return;
+    const reads = await Promise.allSettled(
+      relays.map(async (url) => {
+        const reader = this.#readers(url);
+        return removalsFrom(filters, (filter) => readAll(reader, filter, signal, REVIEW_READS));
+      }),
+    );
+    if (signal.aborted) return;
+    const values = reads.flatMap((read) => (read.status === "fulfilled" ? read.value : []));
+    if (holdRemovals(this.#removals, values, Date.now() / 1000)) this.#changed();
   }
 
   /** Notes a change, and tells the listeners. */

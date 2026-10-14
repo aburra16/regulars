@@ -37,13 +37,16 @@ export interface Posting {
 }
 
 /**
- * A review signed and sent that no review relay took: the event, the stars it gives, where it was sent
- * and where it was taken. Try again sends it again as it is, to the relays that have not taken it,
- * while the form still says what it says, for the same person: nobody is asked to sign it again.
+ * A review signed and sent that no review relay took: the event, the stars it gives and the words
+ * typed for it (trimmed), where it was sent and where it was taken. Try again sends it again as it is,
+ * to the relays that have not taken it, while the form still says what it says, for the same person:
+ * nobody is asked to sign it again. The words are kept apart from the event's: an edit puts the
+ * addresses of the photos it keeps after them (`reviewTemplate`).
  */
 interface Unposted {
   event: NostrEvent;
   stars: WholeStars;
+  words: string;
   relays: readonly string[];
   accepted: readonly string[];
 }
@@ -51,20 +54,25 @@ interface Unposted {
 /**
  * Posting a review of `place` for the person who has signed in. Posting signs the review with the
  * person's signer (an add-on within `SIGN_TIMEOUT_MS`) and sends it where they publish (`whereToPost`,
- * `postReview`); once a relay Regulars reads reviews from has taken it, the place shows it at once,
- * held until the relays send it back (`noteOwnReview`), the draft is forgotten, and `onPosted` takes
- * the person back to the place, while their own relays may still be answering. Such a relay that is
- * slow, or fails for now, is sent it again (`sendReview`), and while none has taken it after
- * `SLOW_POST_MS`, `slow` says so. When none takes it, the status says so (and whether the person's own
- * relays did); Try again sends the same signed review again, as patiently, while the stars and words
- * are the same, and signs a new one when they are not.
+ * `postReview`). When they have a review of the place already, the new one is built on it
+ * (`ownNewest`, `reviewTemplate`), so that it keeps what they gave in another app, and dated after it
+ * and after their removals (`reviewStamp`): so nothing is built or signed until the place's reviews,
+ * and the removals of them, are no longer being read (`readSettled`), while the button says Posting….
+ * When they could not be read, it is built on what is known. Once a relay
+ * Regulars reads reviews from has taken it, the place shows it at once, held until the relays send it
+ * back (`noteOwnReview`), the draft is forgotten, and `onPosted` takes the person back to the place,
+ * while their own relays may still be answering. Such a relay that is slow, or fails for now, is sent
+ * it again (`sendReview`), and while none has taken it after `SLOW_POST_MS`, `slow` says so. When none
+ * takes it, the status says so (and whether the person's own relays did); Try again sends the same
+ * signed review again, as patiently, while the stars and the words typed are the same, and signs a new
+ * one when they are not.
  * A person who is signed out, or whose add-on or phone app now signs as someone else (they are signed
  * out, `AccountChanged`), is sent to sign in, and back to the form with what they typed.
  */
 export function usePost(place: Place, onPosted: () => void): Posting {
   const { account } = useAccount();
   const { readers, writers } = useRelays();
-  const { noteOwnReview, ownCoordinates, ownRemovedAt } = useScoreActions();
+  const { noteOwnReview, ownCoordinates, ownNewest, ownRemovedAt, readSettled } = useScoreActions();
   const navigate = useNavigate();
   const location = useLocation();
   const [status, setStatus] = useState<PostStatus>("editing");
@@ -99,7 +107,7 @@ export function usePost(place: Place, onPosted: () => void): Posting {
     setStatus("posting");
     const words = text.trim();
     const again = unposted.current;
-    const resend = again !== null && again.event.pubkey === account.pubkey && again.stars === stars && again.event.content === words;
+    const resend = again !== null && again.event.pubkey === account.pubkey && again.stars === stars && again.words === words;
     /** Where it is sent, and where it was taken already (by an earlier try). */
     let relays: readonly string[] = [];
     const before = resend ? again.accepted : [];
@@ -114,10 +122,16 @@ export function usePost(place: Place, onPosted: () => void): Posting {
         posted = await sendReview(again.event, relays.filter((url) => !before.includes(url)), signal, { writers, onSlow, onSlowEnd });
       } else {
         unposted.current = null;
-        relays = await whereToPost(account.pubkey, account.signer, readers, signal);
+        // Nothing is built, or signed, before the place's reviews and their removals are in: an edit
+        // built on nothing would replace the person's review and lose what another app gave it.
+        [relays] = await Promise.all([
+          whereToPost(account.pubkey, account.signer, readers, signal),
+          readSettled(place.address, signal),
+        ]);
         const now = Math.floor(Date.now() / 1000);
         const stamp = reviewStamp(now, ownCoordinates(account.pubkey, place.address), ownRemovedAt(account.pubkey, place.address));
-        posted = await postReview(reviewTemplate(place, stars, words, stamp), account.signer, [...relays], signal, {
+        const previous = ownNewest(account.pubkey, place.address);
+        posted = await postReview(reviewTemplate(place, stars, words, stamp, previous), account.signer, [...relays], signal, {
           writers,
           signWithin: signTimeFor(account.how),
           onSlow,
@@ -135,7 +149,7 @@ export function usePost(place: Place, onPosted: () => void): Posting {
       if (error instanceof AccountChanged) return toSignIn(stars, text);
       const taken = error instanceof NotPosted ? [...before, ...error.accepted] : [];
       if (error instanceof NotPosted && error.event !== undefined) {
-        unposted.current = { event: error.event, stars, relays, accepted: taken };
+        unposted.current = { event: error.event, stars, words, relays, accepted: taken };
       }
       setStatus(taken.length > 0 ? "not on Regulars" : "failed");
     } finally {

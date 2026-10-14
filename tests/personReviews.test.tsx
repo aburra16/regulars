@@ -3,6 +3,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as client from "../src/circle/brainstorm";
+import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { changeFollow } from "../src/follow/change";
 import { PERSON_ASK_MAX, PERSON_PAGE, PERSON_READ_MS } from "../src/person/reviewsRead";
@@ -15,7 +16,7 @@ import { gate, signedInAs } from "./support/followPage";
 import { after, endScene, type Logs, person, startScene } from "./support/followScene";
 import { type Relay, silentWhen } from "./support/followWorld";
 import { expectNoNumbersAboutPeople } from "./support/noNumbers";
-import { asksForReviews, at, bothHold, JACAFE, listed, LISTED, lists, MAIA, main, MAYA, MAYA_SECRET, MUSEU, open, openSol, pathsOf, placePath, reviewAsks, reviewOf, reviewsPart, scene, showMore, SOL, SOL_PATH, SOL_SECRET, solOn, tryAgain, unlisted } from "./support/personScene";
+import { asksForReviews, at, bothHold, JACAFE, listed, LISTED, lists, MAIA, main, MAYA, MAYA_SECRET, MUSEU, open, openSol, pathsOf, placePath, reviewAsks, reviewOf, reviewsPart, scene, showMore, SOL, SOL_PATH, SOL_SECRET, solOn, THIRD, tryAgain, unlisted } from "./support/personScene";
 import { places, reviewOfPlace, SEARCH } from "./support/reviewWorld";
 
 /*
@@ -65,6 +66,22 @@ describe("what a person's page asks the review relays", () => {
     expect(s.follows.asked().filter(asksForReviews)).toEqual([]);
     expect(s.follows.published()).toEqual([]);
     expect(change).not.toHaveBeenCalled();
+  });
+});
+
+describe("where a person's page reads their reviews", () => {
+  it("reads them from the relays reviews are read from, and lists one only a relay that is not posted to has", async () => {
+    const s = scene({ third: {} });
+    // Reviews are posted to the search relay, and read there and at the third, which only Brainstorm writes to.
+    config.reviewRelays = [SEARCH];
+    config.reviewReadRelays = [SEARCH, THIRD];
+    s.third!.held.push(solOn(JACAFE, 4, "Read where it was written", at(1)));
+    await openSol(s);
+
+    await lists([JACAFE]);
+    expect(within(reviewOf(JACAFE)).getByText("Read where it was written")).toBeInTheDocument();
+    expect(reviewAsks(s.third!)).toHaveLength(1);
+    expect(reviewAsks(s.second)).toEqual([]);
   });
 });
 
@@ -152,6 +169,46 @@ describe("which reviews a person's page shows", () => {
 
     await lists([MAIA]);
     expect(within(reviewsPart()).queryByText("I take this back")).not.toBeInTheDocument();
+  });
+
+  it("does not list a review its author removed, though only one relay sends the removal, and the next page loads as it would have", async () => {
+    const s = scene();
+    const reviews = LISTED.slice(0, 25).map((place, i) => solOn(place, 4, `Words about ${place.d}`, at(i)));
+    bothHold(s, reviews);
+    const removed = reviews[3]!;
+    // Removed in another app a minute ago, by id and by address, as both apps write a removal.
+    const removal = shapedEvent({
+      kind: 5,
+      pubkey: SOL,
+      created_at: at(0),
+      tags: [["e", removed.id], ["a", `${REVIEW_KIND}:${SOL}:place:${LISTED[3]!.address}`], ["k", String(REVIEW_KIND)]],
+    });
+    s.second.held.push(removal);
+    const user = person();
+    await openSol(s);
+
+    const shown = (n: number) => LISTED.slice(0, n).filter((_, i) => i !== 3);
+    await lists(shown(20));
+    expect(within(reviewsPart()).queryByText(`Words about ${LISTED[3]!.d}`)).not.toBeInTheDocument();
+    // Each relay that answered was asked for the removals of the reviews the page brought, by id and by address.
+    for (const [from, extras] of [
+      [s.search, { search: "include:spam" }],
+      [s.second, {}],
+    ] as const) {
+      const asked = from.asked.filter((filter) => filter.kinds?.includes(5));
+      expect(asked).toEqual([
+        { kinds: [5], "#e": expect.any(Array), limit: 500, ...extras },
+        { kinds: [5], "#a": expect.any(Array), limit: 500, ...extras },
+      ]);
+      expect([...asked[0]!["#e"]!].sort()).toEqual(reviews.slice(0, 20).map((review) => review.id).sort());
+    }
+
+    // The next page is asked for from where the first ended, as without the removal, and shows the rest.
+    await user.click(showMore()!);
+    await lists(shown(25));
+    expect(reviewAsks(s.search)[1]).toEqual({ kinds: [REVIEW_KIND], authors: [SOL], "#m": ["place"], limit: 21, until: at(19), search: "include:spam" });
+    expect(reviewAsks(s.second)[1]).toEqual({ kinds: [REVIEW_KIND], authors: [SOL], "#m": ["place"], limit: 21, until: at(19) });
+    await waitFor(() => expect(showMore()).not.toBeInTheDocument());
   });
 
   it("shows, on the person's own page, a review they posted in this tab that the relays have not sent back yet", async () => {

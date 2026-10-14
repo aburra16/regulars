@@ -1024,6 +1024,12 @@ export const copy = {
     textPlaceholder: "What to order, when to go, what to skip.",
     /** Under the text box (the design's). */
     textHint: "Optional. A rating on its own still counts.",
+    // DRAFT
+    /**
+     * Under the hint, said politely, while the words are at the most the text box takes
+     * (`REVIEW_WORDS_MAX`, src/reviews/write.ts) or past it, as a longer review written elsewhere is.
+     */
+    wordsFull: "Reviews stop at 1,200 characters.",
     /** Over Post. */
     notice: "Reviews are public and carry your name. Posting again replaces your review; you can remove it later.",
     /** The button that posts it (the design's). */

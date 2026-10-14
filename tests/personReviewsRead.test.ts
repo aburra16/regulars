@@ -1,11 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { askedStill, type Cursor, FIRST_ASK, limitOf, PERSON_ASK_MAX, PERSON_PAGE, type Sent, stepCursor } from "../src/person/reviewsRead";
+import { config } from "../src/config";
+import { askedStill, type Cursor, FIRST_ASK, limitOf, PERSON_ASK_MAX, PERSON_PAGE, ReviewsRead, type Sent, stepCursor } from "../src/person/reviewsRead";
+import { REVIEW_KIND } from "../src/reviews/review";
+import { hex64, shapedEvent } from "./support/events";
+import { createMemoryReader } from "./support/memoryReader";
 
 /*
  * How far the reading of one review relay has got, for a person's page (src/person/reviewsRead.ts):
  * the step from one page to the next, which is a pure function of where the relay stood, what it
- * sent, and whether another relay answered the page. (tests/personReviews.test.tsx has the reading
+ * sent, and whether another relay answered the page; and that the removals of the pages read go on
+ * being read after one page's could not be taken in. (tests/personReviews.test.tsx has the reading
  * itself, on the page.)
  */
 
@@ -143,5 +148,38 @@ describe("a relay that was left (rulings R37 and R42)", () => {
     ["one that has not been asked yet", FIRST_ASK],
   ])("is not %s", (_, cursor) => {
     expect(cursor.left).toBe(false);
+  });
+});
+
+describe("the removals of a person's reviews", () => {
+  it("go on being read for the pages after one whose removals could not be taken in", async () => {
+    config.reviewRelays = ["wss://reviews.example.test"];
+    const sol = hex64("5");
+    // 30 reviews, two pages; the first page's has a removal.
+    const reviews = Array.from({ length: 30 }, (_, i) =>
+      shapedEvent({ kind: REVIEW_KIND, pubkey: sol, created_at: 1_700_000_000 - i, tags: [["d", `d-${i}`], ["m", "place"]] }),
+    );
+    const removal = shapedEvent({ kind: 5, pubkey: sol, created_at: 1_700_000_100, tags: [["e", reviews[0]!.id]] });
+    const reader = createMemoryReader([...reviews, removal]);
+    const read = new ReviewsRead(sol, () => reader);
+    // Something that hears the reading fails once, as the first removal is taken in.
+    let failed = false;
+    read.subscribe(() => {
+      if (failed || read.snapshot().removals.length === 0) return;
+      failed = true;
+      throw new Error("A listener failed");
+    });
+    const notes = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const removalReads = () => reader.requests.filter((filter) => filter.kinds?.includes(5));
+    read.start();
+    await vi.waitFor(() => expect(failed).toBe(true));
+
+    await read.readMore(true);
+    await vi.waitFor(() => expect(removalReads()).toHaveLength(4));
+    // The second page begins at the second the first ended in, which it sends again.
+    expect(removalReads()[2]?.["#e"]).toEqual(reviews.slice(19).map((review) => review.id));
+    expect(notes).toHaveBeenCalledWith(expect.stringContaining("removals"), expect.any(Error));
+    read.stop();
+    notes.mockRestore();
   });
 });

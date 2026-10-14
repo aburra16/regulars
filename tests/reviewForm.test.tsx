@@ -1,3 +1,4 @@
+import type { NostrFilter } from "@nostrify/nostrify";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
@@ -9,9 +10,12 @@ import { DRAFT_KEY } from "../src/review/draft";
 import { PUBLISH_TIMEOUT_MS, REVIEW_RELAY_PATIENCE_MS, REVIEW_RELAY_TRIES, REVIEW_RELAY_WAITS_MS, SIGN_TIMEOUT_MS, SLOW_POST_MS } from "../src/review/post";
 import { config } from "../src/config";
 import { copy } from "../src/copy/en";
-import { reviewTemplate } from "../src/reviews/write";
+import type { RelayReader } from "../src/nostr/events";
+import { REVIEW_KIND } from "../src/reviews/review";
+import { REVIEW_WORDS_MAX, reviewTemplate } from "../src/reviews/write";
 import { DESKTOP, openApp, PHONE, resetWidth, resizeTo } from "./support/app";
 import { createSignerApp, MemoryConnectRelay } from "./support/connectRelay";
+import { shapedEvent } from "./support/events";
 import { createMemoryWriter } from "./support/memoryWriter";
 import { postWarnings, quietPostWarnings } from "./support/postWarnings";
 import {
@@ -84,6 +88,14 @@ function backLikeABrowser(router: Awaited<ReturnType<typeof open>>["router"]) {
       }),
   };
 }
+
+/** The form's polite line under the words, which says when they are at the most it takes. */
+const wordsLine = () =>
+  within(screen.getByRole("textbox", { name: copy.review.textLabel }).closest<HTMLElement>("section")!).getByRole("status");
+
+/** The form's polite line under Post, whatever Post says, which says it is posting, and when Regulars is slow to take it. */
+const postingLine = (form: HTMLElement) =>
+  within(form.querySelector<HTMLElement>('[type="submit"]')!.closest<HTMLElement>("section")!).getByRole("status");
 
 /** What the relays said of each try they did not take, kept off the output (src/review/post.ts). */
 let warnings: ReturnType<typeof quietPostWarnings>;
@@ -199,6 +211,70 @@ describe("the review form (the design)", () => {
     screen.getByRole("link", { name: copy.review.back }).focus();
     await user.tab();
     expect(stars[2]).toHaveFocus();
+  });
+
+  it("has a polite line under the words, after the hint, that says nothing and takes no room while there is room", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    const line = wordsLine();
+    expect(line).toHaveAttribute("aria-live", "polite");
+    expect(line).toBeEmptyDOMElement();
+    expect(line).toHaveClass("sr-only");
+    const hint = screen.getByText(copy.review.textHint);
+    expect(hint.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Get the bolo");
+    expect(line).toBeEmptyDOMElement();
+  });
+
+  it("takes words up to 1,200 characters, opens a longer review whole, and says so under the field while they are at the limit", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    // Written in another app, with more words than the form takes.
+    const long = "Get the bolo. ".repeat(100).slice(0, 1_300);
+    world.search.push(reviewBy(me.pubkey, 3, long));
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    const text = screen.getByRole("textbox", { name: copy.review.textLabel });
+    expect(REVIEW_WORDS_MAX).toBe(1_200);
+    expect(text).toHaveAttribute("maxlength", "1200");
+    await waitFor(() => expect(text).toHaveValue(long));
+    expect(long).toHaveLength(1_300);
+    const line = wordsLine();
+    expect(line).toHaveTextContent(copy.review.wordsFull);
+    expect(copy.review.wordsFull).toBe("Reviews stop at 1,200 characters.");
+    // As the hint looks, which is still there above it.
+    expect(line).toHaveClass("text-caption", "text-muted");
+    expect(line).not.toHaveClass("sr-only");
+    expect(screen.getByText(copy.review.textHint)).toBeInTheDocument();
+
+    fireEvent.change(text, { target: { value: long.slice(0, REVIEW_WORDS_MAX - 1) } });
+    expect(line).toBeEmptyDOMElement();
+    expect(line).toHaveClass("sr-only");
+    fireEvent.change(text, { target: { value: long.slice(0, REVIEW_WORDS_MAX) } });
+    expect(line).toHaveTextContent(copy.review.wordsFull);
+    expect(screen.getByText(copy.review.textHint)).toBeInTheDocument();
+  });
+
+  it("posts a longer review written elsewhere as it is, cutting none of its words", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const long = "Get the bolo. ".repeat(100).slice(0, 1_300);
+    world.search.push(reviewBy(me.pubkey, 3, long));
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue(long));
+    await user.click((await starButtons())[4]!);
+    await user.click(postButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(sentTo(world, SEARCH)[0]?.content).toBe(long);
   });
 
   it("names the person who is reviewing, and never a number about them", async () => {
@@ -439,7 +515,7 @@ describe("posting a review", () => {
 
     await reviewingAs(me.name);
     const form = postButton().closest("form")!;
-    const live = within(form).getByRole("status");
+    const live = postingLine(form);
     expect(live).toHaveAttribute("aria-live", "polite");
     expect(live).toHaveTextContent("");
     await user.click((await starButtons())[3]!);
@@ -463,7 +539,7 @@ describe("posting a review", () => {
     const form = button.closest("form")!;
     await user.click(button);
     await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
-    const live = within(form).getByRole("status");
+    const live = postingLine(form);
 
     await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS / 2));
     expect(live).toHaveTextContent(copy.review.posting);
@@ -504,7 +580,7 @@ describe("posting a review", () => {
     const form = postButton().closest("form")!;
     await user.click(postButton());
     await waitFor(() => expect(sentTo(world, OWN)).toHaveLength(1));
-    const live = within(form).getByRole("status");
+    const live = postingLine(form);
 
     await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS * 1.5));
     expect(live).toHaveTextContent(copy.review.posting);
@@ -531,7 +607,7 @@ describe("posting a review", () => {
     const form = button.closest("form")!;
     await user.click(button);
     await waitFor(() => expect(sentTo(world, OWN)).toHaveLength(1));
-    const live = within(form).getByRole("status");
+    const live = postingLine(form);
     await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS));
     expect(live).toHaveTextContent(copy.review.stillPosting);
 
@@ -559,7 +635,7 @@ describe("posting a review", () => {
     const form = postButton().closest("form")!;
     await user.click(postButton());
     await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
-    const live = within(form).getByRole("status");
+    const live = postingLine(form);
     await act(() => vi.advanceTimersByTimeAsync(SLOW_POST_MS));
     expect(live).toHaveTextContent(copy.review.stillPosting);
     await act(() => vi.advanceTimersByTimeAsync(REVIEW_RELAY_PATIENCE_MS));
@@ -653,6 +729,231 @@ describe("posting a review", () => {
 
     expect(sentTo(world, SEARCH).map((ev) => ev.created_at)).toEqual([NOW_S, NOW_S + 1]);
     expect(sentTo(world, SEARCH).map((ev) => ev.tags.find((tag) => tag[0] === "s")?.[1])).toEqual(["4", "5"]);
+  });
+});
+
+describe("editing a review written in another app", () => {
+  const PHOTO = "https://blossom.example/abc.jpg";
+  const WORDS = "Get the bolo de caco with garlic butter.";
+
+  /**
+   * `reviewer`'s review of Jacafé as another app writes it: at the bare address, with a price, how
+   * they paid and a photo, whose address follows the words, and the app that signed it; dated `createdAt`.
+   */
+  const writtenElsewhere = (reviewer: string, createdAt: number) =>
+    shapedEvent({
+      kind: REVIEW_KIND,
+      pubkey: reviewer,
+      created_at: createdAt,
+      content: `${WORDS}\n${PHOTO}`,
+      tags: [
+        ["d", JACAFE.address],
+        ["a", JACAFE.address],
+        ["m", "place"],
+        ["rating", "0.800"],
+        ["s", "4"],
+        ["alt", "Review of Jacafé: 4 of 5 stars"],
+        ["price", "2"],
+        ["paid", "lightning"],
+        ["imeta", `url ${PHOTO}`],
+        ["client", "SomeApp"],
+      ],
+    });
+
+  it("shows the words without the photo's address, and an edit keeps the price, payment and photo, its d, and is dated after it", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    // Written on a device whose clock runs an hour ahead.
+    const theirs = writtenElsewhere(me.pubkey, NOW_S + 3_600);
+    world.search.push(theirs);
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH));
+
+    expect(await reviewWords(WORDS)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(PHOTO);
+    await user.click(within(await screen.findByRole("region", { name: copy.reviews.yours })).getByRole("link", { name: copy.reviews.edit }));
+    const stars = await starButtons();
+    await waitFor(() => expect(stars[3]).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue(WORDS);
+
+    await user.click(stars[4]!);
+    await user.click(postButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+
+    const [sent] = sentTo(world, SEARCH);
+    expect(verifyEvent(sent!)).toBe(true);
+    expect(sent!.tags).toEqual([
+      ["d", JACAFE.address],
+      ["a", JACAFE.address],
+      ["m", "place"],
+      ["rating", "1.000"],
+      ["s", "5"],
+      ["alt", "Review of Jacafé: 5 of 5 stars"],
+      ["price", "2"],
+      ["paid", "lightning"],
+      ["imeta", `url ${PHOTO}`],
+    ]);
+    expect(sent!.content).toBe(`${WORDS}\n${PHOTO}`);
+    expect(sent!.created_at).toBe(theirs.created_at + 1);
+    // The place shows the edit in its place, still without the address.
+    expect(await reviewWords(WORDS)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(PHOTO);
+  });
+
+  describe("posted before the place's reviews, and their removals, are read", () => {
+    /**
+     * The search relay of `world`, holding back each request that `held` picks until the test lets it
+     * go (`release`); `waiting` says how many it holds. Every other request is answered at once.
+     */
+    function holdingBack(world: ReturnType<typeof newWorld>, held: (filter: NostrFilter) => boolean) {
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let waiting = 0;
+      const readers = (url: string): RelayReader => {
+        const reader = readersOf(world)(url);
+        if (url !== SEARCH) return reader;
+        return {
+          async *req(filter, signal, opts) {
+            if (held(filter)) {
+              waiting += 1;
+              await new Promise<void>((resolve, reject) => {
+                signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+                void released.then(resolve);
+              });
+            }
+            yield* reader.req(filter, signal, opts);
+          },
+        };
+      };
+      return {
+        readers,
+        release: () => act(() => release()),
+        get waiting() {
+          return waiting;
+        },
+      };
+    }
+    /** The place's reviews, read by its address or its `d`: not a person's page, nor Trending. */
+    const placeReviews = (filter: NostrFilter) => filter.kinds?.includes(REVIEW_KIND) === true && (filter["#a"] !== undefined || filter["#d"] !== undefined);
+    const removals = (filter: NostrFilter) => filter.kinds?.includes(5) === true;
+    /** Lets what is queued run, for a check that something has not happened. */
+    const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 100)));
+
+    it("signs nothing until the person's review is read, then builds on it: its price, payment and photo, its d", async () => {
+      const world = newWorld();
+      const me = signedIn(world);
+      world.search.push(writtenElsewhere(me.pubkey, NOW_S - 86_400));
+      world.writers[SEARCH] = createMemoryWriter();
+      const search = holdingBack(world, placeReviews);
+      const user = userEvent.setup();
+      const { router } = await openApp(REVIEW_PATH, { events: places, entries: fromExplore(PLACE_PATH, REVIEW_PATH), readers: search.readers, writers: writersOf(world) });
+
+      await reviewingAs(me.name);
+      await waitFor(() => expect(search.waiting).toBe(2));
+      await user.click((await starButtons())[4]!);
+      await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Better than last time");
+      await user.click(postButton());
+      expect(screen.getByRole("button", { name: copy.review.posting })).toBeInTheDocument();
+      await settle();
+      expect(me.addOn.signEvent).not.toHaveBeenCalled();
+      expect(sentTo(world, SEARCH)).toEqual([]);
+
+      await search.release();
+      await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+      const [sent] = sentTo(world, SEARCH);
+      expect(sent!.tags).toEqual([
+        ["d", JACAFE.address],
+        ["a", JACAFE.address],
+        ["m", "place"],
+        ["rating", "1.000"],
+        ["s", "5"],
+        ["alt", "Review of Jacafé: 5 of 5 stars"],
+        ["price", "2"],
+        ["paid", "lightning"],
+        ["imeta", `url ${PHOTO}`],
+      ]);
+      expect(sent!.content).toBe(`Better than last time\n${PHOTO}`);
+      expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it("dates the edit a second after the person's removal, dated an hour ahead, once that removal is read", async () => {
+      const world = newWorld();
+      const me = signedIn(world);
+      const theirs = writtenElsewhere(me.pubkey, NOW_S - 86_400);
+      // Removed on a device whose clock runs an hour ahead.
+      const removal = shapedEvent({ kind: 5, pubkey: me.pubkey, created_at: NOW_S + 3_600, tags: [["e", theirs.id], ["a", `${REVIEW_KIND}:${me.pubkey}:${JACAFE.address}`], ["k", String(REVIEW_KIND)]] });
+      world.search.push(theirs, removal);
+      world.writers[SEARCH] = createMemoryWriter();
+      const search = holdingBack(world, removals);
+      const user = userEvent.setup();
+      const { router } = await openApp(REVIEW_PATH, { events: places, entries: fromExplore(PLACE_PATH, REVIEW_PATH), readers: search.readers, writers: writersOf(world) });
+
+      await reviewingAs(me.name);
+      await waitFor(() => expect(search.waiting).toBe(2));
+      await user.click((await starButtons())[4]!);
+      await user.click(postButton());
+      await settle();
+      expect(me.addOn.signEvent).not.toHaveBeenCalled();
+
+      await search.release();
+      await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+      const [sent] = sentTo(world, SEARCH);
+      expect(sent!.created_at).toBe(NOW_S + 3_601);
+      // The review it would have been built on is taken down: it is built on nothing, at the place's own d.
+      expect(sent!.tags.find((tag) => tag[0] === "d")).toEqual(["d", `place:${JACAFE.address}`]);
+      expect(sent!.tags.some((tag) => tag[0] === "price")).toBe(false);
+    });
+
+    it("signs nothing when the form is closed while it waits", async () => {
+      const world = newWorld();
+      const me = signedIn(world);
+      world.search.push(writtenElsewhere(me.pubkey, NOW_S - 86_400));
+      world.writers[SEARCH] = createMemoryWriter();
+      const search = holdingBack(world, placeReviews);
+      const user = userEvent.setup();
+      const { router } = await openApp(REVIEW_PATH, { events: places, entries: fromExplore(PLACE_PATH, REVIEW_PATH), readers: search.readers, writers: writersOf(world) });
+
+      await reviewingAs(me.name);
+      await waitFor(() => expect(search.waiting).toBe(2));
+      await user.click((await starButtons())[3]!);
+      await user.click(postButton());
+      await settle();
+
+      await user.click(screen.getByRole("link", { name: copy.review.back }));
+      await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+      await search.release();
+      await settle();
+      expect(me.addOn.signEvent).not.toHaveBeenCalled();
+      expect(sentTo(world, SEARCH)).toEqual([]);
+      expect(heldText()).toBeNull();
+    });
+  });
+
+  it("sends the same signed edit again on Try again when nothing in the form changed, its photo after the words", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.search.push(writtenElsewhere(me.pubkey, NOW_S - 86_400));
+    world.writers[SEARCH] = createMemoryWriter({ refuse: "blocked" });
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    const stars = await starButtons();
+    await waitFor(() => expect(stars[3]).toHaveAttribute("aria-checked", "true"));
+    await user.click(postButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.failed);
+    const first = sentTo(world, SEARCH)[0]!;
+    expect(first.content).toBe(`${WORDS}\n${PHOTO}`);
+
+    world.writers[SEARCH] = createMemoryWriter();
+    await user.click(tryAgainButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    expect(sentTo(world, SEARCH)).toEqual([first]);
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
   });
 });
 

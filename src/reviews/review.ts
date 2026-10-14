@@ -3,9 +3,10 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { asEvent, isNewer } from "../nostr/events.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import { PLACE_KIND } from "../places/place.ts";
+import { FUTURE_SLACK_S, REVIEW_KIND } from "./kind.ts";
+import { countsAsRemoval, takesDown } from "./removals.ts";
 
-/** The event kind of a review: a rating of a thing, from nostr-protocol/nips PR #1914 (brief § 4). */
-export const REVIEW_KIND = 34259;
+export { REVIEW_KIND } from "./kind.ts";
 
 /** One person's review of one place. */
 export interface Review {
@@ -26,7 +27,10 @@ export interface Review {
    * no stars it can be scored by.
    */
   stars: number | null;
-  /** The written review. Empty for a review that is stars alone. */
+  /**
+   * The written review, without the addresses of the photos another app put after it (`wordsOf`).
+   * Empty for a review that is stars alone, or stars and photos.
+   */
   text: string;
   createdAt: number;
 }
@@ -63,9 +67,6 @@ export function placeInD(d: string | undefined): string | undefined {
 /** The value of an event's first tag called `name`. */
 const firstTag = (ev: NostrEvent, name: string) => ev.tags.find((tag) => tag[0] === name)?.[1];
 
-/** How far ahead of the device's clock a review may be written, in seconds: a day, for clocks that are off. */
-const FUTURE_SLACK_S = 86_400;
-
 /**
  * Whether `ev` was written more than a day ahead of the device's clock: no clock is that far off, so
  * its time is made up. It is dropped, as if it were not there: it would sort above every real review
@@ -98,6 +99,37 @@ export function starsOf(tags: readonly string[][]): number | null {
   return stars === 0 ? null : stars;
 }
 
+/** What a photo's address follows in an `imeta` tag's part that gives it (NIP-92). */
+const URL_PART = "url ";
+
+/**
+ * The addresses of a review's photos, as Brainstorm-UI's `photosOf` (`client/src/lib/placeReviews.ts`)
+ * finds them: of each `imeta` tag (NIP-92), the first part after its name that starts with `url `, the
+ * rest of that part trimmed. Each once, in the order the tags give them; none that is empty. Regulars
+ * draws no photo: it finds them to keep them out of the words (`wordsOf`), and in an edit (`reviewTemplate`).
+ */
+export function photosOf(tags: readonly (readonly string[])[]): string[] {
+  const photos = new Set<string>();
+  for (const [name, ...parts] of tags) {
+    if (name !== "imeta") continue;
+    const url = parts.find((part) => part.startsWith(URL_PART))?.slice(URL_PART.length).trim();
+    if (url) photos.add(url);
+  }
+  return [...photos];
+}
+
+/**
+ * A review's words: its `content` with every place each photo's address (`photosOf(tags)`) is in taken
+ * out, then the spaces and tabs before a line break, then the space at the ends. Another app puts the
+ * addresses after the words, each on a line of its own, as NIP-92 asks; this is how Brainstorm-UI reads
+ * the words back (`readReview`), so both apps show the same words.
+ */
+export function wordsOf(content: string, tags: readonly (readonly string[])[]): string {
+  let words = content;
+  for (const url of photosOf(tags)) words = words.split(url).join("");
+  return words.replace(/[ \t]+\n/g, "\n").trim();
+}
+
 /**
  * The review in `ev`, a well-formed event of the review kind, or null when it reviews no place, or
  * was written more than a day ahead of the device's clock (`fromTheFuture`). The place is the `a` tag
@@ -115,7 +147,7 @@ function reviewIn(ev: NostrEvent): Review | null {
     address,
     d: firstTag(ev, "d") ?? "",
     stars: starsOf(ev.tags),
-    text: ev.content,
+    text: wordsOf(ev.content, ev.tags),
     createdAt: ev.created_at,
   };
 }
@@ -130,21 +162,34 @@ export function parseReview(value: unknown): Review | null {
 const stamp = (review: Review) => ({ id: review.id, created_at: review.createdAt });
 
 /**
- * The reviews among `values`, which may come from several relays and be malformed: each person's
- * newest review of each place, and nothing else. A review a relay no longer sends is not here, nor
- * one from the future (`fromTheFuture`).
+ * The reviews among `values`, which may come from several relays and be malformed, and may hold
+ * removals (kind 5) beside them: each person's newest review of each place that no removal takes
+ * down, and nothing else. A review a relay no longer sends is not here, nor one from the future
+ * (`fromTheFuture`).
  *
  * First NIP-01's replacement: of a person's events at one `d`, only the newest stands (on a tie,
  * the lowest id), whatever it says. A relay that lags may still send the ones it replaced, such as
  * an older review of another place. Then each person's newest review of each place, for someone
- * who has reviewed one place under two `d` tags.
+ * who has reviewed one place under two `d` tags. Then each review a removal among `values` takes
+ * down (`countsAsRemoval`, `takesDown`) is left out, as Brainstorm-UI's `standingReviews` leaves
+ * them: an older version does not come back in its place, at its `d` or under another.
  */
 export function latestReviews(values: readonly unknown[]): Review[] {
+  const nowS = Date.now() / 1000;
+  // Each author's removals: only a review's own author's can take it down (`takesDown`).
+  const removalsBy = new Map<string, NostrEvent[]>();
   const standing = new Map<string, NostrEvent>();
   for (const value of values) {
     const ev = asEvent(value);
+    if (ev === null) continue;
+    if (countsAsRemoval(ev, nowS)) {
+      const theirs = removalsBy.get(ev.pubkey);
+      if (theirs === undefined) removalsBy.set(ev.pubkey, [ev]);
+      else theirs.push(ev);
+      continue;
+    }
     // One from the future is not there: it must not replace the review it would be newer than.
-    if (ev === null || ev.kind !== REVIEW_KIND || fromTheFuture(ev)) continue;
+    if (ev.kind !== REVIEW_KIND || fromTheFuture(ev)) continue;
     // A public key is 64 characters, so no two (pubkey, d) pairs make the same key.
     const key = `${ev.pubkey}${firstTag(ev, "d") ?? ""}`;
     const current = standing.get(key);
@@ -159,7 +204,9 @@ export function latestReviews(values: readonly unknown[]): Review[] {
     const current = kept.get(key);
     if (current === undefined || isNewer(stamp(review), stamp(current))) kept.set(key, review);
   }
-  return [...kept.values()];
+  const reviews = [...kept.values()];
+  if (removalsBy.size === 0) return reviews;
+  return reviews.filter((review) => !(removalsBy.get(review.reviewer)?.some((removal) => takesDown(removal, review)) ?? false));
 }
 
 /**

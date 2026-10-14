@@ -1,4 +1,4 @@
-import type { NostrFilter, NostrSigner } from "@nostrify/nostrify";
+import type { NostrEvent, NostrFilter, NostrSigner } from "@nostrify/nostrify";
 import { screen, waitFor } from "@testing-library/react";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,10 @@ import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { changeFollow, type FollowOutcome } from "../src/follow/change";
 import { accountShowsUse, readFollowList, readOwnList } from "../src/follow/read";
+import type { RelayReader } from "../src/nostr/events";
+import { CONNECT_TIMEOUT_MS } from "../src/nostr/relayReader";
+import { RecentFeed } from "../src/recent/feed";
+import { ScoresStore } from "../src/score/store";
 import { buildFollowList, FOLLOW_LIST_TIME } from "./fixtures/follow-list";
 import { openApp } from "./support/app";
 import { signedInAs } from "./support/followPage";
@@ -41,10 +45,12 @@ import { fromExplore, newWorld, PLACE_PATH, places, profileOf, rankOf, readersOf
 /*
  * Who asks a relay not to be waited on when it is out (`failFast`, ruling R40), and who does not.
  * The reads for a follow list ask, each of them, as do those of a person's page: who follows them,
- * and their reviews. Nobody else does: places, scores, names, Trending, a place's reviews and the
- * relay list read for a review keep the patience they had. What the option does is the reader's
- * (tests/relayReaderSocket.test.ts); here every relay is held in memory and takes no notice of it,
- * and each request is noted with how it was to be read (tests/support/notedReaders.ts).
+ * and their reviews. So does every read of reviews and of their removals, wherever they are read (a
+ * place's page and lists, a person's page, Trending): a relay that is out must not hold up the reviews
+ * the others have. Nobody else does: places, scores, names, the house's scorer and its ranks, and the
+ * relay list read for a review keep the patience they had. What the option does is the reader's (tests/relayReaderSocket.test.ts); here
+ * every relay is held in memory and takes no notice of it, and each request is noted with how it was
+ * to be read (tests/support/notedReaders.ts).
  *
  * `changeFollow` is mocked around the real one, as the scene the page tests share has it, and is the
  * real one throughout; Brainstorm's client is mocked. The keys are thrown away, and nothing opens a
@@ -77,6 +83,8 @@ const signal = () => new AbortController().signal;
 const asksNotToWait = ({ opts }: Noted) => opts?.failFast === true;
 /** The relays of the requests, in order. */
 const urlsOf = (requests: Noted[]) => requests.map(({ url }) => url);
+/** The requests for reviews (kind 34259) and for the removals of them (kind 5), in order. */
+const reviewReadsOf = (relays: ReturnType<typeof noted>) => relays.asked.filter(({ filter }) => filter.kinds?.includes(34259) === true || filter.kinds?.includes(5) === true);
 
 const KEY = generateSecretKey();
 const ME = getPublicKey(KEY);
@@ -173,7 +181,7 @@ describe("the relay list read for a review", () => {
 });
 
 describe("on a person's page", () => {
-  it("is asked by the read of the person signed in's own list, by who follows the person among them, by their names, and by the person's reviews; and by nothing else the page reads", async () => {
+  it("is asked by the read of the person signed in's own list, by who follows the person among them, by their names, and by the person's reviews and their removals; and by nothing else the page reads", async () => {
     signedInAs(MAYA_SECRET);
     const s = scene({ follows: [mayaFollows([ANA, BEN]), listBy(ANA, [SOL]), listBy(BEN, [SOL])] });
     s.search.held.push(...FRIEND_PROFILES);
@@ -197,10 +205,12 @@ describe("on a person's page", () => {
     expect(followers).toHaveLength(3);
     const followersNames = relays.ofKind(0).filter(by(ANA));
     expect(followersNames.length).toBeGreaterThan(0);
-    // Sol's reviews, by their author.
+    // Sol's reviews, by their author, and then the removals of those the relays sent.
     const reviews = relays.ofKind(34259).filter(by(SOL));
     expect(reviews.length).toBeGreaterThan(0);
-    const asking = [...ownList, ...relays.ofKind(10002), ...followers, ...followersNames, ...reviews];
+    await waitFor(() => expect(relays.ofKind(5)).toHaveLength(4));
+    const removals = relays.ofKind(5);
+    const asking = [...ownList, ...relays.ofKind(10002), ...followers, ...followersNames, ...reviews, ...removals];
     expect(asking.filter((request) => !asksNotToWait(request))).toEqual([]);
 
     // Everything else the page read was read as ever: Sol's own name, the house's scorer and its ranks.
@@ -231,35 +241,113 @@ describe("on a place's page, and on Trending", () => {
     return relays;
   }
 
-  it("is asked by no read of a place's page for someone signed out: its reviews, their names, the house's scorer and its ranks", async () => {
+  it("is asked by the reads of a place's reviews and their removals for someone signed out, and by none of its others: names, the house's scorer and its ranks", async () => {
     const relays = await openPlace(PLACE_PATH, false);
     await screen.findByRole("heading", { level: 3, name: "Sol" });
+    await waitFor(() => expect(relays.ofKind(5).length).toBeGreaterThan(0));
 
+    const reviews = reviewReadsOf(relays);
     expect(relays.ofKind(34259).length).toBeGreaterThan(0);
+    expect(reviews.filter((request) => !asksNotToWait(request))).toEqual([]);
     expect(relays.ofKind(0).length).toBeGreaterThan(0);
     expect(relays.ofKind(10040).length).toBeGreaterThan(0);
     expect(relays.ofKind(30382).length).toBeGreaterThan(0);
-    expect(relays.asked.filter(asksNotToWait)).toEqual([]);
-    expect(relays.asked.map(({ opts }) => opts).filter((opts) => opts !== undefined)).toEqual([]);
+    const rest = relays.asked.filter((request) => !reviews.includes(request));
+    expect(rest.map(({ opts }) => opts).filter((opts) => opts !== undefined)).toEqual([]);
   });
 
-  it("is asked only by the read of their follow list for a person signed in: the place's own reads are as they were", async () => {
+  it("is asked besides only by the read of their follow list for a person signed in: the place's other reads are as they were", async () => {
     const relays = await openPlace(PLACE_PATH, true);
     await waitFor(() => expect(screen.getByRole("button", { name: copy.follow.followNamed("Sol") })).toBeInTheDocument());
 
-    const forTheList = relays.asked.filter(asksNotToWait);
+    const reviews = reviewReadsOf(relays);
+    const forTheList = relays.asked.filter(asksNotToWait).filter((request) => !reviews.includes(request));
     expect(forTheList.length).toBeGreaterThan(0);
     expect(forTheList.every(({ filter }) => filter.kinds?.length === 1 && (filter.kinds[0] === 3 || filter.kinds[0] === 10002))).toBe(true);
     expect([...relays.ofKind(3), ...relays.ofKind(10002)].filter((request) => !asksNotToWait(request))).toEqual([]);
     expect(relays.ofKind(34259).length).toBeGreaterThan(0);
+    expect(reviews.filter((request) => !asksNotToWait(request))).toEqual([]);
   });
 
-  it("is asked by no read of Trending", async () => {
+  it("is asked by Trending's reads of the reviews and their removals, and by none of its others", async () => {
     const relays = await openPlace("/trending", false);
     await screen.findByRole("heading", { level: 1, name: copy.pages.recent });
     await waitFor(() => expect(relays.ofKind(34259).length).toBeGreaterThan(0));
     await screen.findByText("Sit outside");
+    await waitFor(() => expect(relays.ofKind(5).length).toBeGreaterThan(0));
 
-    expect(relays.asked.map(({ opts }) => opts).filter((opts) => opts !== undefined)).toEqual([]);
+    const reviews = reviewReadsOf(relays);
+    expect(reviews.filter((request) => !asksNotToWait(request))).toEqual([]);
+    const rest = relays.asked.filter((request) => !reviews.includes(request));
+    expect(rest.map(({ opts }) => opts).filter((opts) => opts !== undefined)).toEqual([]);
+  });
+});
+
+describe("a relay reviews are read from that is out", () => {
+  /** The list hub, a relay reviews are read from: out, in these tests. */
+  const HUB = "wss://dcosl.brainstorm.world";
+
+  /**
+   * A relay that refuses every connection, as the app's reader meets one (tests/relayReaderSocket.test.ts):
+   * a read that asks not to be waited on fails at once; any other waits out the reader's connect limit first.
+   */
+  const refusing: RelayReader = {
+    async *req(_filter, signal, opts) {
+      if (opts?.failFast !== true) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, CONNECT_TIMEOUT_MS);
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(signal.reason);
+          }, { once: true });
+        });
+      }
+      throw new DOMException(`${HUB} refused the connection`, "NetworkError");
+    },
+  };
+
+  /** The relays: the search relay holds `events`, the hub refuses, and any other has nothing. */
+  const relaysWith = (events: NostrEvent[]) => noted((url) => (url === HUB ? refusing : createMemoryReader(url === SEARCH ? events : [])));
+
+  // The scene's timers are fake (tests/support/followScene.ts): the connect limit passes only when a test moves them on.
+  beforeEach(() => {
+    config.reviewRelays = [SEARCH];
+    config.reviewReadRelays = [SEARCH, HUB];
+  });
+
+  it("holds up no place's reviews: they show from the relay that answers, long before the connect limit", async () => {
+    const review = reviewBy(FRIEND, 5, "Get the bolo");
+    const relays = relaysWith([review]);
+    const store = new ScoresStore(relays.readers);
+    store.start();
+    try {
+      store.want([JACAFE.address]);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(store.readStateOf(JACAFE.address)).toBe("read");
+      expect(store.reviewsOf(JACAFE.address).map(({ id }) => id)).toEqual([review.id]);
+      expect(CONNECT_TIMEOUT_MS).toBe(20_000);
+      // The reviews were asked of both, and their removals of the relay that answered, none to be waited on.
+      expect(reviewReadsOf(relays).map(({ url }) => url)).toEqual([SEARCH, SEARCH, HUB, HUB, SEARCH, SEARCH]);
+      expect(reviewReadsOf(relays).filter((request) => !asksNotToWait(request))).toEqual([]);
+    } finally {
+      store.stop();
+    }
+  });
+
+  it("holds up no page of Trending: it shows from the relay that answers, long before the connect limit", async () => {
+    const review = reviewBy(FRIEND, 5, "Get the bolo");
+    const relays = relaysWith([review]);
+    const feed = new RecentFeed(relays.readers);
+    feed.start();
+    try {
+      feed.open();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(feed.snapshot().first).toBe("read");
+      expect(feed.snapshot().events.map(({ id }) => id)).toEqual([review.id]);
+      expect(reviewReadsOf(relays).map(({ url }) => url)).toEqual([SEARCH, HUB, SEARCH, SEARCH]);
+      expect(reviewReadsOf(relays).filter((request) => !asksNotToWait(request))).toEqual([]);
+    } finally {
+      feed.stop();
+    }
   });
 });

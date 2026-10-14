@@ -30,10 +30,11 @@ function useNamesVersion(store: ScoresStore): number {
  * Where the reading of the place at `address` stands, for a page that asks for it: as the store says,
  * and "reading" before the page's ask has reached it. A page asks once it is drawn (an effect), so
  * the first drawing of it comes before: without this, it would say "Be the first", or "No reviews
- * yet", for that moment (ruling R15). Undefined when there are no review relays, as the store has it.
+ * yet", for that moment (ruling R15). Undefined when there are no relays to read reviews from
+ * (`config.reviewReadRelays`), as the store has it.
  */
 function readStateFor(store: ScoresStore, address: string): ReadState | undefined {
-  return store.readStateOf(address) ?? (config.reviewRelays.length > 0 ? "reading" : undefined);
+  return store.readStateOf(address) ?? (config.reviewReadRelays.length > 0 ? "reading" : undefined);
 }
 
 /** Whether `a` and `b` hold the same items in the same order. */
@@ -59,10 +60,10 @@ function useSameList(items: readonly string[]): readonly string[] {
  * that view's ranks stand (`state`); `house` is where House picks' stand. Asks for their reviews the
  * first time each is asked for, all of them in one go: a page asks for its whole list at once, not a
  * card at a time. A place is missing from `scores` until its reviews have been read, and always when
- * there are no review relays. `pending` holds the places that have reviews and no score yet, while
- * the view's scorer is asked about their reviewers. `reads` says where the reading of each place
- * stands (`ScoresStore.readStateOf`), "reading" from the first drawing; a place is missing from it
- * when there are no review relays.
+ * there are no relays to read reviews from. `pending` holds the places that have reviews and no score
+ * yet, while the view's scorer is asked about their reviewers. `reads` says where the reading of each
+ * place stands (`ScoresStore.readStateOf`), "reading" from the first drawing; a place is missing from
+ * it when there are no relays to read reviews from.
  */
 export function useScores(addresses: readonly string[]): {
   scores: Map<string, PlaceScore>;
@@ -99,7 +100,7 @@ export function useScores(addresses: readonly string[]): {
  * One place's score, as `useScores` gives it, and its reviews: one per person, across all its
  * filings, newest first, whether they count in the score or are folded. Empty until read. `read`
  * says where the reading of them stands, "reading" from the first drawing; undefined when there are
- * no review relays.
+ * no relays to read reviews from.
  */
 export function useScore(address: string): {
   score: PlaceScore | undefined;
@@ -202,10 +203,24 @@ export interface ScoreActions {
    */
   ownCoordinates(pubkey: string, address: string): ReviewCoordinate[];
   /**
-   * When `pubkey` last removed a review of the place at `address`, in any filing, this session: what
-   * their next review of it must be later than (`ScoresStore.ownRemovedAt`). Undefined when never.
+   * The record behind `pubkey`'s review of the place at `address`, as the page shows it, under any `d`
+   * and in any filing: what their next review of it is built on (`ScoresStore.ownNewest`). It is built
+   * on what has been read, without waiting for every filing of the place to be, as the page does.
+   * Undefined when they have none. It reads the store as it is when called.
+   */
+  ownNewest(pubkey: string, address: string): NostrEvent | undefined;
+  /**
+   * When `pubkey` last removed a review of the place at `address`, in any filing, in this tab or by a
+   * removal of theirs read from the relays: what their next review of it must be later than
+   * (`ScoresStore.ownRemovedAt`). Undefined when never.
    */
   ownRemovedAt(pubkey: string, address: string): number | undefined;
+  /**
+   * Resolves once the reading of the place at `address` has settled: its reviews, and the removals of
+   * them, are no longer being read (`ScoresStore.readSettled`). What an edit waits for before it is
+   * built on the person's review. Rejects with the signal's reason when `signal` aborts first.
+   */
+  readSettled(address: string, signal: AbortSignal): Promise<void>;
 }
 
 /** The store's actions, the same functions for the whole session. */
@@ -217,7 +232,9 @@ export function useScoreActions(): ScoreActions {
       noteOwnReview: store.noteOwnReview,
       noteRemoval: store.noteRemoval,
       ownCoordinates: store.ownCoordinates,
+      ownNewest: store.ownNewest,
       ownRemovedAt: store.ownRemovedAt,
+      readSettled: store.readSettled,
     }),
     [store],
   );

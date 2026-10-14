@@ -46,6 +46,8 @@ const SEARCH = "wss://search.brainstorm.world";
 const OWN = "wss://nos.example.test";
 const OTHER = "wss://other.example.test";
 const DIRECTORY = "wss://purplepag.es";
+/** The list hub: reviews are read there too, and never posted there. */
+const HUB = "wss://dcosl.brainstorm.world";
 
 const KEY = generateSecretKey();
 const PUBKEY = getPublicKey(KEY);
@@ -260,6 +262,78 @@ describe("postReview", () => {
   it("fails when a writer cannot be made for a relay, as when it refuses", async () => {
     const posting = run([OTHER], writersOver({}));
     await expect(posting).rejects.toBeInstanceOf(NotPosted);
+  });
+
+  describe("an edit that keeps what another app gave", () => {
+    /** An edit of a review another app wrote with a price, a payment, a photo and a tag of its own, which it keeps. */
+    const edit = () =>
+      reviewTemplate(JACAFE, 5, "Better than last time", 1_800_000_000, {
+        tags: [
+          ["d", `place:${JACAFE.address}`],
+          ["price", "2"],
+          ["paid", "lightning"],
+          ["imeta", "url https://blossom.example/abc.jpg"],
+          ["x-flavour", "tart"],
+          ["client", "SomeApp"],
+        ],
+      });
+    const signedAs = (change: (tags: string[][]) => string[][]) => {
+      const by = signer();
+      by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
+        finalizeEvent({ ...asked, tags: change(asked.tags) }, KEY),
+      );
+      return by;
+    };
+
+    it("is posted when the signer adds a tag naming itself after the kept ones", async () => {
+      expect(edit().tags.slice(6)).toEqual([
+        ["price", "2"],
+        ["paid", "lightning"],
+        ["imeta", "url https://blossom.example/abc.jpg"],
+        ["x-flavour", "tart"],
+      ]);
+      const search = createMemoryWriter();
+      const by = signedAs((tags) => [...tags, ["client", "SomeSigner"]]);
+      const posted = await postReview(edit(), by, [SEARCH], new AbortController().signal, { writers: writersOver({ [SEARCH]: search }) });
+      expect(posted.event.tags).toEqual([...edit().tags, ["client", "SomeSigner"]]);
+      expect(search.published).toEqual([posted.event]);
+    });
+
+    it("is posted when it keeps tags of names a signer may not add, as they are matched where the edit asks for them", async () => {
+      const someone = getPublicKey(generateSecretKey());
+      const kept = reviewTemplate(JACAFE, 5, "Better than last time", 1_800_000_000, {
+        tags: [
+          ["d", `place:${JACAFE.address}`],
+          ["p", someone],
+          ["k", "39999"],
+        ],
+      });
+      expect(kept.tags.slice(6)).toEqual([
+        ["p", someone],
+        ["k", "39999"],
+      ]);
+      const search = createMemoryWriter();
+      const by = signer();
+      by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
+        finalizeEvent({ ...asked, tags: [...asked.tags, ["client", "SomeSigner"]] }, KEY),
+      );
+      const posted = await postReview(kept, by, [SEARCH], new AbortController().signal, { writers: writersOver({ [SEARCH]: search }) });
+      expect(posted.event.tags).toEqual([...kept.tags, ["client", "SomeSigner"]]);
+      expect(search.published).toEqual([posted.event]);
+    });
+
+    it.each([
+      ["leaves a kept tag out", (tags: string[][]) => tags.filter((tag) => tag[0] !== "paid")],
+      ["puts the kept tags in another order", (tags: string[][]) => [...tags.slice(0, 6), ...tags.slice(6).reverse()]],
+      ["adds another price, when the edit keeps one", (tags: string[][]) => [...tags, ["price", "4"]]],
+    ])("is not posted, and nothing is sent, when the signer %s", async (_, change) => {
+      const search = createMemoryWriter();
+      const posting = postReview(edit(), signedAs(change), [SEARCH], new AbortController().signal, {
+        writers: writersOver({ [SEARCH]: search }),
+      });
+      await expect(posting).rejects.toBeInstanceOf(NotPosted);
+      expect(search.published).toEqual([]);
+    });
   });
 
   it("is posted as soon as a review relay takes it; a slower relay goes on, and its answer is recorded when it comes", async () => {
@@ -923,7 +997,8 @@ describe("whereToPost", () => {
     config.reviewRelays = [SEARCH];
   });
 
-  it("is the review relays and the relays the person's list writes to", async () => {
+  it("is the review relays and the relays the person's list writes to, and not a relay reviews are only read from", async () => {
+    config.reviewReadRelays = [SEARCH, HUB];
     const readers = (url: string) => createMemoryReader(url === DIRECTORY ? [listOf([OWN])] : []);
     expect(await whereToPost(PUBKEY, signer(), readers, new AbortController().signal)).toEqual([SEARCH, OWN]);
   });
@@ -1098,6 +1173,11 @@ describe("removalRelays", () => {
 
   it("always has the review relays, and keeps only relays a review may be sent to", () => {
     expect(removalRelays([], [{ relays: ["ws://localhost:7777", "https://example.test", "wss://192.168.1.2", OWN] }])).toEqual([SEARCH, OWN]);
+  });
+
+  it("is not a relay reviews are only read from", () => {
+    config.reviewReadRelays = [SEARCH, HUB];
+    expect(removalRelays([SEARCH, OWN], [{ relays: [SEARCH] }])).toEqual([SEARCH, OWN]);
   });
 
   it("keeps a review relay of the app's own in development, as configured", () => {

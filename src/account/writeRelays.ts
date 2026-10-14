@@ -5,8 +5,9 @@ import { asEvent, isNewer, type Readers, type ReadOptions, readAll, withReadExtr
 
 /*
  * Where a review goes: the relays its author publishes to (NIP-65), so that the people who follow
- * them can find it, and always the review relays, where the app reads reviews from. This reads
- * through a `RelayReader` it is given and loads nothing of Nostrify, so the first screen may reach it.
+ * them can find it, and always the review relays, where reviews are posted (`config.reviewRelays`);
+ * the app reads them from those and the list hub (`config.reviewReadRelays`). This reads through a
+ * `RelayReader` it is given and loads nothing of Nostrify, so the first screen may reach it.
  */
 
 /** The kind of a person's relay list (NIP-65), a replaceable event: its `r` tags name the relays. */
@@ -162,8 +163,9 @@ export function sendableRelayAddress(url: string): string | null {
 }
 
 /**
- * Whether the relay at `url` is one of the review relays (`config.reviewRelays`), where the app reads
- * reviews from, however either is written: both are compared as `configuredRelayAddress` writes them.
+ * Whether the relay at `url` is one of the review relays (`config.reviewRelays`), where reviews are
+ * posted (they are read from `config.reviewReadRelays`), however either is written: both are compared
+ * as `configuredRelayAddress` writes them.
  */
 export function isReviewRelay(url: string): boolean {
   const address = configuredRelayAddress(url);

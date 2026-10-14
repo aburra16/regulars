@@ -3,11 +3,12 @@ import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { readSession } from "../account/session.ts";
 import { publicRelayAddress } from "../account/writeRelays.ts";
 import { config } from "../config.ts";
-import { asEvent, isNewer, type RelayReader, readAll, withReadExtras } from "../nostr/events.ts";
+import { asEvent, isNewer, type ReadOptions, type RelayReader, readAll, withReadExtras } from "../nostr/events.ts";
 import { fetchProfiles, type Profile } from "../nostr/profiles.ts";
 import { appReaders } from "../nostr/relayCode.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import type { Place } from "../places/place.ts";
+import { holdRemovals, removalFilters, removalsFrom } from "../reviews/removals.ts";
 import {
   latestReviews,
   newestPerReviewer,
@@ -22,12 +23,13 @@ import type { View } from "../view/ViewProvider.tsx";
 import { type PlaceScore, scorePlace } from "./score.ts";
 
 /*
- * The reviews of the places that pages ask about, the ranks of their reviewers from each point of view
- * (the house's, and the person's circle once it is ready), and the reviewers' names and pictures, read
- * once a session and held in memory. Scores are worked out from them when asked for, from the view
- * asked for, and never stored (brief § 5): toggling the view reads nothing (Review Focus 5). What it
- * holds about people stays here: a page gets reviews, place scores, names and pictures, and whether a
- * reviewer counts in a view (yes or no, for Recent), never a person's rank or weight (decision 19).
+ * The reviews of the places that pages ask about, and the removals of them (NIP-09), the ranks of
+ * their reviewers from each point of view (the house's, and the person's circle once it is ready), and
+ * the reviewers' names and pictures, read once a session and held in memory. Scores are worked out
+ * from them when asked for, from the view asked for, and never stored (brief § 5): toggling the view
+ * reads nothing (Review Focus 5). What it holds about people stays here: a page gets reviews, place
+ * scores, names and pictures, and whether a reviewer counts in a view (yes or no, for Recent), never a
+ * person's rank or weight (decision 19).
  *
  * Nothing here loads the relay code: the app's readers import it when they first read
  * (src/nostr/relayCode.ts), so the store can be on the first screen.
@@ -61,15 +63,25 @@ const REVIEW_LIMIT = 500;
  */
 export const REVIEW_PAGES = 5;
 
+/**
+ * How the reviews, and the removals of them, are read from each relay: not waiting on one that is out
+ * (ruling R40), which fails at once, so that it holds up no batch the others have answered. A relay
+ * that is slow to send, once it has said anything, is waited for under its limits, as before.
+ */
+const REVIEW_READS: ReadOptions = { failFast: true };
+
 /** The most people one request for profiles names. */
 const NAME_BATCH = 100;
 
 /**
  * How many batches of reviews are read at once; the rest wait their turn. Each batch is two requests
- * to every review relay, side by side: one by the places' `a`, one by their `d` (decision 16). So a
- * relay has at most four of the store's review requests open at a time, however many places a page asks
- * about. Names are read the same way, two batches at a time; and ranks two reads at a time to each
- * scorer's relay, whichever view they are for: House picks' and My circle's share a relay's turn.
+ * to every relay reviews are read from, side by side: one by the places' `a`, one by their `d`
+ * (decision 16). So a relay has at most four of the store's review requests open at a time, however
+ * many places a page asks about. The removals of a batch's reviews are read in a turn of their own,
+ * two batches at a time and two requests to a relay at once (`REMOVAL_REQUESTS_AT_ONCE`), so that
+ * reviews never wait on them. Names are read the same way, two batches at a time; and ranks two reads
+ * at a time to each scorer's relay, whichever view they are for: House picks' and My circle's share a
+ * relay's turn.
  */
 export const BATCHES_IN_FLIGHT = 2;
 
@@ -201,14 +213,20 @@ function runsOf<T>(items: readonly T[], size: number): T[][] {
  * second: the values read twice are the same events, which the caller keeps once). A full page that
  * gets no further back in time (a flood within one second) is followed by one from the second before:
  * what else that second holds is not read, and what is older is. At most `pages` pages; it stops
- * sooner at a page that is not full, or one in which no time can be read. Throws as `readAll` does:
- * half a read is no read.
+ * sooner at a page that is not full, or one in which no time can be read. Each page is read as `opts`
+ * says (`ReadOptions`). Throws as `readAll` does: half a read is no read.
  */
-async function readPaged(reader: RelayReader, filter: NostrFilter, pages: number, signal: AbortSignal): Promise<unknown[]> {
+async function readPaged(
+  reader: RelayReader,
+  filter: NostrFilter,
+  pages: number,
+  signal: AbortSignal,
+  opts?: ReadOptions,
+): Promise<unknown[]> {
   const values: unknown[] = [];
   let until: number | undefined;
   for (let page = 0; page < pages; page++) {
-    const read = await readAll(reader, until === undefined ? filter : { ...filter, until }, signal);
+    const read = await readAll(reader, until === undefined ? filter : { ...filter, until }, signal, opts);
     values.push(...read);
     if (filter.limit === undefined || read.length < filter.limit) break;
     let oldest = Number.POSITIVE_INFINITY;
@@ -232,27 +250,33 @@ async function readPaged(reader: RelayReader, filter: NostrFilter, pages: number
 class Lane {
   readonly #capacity: number;
   #running = 0;
-  readonly #queue: { signal: AbortSignal; read: () => Promise<void> }[] = [];
+  readonly #queue: { signal: AbortSignal; read: () => Promise<void>; skipped: () => void }[] = [];
 
   constructor(capacity: number) {
     this.#capacity = capacity;
   }
 
-  /** Queues `read`, which starts once fewer than `capacity` reads are running. */
-  add(signal: AbortSignal, read: () => Promise<void>): void {
-    this.#queue.push({ signal, read });
+  /**
+   * Queues `read`, which starts once fewer than `capacity` reads are running. `skipped` is called
+   * instead when it never starts: forgotten (`clear`), or its signal aborted by its turn.
+   */
+  add(signal: AbortSignal, read: () => Promise<void>, skipped: () => void = () => {}): void {
+    this.#queue.push({ signal, read, skipped });
     this.#next();
   }
 
   /** Forgets every read that has not started. */
   clear(): void {
-    this.#queue.length = 0;
+    for (const { skipped } of this.#queue.splice(0)) skipped();
   }
 
   #next(): void {
     while (this.#running < this.#capacity && this.#queue.length > 0) {
-      const { signal, read } = this.#queue.shift()!;
-      if (signal.aborted) continue;
+      const { signal, read, skipped } = this.#queue.shift()!;
+      if (signal.aborted) {
+        skipped();
+        continue;
+      }
       this.#running += 1;
       void read().finally(() => {
         this.#running -= 1;
@@ -459,6 +483,20 @@ export class ScoresStore {
   readonly #failed = new Set<string>();
   /** The review reads, two batches at a time. */
   readonly #reviewLane = new Lane(BATCHES_IN_FLIGHT);
+  /** The reads of the removals of each batch's reviews, two batches at a time. */
+  readonly #removalLane = new Lane(BATCHES_IN_FLIGHT);
+  /**
+   * The removals read from the relays that count (kind 5, `countsAsRemoval`), by id: held for the
+   * session, `refresh` and all, so that a review read again is still taken down (`latestReviews`).
+   */
+  readonly #removals = new Map<string, NostrEvent>();
+  /**
+   * For each place address, how many reads of the removals of reviews read for it are waiting their
+   * turn or under way (`readSettled`).
+   */
+  readonly #removalsPending = new Map<string, number>();
+  /** Who waits for a place's reading to settle (`readSettled`): each looks again when it may have. */
+  readonly #settling = new Set<() => void>();
   /** The name reads, two batches at a time. */
   readonly #nameLane = new Lane(BATCHES_IN_FLIGHT);
   /** The rank reads, two at a time to each scorer's relay, by its address: both views take turns in one. */
@@ -670,6 +708,7 @@ export class ScoresStore {
     clearTimeout(this.#flushTimer);
     this.#flushTimer = undefined;
     this.#reviewLane.clear();
+    this.#removalLane.clear();
     this.#nameLane.clear();
     for (const lane of this.#rankLanes.values()) lane.clear();
     for (const book of this.#books()) book.pause();
@@ -711,7 +750,7 @@ export class ScoresStore {
     if (!added) return;
     this.#queueFlush();
     // The places asked for are being read now: pages say so (`readStateOf`), when there is anything to read.
-    if (config.reviewRelays.length > 0) this.#changed("scores");
+    if (config.reviewReadRelays.length > 0) this.#changed("scores");
   }
 
   /** Asks for the names of the people with `pubkeys`, and the pictures that come with them (`pictureOf`). */
@@ -775,15 +814,18 @@ export class ScoresStore {
   };
 
   /**
-   * `events`, review events a page read on its own (Recent's), with the reviews of `pubkey`'s that the
-   * store shows: each one held (posted this session, and not read back yet), and each one read for a
-   * place that is no older than `since`, as far back as the page has read, so that it is not shown
-   * below reviews the page has not read. Less each review the person removed this session
-   * (`noteRemoval`), as the store hides them everywhere. With no `pubkey` (nobody signed in), `events`
-   * less those removed.
+   * `events`, review events a page read on its own (Recent's, a person's page's), and the removals it
+   * read beside them, with the reviews of `pubkey`'s that the store shows: each one held (posted this
+   * session, and not read back yet), and each one read for a place that is no older than `since`, as
+   * far back as the page has read, so that it is not shown below reviews the page has not read. With
+   * every removal the store has read from the relays, for `latestReviews` to take down what they name
+   * there as on a place's page. Less each review the person removed this session (`noteRemoval`), as
+   * the store hides them everywhere. With no `pubkey` (nobody signed in), `events` less those removed,
+   * and the removals.
    */
   readonly withOwn = (events: Iterable<NostrEvent>, pubkey: string | undefined, since: number): NostrEvent[] => {
     const all = [...events].filter(this.#notRemoved);
+    all.push(...this.#removals.values());
     if (pubkey === undefined) return all;
     const held = new Set<string>();
     for (const { event } of this.#own.values()) held.add(event.id);
@@ -812,10 +854,11 @@ export class ScoresStore {
    * Where the reading of the place at `address` stands, across all its filings: read once every
    * filing has been; failed when no review relay answered for one of them; reading while it is asked
    * for, or waits its turn. Undefined for a place no page has asked about, and always when there are
-   * no review relays: nothing is read, so nothing is being read either.
+   * no relays to read reviews from (`config.reviewReadRelays`): nothing is read, so nothing is being
+   * read either. Removals read after a place's reviews do not change where its reading stands.
    */
   readStateOf(address: string): ReadState | undefined {
-    if (config.reviewRelays.length === 0) return undefined;
+    if (config.reviewReadRelays.length === 0) return undefined;
     const filings = this.#filings.get(address) ?? [address];
     if (filings.every((filing) => this.#read.has(filing))) return "read";
     if (filings.some((filing) => this.#failed.has(filing))) return "failed";
@@ -848,20 +891,76 @@ export class ScoresStore {
   };
 
   /**
+   * The record behind the review `pubkey` has of the place at `address`, as the page shows it
+   * (`reviewsOf`): of their reviews of it, under any `d` and in any of its filings, the newest that
+   * stands. A held own review is theirs; a removed one is not. What their next review of it is built
+   * on (`reviewTemplate`), so that it loses nothing they gave in another app. It does not wait for
+   * every filing to be read, as the page does: it is built on what is known. Undefined when they have
+   * none.
+   */
+  readonly ownNewest = (pubkey: string, address: string): NostrEvent | undefined => {
+    const byAddress = this.#reviewsByAddress();
+    const filings = this.#filings.get(address) ?? [address];
+    const theirs = filings.flatMap((filing) => byAddress.get(filing) ?? []).filter((review) => review.reviewer === pubkey);
+    const [review] = newestPerReviewer(theirs);
+    return review === undefined ? undefined : this.#shownEvents().find((ev) => ev.id === review.id);
+  };
+
+  /**
    * When `pubkey` last removed a review of the place at `address`, under any `d` and in any of its
-   * filings: a review they write next must be later, or the removal would take it too (NIP-09).
-   * Undefined when they have removed none this session.
+   * filings: a review they write next must be later, or the removal would take it too (NIP-09). The
+   * later of their removals made in this tab (`noteRemoval`), and of those read from the relays that
+   * are theirs and name such a review by its address (`34259:<pubkey>:<d>`): one dated a little ahead,
+   * by another device's clock, does not take down the review written next. Undefined when there is
+   * none.
    */
   readonly ownRemovedAt = (pubkey: string, address: string): number | undefined => {
     const filings = new Set(this.#filings.get(address) ?? [address]);
     let latest: number | undefined;
-    for (const [key, removedAt] of this.#removed) {
-      if (!key.startsWith(pubkey)) continue;
-      const place = placeInD(key.slice(pubkey.length));
+    const consider = (d: string, removedAt: number) => {
+      const place = placeInD(d);
       if (place !== undefined && filings.has(place) && (latest === undefined || removedAt > latest)) latest = removedAt;
+    };
+    for (const [key, removedAt] of this.#removed) {
+      if (key.startsWith(pubkey)) consider(key.slice(pubkey.length), removedAt);
+    }
+    const theirs = `${REVIEW_KIND}:${pubkey}:`;
+    for (const removal of this.#removals.values()) {
+      if (removal.pubkey !== pubkey) continue;
+      for (const [name, value] of removal.tags) {
+        if (name === "a" && value?.startsWith(theirs)) consider(value.slice(theirs.length), removal.created_at);
+      }
     }
     return latest;
   };
+
+  /**
+   * Resolves once the reading of the place at `address` has settled, for an edit to be built on it
+   * (`ownNewest`, `ownCoordinates`, `ownRemovedAt`): its reviews are no longer being read
+   * (`readStateOf` is not "reading": read, failed, or not asked about), and every read of the removals
+   * of the reviews read for it, in any of its filings, has ended (read, failed, stopped or let go of).
+   * At once when nothing is being read. Rejects with the signal's reason when `signal` aborts first.
+   */
+  readonly readSettled = (address: string, signal: AbortSignal): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      if (signal.aborted) return reject(signal.reason);
+      const look = () => {
+        if (!this.#readSettledNow(address)) return;
+        stop();
+        resolve();
+      };
+      const onAbort = () => {
+        stop();
+        reject(signal.reason);
+      };
+      const stop = () => {
+        this.#settling.delete(look);
+        signal.removeEventListener("abort", onAbort);
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      this.#settling.add(look);
+      look();
+    });
 
   /** The person's name, from their profile; undefined when it has none, or it has not been read. */
   nameOf(pubkey: string): string | undefined {
@@ -970,9 +1069,13 @@ export class ScoresStore {
     else this.#weigh();
   };
 
-  /** Aborts the review reads of this round, forgets those waiting their turn, and starts the next. */
+  /**
+   * Aborts the review reads of this round and the reads of their removals, forgets those waiting
+   * their turn, and starts the next.
+   */
   #newRound(): void {
     this.#reviewLane.clear();
+    this.#removalLane.clear();
     this.#round.abort();
     this.#round = new AbortController();
     this.#roundSignal = this.#life === null ? null : AbortSignal.any([this.#life.signal, this.#round.signal]);
@@ -1002,11 +1105,12 @@ export class ScoresStore {
   #flush(): void {
     const life = this.#life;
     const round = this.#roundSignal;
-    // With no review relays (development, unless set), nothing is read at all.
-    if (life === null || round === null || config.reviewRelays.length === 0) return;
+    // With no relays to read reviews from (development, unless set), nothing is read at all.
+    if (life === null || round === null || config.reviewReadRelays.length === 0) return;
 
-    // Each batch is read from every review relay, by a and by d: two requests each. Two batches are
-    // read at a time (`BATCHES_IN_FLIGHT`); the rest wait their turn, and count as asked meanwhile.
+    // Each batch is read from every relay reviews are read from, by a and by d: two requests each. Two
+    // batches are read at a time (`BATCHES_IN_FLIGHT`); the rest wait their turn, and count as asked
+    // meanwhile.
     const places = [...this.#wanted].filter((address) => !this.#asked.has(address));
     for (const batch of runsOf(places, REVIEW_BATCH)) {
       for (const address of batch) this.#asked.add(address);
@@ -1021,23 +1125,26 @@ export class ScoresStore {
   }
 
   /**
-   * Reads the reviews of the places at `batch` from every review relay, side by side: by their `a`,
-   * and by their `d`, bare or after `place:`, for reviews other apps wrote with no `a` (decision 16),
-   * each page after page while the pages come back full (`readPaged`, `REVIEW_PAGES`). What comes is
-   * put in place of what was read of those places before. A place no relay answered for keeps what it
-   * had: `refresh` asks again.
+   * Reads the reviews of the places at `batch` from every relay reviews are read from
+   * (`config.reviewReadRelays`), side by side: by their `a`, and by their `d`, bare or after `place:`,
+   * for reviews other apps wrote with no `a` (decision 16), each page after page while the pages come
+   * back full (`readPaged`, `REVIEW_PAGES`), a relay that is out failing at once (`REVIEW_READS`).
+   * What comes is put in place of what was read of those places before, and shown; then the relays
+   * that answered are asked for the removals of the reviews read, in the removals' turn
+   * (`#readRemovals`). A place no relay answered for keeps what it had: `refresh` asks again.
    */
   async #readReviews(batch: readonly string[], signal: AbortSignal): Promise<void> {
     const byA: NostrFilter = { kinds: [REVIEW_KIND], "#a": [...batch], limit: REVIEW_LIMIT };
     const byD: NostrFilter = { kinds: [REVIEW_KIND], "#d": [...batch, ...batch.map(reviewD)], limit: REVIEW_LIMIT };
+    const relays = [...config.reviewReadRelays];
     const reads = await Promise.allSettled(
       // A reader that cannot be made fails its relay's read, as a read that fails does. A relay
       // answers both requests or neither: half its answer must not replace what was read before.
-      config.reviewRelays.map(async (url) => {
+      relays.map(async (url) => {
         const reader = this.#readers(url);
         const [named, filed] = await Promise.all([
-          readPaged(reader, byA, REVIEW_PAGES, signal),
-          readPaged(reader, byD, REVIEW_PAGES, signal),
+          readPaged(reader, byA, REVIEW_PAGES, signal, REVIEW_READS),
+          readPaged(reader, byD, REVIEW_PAGES, signal, REVIEW_READS),
         ]);
         return [...named, ...filed];
       }),
@@ -1049,6 +1156,7 @@ export class ScoresStore {
       // What these places had stays; they say their reading failed until `refresh` tries again.
       for (const address of batch) this.#failed.add(address);
       this.#changed("scores");
+      this.#wake();
       return;
     }
     for (const address of batch) this.#failed.delete(address);
@@ -1069,6 +1177,48 @@ export class ScoresStore {
     }
     for (const [address, read] of byPlace) this.#read.set(address, read);
     this.#release(events.values());
+    this.#changed("reviews");
+    this.#weigh();
+
+    const filters = removalFilters([...events.values()]);
+    if (filters.length > 0) {
+      const answering = relays.filter((_, at) => reads[at]?.status === "fulfilled");
+      for (const address of batch) this.#removalsPending.set(address, (this.#removalsPending.get(address) ?? 0) + 1);
+      // Read, failed, stopped by the next round, or never read at all: an edit waits no longer.
+      const settled = () => {
+        for (const address of batch) {
+          const left = (this.#removalsPending.get(address) ?? 1) - 1;
+          if (left > 0) this.#removalsPending.set(address, left);
+          else this.#removalsPending.delete(address);
+        }
+        this.#wake();
+      };
+      this.#removalLane.add(signal, () => this.#readRemovals(answering, filters, signal).finally(settled), settled);
+    }
+    this.#wake();
+  }
+
+  /**
+   * Asks each of `relays` for the removals `filters` name (`removalFilters`), side by side, the
+   * requests to one relay `REMOVAL_REQUESTS_AT_ONCE` at a time (`removalsFrom`), each page after page
+   * as reviews are read (`readPaged`, `REVIEW_READS`). Each removal that counts (`countsAsRemoval`) is held by its id for the session
+   * (`#removals`), and takes its reviews down wherever they are worked out (`latestReviews`). A relay
+   * that fails gives none, and the reviews show as they did; so does a read the next round aborted.
+   */
+  async #readRemovals(relays: readonly string[], filters: readonly NostrFilter[], signal: AbortSignal): Promise<void> {
+    const reads = await Promise.allSettled(
+      relays.map(async (url) => {
+        const reader = this.#readers(url);
+        return removalsFrom(filters, (filter) => readPaged(reader, filter, REVIEW_PAGES, signal, REVIEW_READS));
+      }),
+    );
+    if (signal.aborted) return;
+    const values: unknown[] = [];
+    for (const read of reads) {
+      if (read.status === "fulfilled") values.push(...read.value);
+      else debug("a relay's removals could not be read", read.reason);
+    }
+    if (!holdRemovals(this.#removals, values, Date.now() / 1000)) return;
     this.#changed("reviews");
     this.#weigh();
   }
@@ -1230,8 +1380,24 @@ export class ScoresStore {
     this.#changed("names");
   }
 
-  /** Whether `ev` is not a review the person removed: written after the removal, or never removed. */
+  /** Whether the reading of the place at `address` has settled, as `readSettled` waits for it to. */
+  #readSettledNow(address: string): boolean {
+    if (this.readStateOf(address) === "reading") return false;
+    return (this.#filings.get(address) ?? [address]).every((filing) => !this.#removalsPending.has(filing));
+  }
+
+  /** Has each that waits for a place's reading to settle look again (`readSettled`). */
+  #wake(): void {
+    for (const look of [...this.#settling]) look();
+  }
+
+  /**
+   * Whether `ev` is not a review the person removed in this tab (`noteRemoval`): written after the
+   * removal, never removed, or not a review at all. Only a review is kept by its address: a removal
+   * (kind 5) has no `d` of its own, and is never taken for the review at the empty `d`.
+   */
   readonly #notRemoved = (ev: NostrEvent): boolean => {
+    if (ev.kind !== REVIEW_KIND) return true;
     const removedAt = this.#removed.get(eventKey(ev));
     return removedAt === undefined || ev.created_at > removedAt;
   };
@@ -1246,12 +1412,12 @@ export class ScoresStore {
 
   /**
    * Each place address's reviews: of every review event shown, each person's newest at each `d`,
-   * then of each place (`latestReviews`).
+   * then of each place, less those a removal read from the relays takes down (`latestReviews`).
    */
   #reviewsByAddress(): Map<string, Review[]> {
     if (this.#reviews !== null) return this.#reviews;
     const byAddress = new Map<string, Review[]>();
-    for (const review of latestReviews(this.#shownEvents())) {
+    for (const review of latestReviews([...this.#shownEvents(), ...this.#removals.values()])) {
       const reviews = byAddress.get(review.address);
       if (reviews === undefined) byAddress.set(review.address, [review]);
       else reviews.push(review);

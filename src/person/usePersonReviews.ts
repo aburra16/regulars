@@ -68,9 +68,10 @@ export interface PersonReviews {
  * starts afresh.
  *
  * Which reviews count is as a place's page and Trending have it, by the same code: each of the
- * person's reviews is the newest at its `d`, none is dated more than a day ahead (`latestReviews`),
- * and none is one the person signed in removed in this tab, while their own that the tab holds until
- * the relays send them back are there (`ScoresStore.withOwn`). Of those, the ones of places on the
+ * person's reviews is the newest at its `d`, none is dated more than a day ahead, and none is taken
+ * down by a removal read from the relays, by this page or by the scores store (`latestReviews`); none
+ * is one the person signed in removed in this tab, while their own that the tab holds until the
+ * relays send them back are there (`ScoresStore.withOwn`). Of those, the ones of places on the
  * list, one of each place, the newest: a place filed twice is one place (`reviewsOfListedPlaces`,
  * which Trending lists by too). A review of a place that is not on the list is left out, and nothing
  * says so.
@@ -109,7 +110,8 @@ export function usePersonReviews(pubkey: string): PersonReviews {
     if (indexes === undefined) return [];
     // The person signed in's own reviews that the tab holds are theirs alone: only those held, as the
     // relays are read for the rest. On anyone else's page they are not this person's, and are left out.
-    const theirs = latestReviews(store.withOwn(snapshot.events, me, Number.POSITIVE_INFINITY)).filter((review) => review.reviewer === pubkey);
+    const values = [...snapshot.events, ...snapshot.removals];
+    const theirs = latestReviews(store.withOwn(values, me, Number.POSITIVE_INFINITY)).filter((review) => review.reviewer === pubkey);
     return reviewsOfListedPlaces(theirs, indexes.byAddress).map((listed) => {
       const id = `${listed.review.id} ${listed.place.address}`;
       const kept = drawn.current.get(id);
@@ -118,7 +120,7 @@ export function usePersonReviews(pubkey: string): PersonReviews {
       drawn.current.set(id, listed);
       return listed;
     });
-  }, [store, snapshot.events, version, me, indexes, pubkey]);
+  }, [store, snapshot.events, snapshot.removals, version, me, indexes, pubkey]);
 
   const { first, more, end, missed, sinceAsk } = snapshot;
   // How many reviews were listed when the person last asked for a page; none before they have.
