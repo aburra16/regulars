@@ -1271,8 +1271,11 @@ describe("an asking whose copy is no longer listed", () => {
     // The very same copy is kept again, at the same time: its row is back, and asks nothing.
     expect(await keepCopy(MAYA, asSent(MAYA_LIST), { did: "follow", who: SOL }, KEPT_AT)).toBe(true);
     act(() => store.written());
-    await waitFor(() => expect(befores(part)[0]).toMatch(/^Before you followed (?:someone|Sol)$/));
-    expect(rows(part)[0]!.querySelector("time")).toHaveAttribute("datetime", new Date(KEPT_AT * 1000).toISOString());
+    // Waited for by its time: the row it replaces at the top says "Before you followed someone" too.
+    await waitFor(() =>
+      expect(rows(part)[0]!.querySelector("time")).toHaveAttribute("datetime", new Date(KEPT_AT * 1000).toISOString()),
+    );
+    expect(befores(part)[0]).toMatch(/^Before you followed (?:someone|Sol)$/);
 
     expect(asking(part)).not.toBeInTheDocument();
     expect(putBackWord(rows(part)[0]!)).toBeInTheDocument();
