@@ -30,6 +30,7 @@ import {
   failingWhen,
   NOS,
   OWN,
+  type Relay,
   relay,
   setUpRelays,
   strangers,
@@ -837,6 +838,36 @@ describe("a list older than one this tab has seen", () => {
     expect(await putBack(w, copyOf(), { by })).toEqual({ kind: "not-loaded" });
     expectNothingWritten(w, by);
   });
+
+  it("is looked at again just before the copy is sent: a newer list seen while the signer signs stops it, which sends nothing and is not loaded, and the relays keep that list", async () => {
+    const w = everywhere([shrunk(1_000)]);
+    const by = signer();
+    let sign!: () => void;
+    by.signEvent.mockImplementationOnce(
+      (asked) =>
+        new Promise((resolve) => {
+          sign = () => resolve(finalizeEvent(structuredClone(asked), SECRET));
+        }),
+    );
+    const ended = track(putBack(w, copyOf(), { by }));
+    await vi.waitFor(() => expect(by.signEvent).toHaveBeenCalledTimes(1));
+
+    // While the signer is still signing, another app saves a newer list, and this tab sees it, as its page reads the list meanwhile.
+    const newer = shrunk(2_000);
+    for (const url of [NOS, DIRECTORY, BIG]) w.relays[url]!.held.push(newer);
+    raiseFollowFloor(ME, newer);
+    sign();
+    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS);
+
+    expect(ended.outcome).toEqual({ kind: "not-loaded" });
+    // The copy it signed was sent to no relay, dated later than the newer list: sent, it would have taken that list's place.
+    expect(w.published()).toEqual([]);
+    expect(by.signEvent.mock.calls[0]![0].created_at).toBeGreaterThan(newer.created_at);
+    // Each relay holds the newer list as its newest still.
+    for (const url of [NOS, DIRECTORY, BIG]) {
+      expect(w.relays[url]!.held.filter((event) => event.kind === 3).sort((a, b) => b.created_at - a.created_at)[0]).toEqual(newer);
+    }
+  });
 });
 
 describe("when the list is as the copy says already", () => {
@@ -861,6 +892,41 @@ describe("when the list is as the copy says already", () => {
 
     expect(await putBack(w, copy, { by })).toEqual({ kind: "unchanged", list: copy });
     expectNothingWritten(w, by);
+  });
+
+  describe("with the relay the person writes to named by their relay list", () => {
+    /** The app's three relays hold `held` (the directory their relay list too), and their own relay holds `own`. */
+    const withOwn = (held: NostrEvent, own: Relay): World =>
+      world({ [NOS]: relay([held]), [DIRECTORY]: relay([held, relayList([[OWN, "write"]])]), [BIG]: relay([held]), [OWN]: own });
+
+    it("is unchanged over a read to trust: their relay answers, and its newest list has the copy's content and tags, as the others' does", async () => {
+      const copy = copyOf();
+      const same = finalizeEvent({ kind: 3, created_at: FOLLOW_LIST_TIME + 100, content: copy.content, tags: copy.tags }, SECRET);
+      const w = withOwn(same, relay([same]));
+      const by = signer();
+      const keep = keeper();
+
+      expect(await putBack(w, copy, { by, keep })).toEqual({ kind: "unchanged", list: asSent(same) });
+
+      expect(keep).not.toHaveBeenCalled();
+      expectNothingWritten(w, by);
+    });
+
+    it("is not loaded, and never unchanged, over a read that is not one to trust: the others' newest list has the copy's content and tags, and their relay, which may hold a newer one, is out", async () => {
+      const copy = copyOf();
+      const same = finalizeEvent({ kind: 3, created_at: FOLLOW_LIST_TIME + 100, content: copy.content, tags: copy.tags }, SECRET);
+      // Their own relay holds a newer list, which the read cannot reach.
+      const own = down();
+      own.held.push(shrunk(2_000));
+      const w = withOwn(same, own);
+      const by = signer();
+      const keep = keeper();
+
+      expect(await putBack(w, copy, { by, keep })).toEqual({ kind: "not-loaded" });
+
+      expect(keep).not.toHaveBeenCalled();
+      expectNothingWritten(w, by);
+    });
   });
 
   it("is unchanged the second time a copy is put back", async () => {

@@ -8,7 +8,7 @@ import { isNewer } from "../nostr/events.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import { isFormOver } from "../review/paths.ts";
 import { type Relays, useRelays } from "../score/ScoresProvider.tsx";
-import { changeFollow, type FollowDeps, type FollowOutcome, forgetFollowFloor, raiseFollowFloor } from "./change.ts";
+import { belowFollowFloor, changeFollow, type FollowDeps, type FollowOutcome, forgetFollowFloor, raiseFollowFloor } from "./change.ts";
 import { keepCopy } from "./kept.ts";
 import { CopiesContext, OwnCopies } from "./keptStore.ts";
 import { followed, type Removed } from "./list.ts";
@@ -69,6 +69,13 @@ import { copyToAsk, enoughAnswered, readOwnList } from "./read.ts";
  * (`Session.allowed`), so the next change asks nothing while that very list is still the newest;
  * any other newest, and they are asked again.
  *
+ * No button draws from a list older than one this tab has seen (the floor, ./change.ts), as every
+ * press would be held to that newer list and could not load. A read whose newest list is older,
+ * or that found none where a list has been seen, holds nothing, whether or not it is one to trust,
+ * as a read that is not one to trust with nothing to ask about holds nothing; and a copy held that
+ * is older is let go of. The list is then read again as one that is not known is, and a read that
+ * finds a list at the floor or above draws the buttons again.
+ *
  * While Follow is not open (`config.features.follow`, ruling R39) none of this happens: nothing is
  * known of anyone, no relay is asked anything, and a tap is no change. The store holds itself to
  * that (`OwnFollows`), whatever a component that uses it does.
@@ -77,7 +84,8 @@ import { copyToAsk, enoughAnswered, readOwnList } from "./read.ts";
 /**
  * What a button for a person shows:
  * - `unknown`: nobody is signed in, or the list of the person who is has not been read, or could not
- *   be: no button says Follow or Following, as either might be wrong;
+ *   be, or was found only older than one this tab has seen: no button says Follow or Following, as
+ *   either might be wrong;
  * - `not-following`, `following`: as the list has it. The list may be one that could not be trusted,
  *   which the person has not agreed to yet: a press then asks them first (`FollowOf.asking`);
  * - `saving`: a change to this person's place in the list is under way.
@@ -116,8 +124,10 @@ export interface FollowOf {
    * - when a change to anyone comes back asking, which takes its place; and when a change to anyone
    *   is saved, or finds the list so already;
    * - when the page's read is one to trust (a relay of the person's own answered, say) and finds
-   *   the copy they were shown, or a newer list; and when any read of the page's finds a newer
-   *   list than that copy. Not when it finds only an older one, or none: it has missed the copy;
+   *   the copy they were shown; and once this tab has seen a newer list than that copy, which a
+   *   read of the page's or a change, for anyone, found: at the end of that change, or at the next
+   *   read. Not when a read finds only an older one, or none: it has missed the copy;
+   * - when a copy put back is saved: the list is that one now;
    * - once the list held has this person as the change would leave them;
    * - when the person leaves the page, and with the session.
    * The same on every button for them.
@@ -237,8 +247,8 @@ interface Person {
  * on a copy of their list that may not be their newest. Held from the change's end until it is
  * answered or overtaken (`FollowOf.asking` lists each way it goes): they answer, or tap again for
  * that person; a change to anyone asks in its place, or comes to a list; a read to trust finds the
- * copy or a newer list, or any read finds a newer one; the list held has the person so already;
- * they go to another page; or the session ends.
+ * copy; this tab sees a newer list than the copy, by any read or change; a copy put back is saved;
+ * the list held has the person so already; they go to another page; or the session ends.
  */
 interface Asking {
   /** Whom the change is to, by their key in lower case. */
@@ -249,6 +259,16 @@ interface Asking {
   copy: { id: string; changed: number };
   /** What a button is told of it: the same object for as long as it is this asking. */
   told: { changed: number };
+}
+
+/**
+ * Whether the copy `asking` is about is older than a list this tab has seen of `pubkey`'s (the
+ * floor, `belowFollowFloor`): a read or a change, for anyone, has found a newer one since. The copy
+ * is then known not to be the newest, every change on it would not load, and there is nothing
+ * left to ask. False when nothing is asked.
+ */
+function outOfDate(pubkey: string, asking: Asking | null): boolean {
+  return asking !== null && belowFollowFloor(pubkey, { id: asking.copy.id, created_at: asking.copy.changed });
 }
 
 /** What is held for the person signed in, from their sign-in until they sign out or someone else signs in. */
@@ -267,11 +287,12 @@ interface Session {
    * is. A newer list that a later read or a change comes to takes its place, as does that very
    * list once a read to trust finds it; an older one never does. A later read that is not one to
    * trust and finds a newer list lets go of it: by another copy to ask about, or by none, and then
-   * no button is drawn. It is a list this tab has seen (`raiseFollowFloor`), as every list a read
-   * finds is: nothing is built on an older one. A list that a change made by the person's say
-   * found to be so already, with nothing saved, is such a copy too: it is that same copy. False
-   * for a list a read to trust found, for one a change saved, and for one a change built on a read
-   * to trust found.
+   * no button is drawn. So does a later read with nothing to ask about once this tab has seen a
+   * newer list than it, wherever (`belowFollowFloor`). It is a list this tab has seen
+   * (`raiseFollowFloor`), as every list a read finds is: nothing is built on an older one. A list
+   * that a change made by the person's say found to be so already, with nothing saved, is such a
+   * copy too: it is that same copy. False for a list a read to trust found, for one a change saved,
+   * and for one a change built on a read to trust found.
    */
   unagreed: boolean;
   /** Who `list` names: null until it is read. The same array until the list changes. */
@@ -635,14 +656,21 @@ class OwnFollows {
    * press that would change it comes back asking, as `changeFollow` reads afresh and decides for
    * itself. Whether no list means that the person follows nobody is never asked of such a read.
    * Any other read that is not one to trust holds nothing. It takes a copy that is held away in
-   * one case: when the newest list it found is newer than that copy, which is then known not to
-   * be the newest, and no button is drawn from it (`#letGo`). And what the person is asked about
-   * goes whenever a read finds a newer list than the copy they were shown. The same list on fewer
-   * relays, an older list, and a read that found no list or could not learn where it is kept, take
-   * nothing away: such a read has told nothing, or has missed a list this tab has seen.
+   * one case: when that copy is older than a list this tab has seen (`belowFollowFloor`), as when
+   * the newest list this read found is newer than it; the copy is then known not to be the
+   * newest, and no button is drawn from it (`#letGo`). And what the person is asked about goes
+   * whenever this tab has seen a newer list than the copy they were shown, whatever the read's
+   * standing: this read found one, or one was seen before it. The same list on fewer relays, an
+   * older list, and a read that found no list or could not learn where it is kept, take nothing
+   * away from a copy no older than any seen: such a read has told nothing, or has missed a list
+   * this tab has seen.
    *
    * Every list a read finds is one this tab has seen from then on (`raiseFollowFloor`), whatever
-   * the read's standing and whether or not it is held: no change is built on an older one.
+   * the read's standing and whether or not it is held: no change is built on an older one. And a
+   * read whose newest list is older than one this tab has seen, or that found none where one has
+   * been seen, is held to the same as one that is not to trust with nothing to ask about, however
+   * it stands: no button draws from what it found, as every press would be held to the newer list
+   * and could not load.
    */
   async #read(session: Session): Promise<void> {
     const { pubkey } = session.account;
@@ -657,20 +685,30 @@ class OwnFollows {
       // change is built on an older one (ruling R18). That only ever stops a change.
       if (list !== null) raiseFollowFloor(pubkey, list);
       const { asking } = session;
-      /** Whether the read found a newer list than the copy the person is asked about: that copy is then known not to be the newest. */
-      const overtaken = asking !== null && list !== null && isNewer(list, { id: asking.copy.id, created_at: asking.copy.changed });
-      if (!read.trusted) {
+      // Whether the copy the person is asked about is older than a list this tab has seen: this
+      // read found a newer one, or one was seen before it. That copy is then known not to be the
+      // newest.
+      const overtaken = outOfDate(pubkey, asking);
+      // The newest it found is older than a list this tab has seen, or it found none: it has
+      // missed that list, which a change found or saved, or another read. Every press would be held
+      // to that list (./change.ts) and could not load, so no button draws from what this one
+      // found, however it stands: it is taken as a read that is not one to trust, with nothing to
+      // ask about. A later read that finds a list at the floor or above draws them again.
+      const missed = belowFollowFloor(pubkey, list);
+      if (!read.trusted || missed) {
         // Not their list as far as it can be known. In one case it is shown, not yet agreed to.
-        const copy = copyToAsk(read, Math.floor(Date.now() / 1000));
+        const copy = missed ? null : copyToAsk(read, Math.floor(Date.now() / 1000));
         let told = false;
         if (copy !== null) told = this.#hold(session, copy, true);
-        // No list to ask about, and the newest it found is a newer list than the copy held: on
-        // too few relays to ask about, but enough to know that the copy is not the newest. No
-        // button is drawn from that. The same list on fewer relays, an older one, and a read that
-        // found none, say nothing against it, and it stays.
-        else if (session.unagreed && list !== null && session.list !== null && session.list !== undefined && isNewer(list, session.list)) told = this.#letGo(session);
-        // What they are asked about is one copy, shown with its date: a newer list found, and the
-        // asking is let go of with it, whether or not there is another copy to ask about.
+        // No list to ask about, and the copy held is older than a list this tab has seen: one
+        // this read found, newer than the copy and on too few relays to ask about, or one seen
+        // before it. That copy is known not to be the newest, and no button is drawn from it. The
+        // same list on fewer relays, an older one, and a read that found none, say nothing
+        // against a copy that is no older than any seen, and it stays.
+        else if (session.unagreed && session.list !== null && session.list !== undefined && belowFollowFloor(pubkey, session.list)) told = this.#letGo(session);
+        // What they are asked about is one copy, shown with its date: a newer list seen, and the
+        // asking is let go of with it, whether or not there is another copy to ask about, and
+        // whether or not a button draws: nothing is left asked about that no button shows.
         if (overtaken) {
           session.asking = null;
           told = true;
@@ -758,6 +796,11 @@ class OwnFollows {
   #over(session: Session, who: string, person: Person, action: Action, asked: boolean, outcome: FollowOutcome | null): void {
     if (this.#session !== session) return;
     person.saving = false;
+    // What the person was asked about before, for anyone, goes once its copy is older than a list
+    // this tab has seen: this change's own read may have found a newer one, and nothing can be made
+    // on that copy now. An asking this change makes is about the newest list its read found, which
+    // is no older than any seen.
+    if (outOfDate(session.account.pubkey, session.asking)) session.asking = null;
     // What the change meant to do, for Try again: Undo is a follow, of the kind that puts back.
     const meant = action === "unfollow" ? "unfollow" : "follow";
     /** How it went wrong, with what Try again makes again: the change itself, when it was made through an asking. */
@@ -826,6 +869,9 @@ class OwnFollows {
     const session = this.#session;
     if (session === null || session.stop.signal !== signal) return;
     this.#hold(session, list);
+    // The list was replaced whole, at the person's word: what they were asked about was a copy of
+    // the list before it, older than the one saved, and there is nothing left to ask.
+    session.asking = null;
     this.#agree(session);
     this.#changed();
   }

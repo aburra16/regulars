@@ -501,75 +501,56 @@ export const copy = {
    * (tests/copy.test.ts holds the rest of the copy to that).
    */
   follow: {
-    // DRAFT
     /** The button, on a reviewer the person does not follow. */
     follow: "Follow",
-    // DRAFT
     /** The same button's name for a screen reader, which hears whom it is for: "Follow Maya". */
     followNamed: (name: string) => `Follow ${name}`,
-    // DRAFT
     /** The button, on a reviewer the person follows. A press on it shows `unfollow`, and changes nothing. */
     following: "Following",
-    // DRAFT
     /** The same button's name for a screen reader: whom, and what the button is for. "Following Maya. Unfollow". */
     followingNamed: (name: string) => `Following ${name}. Unfollow`,
-    // DRAFT
     /**
      * The same button once it shows what a press will do: under a mouse, with the keyboard's focus on
      * it, or after a first press. A press on this takes the reviewer out of the list.
      */
     unfollow: "Unfollow",
-    // DRAFT
     /** The same button's name for a screen reader while it shows `unfollow`: "Unfollow Maya". */
     unfollowNamed: (name: string) => `Unfollow ${name}`,
-    // DRAFT
     /**
      * Said to a screen reader, and not seen, once a press on `following` has shown `unfollow`: the
      * press changed nothing, and the next one will.
      */
     pressAgain: (name: string) => `Press again to unfollow ${name}.`,
-    // DRAFT
     /** The button while the change is being saved: it can't be pressed again. */
     saving: "Saving…",
-    // DRAFT
     /** Under the button for ten seconds once a reviewer is taken out of the list: who, and the way back. */
     unfollowed: (name: string) => `You no longer follow ${name}.`,
-    // DRAFT
     /** Beside `unfollowed`: puts them back in the list as they were. */
     undo: "Undo",
-    // DRAFT
     /** Under Following, once a reviewer is followed and the person has a circle: their reviews count once it is built again. */
     countsAfterUpdate: "Counts after your circle's next update.",
     /** Beside `countsAfterUpdate`: has the circle built again, as on the Why page, in the same words. */
     updateNow,
-    // DRAFT
     /** The same, for a person whose circle is not built yet. */
     countsOnceBuilt: "Counts once your circle is built.",
     /** Beside `countsOnceBuilt`: opens Personalize's panel, with its line and its button, in the same word. */
     personalize,
-    // DRAFT
     /** The list of people the person follows could not be read, so it was not changed. Try again follows. */
     notLoaded: "We couldn't load the list of people you follow, so nothing was changed.",
-    // DRAFT
     /**
      * The list was read, and a copy of it could not be kept in this browser first: said of a change
      * that is never made without that copy (one built on a copy found elsewhere, at the person's
      * say), and of a copy put back over a list. Try again follows.
      */
     notKept: "We couldn't keep a copy of your list in this browser, so nothing was changed.",
-    // DRAFT
     /** The person's add-on or phone app said no, or did not answer. Try again follows. */
     notApproved: "That wasn't approved, so nothing was changed.",
-    // DRAFT
     /** Nothing took the changed list. Try again follows. */
     notSaved: "That didn't save. Nothing was changed.",
-    // DRAFT
     /** The changed list was saved, and could not be read back yet: the button shows the new state. */
     unconfirmed: "Saved, but we couldn't check it yet.",
-    // DRAFT
     /** Beside a line that says a change was not made: makes it again. */
     tryAgain: "Try again",
-    // DRAFT
     /**
      * Under the button, in place of a change that was not made: where the person's other apps keep
      * their list could not be reached, and the list the change would be built on is a copy found
@@ -581,10 +562,8 @@ export const copy = {
       `We couldn't reach where your other apps keep your list. The newest copy we found was last changed on ${date}. If you have followed anyone since then, they would be lost.`,
     /** Under `copyFound`, first: lets the question go, and changes nothing, in the words My circle's panel has for it. */
     notNow,
-    // DRAFT
     /** Beside `notNow`: the person's answer, which makes the change they pressed for on that copy. */
     useThisCopy: "Use this copy",
-    // DRAFT
     /**
      * On a reviewer's page, for a person signed in: the people they follow who follow this reviewer, by
      * name, one to three of them and never how many there are (decision 19): "Followed by Maya, who you
@@ -592,46 +571,33 @@ export const copy = {
      * you follow".
      */
     followedBy: (...names: string[]) => `Followed by ${allOf(names)}, ${names.length === 1 ? "who" : "people"} you follow`,
-    // DRAFT
     /**
      * On the person's own page: the heading over the copies of their list that were kept in this
      * browser, one before each change they made here. Never how many people a copy holds (decision 19).
      */
     keptHeading: "Earlier copies of who you follow",
-    // DRAFT
     /** Under `keptHeading`: what the copies are, and what they are for. */
     keptAbout: "Before each change you make here, Regulars keeps a copy of your list in this browser, so it can be put back.",
-    // DRAFT
     /** A copy, by the change it was kept before: a tap of Follow, for the person named. When it was kept follows. */
     keptBeforeFollow: (name: string) => `Before you followed ${name}`,
-    // DRAFT
     /** The same, kept before an unfollow of the person named. The one line that says "unfollowed" (tests/copy.test.ts lets it through here alone). */
     keptBeforeUnfollow: (name: string) => `Before you unfollowed ${name}`,
-    // DRAFT
     /** The same, kept before a tap of Undo. */
     keptBeforeUndo: "Before an Undo",
-    // DRAFT
     /** The same, kept before another copy was put back: the list as it was then. */
     keptBeforePutBack: "Before a copy was put back",
-    // DRAFT
     /** Whom `keptBeforeFollow` and `keptBeforeUnfollow` name when the app has no name for them: never a code. */
     keptSomeone: "someone",
-    // DRAFT
     /** Beside a copy: asks whether to put it back (`putBackQuestion`), and changes nothing. */
     putBack: "Put back",
-    // DRAFT
     /** The asking, in place of `putBack`: what putting a copy back does, and what it loses. `keepAsItIs` and `putItBack` follow. */
     putBackQuestion: "Putting this back replaces your list as it is now. Anyone you have followed since, here or in another app, would be lost.",
-    // DRAFT
     /** Under `putBackQuestion`: replaces the person's list with the copy. `saving` while it is being saved. */
     putItBack: "Put it back",
-    // DRAFT
     /** Beside `putItBack`: closes the asking, and changes nothing. */
     keepAsItIs: "Keep my list as it is",
-    // DRAFT
     /** Once a copy has been put back. */
     putBackDone: "Your list is as it was then.",
-    // DRAFT
     /** The list was what the copy says already: nothing was changed. */
     putBackAlready: "Your list is already as it was then.",
   },
@@ -641,28 +607,20 @@ export const copy = {
    * names who follows them, are `follow`'s: nothing here says the word.
    */
   person: {
-    // DRAFT
     /** The arrow at the top left, for a screen reader, and the link above the page on a desktop, when it goes back the way the person came. */
     back: "Back",
-    // DRAFT
     /** On the person's own page, where the Follow button would be. */
     you: "This is you",
-    // DRAFT
     /** The heading over their reviews. Never how many (decision 19). */
     reviews: "Reviews",
-    // DRAFT
     /** While the page, or their reviews, are read: Trending's line. */
     loading: loadingReviews,
-    // DRAFT
     /** Under the heading, once their reviews are read and none is of a place on the list. */
     none: "No reviews yet.",
-    // DRAFT
     /** The button under the reviews that reads the next ones back in time. */
     showMore: "Show more",
-    // DRAFT
     /** No review relay answered for their reviews: said with Try again (`retry`). Trending's line. */
     failed: reviewsFailed,
-    // DRAFT
     /** Beside `failed`: reads them again. */
     retry: "Try again",
   },

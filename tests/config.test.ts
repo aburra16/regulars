@@ -58,11 +58,15 @@ describe("config", () => {
     expect(config.defaultCity).toEqual({ name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 });
   });
 
-  it("opens signing in, and My circle now that its scores can be worked out (M2b; M3 Task 3), keeps Saved off until saved lists exist, and has Follow on in development and the tests (ruling R39)", () => {
+  it("opens signing in, and My circle now that its scores can be worked out (M2b; M3 Task 3), keeps Saved off until saved lists exist, and has Follow on (ruling R39)", () => {
     // As config.ts sets them: tests/setup.ts closes My circle before each test, whatever it says, and
-    // the tests of My circle open it. Follow in a production build is the preview switch's to say
-    // (tests/preview.test.ts).
+    // the tests of My circle open it.
     expect(SET_FEATURES).toEqual({ signIn: true, circle: true, saved: false, follow: true });
+  });
+
+  it("has Follow on for everyone, in a production build as in development", async () => {
+    expect((await configWith({ production: true })).features.follow).toBe(true);
+    expect((await configWith({})).features.follow).toBe(true);
   });
 
   it("meets phone apps at one place, relay.nsec.app, only while connecting one", () => {

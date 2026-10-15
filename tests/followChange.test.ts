@@ -146,6 +146,14 @@ function savedBy(outcome: FollowOutcome | undefined): NostrEvent {
   return outcome.list;
 }
 
+/** A tab of the app: a copy of the code of its own, as another tab has, set up as this one is. */
+async function openTab(): Promise<typeof changeFollow> {
+  vi.resetModules();
+  const tab = await import("../src/follow/change");
+  setUpRelays((await import("../src/config")).config);
+  return tab.changeFollow;
+}
+
 /** What the app logs, on any level: nothing here may be, as a list and its relays are the person's. */
 let logs: ReturnType<typeof vi.spyOn>[];
 
@@ -1044,14 +1052,6 @@ describe("one change at a time (Review Focus 3)", () => {
       return finalizeEvent(structuredClone(asked), SECRET);
     });
     return by;
-  }
-
-  /** A tab of the app: a copy of the code of its own, as another tab has, set up as this one is. */
-  async function openTab(): Promise<typeof changeFollow> {
-    vi.resetModules();
-    const tab = await import("../src/follow/change");
-    setUpRelays((await import("../src/config")).config);
-    return tab.changeFollow;
   }
 
   /** Two follows started together, the first with a signer that takes a second, and how they ended. */
@@ -2310,6 +2310,69 @@ describe("a list older than one this tab has seen (ruling R9)", () => {
     const second = savedBy(await change(w, ALSO_ABSENT, "follow", { now: NOW + 10 }));
 
     expect(second.tags).toEqual([["p", pubkeyAt(7)], ["p", ALSO_ABSENT]]);
+  });
+
+  it("is looked at again just before the list is sent: one seen while the signer signs stops the change, which sends nothing and is not loaded, and the relays keep the newer list", async () => {
+    const old = buildFollowList(SECRET);
+    const w = everywhere([old]);
+    const by = signer();
+    let sign!: () => void;
+    by.signEvent.mockImplementationOnce(
+      (asked) =>
+        new Promise((resolve) => {
+          sign = () => resolve(finalizeEvent(structuredClone(asked), SECRET));
+        }),
+    );
+    const ended = track(change(w, ABSENT, "follow", { by }));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(by.signEvent).toHaveBeenCalledTimes(1);
+
+    // While the person's signer is still signing, another change saves a newer list than the one
+    // this change was built on: in another tab, in a browser with no Web Locks (in this tab a change
+    // waits its turn). This tab sees it, as its page reads the list meanwhile.
+    const newer = savedBy(await change(w, ALSO_ABSENT, "follow", { now: NOW - 100 }, await openTab()));
+    raiseFollowFloor(ME, newer);
+    sign();
+    await vi.advanceTimersByTimeAsync(FOLLOW_SETTLE_MS);
+
+    expect(ended.outcome).toEqual({ kind: "not-loaded" });
+    // What it signed was sent to no relay: each was sent the newer list alone, and holds it as the newest.
+    for (const url of [NOS, DIRECTORY, BIG]) {
+      expect(w.relays[url]!.writer.published).toEqual([newer]);
+      expect(w.relays[url]!.held.filter((event) => event.kind === 3).sort((a, b) => b.created_at - a.created_at)[0]).toEqual(newer);
+    }
+    // It was dated later than the newer list, and lacks its entry: sent, it would have taken that list's place everywhere.
+    expect(by.signEvent.mock.calls[0]![0].created_at).toBeGreaterThan(newer.created_at);
+    expect(by.signEvent.mock.calls[0]![0].tags).not.toContainEqual(["p", ALSO_ABSENT]);
+  });
+
+  it.each<[string, (built: NostrEvent) => NostrEvent]>([
+    ["the very list it was built on", (built) => built],
+    ["an older list than that", () => buildFollowList(SECRET, FOLLOW_LIST_TIME - 100)],
+  ])("lets the list be sent when what this tab sees while the signer signs is %s: it is saved everywhere, and confirmed", async (_, seen) => {
+    const old = buildFollowList(SECRET);
+    const w = everywhere([old]);
+    const by = signer();
+    let sign!: () => void;
+    by.signEvent.mockImplementationOnce(
+      (asked) =>
+        new Promise((resolve) => {
+          sign = () => resolve(finalizeEvent(structuredClone(asked), SECRET));
+        }),
+    );
+    const ended = track(change(w, ABSENT, "follow", { by }));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(by.signEvent).toHaveBeenCalledTimes(1);
+
+    // The page reads the list meanwhile, and finds that one: the floor is raised to it, which is no newer than the list this change is built on.
+    raiseFollowFloor(ME, seen(old));
+    sign();
+    await vi.advanceTimersByTimeAsync(FOLLOW_SETTLE_MS);
+
+    const saved = savedBy(ended.outcome);
+    expect(ended.outcome).toEqual({ kind: "saved", list: saved, confirmed: true, kept: false });
+    expect(saved.tags).toEqual([...old.tags, ["p", ABSENT]]);
+    for (const url of [NOS, DIRECTORY, BIG]) expect(w.relays[url]!.writer.published).toEqual([saved]);
   });
 
   describe("raised by a reader, with the list it shows (ruling R18)", () => {

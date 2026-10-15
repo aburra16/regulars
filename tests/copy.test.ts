@@ -277,7 +277,7 @@ describe("copy", () => {
     expect(new Set(sayUnfollowed.map((leaf) => leaf.path.replace(/\(.*$/, "")))).toEqual(new Set(["follow.keptBeforeUnfollow"]));
   });
 
-  it("has the words given for a reviewer's page (drafts): who of the people the person follows also does, by name, and never how many", () => {
+  it("has the words given for a reviewer's page (approved, but for its title and Your reviews, drafts still): who of the people the person follows also does, by name, and never how many", () => {
     // One person is "who you follow", and two or three "people you follow" (ruling R35).
     expect(copy.follow.followedBy("Maya")).toBe("Followed by Maya, who you follow");
     expect(copy.follow.followedBy("Maya", "Jon")).toBe("Followed by Maya and Jon, people you follow");
@@ -298,7 +298,7 @@ describe("copy", () => {
     expect(lines.filter((text) => /\d/.test(text))).toEqual([]);
   });
 
-  it("has the words given for the Follow button and its lines (decision 44; drafts)", () => {
+  it("has the words given for the Follow button and its lines (decision 44; approved)", () => {
     expect(copy.follow.follow).toBe("Follow");
     expect(copy.follow.following).toBe("Following");
     expect(copy.follow.followingNamed("Maya")).toBe("Following Maya. Unfollow");
@@ -321,7 +321,7 @@ describe("copy", () => {
     expect(copy.follow.followNamed("Maya")).toBe("Follow Maya");
   });
 
-  it("has the words given for asking before a change is built on a copy found elsewhere (drafts)", () => {
+  it("has the words given for asking before a change is built on a copy found elsewhere (approved)", () => {
     expect(copy.follow.copyFound("March 6, 2027")).toBe(
       "We couldn't reach where your other apps keep your list. The newest copy we found was last changed on March 6, 2027. If you have followed anyone since then, they would be lost.",
     );
@@ -336,14 +336,14 @@ describe("copy", () => {
     expect(lines.join(" ")).not.toMatch(/[\u2013\u2014]/);
   });
 
-  it("has the words given for a change that was not made because no copy of the list could be kept (draft)", () => {
+  it("has the words given for a change that was not made because no copy of the list could be kept (approved)", () => {
     expect(copy.follow.notKept).toBe("We couldn't keep a copy of your list in this browser, so nothing was changed.");
     // It is not the line for a list that could not be loaded: that is another thing going wrong.
     expect(copy.follow.notKept).not.toBe(copy.follow.notLoaded);
     expect(bannedWordsIn(copy.follow.notKept)).toEqual([]);
   });
 
-  it("has the words given for the copies of the person's list kept before each change, and for putting one back (drafts)", () => {
+  it("has the words given for the copies of the person's list kept before each change, and for putting one back (approved)", () => {
     expect(copy.follow.keptHeading).toBe("Earlier copies of who you follow");
     expect(copy.follow.keptAbout).toBe("Before each change you make here, Regulars keeps a copy of your list in this browser, so it can be put back.");
     // A row, by what the copy was kept for.

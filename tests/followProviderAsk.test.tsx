@@ -1,13 +1,15 @@
 import type { NostrEvent } from "@nostrify/nostrify";
-import { cleanup, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
+import type { JSX } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
-import { forgetFollowFloor } from "../src/follow/change";
+import { forgetFollowFloor, raiseFollowFloor } from "../src/follow/change";
 import { FOLLOW_REREAD_MS, UNDO_MS } from "../src/follow/FollowProvider";
 import { FOLLOW_READ_MS } from "../src/follow/read";
 import { keepCopy, keptCopies } from "../src/follow/kept";
+import { usePutBack } from "../src/follow/keptStore";
 import { TOWNS_WAIT_MS } from "../src/places/store";
 import { ABSENT, buildFollowList, FOLLOW_LIST_TIME, FOLLOWED_IN_LIST, pubkeyAt } from "./fixtures/follow-list";
 import { shapedEvent } from "./support/events";
@@ -20,7 +22,9 @@ import {
   gate,
   installAddOn,
   openInShell,
+  openPageInShell,
   openSignedIn,
+  Person,
   says,
   settle,
   signedInAs,
@@ -86,6 +90,26 @@ function ownOut(held: NostrEvent = OLD): World {
 
 /** Every event any of the app's three relays, and the relay they write to, was sent. */
 const sentAnywhere = (w: World) => w.published();
+
+/** Six follow-list relays, as production has: the three the tests set up (`setUpRelays`), and three more. */
+const SIX = [...FOLLOW_RELAYS, "wss://fourth.example.test", "wss://fifth.example.test", "wss://sixth.example.test"];
+
+/** A newer list of theirs than the copy, which another app saved: it keeps forty of the copy's entries. */
+const newerThanTheCopy = () => finalizeEvent({ kind: 3, created_at: OLD_AT + 500, content: OLD.content, tags: OLD.tags.slice(0, 40) }, SECRET);
+
+/**
+ * Put back, for the newest copy of the person's list kept in this browser: the press of Put it back
+ * on the page that lists the copies, with nothing else of that page. Off until the copies are read.
+ */
+function PutBackNewest(): JSX.Element {
+  const { copies, putBack } = usePutBack(ME);
+  const newest = copies[0];
+  return (
+    <button type="button" disabled={newest === undefined} onClick={() => newest !== undefined && putBack(newest)}>
+      put back
+    </button>
+  );
+}
 
 /** What the app warns of or reports as an error: nothing here may be. */
 let logs: ReturnType<typeof vi.spyOn>[];
@@ -211,7 +235,6 @@ describe("the list held for the buttons, from a read that is not one to trust", 
 
   it("is what a press is held to when the relays that hold it stop answering: three others hold an older list, and the person is not asked about that one", async () => {
     // The app has six relays: three hold a list of this year, three the copy of a year ago. Their own relay is out.
-    const SIX = [...FOLLOW_RELAYS, "wss://fourth.example.test", "wss://fifth.example.test", "wss://sixth.example.test"];
     config.followListRelays = [...SIX];
     const newer = finalizeEvent({ kind: 3, created_at: OLD_AT + 30 * 24 * 60 * 60, content: OLD.content, tags: [...OLD.tags, ["p", ALSO_ABSENT]] }, SECRET);
     const w = ownOut(newer);
@@ -228,6 +251,74 @@ describe("the list held for the buttons, from a read that is not one to trust", 
     expect(addOn.signEvent).not.toHaveBeenCalled();
     expect(sentAnywhere(w)).toEqual([]);
     expect(await keptCopies(ME)).toEqual([]);
+  });
+
+  it("is never a copy older than a list this tab has seen: a read that found a newer list on two of six relays, and then one that finds the copy on four, draw no button; one that finds the newer list on three draws them from it", async () => {
+    config.followListRelays = [...SIX];
+    // Another app saved a newer list than the copy, to two of the app's relays alone. Their own relay is out.
+    const newer = finalizeEvent({ kind: 3, created_at: OLD_AT + 500, content: OLD.content, tags: [...OLD.tags, ["p", ALSO_ABSENT]] }, SECRET);
+    const w = world({ [NOS]: relay([newer]), [DIRECTORY]: relay([newer, theirs]), [BIG]: relay([OLD]), [OWN]: relay([NEWEST]) });
+    w.relays[OWN]!.down = true;
+    for (const url of SIX.slice(3)) w.relays[url] = relay([OLD]);
+    const addOn = signedInAs(SECRET);
+    const people = { stranger: ABSENT, friend: FRIEND, another: ALSO_ABSENT };
+    const page = await openSignedIn(w, people);
+    // The first read: the newer list, on too few relays to ask about. No button, and this tab has seen it.
+    await waitFor(() => expect(listReads(w)).toEqual([1, 1, 1]));
+    await settle();
+    expect(says("friend")).toBe("unknown");
+
+    // The two that hold it no longer send a list: the copy is the newest found, on four.
+    for (const url of [NOS, DIRECTORY]) w.relays[url]!.listsDown = true;
+    await after(FOLLOW_REREAD_MS);
+    page.show({ ...people, late: pubkeyAt(3) });
+    await waitFor(() => expect(listReads(w)).toEqual([2, 2, 2]));
+    await settle();
+
+    // Older than a list this tab has seen: no button draws from it, and none says Follow of someone the newer list names.
+    for (const name of [...Object.keys(people), "late"]) expect(says(name)).toBe("unknown");
+    expect(addOn.signEvent).not.toHaveBeenCalled();
+    expect(sentAnywhere(w)).toEqual([]);
+
+    // Once three of the app's relays hold the newer list, the next read draws the buttons from it.
+    for (const url of [NOS, DIRECTORY]) w.relays[url]!.listsDown = false;
+    w.relays[BIG]!.held.push(newer);
+    await after(FOLLOW_REREAD_MS);
+    page.show({ ...people, late: pubkeyAt(3), last: pubkeyAt(4) });
+    await waitFor(() => expect(says("another")).toBe("following"));
+    expect(says("friend")).toBe("following");
+    expect(says("stranger")).toBe("not-following");
+  });
+
+  it("is let go of when a press has read a newer list since, and the next read finds only the copy again: no button draws from a list older than one this tab has seen", async () => {
+    const w = ownOut();
+    const page = await opened(w);
+    const { addOn } = page;
+    expect(says("friend")).toBe("following");
+
+    // Another app's newer list, on one of the app's relays: a press finds it, too few hold it to ask about, and it could not load.
+    const since = finalizeEvent({ kind: 3, created_at: OLD_AT + 500, content: OLD.content, tags: OLD.tags.slice(0, 40) }, SECRET);
+    w.relays[NOS]!.held.push(since);
+    tap("stranger", "follow");
+    await waitFor(() => expect(says("stranger")).toBe("not-following trouble:not-loaded"));
+
+    // That relay no longer sends it: the page's next read finds the copy on the three again.
+    w.relays[NOS]!.held.splice(w.relays[NOS]!.held.indexOf(since), 1);
+    await after(FOLLOW_REREAD_MS);
+    page.show({ stranger: ABSENT, friend: FRIEND, another: ALSO_ABSENT });
+    await waitFor(() => expect(says("friend")).toBe("unknown"));
+    expect(says("another")).toBe("unknown");
+    expect(says("stranger")).toBe("unknown trouble:not-loaded");
+    expect(addOn.signEvent).not.toHaveBeenCalled();
+    expect(sentAnywhere(w)).toEqual([]);
+
+    // Once the three hold the newer list, the next read draws the buttons from it.
+    for (const url of FOLLOW_RELAYS) w.relays[url]!.held.push(since);
+    await after(FOLLOW_REREAD_MS);
+    page.show({ stranger: ABSENT, friend: FRIEND, another: ALSO_ABSENT, late: pubkeyAt(3) });
+    await waitFor(() => expect(says("late")).toBe("following"));
+    expect(says("friend")).toBe("following");
+    expect(says("another")).toBe("not-following");
   });
 
   it("is read again once thirty seconds have passed and a button next appears, and gives way to the newer list their own relay then sends", async () => {
@@ -890,6 +981,72 @@ describe("one asking at a time", () => {
     await waitFor(() => expect(says("friend")).toBe("not-following undo"));
     expect(says("stranger")).toBe("not-following");
   });
+
+  it("goes as soon as a press for someone else has read a newer list than the copy, on too few relays to ask about: nothing can be made on that copy now, and the answer does nothing", async () => {
+    const w = ownOut();
+    const { addOn } = await opened(w);
+    tap("stranger", "follow");
+    await waitFor(() => expect(says("stranger")).toBe(`not-following asking:${OLD_AT}`));
+
+    // Another app's newer list reaches one of the app's relays: the friend's unfollow reads it, and could not load.
+    w.relays[NOS]!.held.push(newerThanTheCopy());
+    tap("friend", "unfollow");
+    await waitFor(() => expect(says("friend")).toBe("following trouble:not-loaded"));
+
+    expect(says("stranger")).toBe("not-following");
+    tap("stranger", "use");
+    await settle();
+    expect(says("stranger")).toBe("not-following");
+    expect(addOn.signEvent).not.toHaveBeenCalled();
+    expect(sentAnywhere(w)).toEqual([]);
+  });
+
+  it("goes when a read finds only the copy again, once this tab has seen a newer list elsewhere: nothing is left asked about while no button draws", async () => {
+    const w = ownOut();
+    const page = await opened(w);
+    tap("stranger", "follow");
+    await waitFor(() => expect(says("stranger")).toBe(`not-following asking:${OLD_AT}`));
+
+    // A newer list was seen, by nothing that tells the buttons (a putting back that read it and was not approved, say).
+    raiseFollowFloor(ME, newerThanTheCopy());
+    await after(FOLLOW_REREAD_MS);
+    page.show({ stranger: ABSENT, friend: FRIEND, another: ALSO_ABSENT });
+
+    // The read finds the copy, older than that list: no button draws from it, and nothing is asked about it.
+    await waitFor(() => expect(says("friend")).toBe("unknown"));
+    expect(says("stranger")).toBe("unknown");
+  });
+
+  it("goes when a copy put back is saved: the list is the one put back now, and the copy asked about is older than it", async () => {
+    // A copy of their list kept in this browser before: it names the friend alone.
+    const earlier = finalizeEvent({ kind: 3, created_at: OLD_AT - YEAR, content: "", tags: [["p", FRIEND]] }, SECRET);
+    expect(await keepCopy(ME, asSent(earlier), { did: "follow", who: FRIEND }, Math.floor(Date.now() / 1000) - 60)).toBe(true);
+    const addOn = signedInAs(SECRET);
+    const w = ownOut();
+    await openPageInShell(
+      w,
+      <>
+        <Person name="stranger" who={ABSENT} />
+        <Person name="friend" who={FRIEND} />
+        <Person name="third" who={pubkeyAt(3)} />
+        <PutBackNewest />
+      </>,
+    );
+    await waitFor(() => expect(says("stranger")).toBe("not-following"));
+    tap("stranger", "follow");
+    await waitFor(() => expect(says("stranger")).toBe(`not-following asking:${OLD_AT}`));
+
+    const putBack = screen.getByRole("button", { name: "put back" });
+    await waitFor(() => expect(putBack).toBeEnabled());
+    fireEvent.click(putBack);
+
+    // Saved, over a read that could not be trusted: the buttons draw from the list put back, and nothing is asked.
+    await waitFor(() => expect(says("third")).toBe("not-following"));
+    expect(newestOn(w, NOS)?.tags).toEqual(earlier.tags);
+    expect(says("friend")).toBe("following");
+    expect(says("stranger")).toBe("not-following");
+    expect(addOn.signEvent).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("for the rest of the visit, after a change made by their say", () => {
@@ -1013,6 +1170,47 @@ describe("for the rest of the visit, after a change made by their say", () => {
 
     await waitFor(() => expect(says("other")).toBe(`not-following asking:${saved.created_at}`));
     expect(addOn.signEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends in the safe failure when only two of six relays took the list saved by their say: the next press could not load, signs and sends nothing, and loses no list", async () => {
+    // The app has six relays, each holding the copy; their own relay is out. Four of the six do not take a changed list.
+    config.followListRelays = [...SIX];
+    const refuses = { writes: { refuse: "blocked: not taken here" } };
+    const own = relay([NEWEST], { writes: { refuse: "error: out" } });
+    own.down = true;
+    const w = world({ [NOS]: relay([OLD]), [DIRECTORY]: relay([OLD, theirs]), [BIG]: relay([OLD], refuses), [OWN]: own });
+    for (const url of SIX.slice(3)) w.relays[url] = relay([OLD], refuses);
+    const { addOn } = await opened(w, { stranger: ABSENT, other: pubkeyAt(20_002) });
+
+    // A press asks, as six of the app's relays hold the copy.
+    tap("stranger", "follow");
+    await waitFor(() => expect(says("stranger")).toBe(`not-following asking:${OLD_AT}`));
+    // Use this copy saves it, and the two that took it send it back as the newest: it is confirmed.
+    tap("stranger", "use");
+    await waitFor(() => expect(says("stranger")).toBe("following just"));
+    const saved = newestOn(w, NOS)!;
+    expect(saved.tags).toEqual([...OLD.tags, ["p", ABSENT]]);
+    expect(newestOn(w, DIRECTORY)).toEqual(saved);
+    for (const url of SIX.slice(2)) expect(newestOn(w, url)).toEqual(OLD);
+    const sent = sentAnywhere(w).length;
+
+    // The next press. Its fresh read: their relay out, the saved list the newest on two of the six,
+    // too few to ask about; the copy on four, older than the list this tab saved. Neither is built on.
+    tap("other", "follow");
+    await waitFor(() => expect(says("other")).toBe("not-following trouble:not-loaded"));
+    // And Try again comes to the same.
+    tap("other", "retry");
+    expect(says("other")).toBe("saving");
+    await waitFor(() => expect(says("other")).toBe("not-following trouble:not-loaded"));
+
+    // Nothing more was kept, signed or sent, and every relay holds what it held.
+    expect(addOn.signEvent).toHaveBeenCalledTimes(1);
+    expect((await keptCopies(ME)).map((copy) => copy.list.id)).toEqual([OLD.id]);
+    expect(sentAnywhere(w)).toHaveLength(sent);
+    for (const url of [NOS, DIRECTORY]) expect(newestOn(w, url)).toEqual(saved);
+    for (const url of SIX.slice(2)) expect(newestOn(w, url)).toEqual(OLD);
+    // The buttons draw from the list that was saved.
+    expect(says("stranger")).toBe("following just");
   });
 
   it("is not begun by a change made on a read to trust: with their relay out after it, the next change asks", async () => {

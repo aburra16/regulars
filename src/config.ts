@@ -1,7 +1,6 @@
 import * as nip19 from "nostr-tools/nip19";
 
 import { isHex64, isRelayUrl } from "./nostr/shapes.ts";
-import { previewsFollow } from "./preview.ts";
 
 /** The Mise en Place account that publishes the places. Everything below derives from it. */
 const houseNpub = "npub1f00dy9eqw53patfe8g96ajw9xq3casvjc25umw78w4963se40djqwxgrq8";
@@ -101,11 +100,10 @@ interface Config {
    * `saved`: Saved in the phone's tabs and the desktop's top bar; it comes back with saved lists
    * (brief § 13, step 7). Until then a link to /saved still opens its page, which says saving opens soon.
    * `follow`: the Follow button, and with it every read and every change of a follow list (ruling
-   * R39). It ships off: a production build has it only in a browser that keeps the preview switch
-   * (opened once with `?preview=follow`; ./preview.ts), until the live check of a real follow has
-   * passed. Development and the tests have it on. Off, there is no Follow button and no line of who
+   * R39). It is on for everyone, in every build. It is the off switch too: set to `false` here and
+   * deployed, Follow is hidden for everyone again. Off, there is no Follow button and no line of who
    * follows a person, nobody's follow list is read or changed, and a phone app is not asked to sign
-   * one. To turn it on for everyone, set it to `true` here.
+   * one.
    */
   features: { signIn: boolean; circle: boolean; saved: boolean; follow: boolean };
   /**
@@ -172,12 +170,6 @@ interface Config {
   devScorer?: { pubkey: string; relay: string };
 }
 
-/**
- * Whether this browser previews Follow, read once as this module loads: the switch in the page's
- * address is taken then (./preview.ts), before the app draws anything or its router reads the address.
- */
-const followPreviewed = previewsFollow();
-
 /** Everything configurable lives here. Nothing else hardcodes these values. */
 export const config: Config = {
   appName: "Regulars",
@@ -190,7 +182,7 @@ export const config: Config = {
   placesSignatureSample: 64,
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
   mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
-  features: { signIn: true, circle: true, saved: false, follow: import.meta.env.DEV || followPreviewed },
+  features: { signIn: true, circle: true, saved: false, follow: true },
   connectRelay: "wss://relay.nsec.app",
   // In a production build `import.meta.env.DEV` is false, so none of these variables is read there.
   reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay, ...publicReviewRelays],

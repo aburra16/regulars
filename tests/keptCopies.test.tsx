@@ -882,6 +882,37 @@ describe("a putting back that did not simply succeed", () => {
     expect(within(part).queryByRole("button", { name: copy.follow.tryAgain })).not.toBeInTheDocument();
   });
 
+  it("says the list could not be loaded, and never that it is already as it was then, when the relays that answered hold the copy's list and the relay the person writes to did not answer: what it holds is not known", async () => {
+    const OWN = "wss://own.example.test";
+    await kept(MAYA_LIST, { did: "follow", who: SOL });
+    const addOn = signedInAs(MAYA_SECRET);
+    // Her relay list names a relay of her own, which is out, and holds a newer list; the app's three hold the copy's.
+    const theirs = finalizeEvent({ kind: 10002, created_at: FOLLOW_LIST_TIME, content: "", tags: [["r", OWN, "write"]] }, MAYA_SECRET);
+    const own = relay([MAYA_LIST_WITH_SOL]);
+    own.down = true;
+    const s = scene({
+      followRelays: {
+        [FOLLOW_RELAYS[0]]: relay([MAYA_LIST]),
+        [FOLLOW_RELAYS[1]]: relay([MAYA_LIST, theirs]),
+        [FOLLOW_RELAYS[2]]: relay([MAYA_LIST]),
+        [OWN]: own,
+      },
+    });
+    await open(s, "/you");
+    const part = await section();
+    const user = person();
+
+    await user.click(putBackWord(rows(part)[0]!));
+    await user.click(putItBackButton(part));
+
+    await waitFor(() => expect(saidIn(part)).toBe(copy.follow.notLoaded));
+    expect(part).not.toHaveTextContent(copy.follow.putBackAlready);
+    expect(addOn.signEvent).not.toHaveBeenCalled();
+    expect(s.follows.published()).toEqual([]);
+    // It can be tried again, as a list that could not be loaded can.
+    expect(within(part).getByRole("button", { name: copy.follow.tryAgain })).toBeInTheDocument();
+  });
+
   it("is not approved, and the list on the relays is as it was, when the person's add-on says no", async () => {
     await kept(MAYA_LIST, { did: "follow", who: SOL });
     const { s, addOn } = await openYou([MAYA_LIST_WITH_SOL]);

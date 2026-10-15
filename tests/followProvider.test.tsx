@@ -1176,6 +1176,45 @@ describe("the list a change is built on", () => {
   });
 });
 
+describe("a list older than one this tab has seen, found by the page's own read", () => {
+  const newer = () => buildFollowList(SECRET, FOLLOW_LIST_TIME + 100);
+
+  it.each<[string, NostrEvent[]]>([
+    ["only an older list", [LIST]],
+    ["no list on any relay", []],
+  ])("draws no button when the read finds %s, after a follow tapped meanwhile read a newer one; and the next read that finds that one draws them from it", async (_, older) => {
+    const addOn = signedInAs(SECRET);
+    const w = everywhere([newer()]);
+    // The page's read is under way.
+    const answer = holdListReads(w);
+    const page = await openSignedIn(w, { stranger: ABSENT, friend: FRIEND });
+    await waitFor(() => expect(listReads(w)).toEqual([1, 1, 1]));
+    // A follow tapped meanwhile reads the list itself, and finds the newer one: this tab has seen it. The add-on is told no.
+    addOn.signEvent.mockRejectedValueOnce(new Error("The person said no"));
+    tap("stranger", "follow");
+    await waitFor(() => expect(says("stranger")).toBe("unknown trouble:not-approved"));
+
+    // What answers the page's read has the list before it, or none.
+    nowHolding(w, older);
+    await answer.open();
+    await settle();
+
+    // No button draws from it: every press would be held to the newer list, and could not load.
+    expect(says("friend")).toBe("unknown");
+    expect(says("stranger")).toBe("unknown trouble:not-approved");
+    expect(addOn.signEvent).toHaveBeenCalledTimes(1);
+    expect(w.published()).toEqual([]);
+
+    // Read again by the next button to appear once the wait is over: it finds the newer list, and the buttons draw from that.
+    nowHolding(w, [newer()]);
+    await after(FOLLOW_REREAD_MS);
+    page.show({ stranger: ABSENT, friend: FRIEND, another: ALSO_ABSENT });
+    await waitFor(() => expect(says("friend")).toBe("following"));
+    expect(says("another")).toBe("not-following");
+    expect(listReads(w)).toEqual([3, 3, 3]);
+  });
+});
+
 describe("a list that could not be read", () => {
   it("says nothing of anyone, asks again by itself at no time, and is read again when a button next appears", async () => {
     const addOn = signedInAs(SECRET);

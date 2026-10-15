@@ -40,11 +40,11 @@ import {
 import { fromExplore, newWorld, PLACE_PATH, places, profileOf, rankOf, readersOf, reviewBy, SEARCH, signedIn, writersOf } from "./support/reviewWorld";
 
 /*
- * Follow, off (ruling R39; `config.features.follow`): what a production build is until the preview
- * switch turns it on in a browser (tests/preview.test.ts). Off means that nobody's follow list is
- * read or changed by any way in: these count what every relay held in memory was asked, on a place's
- * page and on a person's, and hold the taps to doing nothing. Beside each, the same page with Follow
- * on, which shows that the count would have seen a read.
+ * Follow, off (ruling R39; `config.features.follow`): Follow is on for everyone, and this is its off
+ * switch, set in src/config.ts and deployed. Off means that nobody's follow list is read or changed
+ * by any way in: these count what every relay held in memory was asked, on a place's page and on a
+ * person's, and hold the taps to doing nothing. Beside each, the same page with Follow on, which
+ * shows that the count would have seen a read.
  *
  * Every other test runs with Follow on (tests/setup.ts). Here each test turns it off itself, and it
  * is put back on after each. `changeFollow` is mocked around the real one, to be counted, and

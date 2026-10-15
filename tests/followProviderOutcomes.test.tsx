@@ -761,8 +761,12 @@ describe("a change that fails in a way changeFollow has no name for", () => {
 });
 
 describe("a change that says the person may be asked, and what the provider gives changeFollow as their say", () => {
-  /** The copy a change says they may be asked about, made up: its id, and when it was last changed. */
-  const COPY = { id: "c0".repeat(32), changed: FOLLOW_LIST_TIME - 60 * 60 * 24 * 365 };
+  /**
+   * The copy a change says they may be asked about, made up: its id, and when it was last changed.
+   * Later than the list on screen: a change asks only about the newest list its read found, which
+   * is never older than a list this tab has seen (an older copy is no longer asked about).
+   */
+  const COPY = { id: "c0".repeat(32), changed: FOLLOW_LIST_TIME + 60 * 60 };
   const ASK: FollowOutcome = { kind: "ask", copy: COPY };
   /** The say the provider gave `changeFollow` the `nth` time it asked for a change (from 0): the id of a list, or nothing. */
   const said = (nth: number) => change.mock.calls[nth]![5];

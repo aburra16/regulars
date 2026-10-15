@@ -63,8 +63,11 @@ import {
  *      person's say on a read that is not, and a whole list put back, are never made without it;
  *   6. the person's signer signs the new list, and what it returns must be exactly what was built,
  *      and a valid event: its id the hash of its fields, its signature the person's;
- *   7. it is sent to every relay the list was read from and every relay the person writes to;
- *   8. it is read back from the relays that took it.
+ *   7. the list it was built on must still be no older than any this tab has seen: while the signer
+ *      was asked, the page may have read a newer one, saved meanwhile in another tab or app, and
+ *      then nothing is sent;
+ *   8. it is sent to every relay the list was read from and every relay the person writes to;
+ *   9. it is read back from the relays that took it.
  *
  * `changeFollow` is called only when the person taps Follow, Unfollow (which Following says first),
  * Undo, or Try again for one of those that was not made, or presses Use this copy for the one of
@@ -117,7 +120,7 @@ export type FollowOutcome =
   /**
    * Already so: nothing was signed or sent. The list as the relays hold it; null for an account that
    * has none. `bySay` as for a saved one: the list is the one the person said to build on, found by
-   * a read that is not one to trust.
+   * a read that is not one to trust. A copy put back ends so only over a read to trust.
    */
   | { kind: "unchanged"; list: NostrEvent | null; bySay?: true }
   /**
@@ -139,8 +142,12 @@ export type FollowOutcome =
    * is older than a list this tab has seen.
    * For a copy put back (`putBackList`): the person's relay list could not be read, or no relay
    * answered; or none came, from a read that is not one to trust or that too few of the app's
-   * relays answered; or what came is older than a list this tab has seen. Nothing was signed or
-   * sent.
+   * relays answered; or what came has the copy's content and tags already, from a read that is
+   * not one to trust, which says nothing of what the relays the person writes to hold; or what
+   * came is older than a list this tab has seen. Nothing was signed or sent.
+   * And for either, once signed: by the time the signer answered, this tab had seen a newer list
+   * than the one it was built on, so that one was not the newest after all. The person's signer
+   * signed then, and what it signed was sent nowhere.
    */
   | { kind: "not-loaded" }
   /**
@@ -241,8 +248,15 @@ export function forgetFollowFloor(): void {
   floors.clear();
 }
 
-/** Whether `list`, the newest a fresh read found (null: none), is older than one this tab has seen of `pubkey`'s. */
-function belowFloor(pubkey: string, list: NostrEvent | null): boolean {
+/**
+ * Whether `list`, a list of `pubkey`'s that a read found as their newest (null: it found none), is
+ * older than one this tab has seen of theirs (`raiseFollowFloor`). Its id and time are all that is
+ * looked at, so a list known by them alone (a copy the person is asked about) may be asked about
+ * too. A read that found such a list, or none, has missed a list that is known to be there: no
+ * write is built on what it found, no button draws from it, and nobody is asked about it. Nothing
+ * is read, signed or sent.
+ */
+export function belowFollowFloor(pubkey: string, list: Pick<NostrEvent, "id" | "created_at"> | null): boolean {
   const floor = floors.get(pubkey);
   return floor !== undefined && (list === null || isNewer(floor, list));
 }
@@ -252,9 +266,10 @@ function belowFloor(pubkey: string, list: NostrEvent | null): boolean {
  * one the page's own read found (ruling R18), whether that read was one to trust or not, and
  * whether a button draws from it or not. So no write is built on a list older than any this tab has
  * seen: not on one older than the list on screen, nor on one older than a list the person was asked
- * about. The floor becomes `list` when it is newer than the one remembered, and never lowers. A
- * `list` that is not that person's follow list is no floor of theirs, and is ignored. Give it only
- * a list a reader has checked to be theirs. Nothing is read, signed or sent.
+ * about; and no button draws from one (`belowFollowFloor`). The floor becomes `list` when it is
+ * newer than the one remembered, and never lowers. A `list` that is not that person's follow list
+ * is no floor of theirs, and is ignored. Give it only a list a reader has checked to be theirs.
+ * Nothing is read, signed or sent.
  */
 export function raiseFollowFloor(pubkey: string, list: NostrEvent): void {
   if (list.kind !== FOLLOW_KIND || list.pubkey !== pubkey) return;
@@ -494,10 +509,13 @@ interface Writing {
    */
   onlyIfKept: boolean;
   /**
-   * Whether what it saves over a read that is not one to trust is told as not confirmed, however
-   * it is read back. So for a whole list put back: the relays the person writes to were not heard
-   * from, and the app cannot say that their list is the copy everywhere. Not so for a change, which
-   * is built on such a read only by the person's say for the list they were shown.
+   * Whether nothing it ends with over a read that is not one to trust says that the list is so
+   * where the person's other apps keep it: what it saves is told as not confirmed, however it is
+   * read back, and a list found to be so already is not loaded, as a read that gives it nothing to
+   * write is otherwise. So for a whole list put back: the relays the person writes to were not
+   * heard from, may hold a newer list, and the app cannot say that their list is the copy
+   * everywhere. Not so for a change, which is built on such a read only by the person's say for
+   * the list they were shown.
    */
   sureOnlyIfTrusted: boolean;
 }
@@ -574,7 +592,8 @@ function puttingBack(copy: NostrEvent): Writing {
     // The list as it is now goes for good when this is saved: it is never replaced without a copy.
     onlyIfKept: true,
     // Put back over a read that heard from no relay the person writes to, it is saved where it
-    // could be sent, and it is not known that it is their list where their other apps keep it.
+    // could be sent, and it is not known that it is their list where their other apps keep it; nor,
+    // when the relays that answered hold the copy's list already, that it is so there.
     sureOnlyIfTrusted: true,
   };
 }
@@ -620,7 +639,7 @@ async function write(account: Account, writing: Writing, deps: FollowDeps, signa
   // Not the newest: this tab has seen a newer list than any relay sent now. Before anything else,
   // whatever the read's standing and whatever the person has said: such a list is not asked about,
   // and nothing is built on it.
-  if (belowFloor(account.pubkey, read.list)) return { kind: "not-loaded" };
+  if (belowFollowFloor(account.pubkey, read.list)) return { kind: "not-loaded" };
   // What the read found is a list of the person's, checked as theirs by the reader, whether or not
   // the read is one to trust: this tab has seen it from here on, and no write is built on an older
   // one. That only ever stops a write.
@@ -643,7 +662,13 @@ async function write(account: Account, writing: Writing, deps: FollowDeps, signa
 
   // The list to sign; null when the list is so already.
   const template = writing.build(read.list, clock());
-  if (template === null) return bySay ? { kind: "unchanged", list: read.list, bySay } : { kind: "unchanged", list: read.list };
+  if (template === null) {
+    // So already on the relays that answered. Over a read that is not one to trust, a write that
+    // can say nothing sure of such a read does not say so either: what the person's own relays
+    // hold was not read, and may be a newer list. Nothing was changed, and that is all it says.
+    if (writing.sureOnlyIfTrusted && !read.trusted) return { kind: "not-loaded" };
+    return bySay ? { kind: "unchanged", list: read.list, bySay } : { kind: "unchanged", list: read.list };
+  }
   const removed = writing.removes?.(read.list);
 
   // A net first: the list this write is built on is kept in the browser, as the relays sent it,
@@ -677,6 +702,13 @@ async function write(account: Account, writing: Writing, deps: FollowDeps, signa
   const event = exactly(signed, template, account.pubkey);
   if (event === null || !valid(event)) return { kind: "not-saved" };
   signal.throwIfAborted();
+
+  // The floor once more, just before the list is sent: while the signer was asked, this tab may
+  // have seen a newer list than the one this write is built on (the page reads the list, and finds
+  // one saved meanwhile in another tab or app). Sent, this list would take that one's place
+  // everywhere. Nothing is sent, and nothing was changed: the list this was built on was not the
+  // newest after all.
+  if (belowFollowFloor(account.pubkey, read.list)) return { kind: "not-loaded" };
 
   // Save: everywhere the list was read from, and everywhere the person writes, all at once.
   const { took, newerElsewhere } = await sendToAll([...new Set([...read.answered, ...read.writes])], event, writers, signal);
@@ -721,10 +753,12 @@ async function write(account: Account, writing: Writing, deps: FollowDeps, signa
  * whatever the account looks like. A list that names the person again already is left as it is.
  * `account.signer` signs the result, within `deps.signWithin`; what it returns must be exactly what
  * was built, and a valid event (its id the hash of its fields, its signature the person's:
- * `signatureCheck`, whose code is had before the signer is asked); it is sent to every relay that answered the read and every relay the person writes
- * to, each once, and once more after a failure that may pass; and it is read back from those that
- * have taken it, `FOLLOW_SETTLE_MS` after the first did at the latest. A send to a slower relay may
- * go on after this resolves, until it ends or `signal` aborts.
+ * `signatureCheck`, whose code is had before the signer is asked); it is not loaded, and sent
+ * nowhere, when this tab has seen a newer list than the one it was built on by then (one the page
+ * read while the signer was asked); it is sent to every relay that answered the read and every
+ * relay the person writes to, each once, and once more after a failure that may pass; and it is
+ * read back from those that have taken it, `FOLLOW_SETTLE_MS` after the first did at the latest. A
+ * send to a slower relay may go on after this resolves, until it ends or `signal` aborts.
  *
  * Where the read is not one to trust, nothing is built by the app's own say. In one such case the
  * change ends by saying that the person may be asked (`ask`, with the list found and when it was
@@ -808,9 +842,9 @@ function ownListIn(copy: unknown, pubkey: string): NostrEvent {
  * It goes down the path every write to a follow list does (`write`), by the same steps as
  * `changeFollow`: in turn in this tab and under the browser's lock (`FOLLOW_LOCK`); a fresh read
  * (`readOwnList`); never over a list older than one this tab has seen (the floor); the signer's
- * answer held to exactly what was built, and to being a valid event; sent to every relay that
- * answered the read and every relay the person writes to; read back; and the floor raised to what
- * was saved. Where it differs:
+ * answer held to exactly what was built, and to being a valid event; the floor looked at again
+ * before it is sent; sent to every relay that answered the read and every relay the person writes
+ * to; read back; and the floor raised to what was saved. Where it differs:
  *
  *   - the fresh read need not be one to trust, as a change's must: the person's relay list must
  *     have been read (found, or known to be none), and at least one relay must have answered.
@@ -829,7 +863,8 @@ function ownListIn(copy: unknown, pubkey: string): NostrEvent {
  *     fails, does not answer in its time or is not there, it is not kept (`not-kept`), and nothing
  *     is signed: a whole list is never replaced without a net;
  *   - when the newest list has the copy's `content` and tags already, nothing is signed, and it is
- *     unchanged.
+ *     unchanged over a read to trust. Over one that is not, it is not loaded: the relays the person
+ *     writes to were not read, and may hold a newer list, so it is not said to be as the copy.
  *
  * Resolves with how it ended (`FollowOutcome`), as `changeFollow` does; a saved one has nothing for
  * Undo, and it never ends by asking (`ask`): the page it is pressed on has asked already, of the

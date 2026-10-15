@@ -273,13 +273,14 @@ describe("the follow list's one writer (ruling R2)", () => {
 });
 
 describe("what the one writer hands out", () => {
-  it("is one way to change a list, one to put a kept copy back, one to say what list is on screen and one to forget what was seen, with their times and their shapes: nothing else that could sign or send", () => {
+  it("is one way to change a list, one to put a kept copy back, one to say what list is on screen, one to ask whether a list is older than one seen and one to forget what was seen, with their times and their shapes: nothing else that could sign or send", () => {
     expect(exportsOf(ONLY_WRITER, read(ONLY_WRITER))).toEqual([
       "FOLLOW_LOCK",
       "FOLLOW_LOCK_WAIT_MS",
       "FOLLOW_SETTLE_MS",
       "FollowDeps",
       "FollowOutcome",
+      "belowFollowFloor",
       "changeFollow",
       "forgetFollowFloor",
       "putBackList",

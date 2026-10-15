@@ -49,9 +49,8 @@ const defaults = structuredClone({
 // (src/circle/CircleProvider.tsx), which a test must stub. The tests of My circle open it
 // (tests/circle.test.tsx, tests/circleScores.test.tsx).
 //
-// Follow starts on (config.features.follow), as development has it, so that the tests of the button,
-// of a change and of a person's page hold what is built. A production build has it off but for the
-// preview switch (ruling R39): the tests of that turn it off themselves (tests/followOff.test.tsx).
+// Follow starts on (config.features.follow), as every build has it, whatever a test before it set. Its
+// off switch (ruling R39) is held by tests/followOff.test.tsx, which turns it off itself.
 beforeEach(() => {
   config.features.circle = false;
   config.features.saved = false;
