@@ -7,9 +7,9 @@ import { holdRemovals, removalFilters, removalsFrom } from "../reviews/removals.
 import { REVIEW_KIND } from "../reviews/review.ts";
 
 /*
- * The reading of one person's reviews of places, for their page: from the relays reviews are read from
- * (`config.reviewReadRelays`) a page at a time, newest first, for as long as the page is open, and
- * held in memory for that long, with the removals of them (NIP-09) those relays send. It holds review
+ * The reading of one person's reviews of places, for their page: from the review relays
+ * (`config.reviewRelays`) a page at a time, newest first, for as long as the page is open, and held
+ * in memory for that long, with the removals of them (NIP-09) those relays send. It holds review
  * events, removals and where the reading of the reviews stands; which of them the page shows, the page
  * works out (./usePersonReviews.ts), as Trending does from its feed (src/recent/feed.ts). Nothing here
  * writes, and nothing is kept once the page is left: its reads are stopped.
@@ -187,7 +187,7 @@ export class ReviewsRead {
     readers: Readers,
   ) {
     this.#readers = readers;
-    this.#cursors = new Map(config.reviewReadRelays.map((url) => [url, FIRST_ASK]));
+    this.#cursors = new Map(config.reviewRelays.map((url) => [url, FIRST_ASK]));
   }
 
   /** Calls `listener` after each change. Returns what stops it. */

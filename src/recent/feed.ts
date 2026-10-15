@@ -7,12 +7,12 @@ import { holdRemovals, removalFilters, removalsFrom } from "../reviews/removals.
 import { REVIEW_KIND } from "../reviews/review.ts";
 
 /*
- * The newest reviews of places, wherever the places are (Recent): read from the relays reviews are
- * read from (`config.reviewReadRelays`) a page at a time, newest first, and held in memory for the
- * session, so that Back to Recent finds the same list, with the removals of them (NIP-09) those
- * relays send. The feed holds review events, removals and where the reading of the reviews stands;
- * which of them the page shows, and whose they are, it works out with the scores store
- * (src/recent/useRecent.ts). Switching the view reads nothing here.
+ * The newest reviews of places, wherever the places are (Recent): read from the review relays
+ * (`config.reviewRelays`) a page at a time, newest first, and held in memory for the session, so
+ * that Back to Recent finds the same list, with the removals of them (NIP-09) those relays send. The
+ * feed holds review events, removals and where the reading of the reviews stands; which of them the
+ * page shows, and whose they are, it works out with the scores store (src/recent/useRecent.ts).
+ * Switching the view reads nothing here.
  *
  * Nothing here loads the relay code: the app's readers import it when they first read
  * (src/nostr/relayCode.ts), so the feed can be on the first screen.
@@ -263,7 +263,7 @@ export class RecentFeed {
   async #readFirst(): Promise<void> {
     const signal = this.#life?.signal;
     if (signal === undefined || this.#first === "reading") return;
-    if (config.reviewReadRelays.length === 0) {
+    if (config.reviewRelays.length === 0) {
       this.#first = "read";
       this.#end = true;
       this.#changed();
@@ -345,7 +345,7 @@ export class RecentFeed {
       limit: FEED_PAGE,
       ...(until === undefined ? {} : { until }),
     };
-    const relays = [...config.reviewReadRelays];
+    const relays = [...config.reviewRelays];
     const reads = await Promise.allSettled(
       // A reader that cannot be made fails its relay's read, as a read that fails does.
       relays.map(async (url) => readAll(this.#readers(url), filter, signal, REVIEW_READS)),

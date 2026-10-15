@@ -150,28 +150,15 @@ describe("config", () => {
     ]);
   });
 
-  it("posts reviews at the search relay and two public relays in a production build, whatever VITE_REVIEW_RELAYS says", async () => {
+  it("posts and reads reviews at the search relay and two public relays in a production build, never the list hub, whatever VITE_REVIEW_RELAYS says", async () => {
     const production = [SEARCH_RELAY, "wss://nos.lol", "wss://relay.primal.net"];
-    expect((await configWith({ production: true })).reviewRelays).toEqual(production);
+    const built = await configWith({ production: true });
+    expect(built.reviewRelays).toEqual(production);
+    // The list hub is where the places are read from. It stores only the list kinds, so it holds no
+    // reviews.
+    expect(built.reviewRelays).not.toContain(built.placesRelay);
     const reviewRelays = "wss://relay.example.test";
     expect((await configWith({ reviewRelays, production: true })).reviewRelays).toEqual(production);
-  });
-
-  it("reads reviews and their removals at the review relays and the list hub in a production build, the hub once, whatever VITE_REVIEW_RELAYS says", async () => {
-    const production = [SEARCH_RELAY, "wss://nos.lol", "wss://relay.primal.net", "wss://dcosl.brainstorm.world"];
-    const built = await configWith({ reviewRelays: "wss://relay.example.test", production: true });
-    expect(built.reviewReadRelays).toEqual(production);
-    // The hub is the relay the places are read from; reviews are not posted there.
-    expect(built.reviewReadRelays.filter((url) => url === built.placesRelay)).toHaveLength(1);
-    expect(built.reviewRelays).not.toContain(built.placesRelay);
-  });
-
-  it("reads reviews and their removals where they are posted in development: the relays in VITE_REVIEW_RELAYS, never the hub", async () => {
-    const reviewRelays = " ws://localhost:10547 , https://relay.example.test,wss://relay.example.test,,nonsense";
-    const development = await configWith({ reviewRelays });
-    expect(development.reviewReadRelays).toEqual(["ws://localhost:10547", "wss://relay.example.test"]);
-    expect(development.reviewReadRelays).toEqual(development.reviewRelays);
-    expect((await configWith({})).reviewReadRelays).toEqual([]);
   });
 
   it("takes a scorer from VITE_DEV_SCORER in development", async () => {
@@ -204,14 +191,13 @@ describe("config", () => {
 
 /**
  * Fails unless the config is as tests/setup.ts puts it before each test: My circle and Saved closed,
- * Follow on, no map key, review relays (to post to or read from), follow-list relays or scorer
- * override, and the trust relays, relay-list relays, scoring and read extras as config.ts sets them.
+ * Follow on, no map key, review relays, follow-list relays or scorer override, and the trust relays,
+ * relay-list relays, scoring and read extras as config.ts sets them.
  */
 function expectEachTestsConfig(): void {
   expect(config.features).toMatchObject({ circle: false, saved: false, follow: true });
   expect(config.mapTilerKey).toBeUndefined();
   expect(config.reviewRelays).toEqual([]);
-  expect(config.reviewReadRelays).toEqual([]);
   expect(config.devScorer).toBeUndefined();
   expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
   expect(config.relayListRelays).toEqual(["wss://purplepag.es"]);
@@ -227,7 +213,6 @@ function changeEverything(): void {
   config.features.follow = false;
   config.mapTilerKey = "a-key";
   config.reviewRelays = ["ws://localhost:10547"];
-  config.reviewReadRelays = ["ws://localhost:10548"];
   config.devScorer = { pubkey: SCORER, relay: "ws://localhost:10547" };
   config.houseTrustRelays.push("ws://localhost:10547");
   config.relayListRelays = ["ws://localhost:10547"];

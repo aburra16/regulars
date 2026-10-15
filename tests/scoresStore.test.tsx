@@ -1477,9 +1477,6 @@ describe("ScoresProvider: the person's removals, kept for the tab (Review Focus 
 });
 
 describe("ScoresProvider: removals read where the reviews are (NIP-09)", () => {
-  /** The list hub, which the places are read from: reviews are read there too, and never posted there. */
-  const HUB = "wss://dcosl.brainstorm.world";
-
   /** The address a removal names `review` by: `34259:<reviewer>:<d>`. */
   const addressOf = (review: NostrEvent) => `${REVIEW_KIND}:${review.pubkey}:${review.tags.find((tag) => tag[0] === "d")?.[1] ?? ""}`;
 
@@ -1601,24 +1598,6 @@ describe("ScoresProvider: removals read where the reviews are (NIP-09)", () => {
     await settle();
     expect(idsOf(result.current.reviews)).toEqual([bobEdited.id]);
     expect(result.current.score).toMatchObject({ score: 2, counted: 1, outside: 0 });
-  });
-
-  it("reads reviews, and their removals, at a read relay where reviews are not posted, and names only where they are", async () => {
-    config.reviewRelays = [SEARCH];
-    config.reviewReadRelays = [SEARCH, HUB];
-    const alice = reviewOf(ALICE, JACAFE, 5);
-    const hub = createMemoryReader([alice, profileOf(ALICE, { name: "Alice" })]);
-    const { readers, search } = houseNetwork([profileOf(ALICE, { name: "Alice" })], [rankOf(ALICE, 80)], { [HUB]: hub });
-    const { result } = renderStore(() => ({ ...useScore(JACAFE), names: useNames([ALICE]) }), { readers });
-
-    await waitFor(() => expect(result.current.score).toMatchObject({ score: 5, counted: 1, outside: 0 }));
-    expect(idsOf(result.current.reviews)).toEqual([alice.id]);
-    await waitFor(() => expect(result.current.names.get(ALICE)).toBe("Alice"));
-    await waitFor(() => expect(removalReads(hub)).toHaveLength(2));
-    expect(removalReads(search)).toHaveLength(2);
-    // Names and pictures are read from the review relays alone.
-    expect(hub.requests.filter((filter) => filter.kinds?.includes(0))).toEqual([]);
-    expect(search.requests.filter((filter) => filter.kinds?.includes(0))).toHaveLength(1);
   });
 
   it("dates the person's next review a second after their removal read from a relay, dated an hour ahead, and that review stands", async () => {
@@ -1987,7 +1966,7 @@ describe("the relay code, kept out of the first screen", () => {
       return { readerFor: opened };
     });
     const { config: fresh } = await import("../src/config");
-    Object.assign(fresh, { mapTilerKey: undefined, devScorer: undefined, reviewRelays: [SEARCH], reviewReadRelays: [SEARCH] });
+    Object.assign(fresh, { mapTilerKey: undefined, devScorer: undefined, reviewRelays: [SEARCH] });
     return { loaded, opened };
   }
 
@@ -2102,7 +2081,6 @@ describe("the relay code, kept out of the first screen", () => {
     const { loaded, opened } = await withRelayCode({});
     const { config: fresh } = await import("../src/config");
     fresh.reviewRelays = [];
-    fresh.reviewReadRelays = [];
     const { openApp: open } = await import("./support/app");
     await open("/", { px, events: places });
 

@@ -31,10 +31,10 @@ function useNamesVersion(store: ScoresStore): number {
  * and "reading" before the page's ask has reached it. A page asks once it is drawn (an effect), so
  * the first drawing of it comes before: without this, it would say "Be the first", or "No reviews
  * yet", for that moment (ruling R15). Undefined when there are no relays to read reviews from
- * (`config.reviewReadRelays`), as the store has it.
+ * (`config.reviewRelays`), as the store has it.
  */
 function readStateFor(store: ScoresStore, address: string): ReadState | undefined {
-  return store.readStateOf(address) ?? (config.reviewReadRelays.length > 0 ? "reading" : undefined);
+  return store.readStateOf(address) ?? (config.reviewRelays.length > 0 ? "reading" : undefined);
 }
 
 /** Whether `a` and `b` hold the same items in the same order. */

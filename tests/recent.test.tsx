@@ -688,18 +688,6 @@ describe("Trending: paging", () => {
     expect(REMOVAL_REQUESTS_AT_ONCE).toBe(2);
   });
 
-  it("reads the newest reviews from the relays reviews are read from, and lists one only a relay that is not posted to has", async () => {
-    // Reviews are posted to the search relay, and read there and at the second, which only Brainstorm writes to.
-    config.reviewRelays = [SEARCH];
-    config.reviewReadRelays = [SEARCH, SECOND];
-    const net = network({ reviews: [reviewOf(BOB, MAIA, 5, "Fresh fish, slow service.", NOW_S - 25 * HOUR)] });
-    net.second = [reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR)];
-    await openRecent(net);
-
-    await listsExactly([ALICE_AT_JACAFE, BOB_AT_MAIA]);
-    expect(net.log.filter(({ url, filter }) => url === SECOND && filter["#m"] !== undefined)).toHaveLength(1);
-  });
-
   it("stops reading by itself once 20 count", async () => {
     // 250 reviews; the house trusts the people who wrote the newest 25.
     const reviews = Array.from({ length: 250 }, (_, i) => reviewOf(stranger(i), JACAFE, 4, `Review ${i}.`, at(i)));

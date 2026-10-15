@@ -3,7 +3,6 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as client from "../src/circle/brainstorm";
-import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { changeFollow } from "../src/follow/change";
 import { PERSON_ASK_MAX, PERSON_PAGE, PERSON_READ_MS } from "../src/person/reviewsRead";
@@ -16,7 +15,7 @@ import { gate, signedInAs } from "./support/followPage";
 import { after, endScene, type Logs, person, startScene } from "./support/followScene";
 import { type Relay, silentWhen } from "./support/followWorld";
 import { expectNoNumbersAboutPeople } from "./support/noNumbers";
-import { asksForReviews, at, bothHold, JACAFE, listed, LISTED, lists, MAIA, main, MAYA, MAYA_SECRET, MUSEU, open, openSol, pathsOf, placePath, reviewAsks, reviewOf, reviewsPart, scene, showMore, SOL, SOL_PATH, SOL_SECRET, solOn, THIRD, tryAgain, unlisted } from "./support/personScene";
+import { asksForReviews, at, bothHold, JACAFE, listed, LISTED, lists, MAIA, main, MAYA, MAYA_SECRET, MUSEU, open, openSol, pathsOf, placePath, reviewAsks, reviewOf, reviewsPart, scene, showMore, SOL, SOL_PATH, SOL_SECRET, solOn, tryAgain, unlisted } from "./support/personScene";
 import { places, reviewOfPlace, SEARCH } from "./support/reviewWorld";
 
 /*
@@ -66,22 +65,6 @@ describe("what a person's page asks the review relays", () => {
     expect(s.follows.asked().filter(asksForReviews)).toEqual([]);
     expect(s.follows.published()).toEqual([]);
     expect(change).not.toHaveBeenCalled();
-  });
-});
-
-describe("where a person's page reads their reviews", () => {
-  it("reads them from the relays reviews are read from, and lists one only a relay that is not posted to has", async () => {
-    const s = scene({ third: {} });
-    // Reviews are posted to the search relay, and read there and at the third, which only Brainstorm writes to.
-    config.reviewRelays = [SEARCH];
-    config.reviewReadRelays = [SEARCH, THIRD];
-    s.third!.held.push(solOn(JACAFE, 4, "Read where it was written", at(1)));
-    await openSol(s);
-
-    await lists([JACAFE]);
-    expect(within(reviewOf(JACAFE)).getByText("Read where it was written")).toBeInTheDocument();
-    expect(reviewAsks(s.third!)).toHaveLength(1);
-    expect(reviewAsks(s.second)).toEqual([]);
   });
 });
 

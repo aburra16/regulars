@@ -750,7 +750,7 @@ export class ScoresStore {
     if (!added) return;
     this.#queueFlush();
     // The places asked for are being read now: pages say so (`readStateOf`), when there is anything to read.
-    if (config.reviewReadRelays.length > 0) this.#changed("scores");
+    if (config.reviewRelays.length > 0) this.#changed("scores");
   }
 
   /** Asks for the names of the people with `pubkeys`, and the pictures that come with them (`pictureOf`). */
@@ -854,11 +854,11 @@ export class ScoresStore {
    * Where the reading of the place at `address` stands, across all its filings: read once every
    * filing has been; failed when no review relay answered for one of them; reading while it is asked
    * for, or waits its turn. Undefined for a place no page has asked about, and always when there are
-   * no relays to read reviews from (`config.reviewReadRelays`): nothing is read, so nothing is being
+   * no relays to read reviews from (`config.reviewRelays`): nothing is read, so nothing is being
    * read either. Removals read after a place's reviews do not change where its reading stands.
    */
   readStateOf(address: string): ReadState | undefined {
-    if (config.reviewReadRelays.length === 0) return undefined;
+    if (config.reviewRelays.length === 0) return undefined;
     const filings = this.#filings.get(address) ?? [address];
     if (filings.every((filing) => this.#read.has(filing))) return "read";
     if (filings.some((filing) => this.#failed.has(filing))) return "failed";
@@ -1106,7 +1106,7 @@ export class ScoresStore {
     const life = this.#life;
     const round = this.#roundSignal;
     // With no relays to read reviews from (development, unless set), nothing is read at all.
-    if (life === null || round === null || config.reviewReadRelays.length === 0) return;
+    if (life === null || round === null || config.reviewRelays.length === 0) return;
 
     // Each batch is read from every relay reviews are read from, by a and by d: two requests each. Two
     // batches are read at a time (`BATCHES_IN_FLIGHT`); the rest wait their turn, and count as asked
@@ -1125,10 +1125,10 @@ export class ScoresStore {
   }
 
   /**
-   * Reads the reviews of the places at `batch` from every relay reviews are read from
-   * (`config.reviewReadRelays`), side by side: by their `a`, and by their `d`, bare or after `place:`,
-   * for reviews other apps wrote with no `a` (decision 16), each page after page while the pages come
-   * back full (`readPaged`, `REVIEW_PAGES`), a relay that is out failing at once (`REVIEW_READS`).
+   * Reads the reviews of the places at `batch` from every review relay (`config.reviewRelays`), side
+   * by side: by their `a`, and by their `d`, bare or after `place:`, for reviews other apps wrote with
+   * no `a` (decision 16), each page after page while the pages come back full (`readPaged`,
+   * `REVIEW_PAGES`), a relay that is out failing at once (`REVIEW_READS`).
    * What comes is put in place of what was read of those places before, and shown; then the relays
    * that answered are asked for the removals of the reviews read, in the removals' turn
    * (`#readRemovals`). A place no relay answered for keeps what it had: `refresh` asks again.
@@ -1136,7 +1136,7 @@ export class ScoresStore {
   async #readReviews(batch: readonly string[], signal: AbortSignal): Promise<void> {
     const byA: NostrFilter = { kinds: [REVIEW_KIND], "#a": [...batch], limit: REVIEW_LIMIT };
     const byD: NostrFilter = { kinds: [REVIEW_KIND], "#d": [...batch, ...batch.map(reviewD)], limit: REVIEW_LIMIT };
-    const relays = [...config.reviewReadRelays];
+    const relays = [...config.reviewRelays];
     const reads = await Promise.allSettled(
       // A reader that cannot be made fails its relay's read, as a read that fails does. A relay
       // answers both requests or neither: half its answer must not replace what was read before.

@@ -284,8 +284,8 @@ describe("on a place's page, and on Trending", () => {
 });
 
 describe("a relay reviews are read from that is out", () => {
-  /** The list hub, a relay reviews are read from: out, in these tests. */
-  const HUB = "wss://dcosl.brainstorm.world";
+  /** A review relay that is out, in these tests. */
+  const REFUSING = "wss://refusing.example.test";
 
   /**
    * A relay that refuses every connection, as the app's reader meets one (tests/relayReaderSocket.test.ts):
@@ -302,17 +302,16 @@ describe("a relay reviews are read from that is out", () => {
           }, { once: true });
         });
       }
-      throw new DOMException(`${HUB} refused the connection`, "NetworkError");
+      throw new DOMException(`${REFUSING} refused the connection`, "NetworkError");
     },
   };
 
-  /** The relays: the search relay holds `events`, the hub refuses, and any other has nothing. */
-  const relaysWith = (events: NostrEvent[]) => noted((url) => (url === HUB ? refusing : createMemoryReader(url === SEARCH ? events : [])));
+  /** The relays: the search relay holds `events`, the refusing one refuses, and any other has nothing. */
+  const relaysWith = (events: NostrEvent[]) => noted((url) => (url === REFUSING ? refusing : createMemoryReader(url === SEARCH ? events : [])));
 
   // The scene's timers are fake (tests/support/followScene.ts): the connect limit passes only when a test moves them on.
   beforeEach(() => {
-    config.reviewRelays = [SEARCH];
-    config.reviewReadRelays = [SEARCH, HUB];
+    config.reviewRelays = [SEARCH, REFUSING];
   });
 
   it("holds up no place's reviews: they show from the relay that answers, long before the connect limit", async () => {
@@ -327,7 +326,7 @@ describe("a relay reviews are read from that is out", () => {
       expect(store.reviewsOf(JACAFE.address).map(({ id }) => id)).toEqual([review.id]);
       expect(CONNECT_TIMEOUT_MS).toBe(20_000);
       // The reviews were asked of both, and their removals of the relay that answered, none to be waited on.
-      expect(reviewReadsOf(relays).map(({ url }) => url)).toEqual([SEARCH, SEARCH, HUB, HUB, SEARCH, SEARCH]);
+      expect(reviewReadsOf(relays).map(({ url }) => url)).toEqual([SEARCH, SEARCH, REFUSING, REFUSING, SEARCH, SEARCH]);
       expect(reviewReadsOf(relays).filter((request) => !asksNotToWait(request))).toEqual([]);
     } finally {
       store.stop();
@@ -344,7 +343,7 @@ describe("a relay reviews are read from that is out", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(feed.snapshot().first).toBe("read");
       expect(feed.snapshot().events.map(({ id }) => id)).toEqual([review.id]);
-      expect(reviewReadsOf(relays).map(({ url }) => url)).toEqual([SEARCH, HUB, SEARCH, SEARCH]);
+      expect(reviewReadsOf(relays).map(({ url }) => url)).toEqual([SEARCH, REFUSING, SEARCH, SEARCH]);
       expect(reviewReadsOf(relays).filter((request) => !asksNotToWait(request))).toEqual([]);
     } finally {
       feed.stop();

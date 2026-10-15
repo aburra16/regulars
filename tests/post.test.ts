@@ -46,8 +46,6 @@ const SEARCH = "wss://search.brainstorm.world";
 const OWN = "wss://nos.example.test";
 const OTHER = "wss://other.example.test";
 const DIRECTORY = "wss://purplepag.es";
-/** The list hub: reviews are read there too, and never posted there. */
-const HUB = "wss://dcosl.brainstorm.world";
 
 const KEY = generateSecretKey();
 const PUBKEY = getPublicKey(KEY);
@@ -997,8 +995,7 @@ describe("whereToPost", () => {
     config.reviewRelays = [SEARCH];
   });
 
-  it("is the review relays and the relays the person's list writes to, and not a relay reviews are only read from", async () => {
-    config.reviewReadRelays = [SEARCH, HUB];
+  it("is the review relays and the relays the person's list writes to", async () => {
     const readers = (url: string) => createMemoryReader(url === DIRECTORY ? [listOf([OWN])] : []);
     expect(await whereToPost(PUBKEY, signer(), readers, new AbortController().signal)).toEqual([SEARCH, OWN]);
   });
@@ -1173,11 +1170,6 @@ describe("removalRelays", () => {
 
   it("always has the review relays, and keeps only relays a review may be sent to", () => {
     expect(removalRelays([], [{ relays: ["ws://localhost:7777", "https://example.test", "wss://192.168.1.2", OWN] }])).toEqual([SEARCH, OWN]);
-  });
-
-  it("is not a relay reviews are only read from", () => {
-    config.reviewReadRelays = [SEARCH, HUB];
-    expect(removalRelays([SEARCH, OWN], [{ relays: [SEARCH] }])).toEqual([SEARCH, OWN]);
   });
 
   it("keeps a review relay of the app's own in development, as configured", () => {

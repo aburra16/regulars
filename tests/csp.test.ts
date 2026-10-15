@@ -228,7 +228,6 @@ describe("the policy and the addresses the code reaches", () => {
       config.connectRelay,
       ...config.relayListRelays,
       ...production.reviewRelays,
-      ...production.reviewReadRelays,
       ...production.followListRelays,
       ...config.houseTrustRelays,
       ...Object.keys(config.relayReadExtras),
