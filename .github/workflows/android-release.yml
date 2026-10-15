@@ -1,0 +1,49 @@
+name: Android release
+
+# The Android app, on Zap Store, and the site as an nSite, both published by Pakstr from a version
+# tag (v1.2.3) on the commit it names. The website itself deploys from main (deploy.yml); a release
+# never touches it. Pakstr and its build image are pinned to exact versions: the release key is handed
+# to both, and it can never be replaced once the app is published with it.
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Pakstr takes the version from the tag on this commit, so the tags must be here.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          VITE_MAPTILER_KEY: ${{ secrets.VITE_MAPTILER_KEY }}
+      # As on the website: an unknown path is given the app shell, so a link to a place opens.
+      - run: cp dist/index.html dist/404.html
+      - name: Build, sign and publish the app and the nSite
+        env:
+          PAKSTR_NSEC: ${{ secrets.PAKSTR_NSEC }}
+          # Pakstr 0.27.0's build image, by its digest: the image that signs is the image that was checked.
+          PAKSTR_DOCKER_IMAGE: git.nostrdev.com/stuff/pakstr/android-builder@sha256:406368b237de176336a2c1e6a59b6e37c53d1d45cdf65f8df88ec554122d7a75
+        run: npx --yes pakstr@0.27.0 run
+      # The signed APK, kept with the run, for anyone testing a release by hand.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regulars-apk
+          path: build/regulars.apk
+          if-no-files-found: ignore

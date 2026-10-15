@@ -1,0 +1,54 @@
+# Pakstr: the Android app and the nSite (see .github/workflows/android-release.yml).
+#
+# The release key is never in this file. It is the PAKSTR_NSEC secret of the repository's Actions,
+# and the same key signs every release, so that an update installs over the app already on a phone.
+# It cannot be replaced once the app is published with it. appId cannot change either: it is the
+# app's identity on Android and goes into the signing key.
+
+app:
+  appId: dev.regulars.app
+  appName: Regulars
+  # Both from the release tag on the commit being built (v1.2.3 gives 1.2.3 and its version code).
+  versionName: auto
+  versionCode: auto
+  description: "Places to eat and drink, rated by people you'd actually ask."
+  icon: ./dist/icon-512.png
+  permissions: ["INTERNET"]
+
+build:
+  web: ./dist
+  out: ./build/regulars.apk
+  builder: docker
+
+publish:
+  upload:
+    provider: blossom
+    server: https://cdn.zapstore.dev
+
+  relay: wss://relay.zapstore.dev
+
+  zapstore:
+    enabled: true
+    source: upload
+
+  nsite:
+    enabled: true
+    relays:
+      - wss://nostr.cercatrova.me
+      - wss://relay.primal.net
+      - wss://nos.lol
+      - wss://relay.damus.io
+    servers:
+      - https://cdn.hzrd149.com
+      - https://cdn.sovbit.host
+      - https://cdn.nostrcheck.me
+      - https://nostr.download
+    # The release key's profile, so that Zap Store and the nSite show who publishes it.
+    publishProfile: true
+    profile:
+      name: Regulars
+      about: "Places to eat and drink, rated by people you'd actually ask."
+      picture: https://askregulars.world/icon-512.png
+      website: https://askregulars.world
+    publishRelayList: true
+    publishServerList: true

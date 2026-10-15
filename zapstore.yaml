@@ -1,0 +1,18 @@
+# Zap Store: who may publish Regulars. The relay reads this file from the repository to check that
+# the key publishing a release is this one, the public half of the PAKSTR_NSEC secret. Anyone who
+# can push to this repository can change it, so pushing here is guarding the app's releases too.
+
+repository: https://github.com/aburra16/regulars
+pubkey: npub1reglzkechhycmhjlnmnd3z9ktta6wea5zt5wdsvdhydcfhjhv9pq6acaze
+name: Regulars
+summary: Places to eat and drink, rated by people you'd actually ask
+description: |
+  Places to eat and drink, rated by people you'd actually ask: the people you trust, and the people
+  they trust. Read reviews without signing in; sign in with your nostr key to write your own.
+tags:
+  - food
+  - restaurants
+  - reviews
+  - nostr
+icon: ./dist/icon-512.png
+website: https://askregulars.world
