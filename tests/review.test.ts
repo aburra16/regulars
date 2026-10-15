@@ -124,6 +124,11 @@ describe("parseReview", () => {
     expect(parseReview(ev)?.address).toBe(PLACE);
   });
 
+  it("takes the place from an a that also says where the place is found, as Regulars writes it", () => {
+    const ev = review({ tags: [["d", `place:${PLACE}`], ["a", PLACE, "wss://dcosl.brainstorm.world"], ["s", "4"]] });
+    expect(parseReview(ev)?.address).toBe(PLACE);
+  });
+
   it("takes the place from d when a is missing or not a place's address", () => {
     expect(parseReview(review({ tags: [["d", PLACE], ["s", "4"]] }))?.address).toBe(PLACE);
     const other = `30023:${FILER}:an-article`;

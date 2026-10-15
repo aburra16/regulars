@@ -786,7 +786,7 @@ describe("editing a review written in another app", () => {
     expect(verifyEvent(sent!)).toBe(true);
     expect(sent!.tags).toEqual([
       ["d", JACAFE.address],
-      ["a", JACAFE.address],
+      ["a", JACAFE.address, "wss://dcosl.brainstorm.world"],
       ["m", "place"],
       ["rating", "1.000"],
       ["s", "5"],
@@ -867,7 +867,7 @@ describe("editing a review written in another app", () => {
       const [sent] = sentTo(world, SEARCH);
       expect(sent!.tags).toEqual([
         ["d", JACAFE.address],
-        ["a", JACAFE.address],
+        ["a", JACAFE.address, "wss://dcosl.brainstorm.world"],
         ["m", "place"],
         ["rating", "1.000"],
         ["s", "5"],

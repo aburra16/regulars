@@ -17,6 +17,8 @@ const JACAFE = `39999:${FILER}:osm-node-11330857543`;
 const JACAFE_AGAIN = `39999:${FILER}:jacafe-again`;
 const NOW = 1_790_000_000;
 const ALICE = hex64("a");
+/** The list hub, where the places are found: the hint a review gives with its place's address. */
+const HUB = "wss://dcosl.brainstorm.world";
 /** Photos' addresses, as another app puts them in a review (NIP-92). */
 const PHOTO = "https://blossom.example/abc.jpg";
 const SECOND_PHOTO = "https://blossom.example/def.png";
@@ -39,7 +41,7 @@ const brainstormTags = (): string[][] => [
 ];
 
 describe("reviewTemplate (decision 17)", () => {
-  it("writes a review of Jacafé: its d, a, m, rating, s and alt, and the words", () => {
+  it("writes a review of Jacafé: its d, a (with the list hub as where the place is found), m, rating, s and alt, and the words", () => {
     expect(jacafe.address).toBe(JACAFE);
     expect(reviewTemplate(jacafe, 4, "Get the bolo", NOW)).toEqual({
       kind: 34259,
@@ -47,7 +49,7 @@ describe("reviewTemplate (decision 17)", () => {
       content: "Get the bolo",
       tags: [
         ["d", `place:${JACAFE}`],
-        ["a", JACAFE],
+        ["a", JACAFE, HUB],
         ["m", "place"],
         ["rating", "0.800"],
         ["s", "4"],
@@ -101,7 +103,7 @@ describe("reviewTemplate on an edit: built on the person's review, it keeps what
       content: `Better than last time\n${PHOTO}`,
       tags: [
         ["d", `place:${JACAFE}`],
-        ["a", JACAFE],
+        ["a", JACAFE, HUB],
         ["m", "place"],
         ["rating", "1.000"],
         ["s", "5"],
@@ -128,7 +130,7 @@ describe("reviewTemplate on an edit: built on the person's review, it keeps what
     };
     expect(reviewTemplate(jacafe, 4, "", NOW, previous).tags).toEqual([
       ["d", `place:${JACAFE}`],
-      ["a", JACAFE],
+      ["a", JACAFE, HUB],
       ["m", "place"],
       ["rating", "0.800"],
       ["s", "4"],
@@ -156,7 +158,7 @@ describe("reviewTemplate on an edit: built on the person's review, it keeps what
     const template = reviewTemplate(jacafe, 4, "Get the bolo", NOW, previous);
     expect(template.tags.slice(0, 2)).toEqual([
       ["d", `place:${JACAFE}`],
-      ["a", JACAFE],
+      ["a", JACAFE, HUB],
     ]);
     expect(template.tags.slice(6)).toEqual([
       ["price", "3"],

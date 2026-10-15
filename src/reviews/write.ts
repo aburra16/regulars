@@ -1,6 +1,7 @@
 import type { EventTemplate } from "nostr-tools/core";
 import { EventDeletion } from "nostr-tools/kinds";
 
+import { config } from "../config.ts";
 import type { Place } from "../places/place.ts";
 import { photosOf, placeInD, REVIEW_KIND, reviewD } from "./review.ts";
 
@@ -62,7 +63,9 @@ export function reviewTemplate(
     content: [text, ...photosOf(carried)].filter((part) => part !== "").join("\n"),
     tags: [
       ["d", d !== undefined && placeInD(d) === place.address ? d : reviewD(place.address)],
-      ["a", place.address],
+      // With where the place is found, the list hub, as NIP-01 lets an `a` say: an app that does
+      // not know the list can fetch the place from there.
+      ["a", place.address, config.placesRelay],
       ["m", "place"],
       ["rating", (stars / 5).toFixed(3)],
       ["s", String(stars)],
