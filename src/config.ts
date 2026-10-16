@@ -40,10 +40,7 @@ function npubToHex(npub: string): string {
   return decoded.data;
 }
 
-/**
- * CI passes VITE_MAPTILER_KEY as an empty string when the repository secret is absent,
- * so an empty or blank value means "no key", the same as unset.
- */
+/** A setting from the environment: an empty or blank value is the same as unset. */
 function optionalEnv(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
@@ -88,8 +85,11 @@ interface Config {
    * (decision 24; src/location/guess.ts). `radiusKm` is how far "near" reaches, wherever that is.
    */
   defaultCity: { name: "Funchal"; lat: number; lon: number; radiusKm: number };
-  /** From VITE_MAPTILER_KEY; undefined when unset, so there is no map. */
-  mapTilerKey: string | undefined;
+  /**
+   * Whether maps draw OpenFreeMap's tiles (src/map/style.ts), which need no key. Off, a map is the
+   * plain ground in the land colour, with the pins on it and nothing fetched: as the tests draw it.
+   */
+  mapTiles: boolean;
   /**
    * What is open. `signIn`: signing in, with a browser add-on or an app on a phone (decision 21).
    * `circle`: My circle, the person's own scores, which needs their circle worked out: a person
@@ -181,7 +181,7 @@ export const config: Config = {
   placesRelay: hubRelay,
   placesSignatureSample: 64,
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
-  mapTilerKey: optionalEnv(import.meta.env.VITE_MAPTILER_KEY),
+  mapTiles: true,
   features: { signIn: true, circle: true, saved: false, follow: true },
   connectRelay: "wss://relay.nsec.app",
   // In a production build `import.meta.env.DEV` is false, so none of these variables is read there.

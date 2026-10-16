@@ -1966,7 +1966,7 @@ describe("the relay code, kept out of the first screen", () => {
       return { readerFor: opened };
     });
     const { config: fresh } = await import("../src/config");
-    Object.assign(fresh, { mapTilerKey: undefined, devScorer: undefined, reviewRelays: [SEARCH] });
+    Object.assign(fresh, { mapTiles: false, devScorer: undefined, reviewRelays: [SEARCH] });
     return { loaded, opened };
   }
 

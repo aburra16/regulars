@@ -716,16 +716,18 @@ describe("ViewProvider", () => {
 });
 
 describe("Attribution", () => {
-  it("reads '© MapTiler © OpenStreetMap contributors' on a map, with each name linking to its terms", () => {
+  it("reads 'OpenFreeMap © OpenMapTiles © OpenStreetMap' on a map, with each name linking to its terms", () => {
     const { container } = render(<Attribution kind="map" />);
-    expect(container).toHaveTextContent(/^© MapTiler © OpenStreetMap contributors$/);
-    expect(copy.attribution.map).toBe("© MapTiler © OpenStreetMap contributors");
+    expect(container).toHaveTextContent(/^OpenFreeMap © OpenMapTiles © OpenStreetMap$/);
+    expect(copy.attribution.map).toBe("OpenFreeMap © OpenMapTiles © OpenStreetMap");
 
-    const mapTiler = screen.getByRole("link", { name: "MapTiler" });
-    const osm = screen.getByRole("link", { name: "OpenStreetMap contributors" });
-    expect(mapTiler).toHaveAttribute("href", "https://www.maptiler.com/copyright/");
-    expect(osm).toHaveAttribute("href", "https://www.openstreetmap.org/copyright");
-    for (const link of [mapTiler, osm]) {
+    const links = screen.getAllByRole("link");
+    expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["OpenFreeMap", "https://openfreemap.org"],
+      ["OpenMapTiles", "https://www.openmaptiles.org/"],
+      ["OpenStreetMap", "https://www.openstreetmap.org/copyright"],
+    ]);
+    for (const link of links) {
       expect(link).toHaveAttribute("target", "_blank");
       expect(link).toHaveAttribute("rel", "noopener noreferrer");
     }

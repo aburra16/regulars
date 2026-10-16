@@ -115,6 +115,14 @@
      both themes (tests/theme.test.tsx). */
   --open-now: #1E7A34;
   --soon: #8A5A00;
+  /* The map's roads (every road, path and railway line), its buildings, and its labels, which are
+     drawn on a halo in the land colour (src/map/style.ts gives the map's style these, as it does the
+     land, parks and water). In the light theme, Positron's own: its major roads, its buildings and
+     its road names. In the dark, roads clearly lighter than the land, buildings just off it, and
+     labels that read at 4.5 to 1 on it. */
+  --map-road: #FFFFFF;
+  --map-building: #EAEAE5;
+  --map-label: #666666;
   /* Form controls and scroll bars in the light theme's colours, until the dark theme says otherwise. */
   color-scheme: light;
 }
@@ -149,6 +157,9 @@
     --map-land: #1B2430;
     --map-park: #1D352F;
     --map-water: #0C1724;
+    --map-road: #3D4B5E;
+    --map-building: #232E3C;
+    --map-label: #9AA5B2;
     --you-are-here: #5B8FF0;
     --shade: #000000;
     --float-edge: #334050;
@@ -182,6 +193,9 @@
   --map-land: #1B2430;
   --map-park: #1D352F;
   --map-water: #0C1724;
+  --map-road: #3D4B5E;
+  --map-building: #232E3C;
+  --map-label: #9AA5B2;
   --you-are-here: #5B8FF0;
   --shade: #000000;
   --float-edge: #334050;
@@ -218,6 +232,9 @@
   --map-land: #E4EAEE;
   --map-park: #CFE3DA;
   --map-water: #CBDDEA;
+  --map-road: #FFFFFF;
+  --map-building: #EAEAE5;
+  --map-label: #666666;
   --you-are-here: #2B6CD9;
   --shade: #16202E;
   --float-edge: transparent;

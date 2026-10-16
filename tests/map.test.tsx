@@ -14,7 +14,7 @@ import { areaOf, placesInBox } from "../src/map/area";
 import { BaseMap } from "../src/map/BaseMap";
 import { CLUSTER_OPTIONS, MAX_MARKERS, type Pin, PIN_SOURCE, pinsFor, pinsGeoJSON } from "../src/map/pins";
 import { filtersFromParams, withFilters } from "../src/search/filters";
-import { MAPTILER_STYLE_URL, mapStyle, recolour } from "../src/map/style";
+import { LIGHT_STYLE_URL, mapStyle, recolour, TILES_BASE } from "../src/map/style";
 import { distanceKm } from "../src/places/distance";
 import * as hoursModule from "../src/places/hours";
 import { openLine, openState } from "../src/places/hours";
@@ -27,7 +27,7 @@ import { ScoresProvider } from "../src/score/ScoresProvider";
 import { ScoresStore } from "../src/score/store";
 import { routes } from "../src/routes";
 import raw from "./fixtures/funchal-items.json";
-import { type FakeFeature, FakeMap, FakeMarker, type FakeSource, MAPTILER_LAYERS } from "./support/fakeMaplibre";
+import { type FakeFeature, FakeMap, FakeMarker, type FakeSource, POSITRON_LAYERS } from "./support/fakeMaplibre";
 import { createMemoryReader } from "./support/memoryReader";
 
 const fixtures: NostrEvent[] = raw;
@@ -146,7 +146,7 @@ const look = (button: HTMLElement) => button.firstElementChild as HTMLElement;
 /** What a card is called: the words of the element its link takes its name from. */
 const nameOf = (card: HTMLElement) => document.getElementById(card.getAttribute("aria-labelledby") ?? "")?.textContent ?? "";
 
-/** The attribution on a map: one line, its two names links. */
+/** The attribution on a map: one line, its three names links. */
 const mapAttribution = () =>
   screen.getByText((_, element) => element?.tagName === "P" && element.textContent === copy.attribution.map);
 
@@ -167,66 +167,208 @@ afterEach(() => {
 // ---- The style ----
 
 describe("the map's style", () => {
-  it("is MapTiler's Dataviz Light, with the key, when there is a key", () => {
-    expect(MAPTILER_STYLE_URL).toBe("https://api.maptiler.com/maps/dataviz-light/style.json");
-    expect(mapStyle("k")).toBe("https://api.maptiler.com/maps/dataviz-light/style.json?key=k");
-    expect(mapStyle("a b&c")).toBe("https://api.maptiler.com/maps/dataviz-light/style.json?key=a%20b%26c");
+  it("is OpenFreeMap's Positron, with no key, when the map has tiles", () => {
+    expect(TILES_BASE).toBe("https://tiles.openfreemap.org");
+    expect(LIGHT_STYLE_URL).toBe("https://tiles.openfreemap.org/styles/positron");
+    expect(mapStyle(true, "light")).toBe("https://tiles.openfreemap.org/styles/positron");
+    expect(mapStyle(true)).toBe(LIGHT_STYLE_URL);
   });
 
-  it("is a plain ground in the land colour, with nothing to fetch, when there is no key", () => {
-    for (const key of [undefined, "", "   "]) {
-      const style = mapStyle(key);
-      expect(style).toEqual({
-        version: 8,
-        sources: {},
-        layers: [{ id: "background", type: "background", paint: { "background-color": "#E4EAEE" } }],
-      });
-      const text = JSON.stringify(style);
-      expect(text).not.toMatch(/https?:|\/\/|maptiler|openstreetmap|glyphs|sprite|url/i);
-    }
+  it("is a plain ground in the land colour, with nothing to fetch, when the map has no tiles", () => {
+    const style = mapStyle(false);
+    expect(style).toEqual({
+      version: 8,
+      sources: {},
+      layers: [{ id: "background", type: "background", paint: { "background-color": "#E4EAEE" } }],
+    });
+    const text = JSON.stringify(style);
+    expect(text).not.toMatch(/https?:|\/\/|openfreemap|openstreetmap|glyphs|sprite|url/i);
   });
 
   it("takes the land colour from the page's --map-land when it has one", () => {
     document.documentElement.style.setProperty("--map-land", " #123456 ");
-    expect(mapStyle(undefined)).toMatchObject({ layers: [{ paint: { "background-color": "#123456" } }] });
+    expect(mapStyle(false)).toMatchObject({ layers: [{ paint: { "background-color": "#123456" } }] });
   });
 
-  /** The colours `recolour` set, without the transitions it turned off first. */
-  const coloursSet = (map: FakeMap) => map.setPaintProperty.mock.calls.filter(([, property]) => !property.endsWith("-transition"));
+  /** The colours `recolour` set, in order. */
+  const coloursSet = (map: FakeMap) => map.setPaintProperty.mock.calls.filter(([, property]) => property.endsWith("-color"));
+  /** Positron, as the map has it once it has loaded. */
+  const positron = () => new FakeMap({ container: document.createElement("div"), style: LIGHT_STYLE_URL });
+  /** The light theme's map tokens. */
+  const LIGHT = { land: "#E4EAEE", park: "#CFE3DA", water: "#CBDDEA", road: "#FFFFFF", building: "#EAEAE5", label: "#666666" };
 
-  it("recolours MapTiler's land, parks and water to the tokens, by each layer's type", () => {
-    const map = new FakeMap({ container: document.createElement("div"), style: "https://x.test/style.json" });
+  it("recolours Positron to the tokens: its land, parks and water by their layers, its roads, buildings and labels by what they draw", () => {
+    const map = positron();
     recolour(map as never);
     expect(coloursSet(map)).toEqual([
-      ["Background", "background-color", "#E4EAEE"],
-      ["Residential", "fill-color", "#E4EAEE"],
-      ["Landcover", "fill-color", "#CFE3DA"],
-      ["Forest", "fill-color", "#CFE3DA"],
-      ["Stadium", "fill-color", "#CFE3DA"],
-      ["Cemetery", "fill-color", "#CFE3DA"],
-      ["Water shadow", "fill-color", "#CBDDEA"],
-      ["Water", "fill-color", "#CBDDEA"],
-      ["River", "line-color", "#CBDDEA"],
+      ["background", "background-color", LIGHT.land],
+      ["park", "fill-color", LIGHT.park],
+      ["water", "fill-color", LIGHT.water],
+      ["landuse_residential", "fill-color", LIGHT.land],
+      ["landcover_wood", "fill-color", LIGHT.park],
+      ["waterway", "line-color", LIGHT.water],
+      ["building", "fill-color", LIGHT.building],
+      ["road_area_pier", "fill-color", LIGHT.road],
+      ["highway_minor", "line-color", LIGHT.road],
+      ["highway_major_casing", "line-color", LIGHT.road],
+      ["highway_major_inner", "line-color", LIGHT.road],
+      ["railway", "line-color", LIGHT.road],
+      ["water_name_point_label", "text-color", LIGHT.label],
+      ["water_name_point_label", "text-halo-color", LIGHT.land],
+      ["highway-name-minor", "text-color", LIGHT.label],
+      ["highway-name-minor", "text-halo-color", LIGHT.land],
+      ["label_city", "text-color", LIGHT.label],
+      ["label_city", "text-halo-color", LIGHT.land],
     ]);
   });
 
-  it("changes each colour at once, without the style's fade from MapTiler's grey", () => {
-    const map = new FakeMap({ container: document.createElement("div"), style: "https://x.test/style.json" });
+  it("colours the rivers as a line, the type of their layer, with nothing of a fill's", () => {
+    const map = positron();
+    recolour(map as never);
+    expect(map.layers.get("waterway")!.paint).toEqual({ "line-color": LIGHT.water, "line-color-transition": { duration: 0, delay: 0 } });
+    expect(map.setPaintProperty.mock.calls.filter(([id]) => id === "waterway").map(([, property]) => property)).not.toContainEqual(
+      expect.stringMatching(/^fill-/),
+    );
+  });
+
+  it("leaves the lines of other kinds in the style's own colours: a border, a runway", () => {
+    const map = positron();
+    recolour(map as never);
+    const touched = new Set(map.setPaintProperty.mock.calls.map(([id]) => id));
+    for (const id of ["boundary_2", "aeroway-runway"]) expect(touched.has(id), id).toBe(false);
+    expect(map.layers.get("boundary_2")!.paint).toEqual({ "line-color": "hsl(0,0%,70%)" });
+  });
+
+  it("draws a road's area, a pier, in the road colour, fully opaque", () => {
+    const map = positron();
+    recolour(map as never);
+    expect(map.layers.get("road_area_pier")!.paint).toMatchObject({ "fill-color": LIGHT.road, "fill-opacity": 1 });
+  });
+
+  it("catches a road, a building or a label it does not know by name, by the layer of the tiles it draws", () => {
+    FakeMap.styleLayers = () => [
+      { id: "roads_renamed", type: "line", sourceLayer: "transportation" },
+      { id: "houses_renamed", type: "fill", sourceLayer: "building" },
+      { id: "shops_renamed", type: "symbol", sourceLayer: "poi" },
+      { id: "fence", type: "line", sourceLayer: "boundary" },
+      { id: "plaza", type: "fill", sourceLayer: "transportation" },
+      { id: "roof_lines", type: "line", sourceLayer: "building" },
+    ];
+    const map = positron();
+    recolour(map as never);
+    expect(coloursSet(map)).toEqual([
+      ["roads_renamed", "line-color", LIGHT.road],
+      ["houses_renamed", "fill-color", LIGHT.building],
+      ["shops_renamed", "text-color", LIGHT.label],
+      ["shops_renamed", "text-halo-color", LIGHT.land],
+      ["plaza", "fill-color", LIGHT.road],
+    ]);
+  });
+
+  it("draws each fill it colours in its colour alone: no pattern, and parks, water, roads and buildings fully opaque", () => {
+    const map = positron();
+    recolour(map as never);
+    const fills = ["park", "water", "landuse_residential", "landcover_wood", "building", "road_area_pier"];
+    const cleared = map.setPaintProperty.mock.calls.filter(([, property]) => property === "fill-pattern");
+    expect(cleared).toEqual(fills.map((id) => [id, "fill-pattern", undefined]));
+    for (const id of fills) expect(map.layers.get(id)!.paint, id).not.toHaveProperty("fill-pattern");
+    for (const id of ["park", "water", "landcover_wood", "building", "road_area_pier"]) {
+      expect(map.layers.get(id)!.paint, id).toHaveProperty("fill-opacity", 1);
+    }
+    // Lines and labels have no fill's opacity or pattern.
+    const others = map.setPaintProperty.mock.calls.filter(([id]) => !fills.includes(id)).map(([, property]) => property);
+    expect(others).not.toContainEqual(expect.stringMatching(/^fill-/));
+  });
+
+  it("draws no fill in the land colour, so what Positron draws under where people live, its parks and water, shows", () => {
+    const map = positron();
+    // Where people live is drawn after the parks and the water, over them.
+    const order = [...map.layers.keys()];
+    expect(order.indexOf("landuse_residential")).toBeGreaterThan(order.indexOf("park"));
+    expect(order.indexOf("landuse_residential")).toBeGreaterThan(order.indexOf("water"));
+    recolour(map as never);
+    expect(map.layers.get("landuse_residential")!.paint).toMatchObject({ "fill-color": LIGHT.land, "fill-opacity": 0 });
+    expect(map.layers.get("park")!.paint).toHaveProperty("fill-opacity", 1);
+    expect(map.layers.get("water")!.paint).toHaveProperty("fill-opacity", 1);
+  });
+
+  it("draws a road's casing whole where the style dashes it with no gaps, which would show its seams", () => {
+    const map = positron();
+    expect(map.layers.get("highway_major_casing")!.paint).toHaveProperty("line-dasharray", [12, 0]);
+    recolour(map as never);
+    expect(map.layers.get("highway_major_casing")!.paint).not.toHaveProperty("line-dasharray");
+    expect(map.setPaintProperty.mock.calls.filter(([, property]) => property === "line-dasharray")).toEqual([
+      ["highway_major_casing", "line-dasharray", undefined],
+    ]);
+  });
+
+  it("keeps the dashes of a line with gaps, and of a line it does not colour, and dashes it cannot read", () => {
+    FakeMap.styleLayers = () => [
+      { id: "path", type: "line", sourceLayer: "transportation", paint: { "line-dasharray": [1.5, 1.5] } },
+      { id: "dotted", type: "line", sourceLayer: "transportation", paint: { "line-dasharray": [2, 0, 1, 1] } },
+      { id: "by_zoom", type: "line", sourceLayer: "transportation", paint: { "line-dasharray": ["literal", [2, 0]] } },
+      { id: "border", type: "line", sourceLayer: "boundary", paint: { "line-dasharray": [12, 0] } },
+      { id: "whole", type: "line", sourceLayer: "transportation", paint: { "line-dasharray": [2, 0, 4, 0] } },
+    ];
+    const map = positron();
+    recolour(map as never);
+    expect(map.layers.get("path")!.paint).toHaveProperty("line-dasharray", [1.5, 1.5]);
+    expect(map.layers.get("dotted")!.paint).toHaveProperty("line-dasharray", [2, 0, 1, 1]);
+    expect(map.layers.get("by_zoom")!.paint).toHaveProperty("line-dasharray", ["literal", [2, 0]]);
+    expect(map.layers.get("border")!.paint).toHaveProperty("line-dasharray", [12, 0]);
+    expect(map.layers.get("whole")!.paint).not.toHaveProperty("line-dasharray");
+  });
+
+  it("draws a dashed footpath quieter than the roads, keeping its dashes, by its dashes and whatever it is called", () => {
+    FakeMap.styleLayers = () => [
+      { id: "walkway", type: "line", sourceLayer: "transportation", paint: { "line-dasharray": [1.5, 1.5], "line-opacity": 0.9 } },
+      { id: "dotted", type: "line", sourceLayer: "transportation", paint: { "line-dasharray": [2, 0, 1, 1] } },
+      { id: "street", type: "line", sourceLayer: "transportation", paint: { "line-opacity": 0.9 } },
+      { id: "casing", type: "line", sourceLayer: "transportation", paint: { "line-dasharray": [12, 0] } },
+      { id: "by_zoom", type: "line", sourceLayer: "transportation", paint: { "line-dasharray": ["literal", [1, 1]] } },
+      { id: "border", type: "line", sourceLayer: "boundary", paint: { "line-dasharray": [1, 1] } },
+    ];
+    const map = positron();
+    recolour(map as never);
+    expect(map.layers.get("walkway")!.paint).toMatchObject({ "line-color": LIGHT.road, "line-dasharray": [1.5, 1.5], "line-opacity": 0.45 });
+    expect(map.layers.get("dotted")!.paint).toMatchObject({ "line-dasharray": [2, 0, 1, 1], "line-opacity": 0.45 });
+    // A solid road keeps the style's own opacity; a casing drawn whole and dashes it cannot read get none.
+    expect(map.layers.get("street")!.paint).toHaveProperty("line-opacity", 0.9);
+    for (const id of ["casing", "by_zoom", "border"]) expect(map.layers.get(id)!.paint, id).not.toHaveProperty("line-opacity");
+    expect(map.setPaintProperty.mock.calls.filter(([, property]) => property === "line-opacity").map(([id]) => id)).toEqual([
+      "walkway",
+      "dotted",
+    ]);
+    // At once, as every change.
+    const calls = map.setPaintProperty.mock.calls;
+    const transition = calls.findIndex(([id, property]) => id === "walkway" && property === "line-opacity-transition");
+    expect(calls[transition]?.[2]).toEqual({ duration: 0, delay: 0 });
+    expect(transition).toBeLessThan(calls.findIndex(([id, property]) => id === "walkway" && property === "line-opacity"));
+  });
+
+  it("changes each colour, opacity and pattern at once, without the style's fade", () => {
+    const map = positron();
     recolour(map as never);
     const calls = map.setPaintProperty.mock.calls;
-    for (const [id, property] of coloursSet(map)) {
+    const changes = calls.filter(([, property]) => !property.endsWith("-transition"));
+    expect(changes.length).toBeGreaterThan(0);
+    for (const [id, property] of changes) {
       const transition = calls.findIndex((call) => call[0] === id && call[1] === `${property}-transition`);
-      const colour = calls.findIndex((call) => call[0] === id && call[1] === property);
-      expect(calls[transition]?.[2]).toEqual({ duration: 0, delay: 0 });
-      expect(transition).toBeLessThan(colour);
+      const change = calls.findIndex((call) => call[0] === id && call[1] === property);
+      expect(calls[transition]?.[2], `${id} ${property}`).toEqual({ duration: 0, delay: 0 });
+      expect(transition).toBeLessThan(change);
     }
   });
 
   it("skips a layer the style does not have, and never throws for one", () => {
-    FakeMap.styleLayers = MAPTILER_LAYERS.filter((layer) => !["Forest", "River", "Background"].includes(layer.id));
-    const map = new FakeMap({ container: document.createElement("div"), style: "https://x.test/style.json" });
+    FakeMap.styleLayers = () => POSITRON_LAYERS.filter((layer) => !["landcover_wood", "waterway", "background"].includes(layer.id));
+    const map = positron();
+    // A layer named in the order that the style no longer has by the time it is asked for.
+    map.getLayersOrder.mockReturnValue(["gone", ...map.layers.keys()]);
     expect(() => recolour(map as never)).not.toThrow();
-    expect(coloursSet(map).map(([id]) => id)).toEqual(["Residential", "Landcover", "Stadium", "Cemetery", "Water shadow", "Water"]);
+    const ids = coloursSet(map).map(([id]) => id);
+    expect(ids.slice(0, 3)).toEqual(["park", "water", "landuse_residential"]);
+    for (const id of ["landcover_wood", "waterway", "background", "gone"]) expect(ids, id).not.toContain(id);
   });
 });
 
@@ -447,38 +589,38 @@ describe("BaseMap", () => {
     ]);
   });
 
-  it("uses MapTiler's style with the key, and the plain one without", async () => {
-    config.mapTilerKey = "test-key";
+  it("uses OpenFreeMap's style when the map has tiles, and the plain one without", async () => {
+    config.mapTiles = true;
     const first = render(<BaseMap center={funchal} zoom={13} interactive />);
-    expect((await theMap()).options.style).toBe(`${MAPTILER_STYLE_URL}?key=test-key`);
+    expect((await theMap()).options.style).toBe(LIGHT_STYLE_URL);
     first.unmount();
 
-    config.mapTilerKey = undefined;
+    config.mapTiles = false;
     render(<BaseMap center={funchal} zoom={13} interactive />);
     await waitFor(() => expect(FakeMap.instances).toHaveLength(2));
     expect(typeof FakeMap.instances[1]!.options.style).toBe("object");
     expect(JSON.stringify(FakeMap.instances[1]!.options.style)).not.toMatch(/https?:/);
   });
 
-  it("recolours MapTiler's layers once the style has loaded", async () => {
-    config.mapTilerKey = "test-key";
+  it("recolours OpenFreeMap's layers once the style has loaded", async () => {
+    config.mapTiles = true;
     render(<BaseMap center={funchal} zoom={13} interactive />);
     const map = await theMap();
-    expect(map.setPaintProperty).toHaveBeenCalledWith("Water", "fill-color", "#CBDDEA");
-    expect(map.setPaintProperty).toHaveBeenCalledWith("Background", "background-color", "#E4EAEE");
+    expect(map.setPaintProperty).toHaveBeenCalledWith("water", "fill-color", "#CBDDEA");
+    expect(map.setPaintProperty).toHaveBeenCalledWith("background", "background-color", "#E4EAEE");
   });
 
   it("colours the map and puts the pins on as soon as the style is there, before its tiles", async () => {
-    config.mapTilerKey = "test-key";
+    config.mapTiles = true;
     FakeMap.arrives = "style";
     render(<BaseMap center={funchal} zoom={13} interactive pins={pins} onSelect={() => {}} />);
     const map = await theMap();
-    expect(map.setPaintProperty).toHaveBeenCalledWith("Background", "background-color", "#E4EAEE");
+    expect(map.setPaintProperty).toHaveBeenCalledWith("background", "background-color", "#E4EAEE");
     expect(await findPin("Alpha")).toBeInTheDocument();
   });
 
-  it("falls back to the plain ground when MapTiler's style does not come, and still puts the pins on it", async () => {
-    config.mapTilerKey = "test-key";
+  it("falls back to the plain ground when OpenFreeMap's style does not come, and still puts the pins on it", async () => {
+    config.mapTiles = true;
     FakeMap.arrives = "none";
     // In development each error is written as a warning, since the map's own logging is replaced.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -486,12 +628,12 @@ describe("BaseMap", () => {
     const map = await waitFor(() => FakeMap.instances[0] ?? Promise.reject(new Error("No map yet")));
 
     // A tile that does not come is no reason to drop the style.
-    act(() => map.fire("error", { error: new Error("tile"), sourceId: "maptiler_planet" }));
+    act(() => map.fire("error", { error: new Error("tile"), sourceId: "openmaptiles" }));
     expect(map.setStyle).not.toHaveBeenCalled();
 
     act(() => map.fire("error", { error: new Error("style") }));
     expect(map.setStyle).toHaveBeenCalledTimes(1);
-    expect(map.setStyle).toHaveBeenCalledWith(mapStyle(undefined));
+    expect(map.setStyle).toHaveBeenCalledWith(mapStyle(false));
     act(() => map.fire("error", { error: new Error("style") }));
     expect(map.setStyle).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledTimes(3);
@@ -502,11 +644,11 @@ describe("BaseMap", () => {
     expect(pin("Alpha")).toBeInTheDocument();
   });
 
-  it("still says '© MapTiler © OpenStreetMap contributors' when there is no key", async () => {
+  it("still says 'OpenFreeMap © OpenMapTiles © OpenStreetMap' when the map has no tiles", async () => {
     render(<BaseMap center={funchal} zoom={13} interactive />);
     await theMap();
-    expect(mapAttribution()).toHaveTextContent("© MapTiler © OpenStreetMap contributors");
-    expect(within(mapAttribution()).getByRole("link", { name: "MapTiler" })).toBeInTheDocument();
+    expect(mapAttribution()).toHaveTextContent(/^OpenFreeMap © OpenMapTiles © OpenStreetMap$/);
+    expect(within(mapAttribution()).getByRole("link", { name: "OpenFreeMap" })).toBeInTheDocument();
   });
 
   it("puts the pins in a clustered GeoJSON source, and changes its data when the pins change", async () => {
@@ -1167,7 +1309,7 @@ describe("the map and the keyboard", () => {
     for (const control of [
       screen.getByRole("button", { name: copy.view.house }),
       screen.getByRole("button", { name: copy.location.useMine }),
-      within(mapAttribution()).getByRole("link", { name: "MapTiler" }),
+      within(mapAttribution()).getByRole("link", { name: "OpenFreeMap" }),
       map.canvas,
     ]) {
       expect(at(control)).toBeGreaterThan(-1);

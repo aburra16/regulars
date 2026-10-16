@@ -23,9 +23,6 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-        env:
-          # Optional. When the secret is absent this is an empty string and the app builds without a map.
-          VITE_MAPTILER_KEY: ${{ secrets.VITE_MAPTILER_KEY }}
       # GitHub Pages serves 404.html for unknown paths; a copy of the app shell lets deep links such as /place/abc load.
       - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v5

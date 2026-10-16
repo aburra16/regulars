@@ -39,9 +39,9 @@ const defaults = structuredClone({
   relayReadExtras: config.relayReadExtras,
 });
 
-// Every test starts with no map key, no review relays, no follow-list relays and no scorer override,
-// whatever the machine's .env.local says, and with the default trust relays, relay-list relays, scoring
-// and read extras, whatever a test before it set. Saved is out (`features.saved`, until saved lists exist), and no picture is known not to load:
+// Every test starts with no map tiles, so a map is the plain ground and fetches nothing; with no review
+// relays, no follow-list relays and no scorer override, whatever the machine's .env.local says; and
+// with the default trust relays, relay-list relays, scoring and read extras, whatever a test before it set. Saved is out (`features.saved`, until saved lists exist), and no picture is known not to load:
 // a test that wants Saved, or a picture that fails, sets it. A test that wants something else sets it.
 //
 // My circle starts closed (config.features.circle), though the app has it open: open, a signed-in tab
@@ -56,7 +56,7 @@ beforeEach(() => {
   config.features.saved = false;
   config.features.follow = true;
   forgetUnloadablePictures();
-  config.mapTilerKey = undefined;
+  config.mapTiles = false;
   config.reviewRelays = [];
   config.devScorer = undefined;
   config.relayListRelays = [...defaults.relayListRelays];

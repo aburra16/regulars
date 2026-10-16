@@ -13,7 +13,7 @@ import { config } from "../src/config";
 import { copy } from "../src/copy/en";
 import { BaseMap } from "../src/map/BaseMap";
 import { type Pin, PIN_SOURCE } from "../src/map/pins";
-import { MAPTILER_DARK_STYLE_URL, MAPTILER_STYLE_URL, mapStyle, recolour } from "../src/map/style";
+import { DARK_STYLE_URL, LIGHT_STYLE_URL, mapStyle, recolour, TILES_BASE } from "../src/map/style";
 import {
   chooseTheme,
   currentTheme,
@@ -124,6 +124,8 @@ const TEXT: ReadonlyArray<[fg: string, bg: string, where: string]> = [
   ["open-now", "surface", "Open, in the hours on a panel"],
   ["soon", "ground", "Closing soon and Opening soon, in the hours"],
   ["soon", "surface", "Closing soon and Opening soon, in the hours on a panel"],
+  // Every label on the map (names of places, roads and water), drawn on a halo in the land colour.
+  ["map-label", "map-land", "a label on the map, on its halo"],
 ];
 
 /** Parts of the interface and graphics, and what they are on: 3 to 1. */
@@ -160,6 +162,8 @@ const EDGES: ReadonlyArray<[fg: string, bg: string, where: string]> = [
   ["surface", "ground", "a panel on the page"],
   ["map-park", "map-land", "a park on the map"],
   ["map-water", "map-land", "water on the map"],
+  ["map-road", "map-land", "a road on the map"],
+  ["map-building", "map-land", "a building on the map"],
   ["trust-track", "trust-tint", "the progress bar's track"],
 ];
 
@@ -185,6 +189,9 @@ describe("the dark theme's colours", () => {
         "on-emphasis",
         "open-now",
         "soon",
+        "map-road",
+        "map-building",
+        "map-label",
       ].sort(),
     );
     // The shadows darken too, to black.
@@ -814,61 +821,147 @@ describe("the map in the dark", () => {
       return map;
     });
 
-  /** The colours `recolour` set, without the transitions it turned off first. */
-  const coloursSet = (map: FakeMap) => map.setPaintProperty.mock.calls.filter(([, property]) => !property.endsWith("-transition"));
+  /** The colours `recolour` set, in order. */
+  const coloursSet = (map: FakeMap) => map.setPaintProperty.mock.calls.filter(([, property]) => property.endsWith("-color"));
 
-  it("is MapTiler's Dataviz Dark, from the same host with the same key", () => {
-    expect(MAPTILER_DARK_STYLE_URL).toBe("https://api.maptiler.com/maps/dataviz-dark/style.json");
-    expect(new URL(MAPTILER_DARK_STYLE_URL).host).toBe(new URL(MAPTILER_STYLE_URL).host);
-    expect(mapStyle("k", "dark")).toBe(`${MAPTILER_DARK_STYLE_URL}?key=k`);
-    expect(mapStyle("k", "light")).toBe(`${MAPTILER_STYLE_URL}?key=k`);
+  it("is OpenFreeMap's Dark, from the same host as the light style, with no key", () => {
+    expect(DARK_STYLE_URL).toBe("https://tiles.openfreemap.org/styles/dark");
+    expect(new URL(DARK_STYLE_URL).host).toBe(new URL(LIGHT_STYLE_URL).host);
+    for (const url of [LIGHT_STYLE_URL, DARK_STYLE_URL]) expect(url.startsWith(`${TILES_BASE}/`), url).toBe(true);
+    expect(mapStyle(true, "dark")).toBe(DARK_STYLE_URL);
+    expect(mapStyle(true, "light")).toBe(LIGHT_STYLE_URL);
   });
 
-  it("is a plain ground in the dark land colour without a key", () => {
-    expect(mapStyle(undefined, "dark")).toMatchObject({ layers: [{ paint: { "background-color": colourOf("dark", "map-land") } }] });
+  it("is a plain ground in the dark land colour when the map has no tiles", () => {
+    expect(mapStyle(false, "dark")).toMatchObject({ layers: [{ paint: { "background-color": colourOf("dark", "map-land") } }] });
   });
 
-  it("recolours the land, parks and water to the dark tokens", () => {
-    const map = new FakeMap({ container: document.createElement("div"), style: "https://x.test/style.json" });
+  it("recolours Dark to the dark tokens: its land, parks and water by their layers, its roads, buildings and labels by what they draw", () => {
+    const map = new FakeMap({ container: document.createElement("div"), style: DARK_STYLE_URL });
     recolour(map as never, "dark");
-    const land = colourOf("dark", "map-land");
-    const park = colourOf("dark", "map-park");
-    const water = colourOf("dark", "map-water");
+    const [land, park, water, road, building, label] = ["map-land", "map-park", "map-water", "map-road", "map-building", "map-label"].map(
+      (token) => colourOf("dark", token),
+    );
     expect(coloursSet(map)).toEqual([
-      ["Background", "background-color", land],
-      ["Residential", "fill-color", land],
-      ["Landcover", "fill-color", park],
-      ["Forest", "fill-color", park],
-      ["Stadium", "fill-color", park],
-      ["Cemetery", "fill-color", park],
-      ["Water shadow", "fill-color", water],
-      ["Water", "fill-color", water],
-      ["River", "line-color", water],
+      ["background", "background-color", land],
+      ["water", "fill-color", water],
+      ["landuse_residential", "fill-color", land],
+      ["landcover_wood", "fill-color", park],
+      ["landuse_park", "fill-color", park],
+      ["waterway", "line-color", water],
+      ["water_name", "text-color", label],
+      ["water_name", "text-halo-color", land],
+      ["building", "fill-color", building],
+      ["road_area_pier", "fill-color", road],
+      ["highway_path", "line-color", road],
+      ["highway_minor", "line-color", road],
+      ["highway_major_casing", "line-color", road],
+      ["highway_major_inner", "line-color", road],
+      ["road_oneway", "text-color", label],
+      ["road_oneway", "text-halo-color", land],
+      ["railway", "line-color", road],
+      ["highway_name_other", "text-color", label],
+      ["highway_name_other", "text-halo-color", land],
+      ["place_city", "text-color", label],
+      ["place_city", "text-halo-color", land],
     ]);
+    expect(map.layers.get("boundary_state")!.paint).toEqual({ "line-color": "hsl(0,0%,21%)" });
+  });
+
+  it("draws Dark's wood in the full park colour, as its parks: its pattern taken away, and fully opaque", () => {
+    const map = new FakeMap({ container: document.createElement("div"), style: DARK_STYLE_URL });
+    expect(map.layers.get("landcover_wood")!.paint).toHaveProperty("fill-pattern", "wood-pattern");
+    recolour(map as never, "dark");
+    const wood = map.layers.get("landcover_wood")!.paint;
+    expect(wood).not.toHaveProperty("fill-pattern");
+    expect(wood).toHaveProperty("fill-color", colourOf("dark", "map-park"));
+    expect(wood).toHaveProperty("fill-opacity", 1);
+    expect(map.layers.get("landuse_park")!.paint).toMatchObject({ "fill-color": colourOf("dark", "map-park"), "fill-opacity": 1 });
+  });
+
+  it("draws Dark's major roads whole, its casings' gapless dashes taken away, and its paths dashed and quieter than the roads", () => {
+    const map = new FakeMap({ container: document.createElement("div"), style: DARK_STYLE_URL });
+    recolour(map as never, "dark");
+    const road = colourOf("dark", "map-road");
+    expect(map.layers.get("highway_major_casing")!.paint).toMatchObject({ "line-color": road });
+    expect(map.layers.get("highway_major_casing")!.paint).not.toHaveProperty("line-dasharray");
+    expect(map.layers.get("highway_major_casing")!.paint).not.toHaveProperty("line-opacity");
+    expect(map.layers.get("highway_path")!.paint).toMatchObject({ "line-color": road, "line-dasharray": [1.5, 1.5], "line-opacity": 0.45 });
+    for (const id of ["highway_minor", "highway_major_inner"]) expect(map.layers.get(id)!.paint, id).not.toHaveProperty("line-opacity");
+  });
+
+  it("draws Dark's piers in the road colour, and none of its land fills over its water and parks", () => {
+    const map = new FakeMap({ container: document.createElement("div"), style: DARK_STYLE_URL });
+    recolour(map as never, "dark");
+    expect(map.layers.get("road_area_pier")!.paint).toMatchObject({ "fill-color": colourOf("dark", "map-road"), "fill-opacity": 1 });
+    expect(map.layers.get("landuse_residential")!.paint).toHaveProperty("fill-opacity", 0);
+    expect(map.layers.get("water")!.paint).toHaveProperty("fill-opacity", 1);
+  });
+
+  it("takes the roads', buildings' and labels' colours from the stylesheet's tokens, in both themes", () => {
+    for (const theme of ["light", "dark"] as const) {
+      const map = new FakeMap({ container: document.createElement("div"), style: theme === "dark" ? DARK_STYLE_URL : LIGHT_STYLE_URL });
+      recolour(map as never, theme);
+      const paint = (id: string) => map.layers.get(id)!.paint;
+      expect(paint("highway_minor"), theme).toHaveProperty("line-color", colourOf(theme, "map-road"));
+      expect(paint("building"), theme).toHaveProperty("fill-color", colourOf(theme, "map-building"));
+      expect(paint("building"), theme).toHaveProperty("fill-opacity", 1);
+      expect(paint("highway_major_inner"), theme).toHaveProperty("line-color", colourOf(theme, "map-road"));
+      for (const id of [theme === "dark" ? "place_city" : "label_city", theme === "dark" ? "highway_name_other" : "highway-name-minor"]) {
+        expect(paint(id), `${theme} ${id}`).toMatchObject({ "text-color": colourOf(theme, "map-label"), "text-halo-color": colourOf(theme, "map-land") });
+      }
+    }
+  });
+
+  it("keeps the light map's roads, buildings and labels in Positron's own colours", () => {
+    // Positron's major roads (#fff), its buildings (rgb(234, 234, 229)) and its road names (#666).
+    expect(colourOf("light", "map-road")).toBe("#FFFFFF");
+    expect(colourOf("light", "map-building")).toBe("#EAEAE5");
+    expect(colourOf("light", "map-label")).toBe("#666666");
+  });
+
+  it("draws the dark map's roads clearly lighter than its land, and its buildings just off it", () => {
+    const land = colourOf("dark", "map-land");
+    expect(luminance(colourOf("dark", "map-road"))).toBeGreaterThan(luminance(land));
+    expect(contrast(colourOf("dark", "map-road"), land)).toBeGreaterThanOrEqual(1.5);
+    const building = contrast(colourOf("dark", "map-building"), land);
+    expect(building).toBeGreaterThan(1.05);
+    expect(building).toBeLessThan(contrast(colourOf("dark", "map-road"), land));
   });
 
   it("is made dark when the page is dark", async () => {
-    config.mapTilerKey = "test-key";
+    config.mapTiles = true;
     act(() => chooseTheme("dark"));
     render(<BaseMap center={funchal} zoom={13} interactive pins={pins} />);
     const map = await theMap();
-    expect(map.options.style).toBe(`${MAPTILER_DARK_STYLE_URL}?key=test-key`);
-    expect(map.setPaintProperty).toHaveBeenCalledWith("Water", "fill-color", colourOf("dark", "map-water"));
+    expect(map.options.style).toBe(DARK_STYLE_URL);
+    expect(map.setPaintProperty).toHaveBeenCalledWith("water", "fill-color", colourOf("dark", "map-water"));
   });
 
   it("changes its style when the theme changes while it is open, keeping where it looks, its pins and the chosen one", async () => {
-    config.mapTilerKey = "test-key";
+    config.mapTiles = true;
     render(<BaseMap center={funchal} zoom={13} interactive pins={pins} selected="a" onSelect={() => {}} />);
     const map = await theMap();
-    expect(map.options.style).toBe(`${MAPTILER_STYLE_URL}?key=test-key`);
+    expect(map.options.style).toBe(LIGHT_STYLE_URL);
     act(() => map.dragTo({ west: -16.93, south: 32.63, east: -16.89, north: 32.67 }, 14));
     const [lon, lat] = map.center;
     map.setPaintProperty.mockClear();
 
     act(() => chooseTheme("dark"));
-    expect(map.setStyle).toHaveBeenCalledWith(`${MAPTILER_DARK_STYLE_URL}?key=test-key`, { diff: false });
-    // The new style has come: the dark colours, and the pins back on it.
-    await waitFor(() => expect(map.setPaintProperty).toHaveBeenCalledWith("Background", "background-color", colourOf("dark", "map-land")));
+    expect(map.setStyle).toHaveBeenCalledWith(DARK_STYLE_URL, { diff: false });
+    // The new style has come: the dark colours, the wood without its pattern, and the pins back on it.
+    await waitFor(() => expect(map.setPaintProperty).toHaveBeenCalledWith("background", "background-color", colourOf("dark", "map-land")));
+    expect(map.layers.get("landuse_park")!.paint).toHaveProperty("fill-color", colourOf("dark", "map-park"));
+    expect(map.layers.get("landcover_wood")!.paint).toHaveProperty("fill-color", colourOf("dark", "map-park"));
+    expect(map.layers.get("landcover_wood")!.paint).not.toHaveProperty("fill-pattern");
+    expect(map.layers.get("waterway")!.paint).toHaveProperty("line-color", colourOf("dark", "map-water"));
+    expect(map.layers.get("landcover_wood")!.paint).toHaveProperty("fill-opacity", 1);
+    expect(map.layers.get("highway_minor")!.paint).toHaveProperty("line-color", colourOf("dark", "map-road"));
+    expect(map.layers.get("building")!.paint).toHaveProperty("fill-color", colourOf("dark", "map-building"));
+    expect(map.layers.get("place_city")!.paint).toMatchObject({
+      "text-color": colourOf("dark", "map-label"),
+      "text-halo-color": colourOf("dark", "map-land"),
+    });
     await waitFor(() => expect(map.sources.has(PIN_SOURCE)).toBe(true));
     expect(FakeMap.instances).toHaveLength(1);
     expect(map.center).toEqual([lon, lat]);
@@ -877,21 +970,23 @@ describe("the map in the dark", () => {
     expect(screen.getByRole("button", { name: /^Alpha,/ })).toHaveAttribute("aria-pressed", "true");
 
     act(() => chooseTheme("light"));
-    expect(map.setStyle).toHaveBeenLastCalledWith(`${MAPTILER_STYLE_URL}?key=test-key`, { diff: false });
-    await waitFor(() => expect(map.setPaintProperty).toHaveBeenCalledWith("Background", "background-color", colourOf("light", "map-land")));
+    expect(map.setStyle).toHaveBeenLastCalledWith(LIGHT_STYLE_URL, { diff: false });
+    await waitFor(() => expect(map.setPaintProperty).toHaveBeenCalledWith("background", "background-color", colourOf("light", "map-land")));
+    expect(map.layers.get("park")!.paint).toHaveProperty("fill-color", colourOf("light", "map-park"));
+    expect(map.layers.get("label_city")!.paint).toHaveProperty("text-color", colourOf("light", "map-label"));
   });
 
   it("takes the dark style when the theme changes before the first style has come, and is coloured once, in the dark", async () => {
-    config.mapTilerKey = "test-key";
+    config.mapTiles = true;
     FakeMap.arrives = "none";
     render(<BaseMap center={funchal} zoom={13} interactive pins={pins} onSelect={() => {}} />);
     const map = await waitFor(() => FakeMap.instances[0] ?? Promise.reject(new Error("No map yet")));
-    expect(map.options.style).toBe(`${MAPTILER_STYLE_URL}?key=test-key`);
+    expect(map.options.style).toBe(LIGHT_STYLE_URL);
 
     act(() => chooseTheme("dark"));
-    expect(map.setStyle).toHaveBeenCalledWith(`${MAPTILER_DARK_STYLE_URL}?key=test-key`, { diff: false });
+    expect(map.setStyle).toHaveBeenCalledWith(DARK_STYLE_URL, { diff: false });
     act(() => map.fire("style.load"));
-    expect(coloursSet(map)).toContainEqual(["Background", "background-color", colourOf("dark", "map-land")]);
+    expect(coloursSet(map)).toContainEqual(["background", "background-color", colourOf("dark", "map-land")]);
     expect(coloursSet(map).filter(([, , colour]) => colour === colourOf("light", "map-land"))).toEqual([]);
     expect(map.sources.has(PIN_SOURCE)).toBe(true);
     act(() => map.fire("render"));
@@ -899,34 +994,34 @@ describe("the map in the dark", () => {
   });
 
   it("falls back to the plain dark ground when the dark style does not come after a switch, and keeps its pins", async () => {
-    config.mapTilerKey = "test-key";
+    config.mapTiles = true;
     vi.spyOn(console, "warn").mockImplementation(() => {});
     render(<BaseMap center={funchal} zoom={13} interactive pins={pins} />);
     const map = await theMap();
     // The light style came; the dark one will not.
     FakeMap.arrives = "none";
     act(() => chooseTheme("dark"));
-    expect(map.setStyle).toHaveBeenLastCalledWith(`${MAPTILER_DARK_STYLE_URL}?key=test-key`, { diff: false });
+    expect(map.setStyle).toHaveBeenLastCalledWith(DARK_STYLE_URL, { diff: false });
 
     act(() => map.fire("error", { error: new Error("style") }));
-    expect(map.setStyle).toHaveBeenLastCalledWith(mapStyle(undefined, "dark"));
-    expect(mapStyle(undefined, "dark")).toMatchObject({ layers: [{ paint: { "background-color": colourOf("dark", "map-land") } }] });
+    expect(map.setStyle).toHaveBeenLastCalledWith(mapStyle(false, "dark"));
+    expect(mapStyle(false, "dark")).toMatchObject({ layers: [{ paint: { "background-color": colourOf("dark", "map-land") } }] });
     // Only once.
     act(() => map.fire("error", { error: new Error("style") }));
     expect(map.setStyle).toHaveBeenCalledTimes(2);
 
     act(() => map.fire("style.load"));
     expect(map.sources.has(PIN_SOURCE)).toBe(true);
-    // Back to light: the plain ground again, now in the light land colour, and not MapTiler's style that failed.
+    // Back to light: the plain ground again, now in the light land colour, and not OpenFreeMap's style that failed.
     act(() => chooseTheme("light"));
-    expect(map.setStyle).toHaveBeenLastCalledWith(mapStyle(undefined, "light"), { diff: false });
+    expect(map.setStyle).toHaveBeenLastCalledWith(mapStyle(false, "light"), { diff: false });
   });
 
-  it("changes the plain ground's colour without a key", async () => {
+  it("changes the plain ground's colour when the map has no tiles", async () => {
     render(<BaseMap center={funchal} zoom={13} interactive pins={pins} />);
     const map = await theMap();
     act(() => chooseTheme("dark"));
-    expect(map.setStyle).toHaveBeenCalledWith(mapStyle(undefined, "dark"), { diff: false });
+    expect(map.setStyle).toHaveBeenCalledWith(mapStyle(false, "dark"), { diff: false });
     await waitFor(() => expect(map.sources.has(PIN_SOURCE)).toBe(true));
   });
 });

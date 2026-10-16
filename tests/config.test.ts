@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
@@ -5,13 +7,6 @@ import { weightOf } from "../src/trust/houseWeights";
 
 /** What is open as config.ts sets it, read as this file loads: before tests/setup.ts sets anything for a test. */
 const SET_FEATURES = structuredClone(config.features);
-
-/** Loads a fresh copy of the config module under the given VITE_MAPTILER_KEY. */
-async function configWithMapTilerKey(value: string | undefined) {
-  vi.stubEnv("VITE_MAPTILER_KEY", value);
-  vi.resetModules();
-  return (await import("../src/config")).config;
-}
 
 /**
  * Loads a fresh copy of the config module under the given review relays, follow-list relays and
@@ -80,17 +75,18 @@ describe("config", () => {
     expect(config.brainstormSite).not.toBe(config.brainstormApi);
   });
 
-  it("has no map key when VITE_MAPTILER_KEY is unset", async () => {
-    expect((await configWithMapTilerKey(undefined)).mapTilerKey).toBeUndefined();
+  it("draws every map with tiles, in development and in a production build, with no key", async () => {
+    for (const production of [false, true]) {
+      const fresh = await configWith({ production });
+      expect(fresh.mapTiles).toBe(true);
+      expect(fresh).not.toHaveProperty("mapTilerKey");
+    }
   });
 
-  it("treats an empty VITE_MAPTILER_KEY as unset, as CI passes when the secret is absent", async () => {
-    expect((await configWithMapTilerKey("")).mapTilerKey).toBeUndefined();
-    expect((await configWithMapTilerKey("   ")).mapTilerKey).toBeUndefined();
-  });
-
-  it("reads the map key from VITE_MAPTILER_KEY when it is set", async () => {
-    expect((await configWithMapTilerKey("test-map-key")).mapTilerKey).toBe("test-map-key");
+  it("asks for no map key in the builds or the example settings", () => {
+    for (const file of [".github/workflows/deploy.yml", ".github/workflows/android-release.yml", ".env.example"]) {
+      expect(readFileSync(file, "utf8"), file).not.toMatch(/MAPTILER/i);
+    }
   });
 
   it("reads the house's trust in reviewers from Brainstorm's scores relay", () => {
@@ -195,12 +191,12 @@ describe("config", () => {
 
 /**
  * Fails unless the config is as tests/setup.ts puts it before each test: My circle and Saved closed,
- * Follow on, no map key, review relays, follow-list relays or scorer override, and the trust relays,
+ * Follow on, no map tiles, no review relays, follow-list relays or scorer override, and the trust relays,
  * relay-list relays, scoring and read extras as config.ts sets them.
  */
 function expectEachTestsConfig(): void {
   expect(config.features).toMatchObject({ circle: false, saved: false, follow: true });
-  expect(config.mapTilerKey).toBeUndefined();
+  expect(config.mapTiles).toBe(false);
   expect(config.reviewRelays).toEqual([]);
   expect(config.devScorer).toBeUndefined();
   expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
@@ -215,7 +211,7 @@ function changeEverything(): void {
   config.features.circle = true;
   config.features.saved = true;
   config.features.follow = false;
-  config.mapTilerKey = "a-key";
+  config.mapTiles = true;
   config.reviewRelays = ["ws://localhost:10547"];
   config.devScorer = { pubkey: SCORER, relay: "ws://localhost:10547" };
   config.houseTrustRelays.push("ws://localhost:10547");

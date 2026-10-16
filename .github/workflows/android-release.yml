@@ -30,8 +30,6 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-        env:
-          VITE_MAPTILER_KEY: ${{ secrets.VITE_MAPTILER_KEY }}
       # As on the website: an unknown path is given the app shell, so a link to a place opens.
       - run: cp dist/index.html dist/404.html
       - name: Build, sign and publish the app and the nSite

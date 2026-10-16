@@ -7,7 +7,7 @@ import { build } from "vite";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { config } from "../src/config";
-import { MAPTILER_DARK_STYLE_URL, MAPTILER_STYLE_URL } from "../src/map/style";
+import { DARK_STYLE_URL, LIGHT_STYLE_URL, TILES_BASE } from "../src/map/style";
 import { CSP_DIRECTIVES } from "../tools/csp";
 
 // The site's Content Security Policy is a <meta http-equiv> in the built index.html (GitHub Pages sets
@@ -20,9 +20,18 @@ const ROOT = process.cwd();
 
 type Output = Awaited<ReturnType<typeof build>>;
 
-function filesOf(result: Output): { fileName: string; source?: unknown }[] {
+/** A file the build writes: a chunk of code, or anything else it emits (the page, a stylesheet, a font). */
+type BuiltFile = { fileName: string; code?: string; source?: unknown };
+
+function filesOf(result: Output): BuiltFile[] {
   const results = Array.isArray(result) ? result : [result];
   return results.flatMap((r) => ("output" in r ? r.output : []));
+}
+
+/** A built file's text: a chunk's code, or the source of anything else. */
+function textOf(file: BuiltFile | undefined): string {
+  if (file?.code !== undefined) return file.code;
+  return typeof file?.source === "string" ? file.source : new TextDecoder().decode(file?.source as Uint8Array);
 }
 
 /** The policy in `html`'s meta, as its directives by name; undefined when the page has none. */
@@ -51,9 +60,10 @@ const sha256 = (text: string) => `'sha256-${createHash("sha256").update(text, "u
 
 describe("the policy in the built page", () => {
   let html = "";
+  let built: BuiltFile[] = [];
 
   beforeAll(async () => {
-    const files = filesOf(
+    built = filesOf(
       await build({
         root: ROOT,
         configFile: resolve(ROOT, "vite.config.ts"),
@@ -61,8 +71,7 @@ describe("the policy in the built page", () => {
         build: { write: false, copyPublicDir: false },
       }),
     );
-    const page = files.find((file) => file.fileName === "index.html");
-    html = typeof page?.source === "string" ? page.source : new TextDecoder().decode(page?.source as Uint8Array);
+    html = textOf(built.find((file) => file.fileName === "index.html"));
   }, 60_000);
 
   it("is in the head, before every script, stylesheet and link", () => {
@@ -119,6 +128,18 @@ describe("the policy in the built page", () => {
     }
   });
 
+  it("lets the page reach OpenFreeMap's tiles, and MapTiler no more", () => {
+    const connect = policyOf(html)!.get("connect-src") ?? [];
+    expect(connect).toContain("https://tiles.openfreemap.org");
+    expect(connect.filter((source) => /maptiler/i.test(source))).toEqual([]);
+  });
+
+  it("names MapTiler nowhere in the built site", () => {
+    expect(built.length).toBeGreaterThan(1);
+    expect(built.some((file) => file.fileName.endsWith(".js") && /BaseMap|setPaintProperty/.test(textOf(file)))).toBe(true);
+    expect(built.filter((file) => /maptiler/i.test(textOf(file))).map((file) => file.fileName)).toEqual([]);
+  });
+
   it("sets nothing a meta tag cannot", () => {
     for (const name of ["frame-ancestors", "report-uri", "report-to", "sandbox"]) {
       expect(policyOf(html)!.has(name), name).toBe(false);
@@ -134,7 +155,7 @@ function allows(sources: readonly string[], url: string): boolean {
   return sources.some((source) => {
     // A scheme: "wss:" allows any address of it.
     if (/^[a-z][a-z\d+.-]*:$/i.test(source)) return target.protocol === source.toLowerCase();
-    // A host, with its scheme: "https://api.maptiler.com", or "https://*.example.com", and any path under one given.
+    // A host, with its scheme: "https://tiles.openfreemap.org", or "https://*.example.com", and any path under one given.
     const host = /^([a-z][a-z\d+.-]*):\/\/(\*\.)?([^/:]+)(\/.*)?$/i.exec(source);
     if (host === null) return false;
     const [, scheme, wildcard, name, path] = host;
@@ -182,7 +203,8 @@ const NOT_REACHED: ReadonlyArray<readonly [file: string, address: string]> = [
   ["src/place/Actions.tsx", "https://${website}"],
   ["src/place/osmLinks.ts", "https://www.openstreetmap.org"],
   ["src/place/osmLinks.ts", "https://www.google.com/maps/dir/?api=1&destination=${place.lat.toFixed(6)},${place.lon.toFixed(6)}"],
-  ["src/ui/Attribution.tsx", "https://www.maptiler.com/copyright/"],
+  ["src/ui/Attribution.tsx", "https://openfreemap.org"],
+  ["src/ui/Attribution.tsx", "https://www.openmaptiles.org/"],
   ["src/ui/Attribution.tsx", "https://www.openstreetmap.org/copyright"],
 ];
 
@@ -193,9 +215,9 @@ describe("the policy and the addresses the code reaches", () => {
   const notReached = new Set(NOT_REACHED.map(([file, address]) => `${file} ${address}`));
   const reached = found.filter(([file, address]) => !notReached.has(`${file} ${address}`));
 
-  it("finds the addresses in the code: the relays, Brainstorm and MapTiler", () => {
+  it("finds the addresses in the code: the relays, Brainstorm and OpenFreeMap", () => {
     const hosts = new Set(reached.map(([, address]) => new URL(address).host));
-    for (const host of ["dcosl.brainstorm.world", "search.brainstorm.world", "api.brainstorm.world", "api.maptiler.com", "nos.lol"]) {
+    for (const host of ["dcosl.brainstorm.world", "search.brainstorm.world", "api.brainstorm.world", "tiles.openfreemap.org", "nos.lol"]) {
       expect(hosts, host).toContain(host);
     }
   });
@@ -232,10 +254,23 @@ describe("the policy and the addresses the code reaches", () => {
       ...config.houseTrustRelays,
       ...Object.keys(config.relayReadExtras),
       config.brainstormApi,
-      MAPTILER_STYLE_URL,
-      MAPTILER_DARK_STYLE_URL,
+      LIGHT_STYLE_URL,
+      DARK_STYLE_URL,
     ];
     expect(addresses.filter((address) => !allows(connect, address))).toEqual([]);
+  });
+
+  it("lets the page fetch what the map's styles name, all from the one host: the tiles, the fonts and the sprite", () => {
+    const connect = CSP_DIRECTIVES["connect-src"];
+    // As OpenFreeMap's Positron and Dark name them; the tiles' own addresses come from the TileJSON.
+    const named = [
+      `${TILES_BASE}/planet`,
+      `${TILES_BASE}/planet/20261011_080001_pt/14/7425/6630.pbf`,
+      `${TILES_BASE}/fonts/Noto%20Sans%20Regular/3584-3839.pbf`,
+      `${TILES_BASE}/sprites/ofm_f384/ofm@2x.json`,
+      `${TILES_BASE}/sprites/ofm_f384/ofm@2x.png`,
+    ];
+    expect(named.filter((address) => !allows(connect, address))).toEqual([]);
   });
 
   it("lets in any relay a person writes to, and only over wss", () => {
@@ -245,10 +280,10 @@ describe("the policy and the addresses the code reaches", () => {
     expect(allows(connect, "https://example.com/anything")).toBe(false);
   });
 
-  it("shows reviewers' pictures from any https site, and MapTiler's", () => {
+  it("shows reviewers' pictures from any https site, and the map's sprite", () => {
     const img = CSP_DIRECTIVES["img-src"];
     expect(allows(img, "https://pictures.example.com/me.jpg")).toBe(true);
-    expect(allows(img, "https://api.maptiler.com/maps/dataviz-light/sprite.png")).toBe(true);
+    expect(allows(img, `${TILES_BASE}/sprites/ofm_f384/ofm.png`)).toBe(true);
     expect(allows(img, "http://pictures.example.com/me.jpg")).toBe(false);
   });
 });

@@ -4,7 +4,8 @@ import { copy } from "../copy/en.ts";
 
 /** Each source's terms, which its name in the line links to. */
 const TERMS = {
-  mapTiler: "https://www.maptiler.com/copyright/",
+  openFreeMap: "https://openfreemap.org",
+  openMapTiles: "https://www.openmaptiles.org/",
   openStreetMap: "https://www.openstreetmap.org/copyright",
 } as const;
 
@@ -12,8 +13,9 @@ type Link = readonly [label: string, href: string];
 
 const LINKS: Record<"map" | "details", readonly Link[]> = {
   map: [
-    [copy.attribution.mapTiler, TERMS.mapTiler],
-    [copy.attribution.openStreetMap, TERMS.openStreetMap],
+    [copy.attribution.openFreeMap, TERMS.openFreeMap],
+    [copy.attribution.openMapTiles, TERMS.openMapTiles],
+    [copy.attribution.openStreetMapOnMap, TERMS.openStreetMap],
   ],
   details: [[copy.attribution.openStreetMap, TERMS.openStreetMap]],
 };
@@ -39,7 +41,7 @@ function withLinks(text: string, links: readonly Link[]): ReactNode[] {
 
 /**
  * Where the map or the place details come from, as the licences ask. `map` is the small label on
- * every map ("© MapTiler © OpenStreetMap contributors"); the map places it. `details` is the line
+ * every map ("OpenFreeMap © OpenMapTiles © OpenStreetMap"); the map places it. `details` is the line
  * on the place, search and chain pages ("Place details © OpenStreetMap contributors, via BTC Map").
  */
 export function Attribution({ kind }: { kind: "map" | "details" }): JSX.Element {

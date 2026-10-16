@@ -668,7 +668,7 @@ describe("the place page: map", () => {
     expect(region.closest('[aria-hidden="true"]')).toBeNull();
     expect(screen.queryByRole("img", { name: copy.place.mapLabel(JACAFE.name) })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: copy.map.label })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: copy.attribution.mapTiler })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: copy.attribution.openFreeMap })).toBeInTheDocument();
   });
 
   it("says how to move the map in the app's own words, when a scroll or a finger is left to the page", async () => {

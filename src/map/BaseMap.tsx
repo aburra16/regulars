@@ -465,9 +465,9 @@ function BackButton({ label, onBack }: { label: string; onBack(): void }): JSX.E
 }
 
 /**
- * A map: MapTiler's tiles in the tokens' colours, in the page's theme, or a plain ground when there
- * is no key; the pins, gathered into bubbles where they crowd; where the person is; and "© MapTiler
- * © OpenStreetMap contributors" at the bottom right, on every map.
+ * A map: OpenFreeMap's tiles in the tokens' colours, in the page's theme, or a plain ground when its
+ * style does not come; the pins, gathered into bubbles where they crowd; where the person is; and
+ * "OpenFreeMap © OpenMapTiles © OpenStreetMap" at the bottom right, on every map.
  *
  * MapLibre is loaded when the first map is drawn, from a chunk of its own. The map is made once, and
  * removed when this goes; a change of pins changes the map's data, a change of centre moves it, and a
@@ -627,7 +627,7 @@ export function BaseMap({
         const unturned = keptFlat ? { dragRotate: false, touchPitch: false, pitchWithRotate: false } : {};
         // The theme the map is drawn in, and its style: both change when the page's theme does.
         let theme = currentTheme();
-        let style = mapStyle(config.mapTilerKey, theme);
+        let style = mapStyle(config.mapTiles, theme);
         let map: MapLibreMap;
         try {
           map = new library.Map({
@@ -700,12 +700,12 @@ export function BaseMap({
           // The style itself did not come: the plain ground instead, so the pins still have a map.
           if (!styled && !fellBack && typeof style === "string" && event.sourceId === undefined) {
             fellBack = true;
-            map.setStyle(mapStyle(undefined, theme));
+            map.setStyle(mapStyle(false, theme));
           }
         });
 
-        // As soon as the style is there, before its tiles: the tokens' colours, so MapTiler's own
-        // greys are never drawn, and the pins. A new style (the plain one, after MapTiler's failed)
+        // As soon as the style is there, before its tiles: the tokens' colours, so the style's own
+        // greys are never drawn, and the pins. A new style (the plain one, after OpenFreeMap's failed)
         // has neither, so each style gets both.
         const setUp = () => {
           styled = true;
@@ -741,7 +741,7 @@ export function BaseMap({
           if (next === theme) return;
           theme = next;
           styled = false;
-          style = fellBack ? mapStyle(undefined, next) : mapStyle(config.mapTilerKey, next);
+          style = mapStyle(config.mapTiles && !fellBack, next);
           map.setStyle(style, { diff: false });
         };
 

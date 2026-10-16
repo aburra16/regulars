@@ -9,6 +9,8 @@
 import type { FeatureCollection, Point } from "geojson";
 import { vi } from "vitest";
 
+import { DARK_STYLE_URL } from "../../src/map/style";
+
 type Handler = (event: Record<string, unknown>) => void;
 
 /** A feature as `querySourceFeatures` gives it: a point and its properties. */
@@ -25,30 +27,97 @@ export interface FakeBounds {
   north: number;
 }
 
-/** A layer of the style, as `getLayer` returns it: its id and its type. */
+/**
+ * A layer of the style, as `getLayer` returns it: its id, its type, the layer of the tiles it draws
+ * (its `source-layer`: `transportation`, `building`, `place`...), and its paint as the style gives it
+ * and `setPaintProperty` leaves it.
+ */
 export interface FakeLayer {
   id: string;
   type: string;
+  sourceLayer?: string;
+  paint?: Record<string, unknown>;
 }
 
 /**
- * The layers a MapTiler style has (Dataviz Light, as fetched on 2026-10-07), as the map reports
- * them once that style has loaded. A test can take some away to see that a missing one is no harm.
+ * The layers OpenFreeMap's Positron has (as fetched on 2026-10-16), in its order, as the map reports
+ * them once that style has loaded: its land, parks and water, its buildings, some of its roads and
+ * railways, labels, and lines and areas of other kinds (a border, a runway, a pier), with their own
+ * colours. A test can take some away to see that a missing one is no harm.
  */
-export const MAPTILER_LAYERS: readonly FakeLayer[] = [
-  { id: "Background", type: "background" },
-  { id: "Residential", type: "fill" },
-  { id: "Landcover", type: "fill" },
-  { id: "Forest", type: "fill" },
-  { id: "Stadium", type: "fill" },
-  { id: "Cemetery", type: "fill" },
-  { id: "River", type: "line" },
-  { id: "Water shadow", type: "fill" },
-  { id: "Water", type: "fill" },
-  { id: "Road", type: "line" },
-  { id: "Building", type: "fill" },
-  { id: "Place labels", type: "symbol" },
+export const POSITRON_LAYERS: readonly FakeLayer[] = [
+  { id: "background", type: "background", paint: { "background-color": "rgb(242,243,240)" } },
+  { id: "park", type: "fill", sourceLayer: "park", paint: { "fill-color": "rgb(230, 233, 229)" } },
+  { id: "water", type: "fill", sourceLayer: "water", paint: { "fill-color": "rgb(194, 200, 202)" } },
+  { id: "landuse_residential", type: "fill", sourceLayer: "landuse", paint: { "fill-color": "rgb(234, 234, 230)", "fill-opacity": 0.6 } },
+  {
+    id: "landcover_wood",
+    type: "fill",
+    sourceLayer: "landcover",
+    paint: { "fill-color": "rgb(220,224,220)", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 8, 0, 12, 1] },
+  },
+  { id: "waterway", type: "line", sourceLayer: "waterway", paint: { "line-color": "hsl(195,17%,78%)" } },
+  { id: "building", type: "fill", sourceLayer: "building", paint: { "fill-color": "rgb(234, 234, 229)" } },
+  { id: "aeroway-runway", type: "line", sourceLayer: "aeroway", paint: { "line-color": "rgba(255, 255, 255, 1)" } },
+  { id: "road_area_pier", type: "fill", sourceLayer: "transportation", paint: { "fill-color": "rgb(242,243,240)" } },
+  { id: "highway_minor", type: "line", sourceLayer: "transportation", paint: { "line-color": "hsl(0,0%,88%)" } },
+  {
+    id: "highway_major_casing",
+    type: "line",
+    sourceLayer: "transportation",
+    paint: { "line-color": "rgb(213, 213, 213)", "line-dasharray": [12, 0] },
+  },
+  { id: "highway_major_inner", type: "line", sourceLayer: "transportation", paint: { "line-color": "#fff" } },
+  { id: "railway", type: "line", sourceLayer: "transportation", paint: { "line-color": "#dddddd" } },
+  { id: "boundary_2", type: "line", sourceLayer: "boundary", paint: { "line-color": "hsl(0,0%,70%)" } },
+  { id: "water_name_point_label", type: "symbol", sourceLayer: "water_name", paint: { "text-color": "#495e91" } },
+  { id: "highway-name-minor", type: "symbol", sourceLayer: "transportation_name", paint: { "text-color": "#666" } },
+  { id: "label_city", type: "symbol", sourceLayer: "place", paint: { "text-color": "#000", "text-halo-color": "#fff" } },
 ];
+
+/**
+ * The layers of OpenFreeMap's Dark (as fetched on 2026-10-16), the same way. Its parks are another
+ * layer than Positron's, and its wood is drawn with a pattern, which is drawn in place of a colour,
+ * and at most 80% opaque. Its roads, piers, buildings and labels are near black and dim grey. Both
+ * styles draw a major road's casing in dashes with no gaps (`[12, 0]`); Dark's paths are dashed.
+ */
+export const DARK_LAYERS: readonly FakeLayer[] = [
+  { id: "background", type: "background", paint: { "background-color": "rgb(12,12,12)" } },
+  { id: "water", type: "fill", sourceLayer: "water", paint: { "fill-color": "rgb(27 ,27 ,29)" } },
+  { id: "landuse_residential", type: "fill", sourceLayer: "landuse", paint: { "fill-color": "hsl(0,2%,5%)", "fill-opacity": 0.4 } },
+  {
+    id: "landcover_wood",
+    type: "fill",
+    sourceLayer: "landcover",
+    paint: {
+      "fill-color": "rgb(32,32,32)",
+      "fill-opacity": ["interpolate", ["exponential", 0.3], ["zoom"], 8, 0, 10, 0.8, 13, 0.4],
+      "fill-pattern": "wood-pattern",
+    },
+  },
+  { id: "landuse_park", type: "fill", sourceLayer: "landuse", paint: { "fill-color": "rgb(32,32,32)" } },
+  { id: "waterway", type: "line", sourceLayer: "waterway", paint: { "line-color": "rgb(27 ,27 ,29)" } },
+  { id: "water_name", type: "symbol", sourceLayer: "water_name", paint: { "text-color": "hsla(0,0%,0%,0.7)", "text-halo-color": "hsl(0,0%,27%)" } },
+  { id: "building", type: "fill", sourceLayer: "building", paint: { "fill-color": "rgb(10,10,10)" } },
+  { id: "road_area_pier", type: "fill", sourceLayer: "transportation", paint: { "fill-color": "rgb(12,12,12)" } },
+  { id: "highway_path", type: "line", sourceLayer: "transportation", paint: { "line-color": "rgb(27 ,27 ,29)", "line-dasharray": [1.5, 1.5] } },
+  { id: "highway_minor", type: "line", sourceLayer: "transportation", paint: { "line-color": "#181818" } },
+  {
+    id: "highway_major_casing",
+    type: "line",
+    sourceLayer: "transportation",
+    paint: { "line-color": "rgba(60,60,60,0.8)", "line-dasharray": [12, 0] },
+  },
+  { id: "highway_major_inner", type: "line", sourceLayer: "transportation", paint: { "line-color": "hsl(0,0%,7%)" } },
+  { id: "road_oneway", type: "symbol", sourceLayer: "transportation" },
+  { id: "railway", type: "line", sourceLayer: "transportation", paint: { "line-color": "rgb(35,35,35)" } },
+  { id: "highway_name_other", type: "symbol", sourceLayer: "transportation_name", paint: { "text-color": "rgba(80, 78, 78, 1)" } },
+  { id: "boundary_state", type: "line", sourceLayer: "boundary", paint: { "line-color": "hsl(0,0%,21%)" } },
+  { id: "place_city", type: "symbol", sourceLayer: "place", paint: { "text-color": "rgb(101,101,101)", "text-halo-color": "rgba(0,0,0,0.7)" } },
+];
+
+/** The layers of the style at `url`, once it has loaded: Dark's for the dark style, Positron's for any other. */
+export const openFreeMapLayers = (url: string): readonly FakeLayer[] => (url === DARK_STYLE_URL ? DARK_LAYERS : POSITRON_LAYERS);
 
 export class FakeSource {
   data: FeatureCollection;
@@ -70,8 +139,8 @@ export class FakeSource {
 export class FakeMap {
   /** Every map made, in order; tests/setup.ts empties it after each test. */
   static instances: FakeMap[] = [];
-  /** The layers the next map's style has; tests/setup.ts puts it back after each test. */
-  static styleLayers: readonly FakeLayer[] = MAPTILER_LAYERS;
+  /** The layers a style fetched by its address has; tests/setup.ts puts it back after each test. */
+  static styleLayers: (url: string) => readonly FakeLayer[] = openFreeMapLayers;
   /**
    * How far the next map gets by itself: its style and then its first tiles (`all`), its style and
    * no tiles yet (`style`), or nothing, for a test to fire what it wants (`none`).
@@ -83,7 +152,7 @@ export class FakeMap {
   readonly handlers = new Map<string, Set<Handler>>();
   readonly sources = new Map<string, FakeSource>();
   readonly addedLayers: Record<string, unknown>[] = [];
-  /** The layers of the style it has now: MapTiler's for a style fetched by its address, none for one given whole. */
+  /** The layers of the style it has now: OpenFreeMap's for a style fetched by its address, none for one given whole. */
   layers: Map<string, FakeLayer>;
   removed = false;
   bounds: FakeBounds = { west: -16.95, south: 32.62, east: -16.87, north: 32.68 };
@@ -147,13 +216,28 @@ export class FakeMap {
     queueMicrotask(() => this.fire("render"));
   }
 
-  /** The layers a style has once it has loaded. */
+  /** The layers a style has once it has loaded, each a copy of its own, for the map to change. */
   private static layersOf(style: unknown): Map<string, FakeLayer> {
-    return new Map((typeof style === "string" ? FakeMap.styleLayers : []).map((layer) => [layer.id, layer]));
+    const layers = typeof style === "string" ? FakeMap.styleLayers(style) : [];
+    return new Map(layers.map((layer) => [layer.id, { ...layer, paint: { ...layer.paint } }]));
   }
 
   getLayer = vi.fn((id: string) => this.layers.get(id));
-  setPaintProperty = vi.fn((_id: string, _property: string, _value: unknown) => this);
+  /** A layer's paint property as the style gives it, or as `setPaintProperty` left it. */
+  getPaintProperty = vi.fn((id: string, property: string) => this.layers.get(id)?.paint?.[property]);
+  /** The ids of the style's layers, in the order they are drawn. */
+  getLayersOrder = vi.fn(() => [...this.layers.keys()]);
+  /** Changes a layer's paint, as MapLibre does: `undefined` takes the property away, so the layer draws without it. */
+  setPaintProperty = vi.fn((id: string, property: string, value: unknown) => {
+    const layer = this.layers.get(id);
+    if (layer !== undefined) {
+      const paint = { ...layer.paint };
+      if (value === undefined) delete paint[property];
+      else paint[property] = value;
+      layer.paint = paint;
+    }
+    return this;
+  });
   /**
    * A new style in place of the old one, built afresh (`diff: false`), as MapLibre does: it has its own
    * layers and none of the sources the app added, and it arrives a moment later, as the first did,
@@ -285,7 +369,7 @@ export { FakeMap as Map, FakeMarker as Marker };
 /** Forgets every map and marker, and puts the style back; tests/setup.ts calls it after each test. */
 export function resetFakeMaplibre(): void {
   FakeMap.instances = [];
-  FakeMap.styleLayers = MAPTILER_LAYERS;
+  FakeMap.styleLayers = openFreeMapLayers;
   FakeMap.arrives = "all";
   FakeMarker.instances = [];
 }

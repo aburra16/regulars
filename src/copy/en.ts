@@ -744,13 +744,21 @@ export const copy = {
     toHouse: "Show House picks",
   },
   /**
-   * Where the map and the place details come from. `mapTiler` and `openStreetMap` are the words in
-   * those lines that link to each source's terms.
+   * Where the map and the place details come from. `openFreeMap`, `openMapTiles`, `openStreetMapOnMap`
+   * and `openStreetMap` are the words in those lines that link to each source's terms. The map's own
+   * line is short enough for one line on a page's small map, and names OpenStreetMap alone, as
+   * OpenStreetMap's guidelines allow.
    */
   attribution: {
-    map: "© MapTiler © OpenStreetMap contributors",
+    // DRAFT
+    map: "OpenFreeMap © OpenMapTiles © OpenStreetMap",
     details: "Place details © OpenStreetMap contributors, via BTC Map",
-    mapTiler: "MapTiler",
+    // DRAFT
+    openFreeMap: "OpenFreeMap",
+    // DRAFT
+    openMapTiles: "OpenMapTiles",
+    // DRAFT
+    openStreetMapOnMap: "OpenStreetMap",
     openStreetMap: "OpenStreetMap contributors",
   },
   /** How the places loaded. */
