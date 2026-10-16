@@ -13,7 +13,7 @@ import { placeKindLabel } from "../places/kinds.ts";
 import type { Place } from "../places/place.ts";
 import { useIndexes } from "../places/useIndexes.ts";
 import { type RemoveReview, type RemoveStatus, useRemoveReview } from "../review/useRemoveReview.ts";
-import type { Review } from "../reviews/review.ts";
+import type { Paid, Review } from "../reviews/review.ts";
 import type { PlaceScore } from "../score/score.ts";
 import { seenBy, type ShownScore, shownScore } from "../score/shown.ts";
 import type { ViewState } from "../score/store.ts";
@@ -29,6 +29,7 @@ import { SavedIcon } from "../ui/icons.tsx";
 import { KindTile } from "../ui/KindTile.tsx";
 import { NewTabHint } from "../ui/NewTab.tsx";
 import { NotListedOrLoading } from "../ui/NotListed.tsx";
+import { PhotoStrip } from "../ui/Photos.tsx";
 import { PlaceRow } from "../ui/PlaceRow.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { stateColour } from "../ui/stateColour.ts";
@@ -38,12 +39,24 @@ import { Facts } from "./Facts.tsx";
 import { osmNoteUrl, osmUrl } from "./osmLinks.ts";
 import { Reviews } from "./Reviews.tsx";
 import { RateButton, RateButtonRef, ScorePanel } from "./ScorePanel.tsx";
+import { paidWays, priceOf, stripPhotos } from "./summary.ts";
 
 /** How close the map is: a street and the blocks around it. */
 const MAP_ZOOM = 16;
 
 /** How many places "Nearby" lists. */
 const NEARBY_COUNT = 3;
+
+/** No reviews: those inside the view before the place's reviews are listed. */
+const NO_REVIEWS: readonly Review[] = [];
+
+/**
+ * Whether the place's reviews are listed (`PlaceReviews`): its score from the view on screen is
+ * worked out, and it has some, scored or not, or the view can't be worked out.
+ */
+function isListed(shown: ShownScore, score: PlaceScore | undefined): score is PlaceScore {
+  return score !== undefined && (shown.kind === "scored" || shown.kind === "unscored" || shown.kind === "unavailable");
+}
 
 /** A link that leaves the app, to OpenStreetMap: a new tab, telling it nothing of where it came from. */
 function OutLink({ href, className, children }: { href: string; className: string; children: string }): JSX.Element {
@@ -281,6 +294,16 @@ interface View {
   shown: ShownScore;
   /** The place's score from the view on screen, with its reviews inside it and folded; undefined until worked out. */
   score: PlaceScore | undefined;
+  /**
+   * The photos of the strip (`stripPhotos`), under the panel on a desktop and under the actions on a
+   * phone: the place's own, and those of the reviews inside the view once they are listed, never a
+   * folded review's.
+   */
+  strip: string[];
+  /** The price most of the reviews inside the view give (`priceOf`); null when none gives one. */
+  price: ReturnType<typeof priceOf>;
+  /** The ways the reviews inside the view say people paid, the commonest first (`paidWays`). */
+  paid: Paid[];
   /** The review of the person signed in, of all the place's reviews; undefined when they have none. */
   mine: Review | undefined;
   /** Removing it, and where that stands. */
@@ -308,7 +331,7 @@ function PlaceReviews({ view, wide, className = "" }: { view: View; wide: boolea
   const reviewsRef = useRef<HTMLDivElement>(null);
   const rate = useContext(RateButtonRef);
   const removed = removal.status === "removed";
-  const listed = score !== undefined && (shown.kind === "scored" || shown.kind === "unscored" || shown.kind === "unavailable");
+  const listed = isListed(shown, score);
   const any = listed || mine !== undefined;
   // Once, as it is removed: what is here then, or Rate this place when nothing is.
   useEffect(() => {
@@ -346,8 +369,9 @@ function RemovalStatus({ status }: { status: RemoveStatus }): JSX.Element {
 }
 
 /**
- * The phone's page (the design): the score panel under
- * the header, then the actions, the map and the facts, then the reviews, and the places nearby.
+ * The phone's page (the design): the score panel under the header, then the actions, the strip of
+ * photos, the map and the facts, then the reviews, and the places nearby. The strip comes after the
+ * actions, so that they do not move down when the photos come.
  */
 function PhonePlace({ view }: { view: View }): JSX.Element {
   const { place, actions, state, nearby, nearbyScores, locale, now } = view;
@@ -365,11 +389,15 @@ function PhonePlace({ view }: { view: View }): JSX.Element {
         <PhoneActions actions={actions} />
         <MissingDetails place={place} actions={actions} state={state} />
       </div>
+      {/* Empty, with no photo to show or once every one has failed to load, it takes no room. */}
+      <div className="px-gutter-phone pt-4 empty:hidden">
+        <PhotoStrip photos={view.strip} placeName={place.name} />
+      </div>
       <div className="px-gutter-phone pt-4">
         <PlaceMap place={place} className="h-[150px] rounded-panel" />
       </div>
       <div className="px-gutter-phone pt-4">
-        <Facts place={place} now={now} locale={locale} />
+        <Facts place={place} now={now} locale={locale} price={view.price} paid={view.paid} />
       </div>
       <PlaceReviews view={view} wide={false} className="px-gutter-phone pt-[26px]" />
       <RemovalStatus status={view.removal.status} />
@@ -383,8 +411,9 @@ function PhonePlace({ view }: { view: View }): JSX.Element {
 
 /**
  * The desktop's page (the design, with the no-reviews state of the phone's): the way
- * back, then a column with the name, the panel, the reviews and the places nearby, and a rail 320 px
- * wide with Rate this place, the actions, the map, the facts, Suggest a fix and the attribution.
+ * back, then a column with the name, the panel, the strip of photos, the reviews and the places
+ * nearby, and a rail 320 px wide with Rate this place, the actions, the map, the facts, Suggest a fix
+ * and the attribution.
  */
 function DeskPlace({ view }: { view: View }): JSX.Element {
   const { place, actions, state, nearby, nearbyScores, locale, now } = view;
@@ -395,6 +424,7 @@ function DeskPlace({ view }: { view: View }): JSX.Element {
         <div className="flex min-w-0 flex-1 flex-col gap-[26px]">
           <DeskHeader {...view} />
           <ScorePanel name={place.name} wide shown={view.shown} onRetry={view.retry} />
+          <PhotoStrip photos={view.strip} placeName={place.name} />
           <PlaceReviews view={view} wide />
           <RemovalStatus status={view.removal.status} />
           <Nearby rows={nearby} scores={nearbyScores} locale={locale} now={now} wide />
@@ -404,7 +434,7 @@ function DeskPlace({ view }: { view: View }): JSX.Element {
           <RailActions actions={actions} />
           <MissingDetails place={place} actions={actions} state={state} />
           <PlaceMap place={place} className="h-[220px] rounded-panel" />
-          <Facts place={place} now={now} locale={locale} />
+          <Facts place={place} now={now} locale={locale} price={view.price} paid={view.paid} />
           <div className="flex flex-col gap-0.5 border-t-token border-line pt-2 text-caption text-muted">
             <FootLinks place={place} />
           </div>
@@ -446,6 +476,15 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
   // How far away is said only from where the device says the person is. From the default city, or a
   // town they picked, it would be how far the place is from somewhere they may not be.
   const away = here.source === "device" ? formatDistance(distanceKm(here.lat, here.lon, place.lat, place.lon), locale) : "";
+  const shown = seenBy(shownScore(score, reviews.length > 0, scoresState, read, scoresView), score, mine);
+  // What the reviews inside the view carry, summed, once they are listed: a photo is drawn only from a
+  // review by someone who counts in the view on screen (the person's own when the view counts it), or
+  // the place's own.
+  const inside = isListed(shown, score) ? score.inside : NO_REVIEWS;
+  const sums = useMemo(
+    () => ({ strip: stripPhotos(place.image, inside), price: priceOf(inside), paid: paidWays(inside) }),
+    [place.image, inside],
+  );
   const view: View = {
     place,
     kindAway: copy.place.kindAway(placeKindLabel(place.category, place.cuisine), away),
@@ -453,8 +492,9 @@ function PlaceView({ place, indexes }: { place: Place; indexes: Indexes }): JSX.
     // The phone's line is its own; the desktop's sits inside one that dots join (the design).
     line: openLine(state, locale, wide ? "placeInline" : "place"),
     actions,
-    shown: seenBy(shownScore(score, reviews.length > 0, scoresState, read, scoresView), score, mine),
+    shown,
     score,
+    ...sums,
     mine,
     removal,
     scoresView,

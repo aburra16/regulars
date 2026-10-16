@@ -6,11 +6,13 @@ import { copy } from "../src/copy/en";
 import { changeFollow } from "../src/follow/change";
 import { placeKindLabel } from "../src/places/kinds";
 import { whenWritten } from "../src/reviews/when";
+import { VIEW_STORAGE_KEY } from "../src/view/ViewProvider";
 import { DESKTOP, PHONE, resizeTo } from "./support/app";
-import { endScene, type Logs, person, startScene } from "./support/followScene";
+import { signedInAs } from "./support/followPage";
+import { circleKept, endScene, type Logs, person, startScene } from "./support/followScene";
 import { expectNoNumbersAboutPeople } from "./support/noNumbers";
-import { at, bothHold, expectNoProtocolWords, header, JACAFE, listed, lists, MAIA, main, MUSEU, open, openSol, pathsOf, placePath, reviewAsks, reviewOf, reviewsPart, scene, showMore, SOL, SOL_PATH, solOn } from "./support/personScene";
-import { profileOf } from "./support/reviewWorld";
+import { at, bothHold, expectNoProtocolWords, header, JACAFE, listed, lists, MAIA, main, MAYA, MAYA_SECRET, MUSEU, open, openSol, pathsOf, placePath, reviewAsks, reviewOf, reviewsPart, scene, showMore, SOL, SOL_PATH, solOn } from "./support/personScene";
+import { profileOf, rankOf } from "./support/reviewWorld";
 
 /*
  * A person's page, `/person/<npub>`, in the app itself (src/person/PersonPage.tsx): its frame. Their
@@ -199,5 +201,53 @@ describe("a person's page on a desktop", () => {
 
     expect(listed()).toEqual(pathsOf([JACAFE]));
     expect(reviewAsks(s.search)).toHaveLength(1);
+  });
+});
+
+describe("a person's page: what their reviews carry", () => {
+  const PHOTOS = ["https://blossom.example.test/sol-1.jpg", "https://blossom.example.test/sol-2.jpg"];
+  /** The rank the house gives Sol, inside House picks: the page shows it in no form (decision 19). */
+  const SOL_RANK = 84.5;
+
+  /** Sol's review of Jacafé with a price, how he paid and two photos, as Brainstorm writes them. */
+  function solsReview() {
+    const review = solOn(JACAFE, 5, ["Get the bolo de caco", ...PHOTOS].join("\n"), at(2));
+    return { ...review, tags: [...review.tags, ["price", "2"], ["paid", "lightning"], ...PHOTOS.map((url) => ["imeta", `url ${url}`])] };
+  }
+
+  it.each([
+    ["House picks", PHONE],
+    ["My circle", DESKTOP],
+  ] as const)("links a review's photos and draws none of them, in %s as in any view, and says its price and how he paid", async (view, px) => {
+    if (view === "My circle") {
+      signedInAs(MAYA_SECRET);
+      circleKept(MAYA, "ready");
+      window.sessionStorage.setItem(VIEW_STORAGE_KEY, "circle");
+    }
+    const s = scene();
+    // Inside House picks: the page draws his photos no more for it.
+    s.house.ranks.push(rankOf(SOL, SOL_RANK));
+    bothHold(s, [solsReview()]);
+    await openSol(s, { px });
+    await lists([JACAFE]);
+    if (view === "My circle") {
+      const toggle = screen.getByRole("group", { name: copy.view.label });
+      expect(within(toggle).getByRole("button", { name: /^My circle/ })).toHaveAttribute("aria-pressed", "true");
+    }
+
+    const row = reviewOf(JACAFE);
+    const link = within(row).getByRole("link", { name: `2 photos ${copy.common.newTab}` });
+    expect(link).toHaveAttribute("href", PHOTOS[0]);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(document.querySelector("img")).toBeNull();
+    // Under the stars, the price and how he paid; then the link; then the words, without the photos' addresses.
+    const stars = within(row).getByRole("img", { name: copy.score.starsLabel(5) });
+    const line = within(row).getByText((_, element) => element?.tagName === "P" && element.textContent === "$$ · Paid with Lightning");
+    const words = within(row).getByText("Get the bolo de caco");
+    const follows = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect([follows(stars, line), follows(line, link), follows(link, words)]).toEqual([true, true, true]);
+    expectNoProtocolWords();
+    expectNoNumbersAboutPeople([SOL_RANK]);
   });
 });

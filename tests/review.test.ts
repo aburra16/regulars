@@ -2,8 +2,10 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  isHttpsUrl,
   latestReviews,
   newestPerReviewer,
+  PAID_WAYS,
   parseReview,
   photosOf,
   REVIEW_KIND,
@@ -108,6 +110,9 @@ describe("parseReview", () => {
       d: PLACE,
       stars: 4,
       text: "Get the grilled oysters and sit at the bar.",
+      photos: [],
+      price: null,
+      paid: null,
       createdAt: ev.created_at,
     });
   });
@@ -252,6 +257,91 @@ describe("photosOf and wordsOf: a review's photos, and its words without their a
   it("gives no words for a review that is a photo alone", () => {
     expect(wordsOf(PHOTO, [["imeta", `url ${PHOTO}`]])).toBe("");
     expect(wordsOf(`\n${PHOTO}\n`, [["imeta", `url ${PHOTO}`]])).toBe("");
+  });
+
+  it("finds every address an imeta names, whatever it starts with, so that each still comes out of the words", () => {
+    const tags = [
+      ["imeta", "url http://blossom.example/abc.jpg"],
+      ["imeta", "url javascript:alert(1)"],
+    ];
+    expect(photosOf(tags)).toEqual(["http://blossom.example/abc.jpg", "javascript:alert(1)"]);
+    expect(wordsOf("Get the bolo.\nhttp://blossom.example/abc.jpg\njavascript:alert(1)", tags)).toBe("Get the bolo.");
+  });
+});
+
+describe("isHttpsUrl: the only addresses a photo is shown from", () => {
+  it("is true of an absolute https address, in any case", () => {
+    expect(isHttpsUrl(PHOTO)).toBe(true);
+    expect(isHttpsUrl("HTTPS://blossom.example/abc.jpg")).toBe(true);
+    expect(isHttpsUrl("https://blossom.example:8443/a/b.webp?w=640#top")).toBe(true);
+  });
+
+  it("is false of any other scheme, of an address with no scheme, and of what is no address", () => {
+    for (const text of [
+      "http://blossom.example/abc.jpg",
+      // Read alone, these are absolute; a page at an https address reads them as paths of its own.
+      "https:blossom.example/abc.jpg",
+      "https:/blossom.example/abc.jpg",
+      "javascript:alert(1)",
+      "data:image/png;base64,AA==",
+      "blob:https://blossom.example/1234",
+      "ftp://blossom.example/abc.jpg",
+      "//blossom.example/abc.jpg",
+      "/abc.jpg",
+      "abc.jpg",
+      "photo",
+      "https://",
+      "",
+    ]) {
+      expect(isHttpsUrl(text), text).toBe(false);
+    }
+  });
+});
+
+describe("a review's photos, price and how they paid, as Brainstorm-UI's readReview reads them", () => {
+  /** Alice's review with `tags` after its own. */
+  const reviewWith = (...tags: string[][]) => review({ tags: [...review().tags, ...tags] });
+
+  it("reads the price, how they paid and the photos that a review gives", () => {
+    const ev = review({
+      content: `Get the bolo.\n${PHOTO}\n${SECOND_PHOTO}`,
+      tags: [...review().tags, ["price", "2"], ["paid", "cash"], ["imeta", `url ${PHOTO}`], ["imeta", `url ${SECOND_PHOTO}`, "m image/png"]],
+    });
+    expect(parseReview(ev)).toMatchObject({ price: 2, paid: "cash", photos: [PHOTO, SECOND_PHOTO], text: "Get the bolo." });
+  });
+
+  it("gives no price, no way paid and no photos for a review that gives none", () => {
+    expect(parseReview(review())).toMatchObject({ price: null, paid: null, photos: [] });
+  });
+
+  it("reads a price as Number() does, so space around it is ignored, and keeps it only when a whole number from 1 to 4", () => {
+    const priceOf = (value: string) => parseReview(reviewWith(["price", value]))?.price;
+    expect(["1", "2", "3", "4"].map(priceOf)).toEqual([1, 2, 3, 4]);
+    expect(priceOf(" 2 ")).toBe(2);
+    for (const value of ["0", "5", "2.5", "two", "-1", ""]) expect(priceOf(value), value).toBeNull();
+    expect(parseReview(reviewWith(["price"]))?.price).toBeNull();
+  });
+
+  it("reads only the first price, as Brainstorm does: a bad first one is no price, though a good one follows", () => {
+    expect(parseReview(reviewWith(["price", "9"], ["price", "2"]))?.price).toBeNull();
+    expect(parseReview(reviewWith(["price", "3"], ["price", "1"]))?.price).toBe(3);
+  });
+
+  it("reads how they paid only as one of the four ways, written as the record writes them, from the first paid", () => {
+    const paidOf = (value: string) => parseReview(reviewWith(["paid", value]))?.paid;
+    expect(PAID_WAYS.map(paidOf)).toEqual(["lightning", "onchain", "card", "cash"]);
+    for (const value of ["Lightning", "bitcoin", "on-chain", " cash", ""]) expect(paidOf(value), value).toBeNull();
+    expect(parseReview(reviewWith(["paid", "bitcoin"], ["paid", "cash"]))?.paid).toBeNull();
+  });
+
+  it("keeps to the https photos: one at any other address is not among them, and its address still comes out of the words", () => {
+    const others = ["http://blossom.example/abc.jpg", "javascript:alert(1)", "data:image/png;base64,AA==", "photo"];
+    const ev = review({
+      content: `Get the bolo.\n${others.join("\n")}\n${PHOTO}`,
+      tags: [...review().tags, ...others.map((url) => ["imeta", `url ${url}`]), ["imeta", `url ${PHOTO}`]],
+    });
+    expect(parseReview(ev)).toMatchObject({ photos: [PHOTO], text: "Get the bolo." });
+    expect(latestReviews([ev])[0]?.photos).toEqual([PHOTO]);
   });
 });
 
@@ -442,6 +532,9 @@ describe("newestPerReviewer (one voice per person, brief § 4.3)", () => {
     d: `place:${address}`,
     stars: 4,
     text: "",
+    photos: [],
+    price: null,
+    paid: null,
     createdAt,
   });
 

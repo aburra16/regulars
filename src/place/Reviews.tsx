@@ -10,6 +10,8 @@ import { whenWritten, writtenOn } from "../reviews/when.ts";
 import type { PlaceScore } from "../score/score.ts";
 import type { ViewState } from "../score/store.ts";
 import { useNames, usePictures } from "../score/useScore.ts";
+import { ReviewPhotos } from "../ui/Photos.tsx";
+import { PricePaid } from "../ui/PricePaid.tsx";
 import { ProfilePicture } from "../ui/ProfilePicture.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Stars } from "../ui/Stars.tsx";
@@ -21,11 +23,13 @@ import { EditLink, RateLink } from "./ScorePanel.tsx";
  * the person signed in, on its own at the top, with Edit and Remove (ruling R15); those by people
  * inside the view (the house trusts them, or they are in the person's circle), listed; and those by
  * people outside it, folded into a dashed box that shows them, dimmed, on request. Each review has its
- * reviewer's picture (or initial), name, its stars, when it was written and its words. A reviewer
- * appears by their name and the picture their profile gives: never a rank, a weight or a meter
- * (decision 19), and the folded box is no verdict on the people in it. Nor does anything say whether
- * the view counts the person's own review: it is never among the others, nor dimmed, nor counted with
- * them.
+ * reviewer's picture (or initial), name, its stars, when it was written, what it gives of its price
+ * and how they paid, its photos and its words. A photo is drawn only from a review inside the view and
+ * the person's own: a folded one's are a link, and nothing of them is asked for until it is tapped
+ * (src/ui/Photos.tsx). A reviewer appears by their name and the picture their profile gives: never a
+ * rank, a weight or a meter (decision 19), and the folded box is no verdict on the people in it. Nor
+ * does anything say whether the view counts the person's own review: it is never among the others,
+ * nor dimmed, nor counted with them.
  *
  * A reviewer's name is a link to their page, and beside it, for a person signed in, is Follow, small,
  * while they do not follow that reviewer (src/follow/FollowButton.tsx): on a folded review as on any
@@ -43,7 +47,8 @@ function initialOf(name: string): string {
 
 /**
  * One review, with its reviewer's `picture` when their profile gives one. A folded one is dimmed:
- * drawn in the muted colour, its stars too, and its picture faded to match.
+ * drawn in the muted colour, its stars too, and its picture faded to match. Under the stars, its price
+ * and how they paid, then its photos: thumbnails, or, folded, one link to them, as dimmed as the rest.
  *
  * Its first row is the picture, the name, Follow when there is one, and when it was written. The row
  * wraps, so that what Follow has to say goes under it, as wide as the review: the name takes the room
@@ -105,6 +110,8 @@ function ReviewItem({
         )}
       </div>
       {review.stars !== null && <Stars value={review.stars} tone={folded ? "muted" : "accent"} />}
+      <PricePaid price={review.price} paid={review.paid} muted={folded} />
+      <ReviewPhotos photos={review.photos} drawn={!folded} reviewer={name} muted={folded} />
       {review.text !== "" && (
         <p
           dir="auto"

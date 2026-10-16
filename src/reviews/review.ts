@@ -8,6 +8,21 @@ import { countsAsRemoval, takesDown } from "./removals.ts";
 
 export { REVIEW_KIND } from "./kind.ts";
 
+/** A place's price as a review gives it, from 1 ($) to 4 ($$$$). */
+export type Price = 1 | 2 | 3 | 4;
+
+/** The prices a review may give, cheapest first. */
+const PRICES: readonly Price[] = [1, 2, 3, 4];
+
+/** How a reviewer paid, as a review's `paid` tag gives it. */
+export type Paid = "lightning" | "onchain" | "card" | "cash";
+
+/**
+ * The ways a review may say the reviewer paid, as the record writes them; in this order, too, two ways
+ * said as often are listed (`paidWays`, src/place/summary.ts).
+ */
+export const PAID_WAYS: readonly Paid[] = ["lightning", "onchain", "card", "cash"];
+
 /** One person's review of one place. */
 export interface Review {
   /** The event's id. It changes each time the reviewer edits the review. */
@@ -32,6 +47,15 @@ export interface Review {
    * Empty for a review that is stars alone, or stars and photos.
    */
   text: string;
+  /**
+   * The addresses of the review's photos (`photosOf`), only those that are `https:` (`isHttpsUrl`): no
+   * other is drawn, linked or counted. Empty for a review with none.
+   */
+  photos: string[];
+  /** The price the review gives, from 1 ($) to 4 ($$$$) (`priceIn`); null when it gives none. */
+  price: Price | null;
+  /** How the reviewer says they paid (`paidIn`); null when they do not say. */
+  paid: Paid | null;
   createdAt: number;
 }
 
@@ -105,8 +129,9 @@ const URL_PART = "url ";
 /**
  * The addresses of a review's photos, as Brainstorm-UI's `photosOf` (`client/src/lib/placeReviews.ts`)
  * finds them: of each `imeta` tag (NIP-92), the first part after its name that starts with `url `, the
- * rest of that part trimmed. Each once, in the order the tags give them; none that is empty. Regulars
- * draws no photo: it finds them to keep them out of the words (`wordsOf`), and in an edit (`reviewTemplate`).
+ * rest of that part trimmed. Each once, in the order the tags give them; none that is empty. Every one,
+ * whatever it starts with, so that each is taken out of the words (`wordsOf`) and kept in an edit
+ * (`reviewTemplate`) as the other app wrote it. Those shown are only the `https:` ones (`Review.photos`).
  */
 export function photosOf(tags: readonly (readonly string[])[]): string[] {
   const photos = new Set<string>();
@@ -130,6 +155,44 @@ export function wordsOf(content: string, tags: readonly (readonly string[])[]): 
   return words.replace(/[ \t]+\n/g, "\n").trim();
 }
 
+/** What an absolute `https:` address starts with, in any case. */
+const HTTPS_START = /^https:\/\//i;
+
+/**
+ * Whether `text` is an absolute `https:` address, the only kind a photo is shown from or linked to: not
+ * `http:`, `data:`, `javascript:` or any other scheme, and nothing relative. It must start with
+ * `https://`: `https:host/a.jpg` and `https:/host/a.jpg` read as absolute alone, but a page at an
+ * `https:` address reads them as paths of its own.
+ */
+export function isHttpsUrl(text: string): boolean {
+  if (!HTTPS_START.test(text)) return false;
+  try {
+    // With no base, so a relative address throws.
+    return new URL(text).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The price in a review, as Brainstorm-UI's `readReview` reads it: its first `price` tag, read with
+ * `Number()` (so space around it is ignored), when that is a whole number from 1 to 4. Else null, even
+ * when a later `price` tag is good: Brainstorm reads only the first, and both apps show the same.
+ */
+function priceIn(ev: NostrEvent): Price | null {
+  const price = Number(firstTag(ev, "price"));
+  return PRICES.find((each) => each === price) ?? null;
+}
+
+/**
+ * How the reviewer paid, as Brainstorm-UI's `readReview` reads it: its first `paid` tag, when that is
+ * one of the four ways as the record writes them (`PAID_WAYS`). Else null.
+ */
+function paidIn(ev: NostrEvent): Paid | null {
+  const paid = firstTag(ev, "paid");
+  return PAID_WAYS.find((way) => way === paid) ?? null;
+}
+
 /**
  * The review in `ev`, a well-formed event of the review kind, or null when it reviews no place, or
  * was written more than a day ahead of the device's clock (`fromTheFuture`). The place is the `a` tag
@@ -148,6 +211,9 @@ function reviewIn(ev: NostrEvent): Review | null {
     d: firstTag(ev, "d") ?? "",
     stars: starsOf(ev.tags),
     text: wordsOf(ev.content, ev.tags),
+    photos: photosOf(ev.tags).filter(isHttpsUrl),
+    price: priceIn(ev),
+    paid: paidIn(ev),
     createdAt: ev.created_at,
   };
 }

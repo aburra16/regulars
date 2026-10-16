@@ -220,6 +220,9 @@ describe("postReview", () => {
     ["an expiration, which would have relays drop the review (NIP-40)", ["expiration", "1800000600"]],
     ["a -, which relays refuse from an app that has not proven whose it is (NIP-70)", ["-"]],
     ["a delegation, which would make it another person's (NIP-26)", ["delegation", "f".repeat(64), "kind=34259", "f".repeat(128)]],
+    ["a price the person did not give", ["price", "4"]],
+    ["a way the person did not say they paid", ["paid", "cash"]],
+    ["a photo the person did not give (NIP-92)", ["imeta", "url https://blossom.example/abc.jpg"]],
   ])("is not posted, and nothing is sent, when the signer appends %s (R17)", async (_, tag) => {
     const by = signer();
     by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
@@ -262,6 +265,15 @@ describe("postReview", () => {
     await expect(posting).rejects.toBeInstanceOf(NotPosted);
   });
 
+  /** A signer that signs what it is asked with the tags `change` makes of them. */
+  const signedAs = (change: (tags: string[][]) => string[][]) => {
+    const by = signer();
+    by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
+      finalizeEvent({ ...asked, tags: change(asked.tags) }, KEY),
+    );
+    return by;
+  };
+
   describe("an edit that keeps what another app gave", () => {
     /** An edit of a review another app wrote with a price, a payment, a photo and a tag of its own, which it keeps. */
     const edit = () =>
@@ -275,13 +287,6 @@ describe("postReview", () => {
           ["client", "SomeApp"],
         ],
       });
-    const signedAs = (change: (tags: string[][]) => string[][]) => {
-      const by = signer();
-      by.signEvent.mockImplementationOnce(async (asked: Parameters<typeof finalizeEvent>[0]) =>
-        finalizeEvent({ ...asked, tags: change(asked.tags) }, KEY),
-      );
-      return by;
-    };
 
     it("is posted when the signer adds a tag naming itself after the kept ones", async () => {
       expect(edit().tags.slice(6)).toEqual([
@@ -327,6 +332,35 @@ describe("postReview", () => {
     ])("is not posted, and nothing is sent, when the signer %s", async (_, change) => {
       const search = createMemoryWriter();
       const posting = postReview(edit(), signedAs(change), [SEARCH], new AbortController().signal, {
+        writers: writersOver({ [SEARCH]: search }),
+      });
+      await expect(posting).rejects.toBeInstanceOf(NotPosted);
+      expect(search.published).toEqual([]);
+    });
+  });
+
+  describe("a review with the price and the way the person gave in the form", () => {
+    const given = () => reviewTemplate(JACAFE, 4, "Get the bolo", 1_800_000_000, undefined, { price: 2, paid: "cash" });
+
+    it("is posted with both, when the signer adds a tag naming itself after them", async () => {
+      const search = createMemoryWriter();
+      const by = signedAs((tags) => [...tags, ["client", "SomeSigner"]]);
+      const posted = await postReview(given(), by, [SEARCH], new AbortController().signal, { writers: writersOver({ [SEARCH]: search }) });
+      expect(posted.event.tags.slice(5)).toEqual([
+        ["alt", "Review of Jacafé: 4 of 5 stars"],
+        ["price", "2"],
+        ["paid", "cash"],
+        ["client", "SomeSigner"],
+      ]);
+      expect(search.published).toEqual([posted.event]);
+    });
+
+    it.each([
+      ["changes the price", (tags: string[][]) => tags.map((tag) => (tag[0] === "price" ? ["price", "4"] : tag))],
+      ["adds another way they paid", (tags: string[][]) => [...tags, ["paid", "lightning"]]],
+    ])("is not posted, and nothing is sent, when the signer %s", async (_, change) => {
+      const search = createMemoryWriter();
+      const posting = postReview(given(), signedAs(change), [SEARCH], new AbortController().signal, {
         writers: writersOver({ [SEARCH]: search }),
       });
       await expect(posting).rejects.toBeInstanceOf(NotPosted);

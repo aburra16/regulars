@@ -16,6 +16,8 @@ import { useNow } from "../shell/useNow.ts";
 import { useWide } from "../shell/useWide.ts";
 import { PageMessage, primaryButton, retryButton } from "../ui/Banner.tsx";
 import { KindTile } from "../ui/KindTile.tsx";
+import { ReviewPhotos } from "../ui/Photos.tsx";
+import { PricePaid, pricePaidWords } from "../ui/PricePaid.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Stars } from "../ui/Stars.tsx";
 import { ViewSwitch } from "../ui/ViewToggle.tsx";
@@ -31,10 +33,13 @@ const olderButton =
 
 /**
  * One review in the list: who wrote it ("You" for the person's own) and how long ago, the place with
- * what it is and how far it is from where the app is looking, as a card says them, the stars and the
- * words, three lines at most. The whole of it is one link to the place, named in a sentence of its own
- * ("Maya's review of Jacafé, 2 hours ago"), and described by the rest. A reviewer appears by name only
- * (decision 19). It is `memo`: the list drawn again for another review does not draw this one again.
+ * what it is and how far it is from where the app is looking, as a card says them, the stars, what it
+ * gives of its price and how they paid, and the words, three lines at most. All of that is one link to
+ * the place, named in a sentence of its own ("Maya's review of Jacafé, 2 hours ago"), and described by
+ * the rest. Under it, in the same card, the review's photos, drawn: the list has only reviews by people
+ * who count in the view. Each is a link of its own, so it is outside the link to the place, which no
+ * link may be inside. A reviewer appears by name only (decision 19). It is `memo`: the list drawn again
+ * for another review does not draw this one again.
  */
 const RecentItem = memo(function RecentItem({
   entry,
@@ -55,62 +60,86 @@ const RecentItem = memo(function RecentItem({
   const when = howLongAgo(review.createdAt, now);
   const written = writtenOn(review.createdAt);
   const kindLine = copy.explore.kindLine(placeKindLabel(place.category, place.cuisine), formatDistance(km, locale));
-  const describedBy = [`${id}-kind`, review.stars !== null && `${id}-stars`, review.text !== "" && `${id}-text`]
+  const pricePaid = review.price !== null || review.paid !== null;
+  const describedBy = [
+    `${id}-kind`,
+    review.stars !== null && `${id}-stars`,
+    pricePaid && `${id}-paid`,
+    review.text !== "" && `${id}-text`,
+  ]
     .filter(Boolean)
     .join(" ");
   return (
-    <Link
-      to={`/place/${encodeURIComponent(place.d)}`}
-      aria-label={mine ? copy.recent.yourEntry(place.name, when) : copy.recent.entry(name, place.name, when)}
-      aria-describedby={describedBy}
-      className="flex flex-col gap-2.5 rounded-card border-token border-line p-4 text-ink no-underline"
-    >
-      <div className="flex items-baseline gap-3">
-        <span className="min-w-0 flex-1 truncate text-body font-bold">
-          <bdi lang={scriptLang(who)}>{who}</bdi>
-        </span>
-        {/* No time for one no date can hold: the review shows without it. */}
-        {written !== undefined && (
-          <time dateTime={written.toISOString()} className="shrink-0 text-caption text-muted">
-            {when}
-          </time>
-        )}
-      </div>
-      <div className="flex items-center gap-3">
-        <KindTile category={place.category} size="row" />
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <span
-            lang={scriptLang(place.name)}
-            dir="auto"
-            className="line-clamp-2 font-display text-card-title leading-[1.2] font-bold wrap-break-word"
-          >
-            {place.name}
+    <div className="flex flex-col rounded-card border-token border-line">
+      <Link
+        to={`/place/${encodeURIComponent(place.d)}`}
+        aria-label={mine ? copy.recent.yourEntry(place.name, when) : copy.recent.entry(name, place.name, when)}
+        aria-describedby={describedBy}
+        className="flex flex-col gap-2.5 rounded-card p-4 text-ink no-underline"
+      >
+        <div className="flex items-baseline gap-3">
+          <span className="min-w-0 flex-1 truncate text-body font-bold">
+            <bdi lang={scriptLang(who)}>{who}</bdi>
           </span>
-          <span id={`${id}-kind`} className="text-secondary text-muted">
-            {kindLine}
-          </span>
+          {/* No time for one no date can hold: the review shows without it. */}
+          {written !== undefined && (
+            <time dateTime={written.toISOString()} className="shrink-0 text-caption text-muted">
+              {when}
+            </time>
+          )}
         </div>
-      </div>
-      {review.stars !== null && (
-        <span className="flex">
-          <Stars value={review.stars} />
-          {/* What the stars say, for the link's description: a name inside a link is not read out. */}
-          <span id={`${id}-stars`} className="sr-only">
-            {copy.score.starsLabel(review.stars)}
+        <div className="flex items-center gap-3">
+          <KindTile category={place.category} size="row" />
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span
+              lang={scriptLang(place.name)}
+              dir="auto"
+              className="line-clamp-2 font-display text-card-title leading-[1.2] font-bold wrap-break-word"
+            >
+              {place.name}
+            </span>
+            <span id={`${id}-kind`} className="text-secondary text-muted">
+              {kindLine}
+            </span>
+          </div>
+        </div>
+        {review.stars !== null && (
+          <span className="flex">
+            <Stars value={review.stars} />
+            {/* What the stars say, for the link's description: a name inside a link is not read out. */}
+            <span id={`${id}-stars`} className="sr-only">
+              {copy.score.starsLabel(review.stars)}
+            </span>
           </span>
-        </span>
-      )}
-      {review.text !== "" && (
-        <p
-          id={`${id}-text`}
-          dir="auto"
-          lang={scriptLang(review.text)}
-          className="m-0 line-clamp-3 max-w-measure text-body leading-[1.5] whitespace-pre-line wrap-break-word text-ink-soft wide:text-[17px] wide:leading-[1.55]"
-        >
-          {review.text}
-        </p>
-      )}
-    </Link>
+        )}
+        {pricePaid && (
+          <div>
+            <PricePaid price={review.price} paid={review.paid} />
+            {/* What it says, in words, for the link's description: the signs inside a link are not read out. */}
+            <span id={`${id}-paid`} className="sr-only">
+              {pricePaidWords(review.price, review.paid)}
+            </span>
+          </div>
+        )}
+        {review.text !== "" && (
+          <p
+            id={`${id}-text`}
+            dir="auto"
+            lang={scriptLang(review.text)}
+            className="m-0 line-clamp-3 max-w-measure text-body leading-[1.5] whitespace-pre-line wrap-break-word text-ink-soft wide:text-[17px] wide:leading-[1.55]"
+          >
+            {review.text}
+          </p>
+        )}
+      </Link>
+      {/*
+        As far under the words as the link's parts are from each other. Empty, with no photo to show
+        or once every one has failed to load, it takes no room.
+      */}
+      <div className="-mt-1.5 px-4 pb-4 empty:hidden">
+        <ReviewPhotos photos={review.photos} drawn reviewer={name} />
+      </div>
+    </div>
   );
 });
 

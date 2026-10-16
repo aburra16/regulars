@@ -33,7 +33,18 @@ const place = (d: string, osmId?: string): Place => ({
 const review = (reviewer: string, of: Place | string, createdAt: number, id?: string): Review => {
   const address = typeof of === "string" ? of : of.address;
   made += 1;
-  return { id: id ?? made.toString(16).padStart(64, "0"), reviewer, address, d: `place:${address}`, stars: 4, text: "", createdAt };
+  return {
+    id: id ?? made.toString(16).padStart(64, "0"),
+    reviewer,
+    address,
+    d: `place:${address}`,
+    stars: 4,
+    text: "",
+    photos: [],
+    price: null,
+    paid: null,
+    createdAt,
+  };
 };
 const listOf = (...places: Place[]) => new Map(places.map((each) => [each.address, each]));
 

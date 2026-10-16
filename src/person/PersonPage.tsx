@@ -13,6 +13,8 @@ import { useNow } from "../shell/useNow.ts";
 import { useWide } from "../shell/useWide.ts";
 import { BackLink } from "../ui/BackLink.tsx";
 import { quietLine, retryButton } from "../ui/Banner.tsx";
+import { ReviewPhotos } from "../ui/Photos.tsx";
+import { PricePaid } from "../ui/PricePaid.tsx";
 import { ProfilePicture } from "../ui/ProfilePicture.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
 import { Stars } from "../ui/Stars.tsx";
@@ -23,9 +25,9 @@ import { type PersonEntry, type PersonReviews, usePersonReviews } from "./usePer
  * A person's page (the brief's screen 9, without the design's meter and its three counts:
  * decision 19), at `/person/<npub>`: their picture, or their initial, and their name; the Follow
  * button, the one main one on the page; and their reviews of the places on the list, newest first, 20
- * at a time. Each review is the place, a link to it, what the place is, the stars, when it was written
- * and the words. The rows are all the person's own, so none repeats their name, and none has a Follow
- * button.
+ * at a time. Each review is the place, a link to it, what the place is, the stars, when it was written,
+ * what it gives of its price and how they paid, its photos and the words. The rows are all the person's
+ * own, so none repeats their name, and none has a Follow button.
  *
  * The page is read in one order at both widths (ruling R34): the name, which takes the focus as the
  * person arrives; who follows them; the Follow button, the page's one action; the reviews. Where each
@@ -124,11 +126,16 @@ function FollowedBy({ names, className = "" }: { names: readonly string[]; class
 }
 
 /**
- * One review, on its author's page: the place it is of, a link to the place's page, and when it was
- * written; what the place is; the stars, when the review gives any; and the words, when it has any.
+ * One review, on its author's page, by the person named `name`: the place it is of, a link to the
+ * place's page, and when it was written; what the place is; the stars, when the review gives any; what
+ * it gives of its price and how they paid; its photos; and the words, when it has any.
+ *
+ * Its photos are one link, "Photo" or "2 photos", and never drawn: a photo is drawn only from someone
+ * who counts in the view on screen, and the page is the same for anyone whatever the view says of them
+ * (it says nothing of whether the view counts them). Nothing of a photo is asked for until it is tapped.
  * It is `memo`: the list drawn again for more reviews does not draw this one again.
  */
-const PersonReview = memo(function PersonReview({ entry, now }: { entry: PersonEntry; now: Date }): JSX.Element {
+const PersonReview = memo(function PersonReview({ entry, name, now }: { entry: PersonEntry; name: string; now: Date }): JSX.Element {
   const { review, place } = entry;
   const written = writtenOn(review.createdAt);
   return (
@@ -161,6 +168,15 @@ const PersonReview = memo(function PersonReview({ entry, now }: { entry: PersonE
           <Stars value={review.stars} />
         </span>
       )}
+      {(review.price !== null || review.paid !== null) && (
+        <div className="mt-2">
+          <PricePaid price={review.price} paid={review.paid} />
+        </div>
+      )}
+      {/* The link is 44 px tall to tap, with room of its own above its words. Empty, it takes no room. */}
+      <div className="flex empty:hidden">
+        <ReviewPhotos photos={review.photos} drawn={false} reviewer={name} />
+      </div>
       {review.text !== "" && (
         <p
           dir="auto"
@@ -179,11 +195,11 @@ const moreButton =
   "inline-flex h-13 w-full cursor-pointer items-center justify-center rounded-button border-token border-line-strong bg-ground px-7 font-text text-[15px] font-bold text-ink aria-disabled:cursor-not-allowed aria-disabled:opacity-60 wide:w-auto wide:self-start";
 
 /**
- * The person's reviews, under their heading, which never says how many (decision 19). Where the
- * reading of them stands is said politely under the heading: that they are being read; that there
- * are none, once every review relay has sent everything it has and none is of a place on the list;
- * or that they could not be read, with Try again, which begins the reading again (no relay
- * answered, or nothing is listed and a relay was left: ./usePersonReviews.ts). Under the list, Show more reads
+ * The reviews of the person named `name`, under their heading, which never says how many (decision
+ * 19). Where the reading of them stands is said politely under the heading: that they are being
+ * read; that there are none, once every review relay has sent everything it has and none is of a
+ * place on the list; or that they could not be read, with Try again, which begins the reading again
+ * (no relay answered, or nothing is listed and a relay was left: ./usePersonReviews.ts). Under the list, Show more reads
  * the next, and stays, busy, while it does; it is there only while a relay that answers may have
  * more. When the next could not be read, as no relay answered, the same button is Try again, with
  * the line that says so under it, so that the button is where it was: it asks the same relays again,
@@ -193,7 +209,7 @@ const moreButton =
  * none and there are no more, so that the button goes, to the last review; and Try again's, which
  * goes as it is pressed, to the heading.
  */
-function Reviews({ reviews, wide, className = "" }: { reviews: PersonReviews; wide: boolean; className?: string }): JSX.Element {
+function Reviews({ reviews, name, wide, className = "" }: { reviews: PersonReviews; name: string; wide: boolean; className?: string }): JSX.Element {
   const { entries, state, more, end, showMore, retry } = reviews;
   const now = useNow();
   const headingId = useId();
@@ -254,7 +270,7 @@ function Reviews({ reviews, wide, className = "" }: { reviews: PersonReviews; wi
         <ul ref={list} role="list" className="m-0 flex list-none flex-col p-0 pt-2">
           {entries.map((entry, i) => (
             <li key={entry.review.id} className={i === 0 ? "" : "mt-4 border-t-token border-line pt-2"}>
-              <PersonReview entry={entry} now={now} />
+              <PersonReview entry={entry} name={name} now={now} />
             </li>
           ))}
         </ul>
@@ -326,7 +342,7 @@ function PhonePerson({ pubkey, name, followers, reviews }: View): JSX.Element {
         */}
         <div ref={setLines} className="col-span-2 row-start-4 min-w-0 has-[p:not(.sr-only)]:mt-2" />
       </header>
-      <Reviews reviews={reviews} wide={false} className="px-gutter-phone pt-[26px]" />
+      <Reviews reviews={reviews} name={name} wide={false} className="px-gutter-phone pt-[26px]" />
     </div>
   );
 }
@@ -356,7 +372,7 @@ function DeskPerson({ pubkey, name, followers, reviews }: View): JSX.Element {
         <div className="row-span-2 mt-2.5 w-rail min-w-0 shrink-0">
           <Follow pubkey={pubkey} name={name} />
         </div>
-        <Reviews reviews={reviews} wide />
+        <Reviews reviews={reviews} name={name} wide />
       </div>
     </div>
   );

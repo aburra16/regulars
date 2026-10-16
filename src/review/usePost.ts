@@ -4,10 +4,11 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { AccountChanged, useAccount } from "../account/AccountProvider.tsx";
 import type { Place } from "../places/place.ts";
-import { reviewTemplate, type WholeStars } from "../reviews/write.ts";
+import { starsOf, wordsOf } from "../reviews/review.ts";
+import { reviewTemplate, wholeStarsOf } from "../reviews/write.ts";
 import { useRelays } from "../score/ScoresProvider.tsx";
 import { useScoreActions } from "../score/useScore.ts";
-import { dropDraft, saveDraft } from "./draft.ts";
+import { type Draft, dropDraft, saveDraft } from "./draft.ts";
 import { NotPosted, type Posted, postReview, reviewStamp, sendReview, signTimeFor, whereToPost } from "./post.ts";
 
 /*
@@ -32,24 +33,33 @@ export interface Posting {
    * posted, and once no review relay is left trying.
    */
   slow: boolean;
-  /** Posts a review of `stars` with the words `text`; nothing while one is under way. */
-  post(stars: WholeStars, text: string): void;
+  /**
+   * Posts a review with what the person has `touched` in the form (`Draft`), each field they did not
+   * kept from their review as it is once read; nothing while one is under way.
+   */
+  post(touched: Draft): void;
 }
 
 /**
- * A review signed and sent that no review relay took: the event, the stars it gives and the words
- * typed for it (trimmed), where it was sent and where it was taken. Try again sends it again as it is,
- * to the relays that have not taken it, while the form still says what it says, for the same person:
- * nobody is asked to sign it again. The words are kept apart from the event's: an edit puts the
- * addresses of the photos it keeps after them (`reviewTemplate`).
+ * A review signed and sent that no review relay took: the event, what the form gave for it (`touched`),
+ * where it was sent and where it was taken. Try again sends it again as it is, to the relays that have
+ * not taken it, while the form gives the same (`sameGiven`), for the same person: nobody is asked to
+ * sign it again. What the form gave is kept apart from the event, which holds what an edit kept from
+ * the review it was built on as well (`reviewTemplate`).
  */
 interface Unposted {
   event: NostrEvent;
-  stars: WholeStars;
-  words: string;
+  touched: Draft;
   relays: readonly string[];
   accepted: readonly string[];
 }
+
+/**
+ * Whether `a` and `b` give the same review: each field touched in both alike, or in neither, the words
+ * the same once trimmed, as they are posted.
+ */
+const sameGiven = (a: Draft, b: Draft) =>
+  a.stars === b.stars && a.text?.trim() === b.text?.trim() && a.price === b.price && a.paid === b.paid;
 
 /**
  * Posting a review of `place` for the person who has signed in. Posting signs the review with the
@@ -58,14 +68,16 @@ interface Unposted {
  * (`ownNewest`, `reviewTemplate`), so that it keeps what they gave in another app, and dated after it
  * and after their removals (`reviewStamp`): so nothing is built or signed until the place's reviews,
  * and the removals of them, are no longer being read (`readSettled`), while the button says Posting….
- * When they could not be read, it is built on what is known. Once a relay
+ * When they could not be read, it is built on what is known. Each field the person did not touch in the
+ * form is taken from that review, never from what the form showed: its stars (whole), its words, then
+ * its photos, its price and how they paid; with no review, no words. Once a relay
  * Regulars reads reviews from has taken it, the place shows it at once, held until the relays send it
  * back (`noteOwnReview`), the draft is forgotten, and `onPosted` takes the person back to the place,
  * while their own relays may still be answering. Such a relay that is slow, or fails for now, is sent
  * it again (`sendReview`), and while none has taken it after `SLOW_POST_MS`, `slow` says so. When none
  * takes it, the status says so (and whether the person's own relays did); Try again sends the same
- * signed review again, as patiently, while the stars and the words typed are the same, and signs a new
- * one when they are not.
+ * signed review again, as patiently, while the form gives the same (`sameGiven`), and signs a new one,
+ * built on their review again, when it does not.
  * A person who is signed out, or whose add-on or phone app now signs as someone else (they are signed
  * out, `AccountChanged`), is sent to sign in, and back to the form with what they typed.
  */
@@ -94,20 +106,19 @@ export function usePost(place: Place, onPosted: () => void): Posting {
    * To sign in, and back to the form with what was typed: kept for whoever signs in next in this tab,
    * the person at the keyboard, whose add-on may have changed accounts.
    */
-  const toSignIn = (stars: WholeStars, text: string) => {
-    saveDraft(place.address, { stars, text }, undefined);
+  const toSignIn = (touched: Draft) => {
+    saveDraft(place.address, touched, undefined);
     void navigate("/signin", { state: { from: location } });
   };
 
-  const post = async (stars: WholeStars, text: string) => {
+  const post = async (touched: Draft) => {
     const signal = life.current?.signal;
     if (busy.current || signal === undefined) return;
-    if (account === undefined) return toSignIn(stars, text);
+    if (account === undefined) return toSignIn(touched);
     busy.current = true;
     setStatus("posting");
-    const words = text.trim();
     const again = unposted.current;
-    const resend = again !== null && again.event.pubkey === account.pubkey && again.stars === stars && again.words === words;
+    const resend = again !== null && again.event.pubkey === account.pubkey && sameGiven(again.touched, touched);
     /** Where it is sent, and where it was taken already (by an earlier try). */
     let relays: readonly string[] = [];
     const before = resend ? again.accepted : [];
@@ -131,7 +142,16 @@ export function usePost(place: Place, onPosted: () => void): Posting {
         const now = Math.floor(Date.now() / 1000);
         const stamp = reviewStamp(now, ownCoordinates(account.pubkey, place.address), ownRemovedAt(account.pubkey, place.address));
         const previous = ownNewest(account.pubkey, place.address);
-        posted = await postReview(reviewTemplate(place, stars, words, stamp, previous), account.signer, [...relays], signal, {
+        const stars = touched.stars ?? wholeStarsOf(previous === undefined ? undefined : starsOf(previous.tags));
+        if (stars === undefined) {
+          // The form showed the stars of a review that has gone since (its removal was read): there
+          // are none to keep, and the person chooses some.
+          setStatus("failed");
+          return;
+        }
+        const words = touched.text?.trim() ?? (previous === undefined ? "" : wordsOf(previous.content, previous.tags));
+        const given = { price: touched.price, paid: touched.paid };
+        posted = await postReview(reviewTemplate(place, stars, words, stamp, previous, given), account.signer, [...relays], signal, {
           writers,
           signWithin: signTimeFor(account.how),
           onSlow,
@@ -146,10 +166,10 @@ export function usePost(place: Place, onPosted: () => void): Posting {
       onPosted();
     } catch (error) {
       if (signal.aborted) return;
-      if (error instanceof AccountChanged) return toSignIn(stars, text);
+      if (error instanceof AccountChanged) return toSignIn(touched);
       const taken = error instanceof NotPosted ? [...before, ...error.accepted] : [];
       if (error instanceof NotPosted && error.event !== undefined) {
-        unposted.current = { event: error.event, stars, words, relays, accepted: taken };
+        unposted.current = { event: error.event, touched, relays, accepted: taken };
       }
       setStatus(taken.length > 0 ? "not on Regulars" : "failed");
     } finally {
@@ -161,8 +181,8 @@ export function usePost(place: Place, onPosted: () => void): Posting {
   return {
     status,
     slow,
-    post: (stars, text) => {
-      void post(stars, text);
+    post: (touched) => {
+      void post(touched);
     },
   };
 }

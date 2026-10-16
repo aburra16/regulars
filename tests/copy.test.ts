@@ -38,11 +38,12 @@ function bannedWordsIn(text: string): string[] {
   return [...new Set(BANNED.filter(({ pattern }) => pattern.test(scrubbed)).map(({ word }) => word))];
 }
 
-// The two protocol strings are exempt from the scan only at these keys. Anywhere else
-// the same text is an offence, and so is any sentence that merely contains it.
+// The protocol strings are exempt from the scan only at these keys: the sign-in button's, and each
+// of the four words of the Payment chip, by how the place takes bitcoin. Anywhere else the same text
+// is an offence, and so is any sentence that merely contains it.
 const ALLOWED_AT: Readonly<Record<string, string>> = {
   "signin.continueButton": ALLOWED_PROTOCOL_STRINGS.signInButton,
-  "place.bitcoinChip": ALLOWED_PROTOCOL_STRINGS.bitcoinChip,
+  ...Object.fromEntries(Object.entries(ALLOWED_PROTOCOL_STRINGS.bitcoinChip).map(([how, words]) => [`place.bitcoin.${how}`, words])),
 };
 
 // Template functions are called with a spread of sample arguments (names, counts,
@@ -142,39 +143,48 @@ describe("copy", () => {
     expect(offencesIn(labels)).toEqual([]);
   });
 
-  it("allows exactly the two protocol strings", () => {
+  it("allows exactly the protocol strings: the sign-in button, and the four words of the Payment chip", () => {
     expect(ALLOWED_PROTOCOL_STRINGS).toEqual({
       signInButton: "Continue with Nostr",
-      bitcoinChip: "Bitcoin accepted",
+      bitcoinChip: {
+        lightning: "Bitcoin: Lightning",
+        onchain: "Bitcoin: on-chain",
+        both: "Bitcoin: Lightning and on-chain",
+        yes: "Bitcoin accepted",
+      },
     });
   });
 
   it("shows each protocol string only at its own key", () => {
     expect(copy.signin.continueButton).toBe(ALLOWED_PROTOCOL_STRINGS.signInButton);
-    expect(copy.place.bitcoinChip).toBe(ALLOWED_PROTOCOL_STRINGS.bitcoinChip);
+    expect(copy.place.bitcoin).toEqual(ALLOWED_PROTOCOL_STRINGS.bitcoinChip);
 
     const found = [...leavesOf(copy, ""), ...kindLabelsOf(kinds, "kinds")];
     const pathsOf = (text: string) => found.filter((leaf) => leaf.text === text).map((leaf) => leaf.path);
     expect(pathsOf(ALLOWED_PROTOCOL_STRINGS.signInButton)).toEqual(["signin.continueButton"]);
-    expect(pathsOf(ALLOWED_PROTOCOL_STRINGS.bitcoinChip)).toEqual(["place.bitcoinChip"]);
+    for (const [how, words] of Object.entries(ALLOWED_PROTOCOL_STRINGS.bitcoinChip)) expect(pathsOf(words)).toEqual([`place.bitcoin.${how}`]);
   });
 
   it("flags a protocol string under any other key, or inside a longer sentence", () => {
+    const { lightning, yes } = ALLOWED_PROTOCOL_STRINGS.bitcoinChip;
     const misplaced: Leaf[] = [
       { path: "explore.cta", text: ALLOWED_PROTOCOL_STRINGS.signInButton },
-      { path: "signin.other", text: ALLOWED_PROTOCOL_STRINGS.bitcoinChip },
-      { path: "place.bitcoinChip", text: `Pay by ${ALLOWED_PROTOCOL_STRINGS.bitcoinChip} today` },
+      { path: "signin.other", text: yes },
+      { path: "place.bitcoin.yes", text: `Pay by ${yes} today` },
+      // One chip's words at another's key.
+      { path: "place.bitcoin.yes", text: lightning },
     ];
     expect(offencesIn(misplaced).map((offence) => offence.path)).toEqual([
       "explore.cta",
       "signin.other",
-      "place.bitcoinChip",
+      "place.bitcoin.yes",
+      "place.bitcoin.yes",
     ]);
     // ...while each string is clean at its own key.
     expect(
       offencesIn([
         { path: "signin.continueButton", text: ALLOWED_PROTOCOL_STRINGS.signInButton },
-        { path: "place.bitcoinChip", text: ALLOWED_PROTOCOL_STRINGS.bitcoinChip },
+        ...Object.entries(ALLOWED_PROTOCOL_STRINGS.bitcoinChip).map(([how, words]) => ({ path: `place.bitcoin.${how}`, text: words })),
       ]),
     ).toEqual([]);
   });

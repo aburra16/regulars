@@ -89,6 +89,9 @@ describe("reviewTemplate (decision 17)", () => {
       d: `place:${JACAFE}`,
       stars: 4,
       text: "Get the bolo",
+      photos: [],
+      price: null,
+      paid: null,
       createdAt: NOW,
     });
   });
@@ -202,6 +205,70 @@ describe("reviewTemplate on an edit: built on the person's review, it keeps what
     const signed = finalizeEvent(reviewTemplate(jacafe, 5, "Better than last time", NOW, { tags: brainstormTags() }), secret);
     expect(verifyEvent(signed)).toBe(true);
     expect(parseReview(signed)).toMatchObject({ address: JACAFE, d: `place:${JACAFE}`, stars: 5, text: "Better than last time" });
+  });
+});
+
+describe("reviewTemplate with a price and how the person paid, from the review form (Given)", () => {
+  it("writes the price and the way given after alt, with no review before it, and signs into one that reads back with both", () => {
+    const template = reviewTemplate(jacafe, 4, "Get the bolo", NOW, undefined, { price: 2, paid: "cash" });
+    expect(template.tags.slice(5)).toEqual([
+      ["alt", "Review of Jacafé: 4 of 5 stars"],
+      ["price", "2"],
+      ["paid", "cash"],
+    ]);
+    expect(template.content).toBe("Get the bolo");
+    const signed = finalizeEvent(template, generateSecretKey());
+    expect(verifyEvent(signed)).toBe(true);
+    expect(parseReview(signed)).toMatchObject({ stars: 4, text: "Get the bolo", price: 2, paid: "cash" });
+  });
+
+  it("carries the price, payment and photo of the review over as they were when the form gave neither", () => {
+    const previous = { tags: brainstormTags() };
+    const template = reviewTemplate(jacafe, 5, "Better than last time", NOW, previous, {});
+    expect(template).toEqual(reviewTemplate(jacafe, 5, "Better than last time", NOW, previous));
+    expect(template.tags.slice(6)).toEqual([
+      ["price", "2"],
+      ["paid", "lightning"],
+      ["imeta", `url ${PHOTO}`],
+    ]);
+  });
+
+  it("writes a price given in place of the review's, once, and carries how they paid and the photo over", () => {
+    const template = reviewTemplate(jacafe, 5, "Better than last time", NOW, { tags: brainstormTags() }, { price: 3 });
+    expect(template.tags.slice(5)).toEqual([
+      ["alt", "Review of Jacafé: 5 of 5 stars"],
+      ["price", "3"],
+      ["paid", "lightning"],
+      ["imeta", `url ${PHOTO}`],
+    ]);
+    expect(template.tags.filter(([name]) => name === "price")).toEqual([["price", "3"]]);
+    expect(template.content).toBe(`Better than last time\n${PHOTO}`);
+  });
+
+  it("writes a way given in place of the review's, and carries its price over", () => {
+    const template = reviewTemplate(jacafe, 5, "", NOW, { tags: brainstormTags() }, { paid: "card" });
+    expect(template.tags.slice(6)).toEqual([
+      ["paid", "card"],
+      ["price", "2"],
+      ["imeta", `url ${PHOTO}`],
+    ]);
+  });
+
+  it("leaves the price and the way out when the form cleared both, and still carries the photo, its address after the words", () => {
+    const template = reviewTemplate(jacafe, 5, "Better than last time", NOW, { tags: brainstormTags() }, { price: null, paid: null });
+    expect(template.tags.some(([name]) => name === "price" || name === "paid")).toBe(false);
+    expect(template.tags.slice(6)).toEqual([["imeta", `url ${PHOTO}`]]);
+    expect(template.content).toBe(`Better than last time\n${PHOTO}`);
+    expect(template.content.endsWith(`\n${PHOTO}`)).toBe(true);
+  });
+
+  it("drops every price of the review when one is given or cleared, a bad one first among them", () => {
+    const previous = { tags: [["d", `place:${JACAFE}`], ["price", "9"], ["price", "2"], ["paid", "cash"]] };
+    expect(reviewTemplate(jacafe, 4, "", NOW, previous, { price: 1 }).tags.slice(6)).toEqual([
+      ["price", "1"],
+      ["paid", "cash"],
+    ]);
+    expect(reviewTemplate(jacafe, 4, "", NOW, previous, { price: null }).tags.slice(6)).toEqual([["paid", "cash"]]);
   });
 });
 

@@ -3,7 +3,7 @@ import { EventDeletion } from "nostr-tools/kinds";
 
 import { config } from "../config.ts";
 import type { Place } from "../places/place.ts";
-import { photosOf, placeInD, REVIEW_KIND, reviewD } from "./review.ts";
+import { type Paid, photosOf, placeInD, type Price, REVIEW_KIND, reviewD } from "./review.ts";
 
 /*
  * The events a person signs to review a place or take a review back. They are templates, unsigned:
@@ -14,11 +14,30 @@ import { photosOf, placeInD, REVIEW_KIND, reviewD } from "./review.ts";
 export type WholeStars = 1 | 2 | 3 | 4 | 5;
 
 /**
+ * A review's `stars` (`starsOf`) as the review form can give them: the nearest whole stars from 1 to
+ * 5. A review written in another app may give 4.5; one that gives none (null) has none here either.
+ */
+export function wholeStarsOf(stars: number | null | undefined): WholeStars | undefined {
+  if (stars === null || stars === undefined) return undefined;
+  return Math.min(5, Math.max(1, Math.round(stars))) as WholeStars;
+}
+
+/**
  * The most characters a review's words hold, as the review form takes them: counted as a field's
  * `maxlength` counts them (UTF-16 code units), which is what Brainstorm's composer counts too. The
  * template does not hold the words to it: a longer review written elsewhere may be posted as it is.
  */
 export const REVIEW_WORDS_MAX = 1_200;
+
+/**
+ * What the person gave in the review form of the price and how they paid. Each is the one they chose;
+ * null once they cleared it, so the review has none; or undefined while they have not touched it, so
+ * an edit carries over what the review it is built on gives, if anything (`reviewTemplate`).
+ */
+export interface Given {
+  price?: Price | null;
+  paid?: Paid | null;
+}
 
 /**
  * The tags an edit does not carry over from the review it is built on: those `reviewTemplate` sets
@@ -33,17 +52,20 @@ const NOT_CARRIED = new Set(["d", "a", "m", "rating", "s", "alt", "client", "non
  * made at `now`, in seconds since the epoch. Its shape is decision 17's: `d` names the place after
  * `place:`, so a person's next review of it replaces this one; `a` is the place's address; `rating`
  * is the stars out of 5 as a fraction to three decimals, and `s` the whole stars, which `starsOf`
- * reads first; `alt` says what it is to an app that does not know the kind (NIP-31).
+ * reads first; `alt` says what it is to an app that does not know the kind (NIP-31). After it come
+ * the price and how they paid, as the person `given` them: `price`, "1" to "4", and `paid`, each
+ * when they chose one.
  *
  * An edit is built on the person's review of the place, `previous`, and loses nothing it does not
  * set. Both apps replace the one record a person has of a place, and each carries over what it does
- * not set, so that neither strips what the other gave: here a price, how they paid, photos, and tags
- * from apps neither knows. So after its own tags come every other tag of `previous`, unchanged and in
- * their order, but `client` and `nonce`, which tell of the signing of that version, not of the review
- * (`NOT_CARRIED`); and after the words, each photo's address that a kept `imeta` names, on a line of
- * its own, as other apps read photos from the words. It keeps `previous`'s `d` when that names this
- * place, the bare address or after `place:`, so that it replaces it there; one at another filing
- * is left to stand beside it, the newer of the two showing.
+ * not set, so that neither strips what the other gave: here a price or how they paid while the person
+ * has not touched them, photos, and tags from apps neither knows. So after its own tags come every
+ * other tag of `previous`, unchanged and in their order, but `client` and `nonce`, which tell of the
+ * signing of that version, not of the review (`NOT_CARRIED`), and every `price` or `paid` when the
+ * person chose or cleared one; and after the words, each photo's address that a kept `imeta` names, on
+ * a line of its own, as other apps read photos from the words. It keeps `previous`'s `d` when that
+ * names this place, the bare address or after `place:`, so that it replaces it there; one at another
+ * filing is left to stand beside it, the newer of the two showing.
  */
 export function reviewTemplate(
   place: Place,
@@ -51,12 +73,16 @@ export function reviewTemplate(
   text: string,
   now: number,
   previous?: { tags: readonly (readonly string[])[] },
+  given: Given = {},
 ): EventTemplate {
   if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
     throw new RangeError(`A review gives 1 to 5 whole stars, not ${stars}`);
   }
   const d = previous?.tags.find((tag) => tag[0] === "d")?.[1];
-  const carried = (previous?.tags ?? []).filter(([name]) => !NOT_CARRIED.has(name ?? "")).map((tag) => [...tag]);
+  /** Whether the edit sets the tag called `name` itself, so `previous`'s is not carried over. */
+  const sets = (name: string) =>
+    NOT_CARRIED.has(name) || (name === "price" && given.price !== undefined) || (name === "paid" && given.paid !== undefined);
+  const carried = (previous?.tags ?? []).filter(([name]) => !sets(name ?? "")).map((tag) => [...tag]);
   return {
     kind: REVIEW_KIND,
     created_at: now,
@@ -70,6 +96,8 @@ export function reviewTemplate(
       ["rating", (stars / 5).toFixed(3)],
       ["s", String(stars)],
       ["alt", `Review of ${place.name}: ${stars} of 5 stars`],
+      ...(given.price === undefined || given.price === null ? [] : [["price", String(given.price)]]),
+      ...(given.paid === undefined || given.paid === null ? [] : [["paid", given.paid]]),
       ...carried,
     ],
   };

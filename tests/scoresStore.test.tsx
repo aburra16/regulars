@@ -946,7 +946,7 @@ describe("ScoresProvider: scores", () => {
     await waitFor(() => expect(result.current.score?.counted).toBe(1));
 
     for (const review of result.current.reviews) {
-      expect(Object.keys(review).sort()).toEqual(["address", "createdAt", "d", "id", "reviewer", "stars", "text"]);
+      expect(Object.keys(review).sort()).toEqual(["address", "createdAt", "d", "id", "paid", "photos", "price", "reviewer", "stars", "text"]);
     }
     const shown = JSON.stringify(result.current);
     for (const number of ["73.25", "0.7325", "7325"]) expect(shown).not.toContain(number);

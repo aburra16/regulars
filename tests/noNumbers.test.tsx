@@ -1,6 +1,9 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { copy } from "../src/copy/en";
+import { ReviewPhotos } from "../src/ui/Photos";
+import { PricePaid } from "../src/ui/PricePaid";
 import { expectNoNumbersAboutPeople } from "./support/noNumbers";
 
 /*
@@ -54,5 +57,25 @@ describe("the guard against numbers on people", () => {
   it("fails when a phrase allowed is not on the page, so an allowance is not left behind", () => {
     render(<p>Only your circle counts.</p>);
     expect(() => expectNoNumbersAboutPeople([], { allow: [RULE] })).toThrow();
+  });
+
+  it("lets through what is counted of a review or a place beside a name: its photos, its price, how many reviews give one", () => {
+    const photos = (n: number) => Array.from({ length: n }, (_, i) => `https://blossom.example.test/${i + 1}.jpg`);
+    const said = () =>
+      render(
+        <>
+          <ReviewPhotos photos={photos(6)} drawn reviewer="Maya" />
+          <ReviewPhotos photos={photos(2)} drawn={false} reviewer="Maya" />
+          <PricePaid price={2} paid="lightning" />
+          <p>{copy.place.priceFrom(3)}</p>
+        </>,
+      );
+    const { unmount } = said();
+    expect(() => expectNoNumbersAboutPeople([87.37])).not.toThrow();
+    unmount();
+    // A rank beside them is still caught.
+    said();
+    render(<p>Maya 87.37</p>);
+    expect(() => expectNoNumbersAboutPeople([87.37])).toThrow();
   });
 });

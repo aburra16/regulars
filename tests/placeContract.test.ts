@@ -7,7 +7,7 @@ import { parsePlaces } from "../src/places/load";
 import type { RelayReader } from "../src/nostr/events";
 import { reviewStamp } from "../src/review/post";
 import { REVIEW_KIND } from "../src/reviews/review";
-import { removalTemplate, reviewTemplate, type WholeStars } from "../src/reviews/write";
+import { type Given, removalTemplate, reviewTemplate, type WholeStars } from "../src/reviews/write";
 import { formatScore } from "../src/score/score";
 import { ScoresStore } from "../src/score/store";
 import raw from "./fixtures/funchal-items.json";
@@ -102,15 +102,22 @@ async function reading(
 }
 
 /**
- * The review `author` signs when they post `stars` and `words` for Jacafé here, as the review form's
- * Post makes it (src/review/usePost.ts): once the place's reviews and their removals are read, built
- * on their review of it that `store` shows, and dated after it and after any removal of theirs.
+ * The review `author` signs when they post `stars`, `words`, and what they `given` of the price and
+ * how they paid (none touched, unless said), for Jacafé here, as the review form's Post makes it
+ * (src/review/usePost.ts): once the place's reviews and their removals are read, built on their review
+ * of it that `store` shows, and dated after it and after any removal of theirs.
  */
-async function editedHere(store: ScoresStore, author: { key: Uint8Array; pubkey: string }, stars: WholeStars, words: string): Promise<NostrEvent> {
+async function editedHere(
+  store: ScoresStore,
+  author: { key: Uint8Array; pubkey: string },
+  stars: WholeStars,
+  words: string,
+  given: Given = {},
+): Promise<NostrEvent> {
   await store.readSettled(JACAFE.address, new AbortController().signal);
   const stamp = reviewStamp(NOW, store.ownCoordinates(author.pubkey, JACAFE.address), store.ownRemovedAt(author.pubkey, JACAFE.address));
   const previous = store.ownNewest(author.pubkey, JACAFE.address);
-  return signed(reviewTemplate(JACAFE, stars, words, stamp, previous), author.key);
+  return signed(reviewTemplate(JACAFE, stars, words, stamp, previous, given), author.key);
 }
 
 /** The tags of `ev` named `price`, `paid` or `imeta`, in order: what another app gave that Regulars does not set. */
@@ -164,6 +171,28 @@ describe("the reviews of a place, as both apps read and write them", () => {
 
     const after = await reading([record, edit]);
     expect(after.reviewsOf(JACAFE.address)).toEqual([expect.objectContaining({ id: edit.id, stars: 5, text: WORDS })]);
+  });
+
+  it("an edit made here that changes the price from 2 to 3 writes price 3, and keeps how they paid and the photo as they were", async () => {
+    const author = someone();
+    const record = signed(asBrainstormWrites(), author.key);
+    const store = await reading([record]);
+    const [shown] = store.reviewsOf(JACAFE.address);
+    expect(shown).toMatchObject({ price: 2, paid: "lightning", photos: [PHOTO] });
+
+    const edit = await editedHere(store, author, 4, shown!.text, { price: 3 });
+    expect(givenElsewhere(edit)).toEqual([
+      ["price", "3"],
+      ["paid", "lightning"],
+      ["imeta", `url ${PHOTO}`],
+    ]);
+    expect(edit.tags.filter(([name]) => name === "paid" || name === "imeta")).toEqual(record.tags.filter(([name]) => name === "paid" || name === "imeta"));
+    expect(edit.content).toBe(`${WORDS}\n${PHOTO}`);
+
+    const after = await reading([record, edit]);
+    expect(after.reviewsOf(JACAFE.address)).toEqual([
+      expect.objectContaining({ id: edit.id, stars: 4, text: WORDS, price: 3, paid: "lightning", photos: [PHOTO] }),
+    ]);
   });
 
   it("reads two records of one person's for the place, a day apart, the older at the bare address as its d, as one review: the newer", async () => {

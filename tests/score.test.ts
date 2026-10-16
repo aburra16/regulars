@@ -20,6 +20,9 @@ function reviewBy(reviewer: string, stars: number | null): Review {
     d: `place:${PLACE}`,
     stars,
     text: stars === null ? "Lovely terrace." : "",
+    photos: [],
+    price: null,
+    paid: null,
     createdAt: 1_700_000_000 + made,
   };
 }

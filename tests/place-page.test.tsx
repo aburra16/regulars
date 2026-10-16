@@ -21,14 +21,19 @@ import { weekTable } from "../src/places/hours";
 import { buildIndexes } from "../src/places/indexes";
 import { placeKindLabel } from "../src/places/kinds";
 import { parsePlaces } from "../src/places/load";
-import type { Place } from "../src/places/place";
+import type { AcceptsBitcoin, Place } from "../src/places/place";
 import { writeSaved } from "../src/places/cache";
 import { PlacesProvider, usePlaces } from "../src/places/store";
+import { REVIEW_KIND } from "../src/reviews/review";
 import { ScoresProvider } from "../src/score/ScoresProvider";
 import { routes } from "../src/routes";
 import raw from "./fixtures/funchal-items.json";
+import { openApp } from "./support/app";
+import { hex64, shapedEvent } from "./support/events";
 import { FakeMap, FakeMarker } from "./support/fakeMaplibre";
 import { createMemoryReader } from "./support/memoryReader";
+import { expectNoNumbersAboutPeople } from "./support/noNumbers";
+import { newWorld, profileOf, rankOf, readersOf, SEARCH, signedIn, type World, writersOf } from "./support/reviewWorld";
 
 const fixtures: NostrEvent[] = raw;
 const fixturePlaces = parsePlaces(fixtures);
@@ -474,8 +479,20 @@ describe("the place page: facts", () => {
     expect(phone).toHaveTextContent("+351 926 958 673");
     expect(phone).toHaveAttribute("href", "tel:+351926958673");
 
-    expect(factValue(copy.place.facts.payment)).toHaveTextContent("Bitcoin accepted");
-    expect(copy.place.bitcoinChip).toBe("Bitcoin accepted");
+    // Jacafé takes bitcoin both ways, and the chip says so.
+    expect(factValue(copy.place.facts.payment)).toHaveTextContent(/^Bitcoin: Lightning and on-chain$/);
+  });
+
+  it.each([
+    ["lightning", "Bitcoin: Lightning"],
+    ["onchain", "Bitcoin: on-chain"],
+    ["both", "Bitcoin: Lightning and on-chain"],
+    ["yes", "Bitcoin accepted"],
+  ] as const)("words the chip by how the place takes bitcoin: %s is \"%s\"", async (accepts: AcceptsBitcoin, words) => {
+    const { events, path } = withPlace({ "accepts-bitcoin": accepts });
+    await openPlace(path, { events });
+    expect(factValue(copy.place.facts.payment)).toHaveTextContent(new RegExp(`^${words}$`));
+    expect(copy.place.bitcoin[accepts]).toBe(words);
   });
 
   it("does not call a day closed when the night before ran into its afternoon", async () => {
@@ -532,7 +549,7 @@ describe("the place page: facts", () => {
 
   it("shows the chip only for a place that takes bitcoin, and the word nowhere else", async () => {
     await openPlace(`/place/${JACAFE.d}`);
-    const chips = screen.getAllByText(copy.place.bitcoinChip);
+    const chips = screen.getAllByText(copy.place.bitcoin.both);
     expect(chips).toHaveLength(1);
     expect(document.body.textContent?.match(/bitcoin/gi)).toHaveLength(1);
   });
@@ -770,17 +787,26 @@ describe("the place page: map", () => {
     }
   });
 
-  it("shows no photograph, and loads nothing from the place's picture address, on a phone or a desktop", async () => {
-    // No photographs anywhere (the brief, section 10), and no network call but the relay's and the map's.
-    const images = ["https://images.example.com/front.jpg", "http://images.example.com/front.jpg", "//cdn.example.com/a.png"];
+  it("draws the place's own picture only from an https address, in the strip, and loads nothing from any other, on a phone or a desktop", async () => {
+    // The place's own picture is drawn, as the one photo of its strip, lazily and with no referrer. From
+    // any other address nothing is drawn, nor asked for: no network call but the relay's and the map's.
+    const https = "https://images.example.com/front.jpg";
+    const images = [https, "http://images.example.com/front.jpg", "//cdn.example.com/a.png"];
     for (const px of [PHONE, DESKTOP]) {
       for (const [i, image] of images.entries()) {
         const { events, path } = withPlace({ image }, `image-${px}-${i}`);
         const { container, unmount } = await openPlace(path, { events, px });
         const remote = [...container.querySelectorAll("img")].filter((img) => /^(?:[a-z]+:)?\/\//i.test(img.getAttribute("src") ?? ""));
-        expect(remote).toEqual([]);
-        expect(container.innerHTML).not.toContain("images.example.com");
-        expect(container.innerHTML).not.toContain("cdn.example.com");
+        if (image === https) {
+          expect(remote.map((img) => img.getAttribute("src"))).toEqual([https]);
+          expect(remote[0]).toHaveAttribute("loading", "lazy");
+          expect(remote[0]).toHaveAttribute("referrerpolicy", "no-referrer");
+          expect(screen.getByRole("list", { name: /^Photos of / })).toContainElement(remote[0]!);
+        } else {
+          expect(remote).toEqual([]);
+          expect(container.innerHTML).not.toContain("images.example.com");
+          expect(container.innerHTML).not.toContain("cdn.example.com");
+        }
         unmount();
       }
     }
@@ -991,13 +1017,13 @@ describe("the place page at 1360 px (D2)", () => {
     expect(inRail.getByRole("link", { name: new RegExp(`^${copy.place.site}`) })).toHaveAttribute("href", JACAFE.website!);
     await waitFor(() => expect(rail.querySelector("canvas")).not.toBeNull());
     expect(inRail.getByText(copy.place.facts.address)).toBeInTheDocument();
-    expect(inRail.getByText(copy.place.bitcoinChip)).toBeInTheDocument();
+    expect(inRail.getByText(copy.place.bitcoin.both)).toBeInTheDocument();
     expect(inRail.getByRole("link", { name: newTab(copy.place.somethingWrong) })).toBeInTheDocument();
     expect(rail).toHaveTextContent(copy.attribution.details);
     expect(rail).toHaveTextContent(copy.attribution.map);
 
     // Once each on the page.
-    expect(screen.getAllByText(copy.place.bitcoinChip)).toHaveLength(1);
+    expect(screen.getAllByText(copy.place.bitcoin.both)).toHaveLength(1);
     expect(screen.getAllByRole("link", { name: "Rate this place" })).toHaveLength(1);
   });
 
@@ -1096,5 +1122,226 @@ describe("the place page: sparse and edge places (Review Focus 5)", () => {
       copy.place.facts.hours,
       copy.place.facts.payment,
     ]);
+  });
+});
+
+// ---- What the reviews inside the view carry: photos, the price and how they paid ----
+
+describe("the place page: photos, the price and how people paid", () => {
+  /** Alice counts in House picks; Bob, whom nobody ranks, is folded. */
+  const ALICE = hex64("a");
+  const BOB = hex64("b");
+  /** The ranks the house's scorer gives, which no page may show in any form (decision 19). */
+  const RANKS = [82.5, 76.25];
+  /** The afternoon, in seconds. */
+  const AT = AFTERNOON.getTime() / 1000;
+  const photoAt = (name: string) => `https://blossom.example.test/${name}.jpg`;
+  const ALICE_PHOTOS = [photoAt("alice-1"), photoAt("alice-2")];
+  const BOB_PHOTO = photoAt("bob-1");
+  const PLACE_IMAGE = "https://pictures.example.test/jacafe.jpg";
+
+  /**
+   * `reviewer`'s review of Jacafé, written `hoursAgo` hours before the afternoon, as Brainstorm writes
+   * one with a price, how they paid and photos: each photo an `imeta`, and its address after the words.
+   */
+  const reviewWith = (
+    reviewer: string,
+    { stars = 4, words = "", price, paid, photos = [], hoursAgo = 2 }: { stars?: number; words?: string; price?: string; paid?: string; photos?: string[]; hoursAgo?: number } = {},
+  ) =>
+    shapedEvent({
+      kind: REVIEW_KIND,
+      pubkey: reviewer,
+      created_at: AT - hoursAgo * 3_600,
+      content: [words, ...photos].join("\n"),
+      tags: [
+        ["d", `place:${JACAFE.address}`],
+        ["a", JACAFE.address],
+        ["m", "place"],
+        ["s", String(stars)],
+        ...(price === undefined ? [] : [["price", price]]),
+        ...(paid === undefined ? [] : [["paid", paid]]),
+        ...photos.map((url) => ["imeta", `url ${url}`, "m image/jpeg"]),
+      ],
+    });
+
+  /** Alice's: $$, paid with Lightning, two photos. */
+  const aliceReview = () => reviewWith(ALICE, { stars: 5, words: "Get the bolo", price: "2", paid: "lightning", photos: ALICE_PHOTOS });
+  /** Bob's, newer: $$$$, and a photo. */
+  const bobReview = () => reviewWith(BOB, { stars: 3, words: "Too loud", price: "4", photos: [BOB_PHOTO], hoursAgo: 1 });
+
+  /** The relays, holding `reviews` of Jacafé and the reviewers' names, with Alice ranked inside House picks. */
+  function worldWith(...reviews: NostrEvent[]): World {
+    config.reviewRelays = [SEARCH];
+    const world = newWorld();
+    world.search.push(profileOf(ALICE, "Alice"), profileOf(BOB, "Bob"), ...reviews);
+    world.ranks.push(rankOf(ALICE, RANKS[0]!));
+    return world;
+  }
+
+  /** Jacafé's page over `world`, with `image` as the place's own photo when one is given. */
+  async function openReviewed(world: World, { px = PHONE, image }: { px?: number; image?: string } = {}) {
+    const jacafe = eventOf(JACAFE.d);
+    const events = image === undefined ? fixtures : fixtures.map((event) => (event === jacafe ? variant(event, { image }) : event));
+    return openApp(`/place/${JACAFE.d}`, { events, px, readers: readersOf(world), writers: writersOf(world) });
+  }
+
+  /** The review by the reviewer named `name`, once it is listed. */
+  const reviewBy = async (name: string) => (await screen.findByRole("heading", { level: 3, name })).closest("article")!;
+  const strip = () => screen.queryByRole("list", { name: "Photos of Jacafé" });
+  const sources = (images: HTMLElement[]) => images.map((img) => img.getAttribute("src"));
+  /** Whether `b` comes after `a` in the page. */
+  const after = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  /** The line under a review's stars that says its price and how they paid, by its whole text. */
+  const pricePaidLine = (review: HTMLElement, text: string) =>
+    within(review).getByText((_, element) => element?.tagName === "P" && element.textContent === text);
+  /** The House picks score panel. */
+  const panel = () => screen.getByRole("heading", { level: 2, name: copy.view.house }).closest("section")!;
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, "nostr");
+  });
+
+  it("sums the price and how they paid from the reviews inside the view, and draws only their photos", async () => {
+    await openReviewed(worldWith(aliceReview(), bobReview()));
+    const alice = await reviewBy("Alice");
+
+    // Price under the hours, Paid with under Payment: Alice's alone, as Bob is folded.
+    expect(factRows().map(([term]) => term)).toEqual([
+      copy.place.facts.address,
+      copy.place.facts.hours,
+      copy.place.facts.price,
+      copy.place.facts.phone,
+      copy.place.facts.payment,
+      copy.place.facts.paidWith,
+    ]);
+    expect([copy.place.facts.price, copy.place.facts.paidWith]).toEqual(["Price", "Paid with"]);
+    const price = factValue(copy.place.facts.price);
+    expect(price).toHaveTextContent(/^\$\$ from 1 review$/);
+    // Read out as "2 of 4", as its label says Price already.
+    expect(within(price).getByRole("img", { name: "2 of 4" })).toHaveTextContent(/^\$\$$/);
+    expect(copy.place.priceSpoken(2)).toBe("2 of 4");
+    expect(within(price).getByText("from 1 review")).toHaveClass("text-muted");
+    expect([copy.place.priceFrom(1), copy.place.priceFrom(3)]).toEqual(["from 1 review", "from 3 reviews"]);
+    expect(factValue(copy.place.facts.paidWith)).toHaveTextContent(/^Lightning$/);
+
+    // The strip: Alice's two photos, and not Bob's.
+    expect(sources(within(strip()!).getAllByRole("img"))).toEqual(ALICE_PHOTOS);
+
+    // Alice's row: under the stars, her price and how she paid, then her two thumbnails, then her words.
+    const stars = within(alice).getByRole("img", { name: copy.score.starsLabel(5) });
+    const line = pricePaidLine(alice, "$$ · Paid with Lightning");
+    const thumbnails = within(alice).getAllByRole("img", { name: /^Photo \d of 2 from a review by Alice$/ });
+    expect(sources(thumbnails)).toEqual(ALICE_PHOTOS);
+    const words = within(alice).getByText("Get the bolo");
+    expect([after(stars, line), after(line, thumbnails[0]!), after(thumbnails[1]!, words)]).toEqual([true, true, true]);
+
+    // Nothing of Bob's photo is on the page while his review is folded away.
+    expect(document.body.innerHTML).not.toContain(BOB_PHOTO);
+    expectNoNumbersAboutPeople(RANKS);
+  });
+
+  it("links a folded review's photo, dimmed, and draws none of it, once Show them is pressed", async () => {
+    const user = userEvent.setup();
+    await openReviewed(worldWith(aliceReview(), bobReview()));
+    await reviewBy("Alice");
+
+    await user.click(screen.getByRole("button", { name: copy.reviews.show }));
+
+    const bob = await reviewBy("Bob");
+    const link = within(bob).getByRole("link", { name: newTab("Photo") });
+    expect(link).toHaveAttribute("href", BOB_PHOTO);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveClass("text-muted");
+    expect(bob.querySelector("img")).toBeNull();
+    expect(document.querySelector(`img[src="${BOB_PHOTO}"]`)).toBeNull();
+    expect(pricePaidLine(bob, "$$$$")).toHaveClass("text-muted");
+    // The strip and the facts are still the view's alone.
+    expect(sources(within(strip()!).getAllByRole("img"))).toEqual(ALICE_PHOTOS);
+    expect(factValue(copy.place.facts.price)).toHaveTextContent(/^\$\$ from 1 review$/);
+    expectNoNumbersAboutPeople(RANKS);
+  });
+
+  it("puts the place's own photo first in the strip, on a phone after the actions and before the map, so the actions stay put as photos come", async () => {
+    await openReviewed(worldWith(aliceReview(), bobReview()), { image: PLACE_IMAGE });
+    await reviewBy("Alice");
+
+    const images = within(strip()!).getAllByRole("img");
+    expect(sources(images)).toEqual([PLACE_IMAGE, ...ALICE_PHOTOS]);
+    expect(images.map((img) => img.getAttribute("alt"))).toEqual([1, 2, 3].map((n) => `Photo ${n} of 3 of Jacafé`));
+    expect(after(panel(), link(newTab(copy.place.directions)))).toBe(true);
+    expect(after(screen.getByRole("link", { name: new RegExp(`^${copy.place.site}`) }), strip()!)).toBe(true);
+    expect(after(strip()!, screen.getByRole("region", { name: copy.place.mapLabel(JACAFE.name) }))).toBe(true);
+  });
+
+  it("puts the strip on a desktop after the rating panel and before the reviews, with the new facts in the rail", async () => {
+    await openReviewed(worldWith(aliceReview(), bobReview()), { px: DESKTOP, image: PLACE_IMAGE });
+    await reviewBy("Alice");
+
+    expect(sources(within(strip()!).getAllByRole("img"))).toEqual([PLACE_IMAGE, ...ALICE_PHOTOS]);
+    expect(after(panel(), strip()!)).toBe(true);
+    expect(after(strip()!, screen.getByRole("heading", { level: 2, name: copy.reviews.heading }))).toBe(true);
+    const rail = screen.getByRole("complementary");
+    expect(rail).not.toContainElement(strip());
+    expect(within(rail).getByText(copy.place.facts.price, { selector: "dt" })).toBeInTheDocument();
+    expect(within(rail).getByText(copy.place.facts.paidWith, { selector: "dt" })).toBeInTheDocument();
+  });
+
+  it("has no strip, and no Price or Paid with, when nothing inside the view gives them, though a folded review does", async () => {
+    await openReviewed(worldWith(reviewWith(ALICE, { words: "Fine" }), reviewWith(BOB, { price: "1", paid: "cash", photos: [BOB_PHOTO] })));
+    await reviewBy("Alice");
+
+    expect(factRows().map(([term]) => term)).toEqual([
+      copy.place.facts.address,
+      copy.place.facts.hours,
+      copy.place.facts.phone,
+      copy.place.facts.payment,
+    ]);
+    expect(strip()).toBeNull();
+    expect(screen.queryByLabelText("Photos of Jacafé")).toBeNull();
+    expect(document.body.innerHTML).not.toContain(BOB_PHOTO);
+  });
+
+  it("has no strip for a place with no photo anywhere", async () => {
+    await openReviewed(worldWith(reviewWith(ALICE, { words: "Fine", price: "3" })));
+    const alice = await reviewBy("Alice");
+    expect(pricePaidLine(alice, "$$$")).toBeInTheDocument();
+    expect(strip()).toBeNull();
+    expect(document.querySelector("main img")).toBeNull();
+  });
+
+  it.each([
+    ["folds it", false],
+    ["counts it", true],
+  ])("draws the person's own photos under Your review whatever the view says of them, and in the strip only when the view %s", async (_, ranked) => {
+    const world = worldWith(aliceReview());
+    const me = signedIn(world, { name: "Maya" });
+    const mine = photoAt("maya-1");
+    world.search.push(reviewWith(me.pubkey, { words: "My own words", price: "3", photos: [mine], hoursAgo: 1 }));
+    if (ranked) world.ranks.push(rankOf(me.pubkey, RANKS[1]!));
+    await openReviewed(world);
+    await reviewBy("Alice");
+
+    const yours = await screen.findByRole("region", { name: copy.reviews.yours });
+    const thumbnail = within(yours).getByRole("img", { name: "Photo from a review by Maya" });
+    expect(thumbnail).toHaveAttribute("src", mine);
+    expect(thumbnail.closest("a")).toHaveAttribute("href", mine);
+    expect(pricePaidLine(yours, "$$$")).toHaveClass("text-ink-soft");
+    // Newer than Alice's, so first, when the view counts it; never when it folds it.
+    expect(sources(within(strip()!).getAllByRole("img"))).toEqual(ranked ? [mine, ...ALICE_PHOTOS] : ALICE_PHOTOS);
+    expect(factValue(copy.place.facts.price)).toHaveTextContent(ranked ? /^\$\$ from 2 reviews$/ : /^\$\$ from 1 review$/);
+    expectNoNumbersAboutPeople(RANKS);
+  });
+
+  it("has no photo and no link for a review whose one photo is not at an https address", async () => {
+    const http = "http://blossom.example.test/alice-1.jpg";
+    await openReviewed(worldWith(reviewWith(ALICE, { words: "Get the bolo", photos: [http] })));
+    const alice = await reviewBy("Alice");
+
+    expect(within(alice).getByText("Get the bolo")).toBeInTheDocument();
+    expect(alice.querySelector("img")).toBeNull();
+    expect(within(alice).queryByRole("link", { name: /photo/i })).toBeNull();
+    expect(strip()).toBeNull();
+    expect(document.body.innerHTML).not.toContain(http);
   });
 });

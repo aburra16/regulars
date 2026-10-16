@@ -3,8 +3,10 @@ import { type JSX, type ReactNode, useMemo } from "react";
 import { copy } from "../copy/en.ts";
 import { openState, weekTable } from "../places/hours.ts";
 import type { Place } from "../places/place.ts";
+import type { Paid } from "../reviews/review.ts";
 import { Address } from "../ui/address.tsx";
 import { actionsOf } from "./Actions.tsx";
+import type { priceOf } from "./summary.ts";
 
 /**
  * The address as one line: the street address, then the town and the postcode where it does not
@@ -51,13 +53,30 @@ function WeekHours({ week }: { week: NonNullable<ReturnType<typeof weekTable>> }
 }
 
 /**
- * What is known about a place (the design): its address, its hours, its phone
- * and, when it takes bitcoin, a payment row with the chip. Hours are always there, "Not listed" in
- * grey when there are none; any other fact the place lacks is left out, never drawn empty. Hours the
- * app can read are the week ahead as a table; hours it cannot are as written. Everything here came
- * from a relay, so every value wraps rather than push the page wider.
+ * What is known about a place (the design): its address, its hours, its phone and, when it takes
+ * bitcoin, a payment row with the chip, which says how it takes it ("Bitcoin: Lightning"). Hours are
+ * always there, "Not listed" in grey when there are none; any other fact the place lacks is left out,
+ * never drawn empty. Hours the app can read are the week ahead as a table; hours it cannot are as
+ * written. Everything here came from a relay, so every value wraps rather than push the page wider.
+ *
+ * Two facts come from the reviews inside the view on screen, which the page sums (./summary.ts): under
+ * the hours, `price`, the price most of them give ("$$", then "from 3 reviews" in grey); under Payment,
+ * `paid`, the ways they say people paid, the commonest first ("Lightning, Cash"). Neither is drawn
+ * when none of them gives one: null, and empty.
  */
-export function Facts({ place, now, locale }: { place: Place; now: Date; locale: string }): JSX.Element {
+export function Facts({
+  place,
+  now,
+  locale,
+  price,
+  paid,
+}: {
+  place: Place;
+  now: Date;
+  locale: string;
+  price: ReturnType<typeof priceOf>;
+  paid: readonly Paid[];
+}): JSX.Element {
   const state = useMemo(() => openState(place, now), [place, now]);
   const week = useMemo(() => weekTable(place, now, locale), [place, now, locale]);
   const address = addressOf(place);
@@ -78,6 +97,15 @@ export function Facts({ place, now, locale }: { place: Place; now: Date; locale:
       <Fact label={copy.place.facts.hours} muted={state.kind === "unknown"}>
         {hours}
       </Fact>
+      {price !== null && (
+        <Fact label={copy.place.facts.price}>
+          {/* Read out in words ("2 of 4", under the label Price), never as the signs one by one. */}
+          <span role="img" aria-label={copy.place.priceSpoken(price.price)}>
+            {copy.price.signs(price.price)}
+          </span>{" "}
+          <span className="text-muted">{copy.place.priceFrom(price.from)}</span>
+        </Fact>
+      )}
       {place.phone !== undefined && (
         <Fact label={copy.place.facts.phone}>
           {call === undefined ? (
@@ -92,9 +120,12 @@ export function Facts({ place, now, locale }: { place: Place; now: Date; locale:
       {place.acceptsBitcoin !== undefined && (
         <Fact label={copy.place.facts.payment} centred>
           <span className="inline-block rounded-[10px] border-token border-line-strong px-2.5 py-[5px] text-caption font-semibold">
-            {copy.place.bitcoinChip}
+            {copy.place.bitcoin[place.acceptsBitcoin]}
           </span>
         </Fact>
+      )}
+      {paid.length > 0 && (
+        <Fact label={copy.place.facts.paidWith}>{copy.place.paidWays(...paid.map((way) => copy.paid[way]))}</Fact>
       )}
     </dl>
   );

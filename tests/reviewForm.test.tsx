@@ -1,4 +1,4 @@
-import type { NostrFilter } from "@nostrify/nostrify";
+import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
@@ -96,6 +96,45 @@ const wordsLine = () =>
 /** The form's polite line under Post, whatever Post says, which says it is posting, and when Regulars is slow to take it. */
 const postingLine = (form: HTMLElement) =>
   within(form.querySelector<HTMLElement>('[type="submit"]')!.closest<HTMLElement>("section")!).getByRole("status");
+
+/** A photo's address, as another app puts one in a review (NIP-92); and a review's words. */
+const PHOTO = "https://blossom.example/abc.jpg";
+const WORDS = "Get the bolo de caco with garlic butter.";
+
+/**
+ * `reviewer`'s review of Jacafé as another app writes it: at the bare address, with a price ($$), how
+ * they paid (Lightning) and a photo, whose address follows the words, and the app that signed it;
+ * dated `createdAt`.
+ */
+const writtenElsewhere = (reviewer: string, createdAt: number) =>
+  shapedEvent({
+    kind: REVIEW_KIND,
+    pubkey: reviewer,
+    created_at: createdAt,
+    content: `${WORDS}\n${PHOTO}`,
+    tags: [
+      ["d", JACAFE.address],
+      ["a", JACAFE.address],
+      ["m", "place"],
+      ["rating", "0.800"],
+      ["s", "4"],
+      ["alt", "Review of Jacafé: 4 of 5 stars"],
+      ["price", "2"],
+      ["paid", "lightning"],
+      ["imeta", `url ${PHOTO}`],
+      ["client", "SomeApp"],
+    ],
+  });
+
+/** The radios of "Price", $ to $$$$; and of "How did you pay?", Lightning, On-chain, Card and Cash. */
+const priceRadios = async () => within(await screen.findByRole("radiogroup", { name: copy.review.price })).getAllByRole("radio");
+const paidRadios = async () => within(await screen.findByRole("radiogroup", { name: copy.review.howPaid })).getAllByRole("radio");
+
+/** Which of `radios` are checked. */
+const checkedOf = (radios: readonly HTMLElement[]) => radios.map((radio) => radio.getAttribute("aria-checked") === "true");
+
+/** The tags of `ev` named `price`, `paid` or `imeta`, in order. */
+const pricePaidPhotos = (ev: NostrEvent) => ev.tags.filter(([name]) => name === "price" || name === "paid" || name === "imeta");
 
 /** What the relays said of each try they did not take, kept off the output (src/review/post.ts). */
 let warnings: ReturnType<typeof quietPostWarnings>;
@@ -285,6 +324,238 @@ describe("the review form (the design)", () => {
 
     expect(await reviewingAs("Sofia")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/\b73\b|%|rank|weight/i);
+  });
+});
+
+describe("a price and how they paid: two choices, both optional", () => {
+  it("are two radio groups under the stars, before the words: Price, $ to $$$$ read as Price: 1 of 4 to 4 of 4, and How did you pay?", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+
+    expect(copy.review.price).toBe("Price");
+    expect(copy.review.howPaid).toBe("How did you pay?");
+    const prices = await priceRadios();
+    expect(prices.map((radio) => radio.textContent)).toEqual(["$", "$$", "$$$", "$$$$"]);
+    prices.forEach((radio, i) => expect(radio).toHaveAccessibleName(`Price: ${i + 1} of 4`));
+    const ways = await paidRadios();
+    expect(ways.map((radio) => radio.textContent)).toEqual(["Lightning", "On-chain", "Card", "Cash"]);
+    ways.forEach((radio) => expect(radio).toHaveAccessibleName(radio.textContent!));
+    expect(checkedOf([...prices, ...ways])).toEqual(Array<boolean>(8).fill(false));
+    // 44 px tall, and as wide at the least: what a finger needs.
+    for (const radio of [...prices, ...ways]) expect(radio).toHaveClass("h-11", "min-w-touch");
+
+    // Under the stars, before the words.
+    const [stars, price, paid, ...more] = screen.getAllByRole("radiogroup");
+    expect(more).toEqual([]);
+    expect(stars).toHaveAccessibleName(copy.review.howWasIt);
+    expect(price).toHaveAccessibleName(copy.review.price);
+    expect(paid).toHaveAccessibleName(copy.review.howPaid);
+    const words = screen.getByRole("textbox", { name: copy.review.textLabel });
+    expect(paid!.compareDocumentPosition(words) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("chooses one with a press, another in its place, and clears it with a press on the one chosen; Post still waits for a star", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+
+    const prices = await priceRadios();
+    await user.click(prices[1]!);
+    expect(checkedOf(prices)).toEqual([false, true, false, false]);
+    await user.click(prices[3]!);
+    expect(checkedOf(prices)).toEqual([false, false, false, true]);
+    await user.click(prices[3]!);
+    expect(checkedOf(prices)).toEqual([false, false, false, false]);
+
+    const ways = await paidRadios();
+    await user.click(ways[3]!);
+    expect(checkedOf(ways)).toEqual([false, false, false, true]);
+    await user.click(ways[3]!);
+    expect(checkedOf(ways)).toEqual([false, false, false, false]);
+
+    await user.click(prices[0]!);
+    await user.click(ways[0]!);
+    expect(postButton()).toHaveAttribute("aria-disabled", "true");
+    await user.click(postButton());
+    expect(me.addOn.signEvent).not.toHaveBeenCalled();
+  });
+
+  it("are each one Tab stop, at the one chosen or the first; the arrow keys, Home and End move to one and choose it", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+
+    const prices = await priceRadios();
+    const ways = await paidRadios();
+    const tabStops = (radios: readonly HTMLElement[]) => radios.map((radio) => radio.tabIndex);
+    expect(tabStops(prices)).toEqual([0, -1, -1, -1]);
+    expect(tabStops(ways)).toEqual([0, -1, -1, -1]);
+
+    prices[0]!.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(prices[1]).toHaveFocus();
+    expect(checkedOf(prices)).toEqual([false, true, false, false]);
+    expect(tabStops(prices)).toEqual([-1, 0, -1, -1]);
+    await user.keyboard("{End}");
+    expect(prices[3]).toHaveFocus();
+    // Round the ends.
+    await user.keyboard("{ArrowDown}");
+    expect(prices[0]).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(prices[3]).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(prices[0]).toHaveFocus();
+    expect(checkedOf(prices)).toEqual([true, false, false, false]);
+
+    // The Tab key goes on to the next group, at its first while none is chosen, and then to the words.
+    await user.tab();
+    expect(ways[0]).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(ways[3]).toHaveFocus();
+    expect(checkedOf(ways)).toEqual([false, false, false, true]);
+    await user.tab();
+    expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(ways[3]).toHaveFocus();
+  });
+
+  it("posts with $$ and Cash chosen: the record gives price 2 and paid cash", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+
+    await user.click((await starButtons())[3]!);
+    await user.click((await priceRadios())[1]!);
+    await user.click((await paidRadios())[3]!);
+    await user.click(postButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+
+    const [sent] = sentTo(world, SEARCH);
+    expect(verifyEvent(sent!)).toBe(true);
+    expect(sent).toMatchObject({ ...reviewTemplate(JACAFE, 4, "", NOW_S, undefined, { price: 2, paid: "cash" }), pubkey: me.pubkey });
+    expect(pricePaidPhotos(sent!)).toEqual([
+      ["price", "2"],
+      ["paid", "cash"],
+    ]);
+  });
+
+  it("keeps both in the draft through a reload: one cleared, one left as the person's review gave it, and one chosen", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.search.push(writtenElsewhere(me.pubkey, NOW_S - 86_400));
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    await waitFor(async () => expect(checkedOf(await paidRadios())).toEqual([true, false, false, false]));
+
+    // Lightning, as their review gave it, is cleared; the price is left as it is.
+    await user.click((await paidRadios())[0]!);
+    cleanup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    // Their review is read again, and its price shows; the way they cleared stays cleared.
+    await waitFor(async () => expect(checkedOf(await priceRadios())).toEqual([false, true, false, false]));
+    expect(checkedOf(await paidRadios())).toEqual([false, false, false, false]);
+
+    await user.click((await priceRadios())[3]!);
+    await user.click((await paidRadios())[2]!);
+    cleanup();
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    expect(checkedOf(await priceRadios())).toEqual([false, false, false, true]);
+    expect(checkedOf(await paidRadios())).toEqual([false, false, true, false]);
+  });
+
+  it("opens a draft kept with a price and a way cleared as it was kept, and reads no draft whose price or way is none the form gives", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    const keep = (draft: Record<string, unknown>) =>
+      window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ address: JACAFE.address, pubkey: me.pubkey, stars: 3, text: "Kept", ...draft }));
+    const formNow = async () => ({
+      prices: checkedOf(await priceRadios()),
+      ways: checkedOf(await paidRadios()),
+      words: (screen.getByRole("textbox", { name: copy.review.textLabel }) as HTMLTextAreaElement).value,
+    });
+
+    keep({ price: 2, paid: null });
+    await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+    expect(await formNow()).toEqual({ prices: [false, true, false, false], ways: [false, false, false, false], words: "Kept" });
+
+    for (const bad of [{ price: 5 }, { price: "2" }, { paid: "bitcoin" }]) {
+      cleanup();
+      keep(bad);
+      await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+      await reviewingAs(me.name);
+      expect(await formNow(), JSON.stringify(bad)).toEqual({
+        prices: [false, false, false, false],
+        ways: [false, false, false, false],
+        words: "",
+      });
+    }
+  });
+
+  it("sends the same signed review on Try again while the stars, words, price and way are the same, and signs a new one when only one of the two changed", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.writers[SEARCH] = createMemoryWriter({ refuse: "blocked" });
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+    await reviewingAs(me.name);
+
+    await user.click((await starButtons())[3]!);
+    await user.click((await priceRadios())[1]!);
+    await user.click((await paidRadios())[3]!);
+    await user.click(postButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.failed);
+    const first = sentTo(world, SEARCH)[0]!;
+    expect(pricePaidPhotos(first)).toEqual([
+      ["price", "2"],
+      ["paid", "cash"],
+    ]);
+
+    // Nothing changed: the same signed review, sent again.
+    world.writers[SEARCH] = createMemoryWriter({ refuse: "blocked" });
+    await user.click(tryAgainButton());
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+    await screen.findByRole("button", { name: copy.review.tryAgain });
+    expect(sentTo(world, SEARCH)).toEqual([first]);
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+
+    // Only the price changed: a new review, signed, with the new price.
+    world.writers[SEARCH] = createMemoryWriter({ refuse: "blocked" });
+    await user.click((await priceRadios())[2]!);
+    await user.click(tryAgainButton());
+    await waitFor(() => expect(sentTo(world, SEARCH)).toHaveLength(1));
+    await screen.findByRole("button", { name: copy.review.tryAgain });
+    const second = sentTo(world, SEARCH)[0]!;
+    expect(second.id).not.toBe(first.id);
+    expect(pricePaidPhotos(second)).toEqual([
+      ["price", "3"],
+      ["paid", "cash"],
+    ]);
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(2);
+
+    // Only the way changed: a new one again.
+    world.writers[SEARCH] = createMemoryWriter();
+    await user.click((await paidRadios())[2]!);
+    await user.click(tryAgainButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    const [third] = sentTo(world, SEARCH);
+    expect(pricePaidPhotos(third!)).toEqual([
+      ["price", "3"],
+      ["paid", "card"],
+    ]);
+    expect(me.addOn.signEvent).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -733,32 +1004,45 @@ describe("posting a review", () => {
 });
 
 describe("editing a review written in another app", () => {
-  const PHOTO = "https://blossom.example/abc.jpg";
-  const WORDS = "Get the bolo de caco with garlic butter.";
-
   /**
-   * `reviewer`'s review of Jacafé as another app writes it: at the bare address, with a price, how
-   * they paid and a photo, whose address follows the words, and the app that signed it; dated `createdAt`.
+   * The search relay of `world`, holding back each request that `held` picks until the test lets it
+   * go (`release`); `waiting` says how many it holds. Every other request is answered at once.
    */
-  const writtenElsewhere = (reviewer: string, createdAt: number) =>
-    shapedEvent({
-      kind: REVIEW_KIND,
-      pubkey: reviewer,
-      created_at: createdAt,
-      content: `${WORDS}\n${PHOTO}`,
-      tags: [
-        ["d", JACAFE.address],
-        ["a", JACAFE.address],
-        ["m", "place"],
-        ["rating", "0.800"],
-        ["s", "4"],
-        ["alt", "Review of Jacafé: 4 of 5 stars"],
-        ["price", "2"],
-        ["paid", "lightning"],
-        ["imeta", `url ${PHOTO}`],
-        ["client", "SomeApp"],
-      ],
+  function holdingBack(world: ReturnType<typeof newWorld>, held: (filter: NostrFilter) => boolean) {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    let waiting = 0;
+    const readers = (url: string): RelayReader => {
+      const reader = readersOf(world)(url);
+      if (url !== SEARCH) return reader;
+      return {
+        async *req(filter, signal, opts) {
+          if (held(filter)) {
+            waiting += 1;
+            await new Promise<void>((resolve, reject) => {
+              signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+              void released.then(resolve);
+            });
+          }
+          yield* reader.req(filter, signal, opts);
+        },
+      };
+    };
+    return {
+      readers,
+      release: () => act(() => release()),
+      get waiting() {
+        return waiting;
+      },
+    };
+  }
+  /** The place's reviews, read by its address or its `d`: not a person's page, nor Trending. */
+  const placeReviews = (filter: NostrFilter) => filter.kinds?.includes(REVIEW_KIND) === true && (filter["#a"] !== undefined || filter["#d"] !== undefined);
+  const removals = (filter: NostrFilter) => filter.kinds?.includes(5) === true;
+  /** Lets what is queued run, for a check that something has not happened. */
+  const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 100)));
 
   it("shows the words without the photo's address, and an edit keeps the price, payment and photo, its d, and is dated after it", async () => {
     const world = newWorld();
@@ -802,47 +1086,57 @@ describe("editing a review written in another app", () => {
     expect(document.body.textContent).not.toContain(PHOTO);
   });
 
-  describe("posted before the place's reviews, and their removals, are read", () => {
-    /**
-     * The search relay of `world`, holding back each request that `held` picks until the test lets it
-     * go (`release`); `waiting` says how many it holds. Every other request is answered at once.
-     */
-    function holdingBack(world: ReturnType<typeof newWorld>, held: (filter: NostrFilter) => boolean) {
-      let release!: () => void;
-      const released = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      let waiting = 0;
-      const readers = (url: string): RelayReader => {
-        const reader = readersOf(world)(url);
-        if (url !== SEARCH) return reader;
-        return {
-          async *req(filter, signal, opts) {
-            if (held(filter)) {
-              waiting += 1;
-              await new Promise<void>((resolve, reject) => {
-                signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-                void released.then(resolve);
-              });
-            }
-            yield* reader.req(filter, signal, opts);
-          },
-        };
-      };
-      return {
-        readers,
-        release: () => act(() => release()),
-        get waiting() {
-          return waiting;
-        },
-      };
-    }
-    /** The place's reviews, read by its address or its `d`: not a person's page, nor Trending. */
-    const placeReviews = (filter: NostrFilter) => filter.kinds?.includes(REVIEW_KIND) === true && (filter["#a"] !== undefined || filter["#d"] !== undefined);
-    const removals = (filter: NostrFilter) => filter.kinds?.includes(5) === true;
-    /** Lets what is queued run, for a check that something has not happened. */
-    const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 100)));
+  it("opens with the price and the way of the person's review chosen; an edit of the stars alone keeps both, and the photo", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.search.push(writtenElsewhere(me.pubkey, NOW_S - 86_400));
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
 
+    await reviewingAs(me.name);
+    const stars = await starButtons();
+    await waitFor(() => expect(stars[3]).toHaveAttribute("aria-checked", "true"));
+    expect(checkedOf(await priceRadios())).toEqual([false, true, false, false]);
+    expect(checkedOf(await paidRadios())).toEqual([true, false, false, false]);
+    expect((await priceRadios()).map((radio) => radio.tabIndex)).toEqual([-1, 0, -1, -1]);
+
+    await user.click(stars[4]!);
+    await user.click(postButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+    const [sent] = sentTo(world, SEARCH);
+    expect(pricePaidPhotos(sent!)).toEqual([
+      ["price", "2"],
+      ["paid", "lightning"],
+      ["imeta", `url ${PHOTO}`],
+    ]);
+    expect(sent!.content).toBe(`${WORDS}\n${PHOTO}`);
+  });
+
+  it("signs no price once the person clears the review's $$, and keeps the way and the photo", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.search.push(writtenElsewhere(me.pubkey, NOW_S - 86_400));
+    world.writers[SEARCH] = createMemoryWriter();
+    const user = userEvent.setup();
+    const { router } = await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+
+    await reviewingAs(me.name);
+    await waitFor(async () => expect(checkedOf(await priceRadios())).toEqual([false, true, false, false]));
+    await user.click((await priceRadios())[1]!);
+    expect(checkedOf(await priceRadios())).toEqual([false, false, false, false]);
+    await user.click(postButton());
+    await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+
+    const [sent] = sentTo(world, SEARCH);
+    expect(pricePaidPhotos(sent!)).toEqual([
+      ["paid", "lightning"],
+      ["imeta", `url ${PHOTO}`],
+    ]);
+    expect(sent!.content).toBe(`${WORDS}\n${PHOTO}`);
+  });
+
+  describe("posted before the place's reviews, and their removals, are read", () => {
     it("signs nothing until the person's review is read, then builds on it: its price, payment and photo, its d", async () => {
       const world = newWorld();
       const me = signedIn(world);
@@ -880,6 +1174,66 @@ describe("editing a review written in another app", () => {
       expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
     });
 
+    it("keeps the review's price and way when the person typed before it was read, touched neither, and posts once it is", async () => {
+      const world = newWorld();
+      const me = signedIn(world);
+      world.search.push(writtenElsewhere(me.pubkey, NOW_S - 86_400));
+      world.writers[SEARCH] = createMemoryWriter();
+      const search = holdingBack(world, placeReviews);
+      const user = userEvent.setup();
+      const { router } = await openApp(REVIEW_PATH, { events: places, entries: fromExplore(PLACE_PATH, REVIEW_PATH), readers: search.readers, writers: writersOf(world) });
+
+      await reviewingAs(me.name);
+      await waitFor(() => expect(search.waiting).toBe(2));
+      expect(checkedOf([...(await priceRadios()), ...(await paidRadios())])).toEqual(Array<boolean>(8).fill(false));
+      await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Better than last time");
+
+      // Their review is read: the words typed stay, and its price and way show, chosen as it gave them.
+      await search.release();
+      await waitFor(async () => expect(checkedOf(await priceRadios())).toEqual([false, true, false, false]));
+      expect(checkedOf(await paidRadios())).toEqual([true, false, false, false]);
+      expect(screen.getByRole("textbox", { name: copy.review.textLabel })).toHaveValue("Better than last time");
+
+      await user.click((await starButtons())[4]!);
+      await user.click(postButton());
+      await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+      const [sent] = sentTo(world, SEARCH);
+      expect(pricePaidPhotos(sent!)).toEqual([
+        ["price", "2"],
+        ["paid", "lightning"],
+        ["imeta", `url ${PHOTO}`],
+      ]);
+      expect(sent!.content).toBe(`Better than last time\n${PHOTO}`);
+    });
+
+    it("keeps the review's price and way when the person posted before it was read, touching neither", async () => {
+      const world = newWorld();
+      const me = signedIn(world);
+      world.search.push(writtenElsewhere(me.pubkey, NOW_S - 86_400));
+      world.writers[SEARCH] = createMemoryWriter();
+      const search = holdingBack(world, placeReviews);
+      const user = userEvent.setup();
+      const { router } = await openApp(REVIEW_PATH, { events: places, entries: fromExplore(PLACE_PATH, REVIEW_PATH), readers: search.readers, writers: writersOf(world) });
+
+      await reviewingAs(me.name);
+      await waitFor(() => expect(search.waiting).toBe(2));
+      expect(checkedOf([...(await priceRadios()), ...(await paidRadios())])).toEqual(Array<boolean>(8).fill(false));
+      await user.type(screen.getByRole("textbox", { name: copy.review.textLabel }), "Better than last time");
+      await user.click((await starButtons())[4]!);
+      await user.click(postButton());
+      await settle();
+      expect(me.addOn.signEvent).not.toHaveBeenCalled();
+
+      await search.release();
+      await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+      const [sent] = sentTo(world, SEARCH);
+      expect(pricePaidPhotos(sent!)).toEqual([
+        ["price", "2"],
+        ["paid", "lightning"],
+        ["imeta", `url ${PHOTO}`],
+      ]);
+    });
+
     it("dates the edit a second after the person's removal, dated an hour ahead, once that removal is read", async () => {
       const world = newWorld();
       const me = signedIn(world);
@@ -906,6 +1260,34 @@ describe("editing a review written in another app", () => {
       // The review it would have been built on is taken down: it is built on nothing, at the place's own d.
       expect(sent!.tags.find((tag) => tag[0] === "d")).toEqual(["d", `place:${JACAFE.address}`]);
       expect(sent!.tags.some((tag) => tag[0] === "price")).toBe(false);
+    });
+
+    it("says it didn't post, and signs nothing, when the review whose stars it showed is taken down by a removal read while it waited", async () => {
+      const world = newWorld();
+      const me = signedIn(world);
+      const theirs = writtenElsewhere(me.pubkey, NOW_S - 86_400);
+      const removal = shapedEvent({ kind: 5, pubkey: me.pubkey, created_at: NOW_S - 3_600, tags: [["e", theirs.id], ["k", String(REVIEW_KIND)]] });
+      world.search.push(theirs, removal);
+      world.writers[SEARCH] = createMemoryWriter();
+      const search = holdingBack(world, removals);
+      const user = userEvent.setup();
+      await openApp(REVIEW_PATH, { events: places, entries: fromExplore(PLACE_PATH, REVIEW_PATH), readers: search.readers, writers: writersOf(world) });
+
+      await reviewingAs(me.name);
+      await waitFor(async () => expect((await starButtons())[3]).toHaveAttribute("aria-checked", "true"));
+      await waitFor(() => expect(search.waiting).toBeGreaterThan(0));
+      // Posted with the stars their review gives, untouched.
+      await user.click(postButton());
+      await settle();
+      expect(me.addOn.signEvent).not.toHaveBeenCalled();
+
+      await search.release();
+      expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.failed);
+      expect(me.addOn.signEvent).not.toHaveBeenCalled();
+      expect(sentTo(world, SEARCH)).toEqual([]);
+      // Their review is gone: no stars are shown, and Try again waits for some.
+      expect(checkedOf(await starButtons())).toEqual([false, false, false, false, false]);
+      expect(tryAgainButton()).toHaveAttribute("aria-disabled", "true");
     });
 
     it("signs nothing when the form is closed while it waits", async () => {
@@ -954,6 +1336,170 @@ describe("editing a review written in another app", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
     expect(sentTo(world, SEARCH)).toEqual([first]);
     expect(me.addOn.signEvent).toHaveBeenCalledTimes(1);
+  });
+
+  describe("a field pressed or typed into before the person's review is read: the others are still filled from it, and kept", () => {
+    /** The person, whose review of Jacafé (4 stars, `WORDS`, $$, Lightning, `PHOTO`) the search relay holds. */
+    function personWithReview() {
+      const world = newWorld();
+      const me = signedIn(world);
+      world.search.push(writtenElsewhere(me.pubkey, NOW_S - 86_400));
+      world.writers[SEARCH] = createMemoryWriter();
+      return { world, me };
+    }
+    /** The form, opened while the relay holds back the place's reviews until `release`. */
+    async function openHeld(world: ReturnType<typeof newWorld>, name: string) {
+      const search = holdingBack(world, placeReviews);
+      const { router } = await openApp(REVIEW_PATH, { events: places, entries: fromExplore(PLACE_PATH, REVIEW_PATH), readers: search.readers, writers: writersOf(world) });
+      await reviewingAs(name);
+      await waitFor(() => expect(search.waiting).toBe(2));
+      return { search, router };
+    }
+    const words = () => screen.getByRole("textbox", { name: copy.review.textLabel });
+    /** That `sent` is the person's review with `stars`, its words and photo after them, its price, way and photo kept. */
+    const expectKept = (sent: NostrEvent | undefined, stars: number) => {
+      expect(sent!.content).toBe(`${WORDS}\n${PHOTO}`);
+      expect(sent!.tags.find(([name]) => name === "s")).toEqual(["s", String(stars)]);
+      expect(pricePaidPhotos(sent!)).toEqual([
+        ["price", "2"],
+        ["paid", "lightning"],
+        ["imeta", `url ${PHOTO}`],
+      ]);
+    };
+
+    it("fills the words in once the review is read after a star was pressed, and posts them with the photo, the price and the way", async () => {
+      const { world, me } = personWithReview();
+      const user = userEvent.setup();
+      const { search, router } = await openHeld(world, me.name);
+
+      await user.click((await starButtons())[4]!);
+      expect(words()).toHaveValue("");
+      await search.release();
+      await waitFor(() => expect(words()).toHaveValue(WORDS));
+      expect((await starButtons())[4]).toHaveAttribute("aria-checked", "true");
+
+      await user.click(postButton());
+      await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+      expectKept(sentTo(world, SEARCH)[0], 5);
+    });
+
+    it("posts the review's words, photo, price and way when a star and Post were both pressed before it was read", async () => {
+      const { world, me } = personWithReview();
+      const user = userEvent.setup();
+      const { search, router } = await openHeld(world, me.name);
+
+      await user.click((await starButtons())[4]!);
+      await user.click(postButton());
+      await settle();
+      expect(me.addOn.signEvent).not.toHaveBeenCalled();
+
+      await search.release();
+      await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+      expectKept(sentTo(world, SEARCH)[0], 5);
+    });
+
+    it("fills the stars and the words in once the review is read after a price was pressed: the price pressed stays, and Lightning shows", async () => {
+      const { world, me } = personWithReview();
+      const user = userEvent.setup();
+      const { search, router } = await openHeld(world, me.name);
+
+      await user.click((await priceRadios())[2]!);
+      await search.release();
+      await waitFor(async () => expect((await starButtons())[3]).toHaveAttribute("aria-checked", "true"));
+      expect(words()).toHaveValue(WORDS);
+      expect(checkedOf(await priceRadios())).toEqual([false, false, true, false]);
+      expect(checkedOf(await paidRadios())).toEqual([true, false, false, false]);
+
+      await user.click(postButton());
+      await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+      const [sent] = sentTo(world, SEARCH);
+      expect(sent!.content).toBe(`${WORDS}\n${PHOTO}`);
+      expect(sent!.tags.find(([name]) => name === "s")).toEqual(["s", "4"]);
+      expect(pricePaidPhotos(sent!)).toEqual([
+        ["price", "3"],
+        ["paid", "lightning"],
+        ["imeta", `url ${PHOTO}`],
+      ]);
+    });
+
+    it("fills the words in after a reload, when only a star was pressed before it", async () => {
+      const { world, me } = personWithReview();
+      const user = userEvent.setup();
+      await openHeld(world, me.name);
+      await user.click((await starButtons())[4]!);
+
+      cleanup();
+      const { search } = await openHeld(world, me.name);
+      expect((await starButtons())[4]).toHaveAttribute("aria-checked", "true");
+      expect(words()).toHaveValue("");
+      await search.release();
+      await waitFor(() => expect(words()).toHaveValue(WORDS));
+      expect((await starButtons())[4]).toHaveAttribute("aria-checked", "true");
+      expect(checkedOf(await priceRadios())).toEqual([false, true, false, false]);
+    });
+
+    it("keeps the review's words through a trip to sign in from a form opened signed out, a star pressed and Post", async () => {
+      const world = newWorld();
+      const key = generateSecretKey();
+      const pubkey = getPublicKey(key);
+      installAddOn(key);
+      world.search.push(profileOf(pubkey, "Maya"), writtenElsewhere(pubkey, NOW_S - 86_400));
+      world.writers[SEARCH] = createMemoryWriter();
+      const search = holdingBack(world, placeReviews);
+      const user = userEvent.setup();
+      const { router } = await openApp(REVIEW_PATH, { events: places, entries: fromExplore(PLACE_PATH, REVIEW_PATH), readers: search.readers, writers: writersOf(world) });
+
+      await user.click((await starButtons())[4]!);
+      await user.click(postButton());
+      await waitFor(() => expect(router.state.location.pathname).toBe("/signin"));
+      await user.click(screen.getByRole("button", { name: copy.signin.continueButton }));
+      await waitFor(() => expect(router.state.location.pathname).toBe(REVIEW_PATH));
+      expect((await starButtons())[4]).toHaveAttribute("aria-checked", "true");
+
+      await search.release();
+      await waitFor(() => expect(words()).toHaveValue(WORDS));
+      await user.click(postButton());
+      await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+      const [sent] = sentTo(world, SEARCH);
+      expect(sent!.pubkey).toBe(pubkey);
+      expectKept(sent, 5);
+    });
+
+    it("reads a draft kept in the shape every earlier one has, its words as typed and no star as none chosen", async () => {
+      const { world, me } = personWithReview();
+      for (const typed of ["Kept", ""]) {
+        cleanup();
+        window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ address: JACAFE.address, pubkey: me.pubkey, stars: null, text: typed }));
+        await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
+        await reviewingAs(me.name);
+        // Their review is read: its stars fill in, and the words kept stay as they were typed.
+        await waitFor(async () => expect((await starButtons())[3]).toHaveAttribute("aria-checked", "true"));
+        expect(words()).toHaveValue(typed);
+      }
+    });
+
+    it("carries the words, the price, the way and the photo into the new review Try again signs when only the stars changed", async () => {
+      const { world, me } = personWithReview();
+      world.writers[SEARCH] = createMemoryWriter({ refuse: "blocked" });
+      const user = userEvent.setup();
+      const { search, router } = await openHeld(world, me.name);
+
+      await user.click((await starButtons())[4]!);
+      await user.click(postButton());
+      await search.release();
+      expect(await screen.findByRole("alert")).toHaveTextContent(copy.review.failed);
+      const first = sentTo(world, SEARCH)[0]!;
+      expectKept(first, 5);
+
+      world.writers[SEARCH] = createMemoryWriter();
+      await user.click((await starButtons())[2]!);
+      await user.click(tryAgainButton());
+      await waitFor(() => expect(router.state.location.pathname).toBe(PLACE_PATH));
+      const [second] = sentTo(world, SEARCH);
+      expect(second!.id).not.toBe(first.id);
+      expectKept(second, 3);
+      expect(me.addOn.signEvent).toHaveBeenCalledTimes(2);
+    });
   });
 });
 
@@ -1426,6 +1972,31 @@ describe("on a desktop: a dialog over the place page (the design)", () => {
     expect(stars[2]).toHaveFocus();
   });
 
+  it("starts the focus at the first star, not at the price chosen, when the person's review gives a price and no stars", async () => {
+    const world = newWorld();
+    const me = signedIn(world);
+    world.ranks.push(rankOf(me.pubkey, 80));
+    world.search.push(
+      shapedEvent({
+        kind: REVIEW_KIND,
+        pubkey: me.pubkey,
+        created_at: NOW_S - 86_400,
+        content: "Bolo do caco",
+        tags: [["d", `place:${JACAFE.address}`], ["a", JACAFE.address], ["m", "place"], ["price", "2"]],
+      }),
+    );
+    const user = userEvent.setup();
+    await open(world, fromExplore(PLACE_PATH), DESKTOP);
+
+    expect(await reviewWords("Bolo do caco")).toBeInTheDocument();
+    await user.click(await rateLink(world));
+    await screen.findByRole("dialog", { name: copy.review.dialogLabel });
+    expect(checkedOf(await priceRadios())).toEqual([false, true, false, false]);
+    const stars = await starButtons();
+    expect(checkedOf(stars)).toEqual([false, false, false, false, false]);
+    expect(stars[0]).toHaveFocus();
+  });
+
   it("closes once when Escape is pressed twice before the page has redrawn (R15)", async () => {
     const world = newWorld();
     signedIn(world);
@@ -1660,7 +2231,7 @@ describe("crossing 900 px: the form drawn the other way (a phone turned, a windo
 
     // Closed by its back arrow: forgotten.
     await user.click(screen.getByRole("link", { name: copy.review.back }));
-    await waitFor(() => expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("radiogroup", { name: copy.review.howWasIt })).not.toBeInTheDocument());
     expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
     cleanup();
     await open(world, fromExplore(PLACE_PATH, REVIEW_PATH));
@@ -1671,7 +2242,7 @@ describe("crossing 900 px: the form drawn the other way (a phone turned, a windo
     await user.click((await starButtons())[4]!);
     expect(window.sessionStorage.getItem(DRAFT_KEY)).not.toBeNull();
     await user.click(postButton());
-    await waitFor(() => expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("radiogroup", { name: copy.review.howWasIt })).not.toBeInTheDocument());
     expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
   });
 

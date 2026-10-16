@@ -388,6 +388,65 @@ describe("Trending: the list", () => {
   });
 });
 
+describe("Trending: what a review carries", () => {
+  it("draws a listed review's photos as thumbnails, each a link of its own beside the link to the place, and says its price and how they paid", async () => {
+    const photos = ["https://blossom.example.test/alice-1.jpg", "https://blossom.example.test/alice-2.jpg"];
+    const net = network({
+      reviews: [
+        shapedEvent({
+          kind: REVIEW_KIND,
+          pubkey: ALICE,
+          created_at: NOW_S - 2 * HOUR,
+          content: ["Get the bolo.", ...photos].join("\n"),
+          tags: [
+            ["d", `place:${JACAFE.address}`],
+            ["a", JACAFE.address],
+            ["m", "place"],
+            ["s", "4"],
+            ["price", "3"],
+            ["paid", "card"],
+            ...photos.map((url) => ["imeta", `url ${url}`]),
+          ],
+        }),
+      ],
+    });
+    await openRecent(net);
+
+    const place = await screen.findByRole("link", { name: ALICE_AT_JACAFE });
+    const card = place.closest("li")!;
+    const thumbnails = within(card).getAllByRole("img", { name: /^Photo \d of 2 from a review by Alice Bento$/ });
+    expect(thumbnails.map((img) => img.getAttribute("src"))).toEqual(photos);
+    thumbnails.forEach((img, i) => {
+      expect(img).toHaveAttribute("loading", "lazy");
+      expect(img).toHaveAttribute("referrerpolicy", "no-referrer");
+      const link = img.closest("a")!;
+      expect(link).toHaveAttribute("href", photos[i]);
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+      // Not inside the link to the place: no link is ever inside another.
+      expect(place).not.toContainElement(link);
+    });
+    expect(document.querySelector("a a")).toBeNull();
+    // The words are there, and the photos come in the card after them.
+    expect(within(place).getByText("Get the bolo.")).toBeInTheDocument();
+    expect(place.compareDocumentPosition(thumbnails[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Under the stars, the price and how they paid, which the link says after its name too.
+    expect(within(place).getByText((_, element) => element?.tagName === "P" && element.textContent === "$$$ · Paid with Card")).toBeInTheDocument();
+    expect(place).toHaveAccessibleDescription("Coffee shop · 0.1 mi 4 out of 5 Price: 3 of 4 · Paid with Card Get the bolo.");
+    expectNoNumbersAboutPeople(RANKS);
+  });
+
+  it("draws nothing more for a review that gives no price, payment or photo", async () => {
+    const net = network({ reviews: [reviewOf(ALICE, JACAFE, 4, "Get the bolo.", NOW_S - 2 * HOUR)] });
+    await openRecent(net);
+    await listsExactly([ALICE_AT_JACAFE]);
+    const [alice] = entryLinks() as [HTMLElement];
+    expect(alice.closest("li")!.querySelector("img")).toBeNull();
+    expect(alice).toHaveAccessibleDescription("Coffee shop · 0.1 mi 4 out of 5 Get the bolo.");
+    expect(within(alice).queryByText(/Paid with/)).not.toBeInTheDocument();
+  });
+});
+
 describe("Trending: whose reviews", () => {
   it("lists the circle's reviewers and the person's own in My circle; once three pages are read, switching reads no review", async () => {
     const net = network();

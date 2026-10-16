@@ -3,8 +3,8 @@ import { config } from "../config.ts";
 /**
  * Every string a person can read lives in this file. tests/copy.test.ts fails on
  * protocol vocabulary anywhere in it (nostr, relay, key, sign ...), and in the kind
- * labels in src/data/kinds.json. These two strings are the only exceptions, and only as
- * the entire text of copy.signin.continueButton and copy.place.bitcoinChip.
+ * labels in src/data/kinds.json. These strings are the only exceptions, and only as
+ * the entire text of copy.signin.continueButton and of each of copy.place.bitcoin's four.
  * "Sign in" and "Sign out" are the app's words for starting and ending a session, and "signed in"
  * and "signed out" may be said of the person (the M2b plan's ruling R7). No other "sign".
  * The Follow button and its lines (`copy.follow`) say "follow", "following" and "unfollow", and the
@@ -14,7 +14,16 @@ import { config } from "../config.ts";
  */
 export const ALLOWED_PROTOCOL_STRINGS = {
   signInButton: "Continue with Nostr",
-  bitcoinChip: "Bitcoin accepted",
+  /** The chip of a place's Payment fact, by how the place takes bitcoin (its `accepts-bitcoin`). */
+  bitcoinChip: {
+    // DRAFT
+    lightning: "Bitcoin: Lightning",
+    // DRAFT
+    onchain: "Bitcoin: on-chain",
+    // DRAFT
+    both: "Bitcoin: Lightning and on-chain",
+    yes: "Bitcoin accepted",
+  },
 } as const;
 
 /** A leaf is a string, or a template function that returns one. Groups nest freely; a list is strings. */
@@ -491,6 +500,62 @@ export const copy = {
       if (months < 12) return ago(Math.max(1, months), "month");
       return ago(Math.floor(months / 12), "year");
     },
+    // DRAFT
+    /** Under a review's stars, how the reviewer paid: "Paid with Lightning". `ways` is one or more of `paid`. */
+    paidWith: (ways: string) => `Paid with ${ways}`,
+  },
+  /** A price as a review gives it, from 1 to 4 (src/ui/PricePaid.tsx). */
+  price: {
+    // DRAFT
+    /** As it is seen: "$" to "$$$$". */
+    signs: (n: number) => "$".repeat(n),
+    // DRAFT
+    /** The same, for a screen reader, which would read the signs out one by one: "Price: 2 of 4". */
+    spoken: (n: number) => `Price: ${n.toLocaleString("en")} of 4`,
+  },
+  /** The ways a review says the reviewer paid, as the record writes them (`PAID_WAYS`, src/reviews/review.ts). */
+  paid: {
+    // DRAFT
+    lightning: "Lightning",
+    // DRAFT
+    onchain: "On-chain",
+    // DRAFT
+    card: "Card",
+    // DRAFT
+    cash: "Cash",
+  },
+  /**
+   * The photos of a review, and of a place (src/ui/Photos.tsx): each a thumbnail that opens it, or, where
+   * they are not drawn, one link to the first. Nothing here says anything of the person whose they are
+   * but their name.
+   */
+  photos: {
+    // DRAFT
+    /** The link that stands for a review's photos where they are not drawn: "Photo", "2 photos". */
+    link: (n: number) => (n === 1 ? "Photo" : `${n.toLocaleString("en")} photos`),
+    // DRAFT
+    /** The tile after a review's last thumbnail, which opens the next photo: how many more there are. "+2". */
+    more: (n: number) => `+${n.toLocaleString("en")}`,
+    // DRAFT
+    /** The same tile, for a screen reader: "2 more photos from a review by Maya", "1 more photo from a review by Maya". */
+    moreOfReview: (n: number, name: string) => `${n.toLocaleString("en")} more ${n === 1 ? "photo" : "photos"} from a review by ${name}`,
+    // DRAFT
+    /**
+     * A review's thumbnail, for a screen reader, which of its `of` photos it is: "Photo 1 of 6 from a
+     * review by Maya"; "Photo from a review by Maya" when it has one.
+     */
+    ofReview: (n: number, of: number, name: string) =>
+      of === 1 ? `Photo from a review by ${name}` : `Photo ${n.toLocaleString("en")} of ${of.toLocaleString("en")} from a review by ${name}`,
+    // DRAFT
+    /**
+     * A thumbnail in the strip under a place's name, for a screen reader, which of its `of` photos it is:
+     * "Photo 3 of 9 of Jacafé"; "Photo of Jacafé" when it has one.
+     */
+    ofPlace: (n: number, of: number, place: string) =>
+      of === 1 ? `Photo of ${place}` : `Photo ${n.toLocaleString("en")} of ${of.toLocaleString("en")} of ${place}`,
+    // DRAFT
+    /** The strip itself, for a screen reader: "Photos of Jacafé". */
+    strip: (place: string) => `Photos of ${place}`,
   },
   /**
    * Following a reviewer (decision 44): the button beside a reviewer's name on a review, and on their
@@ -976,6 +1041,12 @@ export const copy = {
     starWords: [...starWords],
     /** A star button, for a screen reader: how many stars, and their word. "4 stars, Good". */
     star: (n: number) => `${n.toLocaleString("en")} ${n === 1 ? "star" : "stars"}, ${starWords[n - 1] ?? ""}`,
+    // DRAFT
+    /** Over the choice of a price, under the stars: each is `price.signs`, read out as `price.spoken`. */
+    price: "Price",
+    // DRAFT
+    /** Over the choice of how they paid, under the price: each is one of `paid`. */
+    howPaid: "How did you pay?",
     /** The text box's label (the design's). */
     textLabel: "What should a friend know?",
     /** In the empty text box (the design's). */
@@ -1038,7 +1109,30 @@ export const copy = {
     call: "Call",
     site: "Website",
     /** The labels of the facts. */
-    facts: { address: "Address", hours: "Hours", phone: "Phone", payment: "Payment" },
+    facts: {
+      address: "Address",
+      hours: "Hours",
+      phone: "Phone",
+      payment: "Payment",
+      // DRAFT
+      /** The price most of the reviews inside the view give, under the hours. */
+      price: "Price",
+      // DRAFT
+      /** The ways the reviews inside the view say people paid, under Payment. */
+      paidWith: "Paid with",
+    },
+    // DRAFT
+    /**
+     * The Price fact's signs, for a screen reader, which hears the fact's label say Price already:
+     * "2 of 4". Everywhere else a price is read out as `price.spoken`.
+     */
+    priceSpoken: (n: number) => `${n.toLocaleString("en")} of 4`,
+    // DRAFT
+    /** After the Price fact's signs, in grey: how many of the reviews inside the view give a price. */
+    priceFrom: (n: number) => `from ${reviewCount(n)}`,
+    // DRAFT
+    /** The ways people paid, as the Paid with fact lists them, the commonest first: "Lightning, Cash". */
+    paidWays: (...ways: string[]) => ways.join(comma),
     /** The hours fact, for a place with none (the design). */
     hoursNotListed: "Not listed",
     /**
@@ -1073,7 +1167,8 @@ export const copy = {
     noLongerListed: "No longer listed.",
     noLongerListedDetail: "It came off the map at the last monthly refresh.",
     backToExplore,
-    bitcoinChip: ALLOWED_PROTOCOL_STRINGS.bitcoinChip,
+    /** The chip of the Payment fact, which says how the place takes bitcoin. */
+    bitcoin: ALLOWED_PROTOCOL_STRINGS.bitcoinChip,
   },
   hours: {
     /** A time of day goes in `time`: "11 pm" or "23:00", and "Tue 11 am" when it is more than a day away. */

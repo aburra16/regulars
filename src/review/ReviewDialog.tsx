@@ -28,11 +28,12 @@ export function ReviewDialog({ place, close, posting }: { place: Place; close():
   useEffect(() => lockPage(), []);
 
   // The focus goes to the star chosen, or the first, when it opens, and back to what had it when it closes.
+  // The stars are the form's first radio group: the price and how they paid come after them.
   useEffect(() => {
     const opener = document.activeElement;
-    const dialog = dialogRef.current;
+    const stars = dialogRef.current?.querySelector<HTMLElement>('[role="radiogroup"]');
     const start =
-      dialog?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') ?? dialog?.querySelector<HTMLElement>('[role="radio"]');
+      stars?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') ?? stars?.querySelector<HTMLElement>('[role="radio"]');
     start?.focus();
     return () => {
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
