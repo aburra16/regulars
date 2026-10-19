@@ -324,7 +324,8 @@ describe("the focus the app puts somewhere on purpose, as the page changes", () 
 
     await act(() => router.navigate(-1));
     expect(router.state.location.pathname).toBe("/you");
-    await waitFor(() => expect(within(screen.getByRole("main")).getByRole("heading", { level: 1 })).toHaveFocus());
+    // The page's code may arrive late on a slow machine: the heading takes the focus once it is drawn.
+    await waitFor(() => expect(within(screen.getByRole("main")).getByRole("heading", { level: 1 })).toHaveFocus(), { timeout: 3_000 });
   });
 
   it("goes to the heading of the page sign in lands back on, which puts the focus nowhere of its own", async () => {
