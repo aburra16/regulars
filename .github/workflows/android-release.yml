@@ -35,9 +35,9 @@ jobs:
       - name: Build, sign and publish the app and the nSite
         env:
           PAKSTR_NSEC: ${{ secrets.PAKSTR_NSEC }}
-          # Pakstr 0.27.0's build image, by its digest: the image that signs is the image that was checked.
-          PAKSTR_DOCKER_IMAGE: git.nostrdev.com/stuff/pakstr/android-builder@sha256:406368b237de176336a2c1e6a59b6e37c53d1d45cdf65f8df88ec554122d7a75
-        run: npx --yes pakstr@0.27.0 run
+          # Pakstr 0.29.0's build image, by its digest: the image that signs is the image that was checked.
+          PAKSTR_DOCKER_IMAGE: git.nostrdev.com/stuff/pakstr/android-builder@sha256:6336bc456b462e51b02fe21595aa4186941c6a7f5465366bab63eefe4ebb30f2
+        run: npx --yes pakstr@0.29.0 run
       # The signed APK, kept with the run, for anyone testing a release by hand.
       - uses: actions/upload-artifact@v4
         if: always()
