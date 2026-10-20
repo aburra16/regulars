@@ -4,7 +4,8 @@ import { config } from "../config.ts";
  * Every string a person can read lives in this file. tests/copy.test.ts fails on
  * protocol vocabulary anywhere in it (nostr, relay, key, sign ...), and in the kind
  * labels in src/data/kinds.json. These strings are the only exceptions, and only as
- * the entire text of copy.signin.continueButton and of each of copy.place.bitcoin's four.
+ * the entire text of copy.signin.continueButton, of each of copy.place.bitcoin's four, and of
+ * each of copy.share.bitcoin's four.
  * "Sign in" and "Sign out" are the app's words for starting and ending a session, and "signed in"
  * and "signed out" may be said of the person (the M2b plan's ruling R7). No other "sign".
  * The Follow button and its lines (`copy.follow`) say "follow", "following" and "unfollow", and the
@@ -23,6 +24,17 @@ export const ALLOWED_PROTOCOL_STRINGS = {
     // DRAFT
     both: "Bitcoin: Lightning and on-chain",
     yes: "Bitcoin accepted",
+  },
+  /** The sentence of a link's preview of a place that says how the place takes bitcoin (its `accepts-bitcoin`). */
+  bitcoinSentence: {
+    // DRAFT
+    lightning: "Takes Bitcoin over Lightning.",
+    // DRAFT
+    onchain: "Takes Bitcoin on-chain.",
+    // DRAFT
+    both: "Takes Bitcoin over Lightning and on-chain.",
+    // DRAFT
+    yes: "Takes Bitcoin.",
   },
 } as const;
 
@@ -167,6 +179,24 @@ export const copy = {
   },
   meta: {
     description: "Places to eat and drink, rated by people you'd actually ask.",
+  },
+  /**
+   * What a link to a place or a chain shows where it is pasted, before the app runs: the page's
+   * description, its sentences joined by a space (src/share/pages.ts). Every other page says
+   * `meta.description`.
+   */
+  share: {
+    // DRAFT
+    /** What a place is, and where, when that is known: "Cafe in Funchal, Portugal.", "Cafe in Portugal.", "Cafe." */
+    place: (kind: string, ...where: string[]) => `${where.length === 0 ? kind : `${kind} in ${where.join(comma)}`}.`,
+    /** How the place takes bitcoin, after what and where it is; nothing for a place that takes none. */
+    bitcoin: ALLOWED_PROTOCOL_STRINGS.bitcoinSentence,
+    // DRAFT
+    /** How many places a chain has, and in which country: "4 locations in Portugal.", or "4 locations." for none. */
+    chain: (n: number, country?: string) => `${country === undefined ? locations(n) : `${locations(n)} in ${country}`}.`,
+    // DRAFT
+    /** The sentence each place's and chain's description ends with. */
+    rated: "Rated by people you'd actually ask.",
   },
   /** Words shared by more than one screen. */
   common: {

@@ -181,6 +181,18 @@ describe("the site's icons", () => {
   });
 });
 
+describe("the Regulars card", () => {
+  it("is the picture of a link's preview: a PNG of 1200 by 630, under 300 KB, at the root of the site", () => {
+    expect(pngSize("public/og-card.png")).toEqual({ width: 1200, height: 630 });
+    expect(readFileSync(at("public/og-card.png")).length).toBeLessThan(300 * 1024);
+  });
+
+  it("is on the page's ground, white, at its corners", () => {
+    const card = readPng("public/og-card.png");
+    for (const [x, y] of [[0, 0], [1199, 0], [0, 629], [1199, 629]]) expect(card.at(x!, y!), `(${x}, ${y})`).toEqual([255, 255, 255, 255]);
+  });
+});
+
 describe("the tab icon", () => {
   it.each([
     ["public/favicon-32.png", 32],

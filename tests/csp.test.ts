@@ -203,6 +203,10 @@ const NOT_REACHED: ReadonlyArray<readonly [file: string, address: string]> = [
   ["src/place/Actions.tsx", "https://${website}"],
   ["src/place/osmLinks.ts", "https://www.openstreetmap.org"],
   ["src/place/osmLinks.ts", "https://www.google.com/maps/dir/?api=1&destination=${place.lat.toFixed(6)},${place.lon.toFixed(6)}"],
+  // The sitemap's namespace, a name written into the sitemap the build makes; nothing fetches it.
+  ["src/share/pages.ts", "http://www.sitemaps.org/schemas/sitemap/0.9"],
+  // The site's own address, which the pages a shared link opens name as theirs; the build's step writes it, and no page fetches it.
+  ["src/share/run.ts", "https://${config.domain}"],
   ["src/ui/Attribution.tsx", "https://openfreemap.org"],
   ["src/ui/Attribution.tsx", "https://www.openmaptiles.org/"],
   ["src/ui/Attribution.tsx", "https://www.openstreetmap.org/copyright"],

@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "proof:house-scores": "vitest run --config vitest.proof.config.ts",
+    "share-pages": "node tools/share-pages.ts",
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {

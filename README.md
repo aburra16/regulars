@@ -8,7 +8,7 @@ Regulars is built on [Brainstorm](https://brainstorm.world)'s web of trust and [
 
 - `src/`: the app. Every string a person reads is in `src/copy/en.ts`, and the addresses the app reaches and what is switched on are in `src/config.ts`.
 - `tests/`: its tests. `tests/support/` holds the in-memory relays and the stand-in for the map, and `tests/fixtures/` the data they use.
-- `tools/`: the build's own steps, and the scripts that make the data and the icons. `tools/notices.ts` writes the third-party notices and `tools/csp.ts` the Content Security Policy, both at build time. `tools/towns.ts` writes `src/data/towns.json`, the towns the places are put in (see "Operations notes").
+- `tools/`: the build's own steps, and the scripts that make the data and the icons. `tools/notices.ts` writes the third-party notices and `tools/csp.ts` the Content Security Policy, both at build time. `tools/towns.ts` writes `src/data/towns.json`, the towns the places are put in (see "Operations notes"). `tools/share-pages.ts` writes the pages a shared link opens (see "Deploy").
 
 ## Develop
 
@@ -70,7 +70,17 @@ The relay loads two forged reviews when it starts: it checks the signature of ea
 
 ## Deploy
 
-Push to `main`. The Deploy workflow (`.github/workflows/deploy.yml`) runs the tests, builds the site, copies `index.html` to `404.html` so a link straight to a page loads, and publishes `dist/` to GitHub Pages, which serves it at `askregulars.world` (`public/CNAME`).
+Push to `main`. The Deploy workflow (`.github/workflows/deploy.yml`) runs the tests, builds the site, writes the pages a shared link opens (below), copies `index.html` to `404.html` so a link straight to any other page loads, and publishes `dist/` to GitHub Pages, which serves it at `askregulars.world` (`public/CNAME`). It also runs once a day, at 04:17 UTC, so the pages keep up with the list.
+
+### Shared links
+
+A link to a place, a chain or a fixed page (Trending, About and the rest), pasted where no app runs (a chat, a feed, a search engine), shows its own title, description and picture, and the address answers 200. After the build, `npm run share-pages` (`tools/share-pages.ts`, which loads `src/share/run.ts` through Vite) writes a copy of `dist/index.html` for each, with its own title and preview tags (`src/share/pages.ts`), at the file a host looks up for its address: `dist/place/<d>.html`, `dist/chain/<country>:<name>.html`, `dist/trending.html`. It writes `dist/sitemap.xml` and `dist/robots.txt` too, and the Regulars card, `public/og-card.png`, is the picture of every preview but a place's own photo.
+
+```sh
+npm run build && npm run share-pages
+```
+
+The step needs the hub. It reads the curator's list from `wss://dcosl.brainstorm.world` (`config.placesRelay`), writes nothing there, and checks every signature. Without an answer, or with fewer than 5,000 places (`SHARE_FLOOR` in `src/share/fetchPlaces.ts`), it writes nothing and fails, so the deploy stops and the site already live stays as it was. It is not part of `npm run build`: the Android release and the nSite carry no such pages. A reviewer's page, a review form and an address the app does not know still open through `404.html`, with the general preview. GitHub Pages answers `/x` from `x.html`; a host that does not has to be told to (nginx: `try_files $uri $uri.html …`).
 
 Pull requests and other branches run the Test workflow (`.github/workflows/test.yml`): tests and a build.
 
@@ -84,6 +94,7 @@ Pull requests and other branches run the Test workflow (`.github/workflows/test.
   3. Run `node tools/towns.ts cities1000.txt places-live.jsonl --date <download day>` and commit the file. It prints how many towns and parts it kept, and the localities it keeps as towns of their own (El Zonte).
 
   The tool reads only those files; it asks no relay or server anything. Capitals whose districts GeoNames lists as towns, where the places carry no locality, take their districts in through a reviewed list, `tools/towns-absorb.ts` (Bangkok). Until the file is made again, a new place goes in the town its locality names, or the file's nearest town within 30 km, or, with none that near, in the town its locality names. The site never asks GeoNames anything; the countries' names come from the browser.
+- **The daily deploy can stop by itself.** GitHub turns scheduled workflows off after 60 days without activity in the repository; if shared links stop picking up new places, turn the Deploy workflow's schedule back on in the Actions tab.
 - **The Content Security Policy** is a meta tag the build writes into `index.html` (`tools/csp.ts`), with the hash of the theme's script, since GitHub Pages sets no headers. It lets the page reach its own files, OpenFreeMap's tile servers, Brainstorm's API and any `wss:` relay, run the scripts of sign-in add-ons, and show pictures from any https site. Code that reaches a new site needs it added there; `tests/csp.test.ts` fails on an address in the code that the policy refuses. A meta tag cannot set `frame-ancestors`, so the app keeps itself out of other sites' frames: in one, it draws only a link that opens it on its own (`src/shell/Framed.tsx`).
 - **Reviews are read in batches of 50 places, two batches at a time.** A page asks for all its places at once (`src/score/store.ts`). Each batch is two requests to every review relay, side by side: one by the places' `a` tag and one by their `d`, so reviews written by other apps with a `d` alone are found too. A relay therefore has at most four of the app's review requests open at once (`BATCHES_IN_FLIGHT`); the other batches wait their turn. Each request asks for at most 500 reviews. One that comes back full is followed by the next page, back in time (`until` = the oldest review seen), so a place with hundreds of reviews (spam, say) can't push the other places' reviews in its batch out of the answer. A full page that gets no further back (more than 500 reviews in one second) is followed by one from the second before: the rest of that second is not read, and the older reviews are. A request reads at most 5 pages (`REVIEW_PAGES`, 2,500 reviews); past that, the batch is cut short. Names are read 100 people to a request, two requests at a time, and the house's ranks 500 people to a request, two requests at a time.
 - **The house's view recovers.** House picks are unavailable only when the house's choice of scorer (kind 10040) can't be read, or its scorer's relay fails before it has given any rank. A rank read that fails later lets go of only that read's reviewers, who are asked about again at the next try; the places already ranked keep their scores. Explore and the place page offer Try again beside "House picks aren't available right now.", and the app tries again by itself when the browser says it is back on line, at most once in 5 seconds (`ONLINE_CALM_MS`), so a connection that comes and goes doesn't keep stopping reads that are doing well.
