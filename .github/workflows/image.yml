@@ -1,25 +1,44 @@
 name: Image
 
 # The site as a container image, for the NosFabrica cluster (brainstorm-k8s, charts/regulars).
-# Tags: the branch name, sha-<short>, the version on a v1.2.3 tag, and latest from main. The Pages
-# deploy (deploy.yml) and the Android release (android-release.yml) are untouched by this.
+# Tags: sha-<short> and latest from main, and the version from a v1.2.3 tag. The Pages deploy
+# (deploy.yml) and the Android release (android-release.yml) are untouched by this.
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  # Each day, as deploy.yml, so the pages a shared link opens keep up with the list. The day's
+  # rebuild of a commit replaces its sha-<short> image with one carrying the day's pages.
+  schedule:
+    - cron: "17 4 * * *"
   workflow_dispatch:
 
 concurrency:
   group: image-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # The same bar as deploy.yml: nothing is pushed unless the tests pass.
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
   image:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,7 +52,6 @@ jobs:
           grep -q "^FROM node:${pin}-alpine" Dockerfile \
             || { echo "Dockerfile base image != .nvmrc ($pin)"; exit 1; }
 
-      # The image runs the build, not the tests; deploy.yml and test.yml run those.
       - name: Compute lowercase image name
         id: img
         run: echo "name=$(echo '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
@@ -44,7 +62,6 @@ jobs:
         with:
           images: ${{ steps.img.outputs.name }}
           tags: |
-            type=ref,event=branch
             type=semver,pattern={{version}}
             type=sha,format=short,prefix=sha-
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
@@ -67,3 +84,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # A new value each run, so the share-pages layer is rebuilt every time (Dockerfile).
+          build-args: |
+            PAGES_STAMP=${{ github.run_id }}
