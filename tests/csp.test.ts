@@ -128,9 +128,9 @@ describe("the policy in the built page", () => {
     }
   });
 
-  it("lets the page reach OpenFreeMap's tiles, and MapTiler no more", () => {
+  it("lets the page reach the map's tile server, and MapTiler no more", () => {
     const connect = policyOf(html)!.get("connect-src") ?? [];
-    expect(connect).toContain("https://tiles.openfreemap.org");
+    expect(connect).toContain("https://map-tiles-server.brainstorm.world");
     expect(connect.filter((source) => /maptiler/i.test(source))).toEqual([]);
   });
 
@@ -219,9 +219,9 @@ describe("the policy and the addresses the code reaches", () => {
   const notReached = new Set(NOT_REACHED.map(([file, address]) => `${file} ${address}`));
   const reached = found.filter(([file, address]) => !notReached.has(`${file} ${address}`));
 
-  it("finds the addresses in the code: the relays, Brainstorm and OpenFreeMap", () => {
+  it("finds the addresses in the code: the relays, Brainstorm and the map's tile server", () => {
     const hosts = new Set(reached.map(([, address]) => new URL(address).host));
-    for (const host of ["dcosl.brainstorm.world", "search.brainstorm.world", "api.brainstorm.world", "tiles.openfreemap.org", "nos.lol"]) {
+    for (const host of ["dcosl.brainstorm.world", "search.brainstorm.world", "api.brainstorm.world", "map-tiles-server.brainstorm.world", "nos.lol"]) {
       expect(hosts, host).toContain(host);
     }
   });
