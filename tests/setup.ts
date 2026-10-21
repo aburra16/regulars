@@ -40,9 +40,10 @@ const defaults = structuredClone({
 });
 
 // Every test starts with no map tiles, so a map is the plain ground and fetches nothing; with no review
-// relays, no follow-list relays and no scorer override, whatever the machine's .env.local says; and
-// with the default trust relays, relay-list relays, scoring and read extras, whatever a test before it set. Saved is out (`features.saved`, until saved lists exist), and no picture is known not to load:
-// a test that wants Saved, or a picture that fails, sets it. A test that wants something else sets it.
+// relays, no follow-list relays, no saved-list relays and no scorer override, whatever the machine's
+// .env.local says; and with the default trust relays, relay-list relays, scoring and read extras,
+// whatever a test before it set. No picture is known not to load: a test that wants a picture that
+// fails sets it. A test that wants something else sets it.
 //
 // My circle starts closed (config.features.circle), though the app has it open: open, a signed-in tab
 // asks Brainstorm, once the places are in, whether the person's circle is ready
@@ -51,9 +52,12 @@ const defaults = structuredClone({
 //
 // Follow starts on (config.features.follow), as every build has it, whatever a test before it set. Its
 // off switch (ruling R39) is held by tests/followOff.test.tsx, which turns it off itself.
+//
+// Saving starts on too (config.features.saved), as every build has it, whatever a test before it set.
+// A test of its off switch turns it off itself.
 beforeEach(() => {
   config.features.circle = false;
-  config.features.saved = false;
+  config.features.saved = true;
   config.features.follow = true;
   forgetUnloadablePictures();
   config.mapTiles = false;
@@ -61,6 +65,7 @@ beforeEach(() => {
   config.devScorer = undefined;
   config.relayListRelays = [...defaults.relayListRelays];
   config.followListRelays = [];
+  config.savedListRelays = [];
   config.houseTrustRelays = [...defaults.houseTrustRelays];
   config.scoring = { ...defaults.scoring };
   config.relayReadExtras = structuredClone(defaults.relayReadExtras);

@@ -9,12 +9,20 @@ import { weightOf } from "../src/trust/houseWeights";
 const SET_FEATURES = structuredClone(config.features);
 
 /**
- * Loads a fresh copy of the config module under the given review relays, follow-list relays and
- * scorer override, in development (as `npm run dev` and the tests run) or in a production build.
+ * Loads a fresh copy of the config module under the given review relays, follow-list relays,
+ * saved-list relays and scorer override, in development (as `npm run dev` and the tests run) or in a
+ * production build.
  */
-async function configWith(env: { reviewRelays?: string; followListRelays?: string; devScorer?: string; production?: boolean }) {
+async function configWith(env: {
+  reviewRelays?: string;
+  followListRelays?: string;
+  savedListRelays?: string;
+  devScorer?: string;
+  production?: boolean;
+}) {
   vi.stubEnv("VITE_REVIEW_RELAYS", env.reviewRelays);
   vi.stubEnv("VITE_FOLLOW_LIST_RELAYS", env.followListRelays);
+  vi.stubEnv("VITE_SAVED_LIST_RELAYS", env.savedListRelays);
   vi.stubEnv("VITE_DEV_SCORER", env.devScorer);
   vi.stubEnv("DEV", !env.production);
   vi.stubEnv("PROD", env.production ?? false);
@@ -53,15 +61,20 @@ describe("config", () => {
     expect(config.defaultCity).toEqual({ name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 });
   });
 
-  it("opens signing in, and My circle now that its scores can be worked out (M2b; M3 Task 3), keeps Saved off until saved lists exist, and has Follow on (ruling R39)", () => {
+  it("opens signing in, My circle, Saved and Follow", () => {
     // As config.ts sets them: tests/setup.ts closes My circle before each test, whatever it says, and
     // the tests of My circle open it.
-    expect(SET_FEATURES).toEqual({ signIn: true, circle: true, saved: false, follow: true });
+    expect(SET_FEATURES).toEqual({ signIn: true, circle: true, saved: true, follow: true });
   });
 
   it("has Follow on for everyone, in a production build as in development", async () => {
     expect((await configWith({ production: true })).features.follow).toBe(true);
     expect((await configWith({})).features.follow).toBe(true);
+  });
+
+  it("has Saved on for everyone, in a production build as in development", async () => {
+    expect((await configWith({ production: true })).features.saved).toBe(true);
+    expect((await configWith({})).features.saved).toBe(true);
   });
 
   it("meets phone apps at one place, relay.nsec.app, only while connecting one", () => {
@@ -120,6 +133,28 @@ describe("config", () => {
   it("reads and saves follow lists at the ws and wss relays in VITE_FOLLOW_LIST_RELAYS, in development", async () => {
     const followListRelays = " ws://localhost:10547 , https://relay.example.test,wss://relay.example.test,,nonsense";
     expect((await configWith({ followListRelays })).followListRelays).toEqual(["ws://localhost:10547", "wss://relay.example.test"]);
+  });
+
+  it("reads and saves saved places at five public relays in a production build, whatever VITE_SAVED_LIST_RELAYS says, and never at Purplepages, the list hub or the search relay", async () => {
+    const production = ["wss://nos.lol", "wss://relay.primal.net", "wss://relay.damus.io", "wss://nostr.mom", "wss://nostr.oxtr.dev"];
+    const built = await configWith({ production: true });
+    expect(built.savedListRelays).toEqual(production);
+    for (const keepsNone of ["wss://purplepag.es", built.placesRelay, SEARCH_RELAY]) {
+      expect(built.savedListRelays).not.toContain(keepsNone);
+    }
+    expect((await configWith({ savedListRelays: "wss://relay.example.test", production: true })).savedListRelays).toEqual(production);
+  });
+
+  it("reads and saves saved places nowhere of its own in development when VITE_SAVED_LIST_RELAYS is unset or blank: no public relay is written to", async () => {
+    expect((await configWith({})).savedListRelays).toEqual([]);
+    expect((await configWith({ savedListRelays: " " })).savedListRelays).toEqual([]);
+    // The follow lists' setting is its own: it names no relay for saved places.
+    expect((await configWith({ followListRelays: "ws://localhost:10547" })).savedListRelays).toEqual([]);
+  });
+
+  it("reads and saves saved places at the ws and wss relays in VITE_SAVED_LIST_RELAYS, in development", async () => {
+    const savedListRelays = " ws://localhost:10547 , https://relay.example.test,wss://relay.example.test,,nonsense";
+    expect((await configWith({ savedListRelays })).savedListRelays).toEqual(["ws://localhost:10547", "wss://relay.example.test"]);
   });
 
   it("counts a reviewer from rank 5 (decision 18), and orders lists with 1.5 votes of 3.5 stars", () => {
@@ -190,18 +225,19 @@ describe("config", () => {
 });
 
 /**
- * Fails unless the config is as tests/setup.ts puts it before each test: My circle and Saved closed,
- * Follow on, no map tiles, no review relays, follow-list relays or scorer override, and the trust relays,
- * relay-list relays, scoring and read extras as config.ts sets them.
+ * Fails unless the config is as tests/setup.ts puts it before each test: My circle closed, Saved and
+ * Follow on, no map tiles, no review relays, follow-list relays, saved-list relays or scorer override,
+ * and the trust relays, relay-list relays, scoring and read extras as config.ts sets them.
  */
 function expectEachTestsConfig(): void {
-  expect(config.features).toMatchObject({ circle: false, saved: false, follow: true });
+  expect(config.features).toMatchObject({ circle: false, saved: true, follow: true });
   expect(config.mapTiles).toBe(false);
   expect(config.reviewRelays).toEqual([]);
   expect(config.devScorer).toBeUndefined();
   expect(config.houseTrustRelays).toEqual(["wss://scores.brainstorm.world"]);
   expect(config.relayListRelays).toEqual(["wss://purplepag.es"]);
   expect(config.followListRelays).toEqual([]);
+  expect(config.savedListRelays).toEqual([]);
   expect(config.scoring).toEqual({ line: 5, priorWeight: 1.5, priorMean: 3.5 });
   expect(config.relayReadExtras).toEqual({ [SEARCH_RELAY]: { search: "include:spam" } });
 }
@@ -209,7 +245,7 @@ function expectEachTestsConfig(): void {
 /** Changes every part of the config that tests/setup.ts puts back, in place and by replacing it. */
 function changeEverything(): void {
   config.features.circle = true;
-  config.features.saved = true;
+  config.features.saved = false;
   config.features.follow = false;
   config.mapTiles = true;
   config.reviewRelays = ["ws://localhost:10547"];
@@ -217,6 +253,7 @@ function changeEverything(): void {
   config.houseTrustRelays.push("ws://localhost:10547");
   config.relayListRelays = ["ws://localhost:10547"];
   config.followListRelays = ["ws://localhost:10547"];
+  config.savedListRelays = ["ws://localhost:10547"];
   config.scoring.line = 50;
   config.relayReadExtras[SEARCH_RELAY]!.search = "spam";
 }

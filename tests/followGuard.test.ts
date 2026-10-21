@@ -1,9 +1,7 @@
 // @vitest-environment node
-import { readdirSync, readFileSync } from "node:fs";
-import { posix, resolve } from "node:path";
-
-import { parseSync } from "vite";
 import { describe, expect, it } from "vitest";
+
+import { bare, exportsOf, imported, isModule, isNode, nameOf, type Node, programOf, read, sourcesUnder } from "./support/codeGuard";
 
 /*
  * The guard on the follow list's one writer (ruling R2). A follow list (kind 3) is one record that
@@ -44,8 +42,6 @@ import { describe, expect, it } from "vitest";
  * break one is a second writer of follow lists, and belongs in `changeFollow` instead.
  */
 
-const root = process.cwd();
-
 /** The one module that may build, sign and send a follow list. */
 const ONLY_WRITER = "src/follow/change.ts";
 /** The list's rules, pure: where a follow list's template is built. */
@@ -59,56 +55,17 @@ const COPIES_STORE = "src/follow/keptStore.ts";
 /** The modules that make a module one that knows follow lists: by importing one of them, or by being one. */
 const FOLLOW_LIST_CODE = [LIST_RULES, "src/follow/read.ts", ONLY_WRITER, KEPT, COPIES_STORE, PROVIDER];
 /** The modules the app signs an event with, or sends one to a relay with. */
-const SIGNING_AND_SENDING = ["src/nostr/send.ts", "src/review/post.ts"];
+const SIGNING_AND_SENDING = ["src/nostr/send.ts", "src/review/post.ts", "src/nostr/listWrite.ts"];
 /** The names of what builds the list to sign. */
 const BUILDERS = ["withFollow", "withoutFollow", "withRestored", "withWholeList"];
 /** The methods that sign an event (a signer's) and send one (a relay writer's). */
 const SIGN_OR_SEND_CALLS = ["signEvent", "publish"];
-
-/** Every .ts and .tsx file under a folder, as paths relative to the project. */
-function sourcesUnder(dir: string): string[] {
-  return readdirSync(resolve(root, dir), { withFileTypes: true }).flatMap((entry) =>
-    entry.isDirectory() ? sourcesUnder(`${dir}/${entry.name}`) : /\.tsx?$/.test(entry.name) ? [`${dir}/${entry.name}`] : [],
-  );
-}
-
-type Node = { type: string; start: number; [key: string]: unknown };
-const isNode = (value: unknown): value is Node =>
-  typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "string";
-
-/** `node` without what TypeScript and brackets wrap an expression in: `(3)`, `3 as number`, `x!`, `a?.b`. */
-function bare(node: unknown): Node | undefined {
-  let each = node;
-  while (
-    isNode(each) &&
-    /^(?:ParenthesizedExpression|TSAsExpression|TSSatisfiesExpression|TSNonNullExpression|TSTypeAssertion|ChainExpression)$/.test(each.type)
-  ) {
-    each = each.expression;
-  }
-  return isNode(each) ? each : undefined;
-}
-
-/** The name a property or a member is reached by: `kind` in `{ kind }`, `{ "kind": … }`, `x.kind` and `x["kind"]`. */
-function nameOf(key: unknown): string | undefined {
-  if (!isNode(key)) return undefined;
-  if (key.type === "Identifier" || key.type === "PrivateIdentifier") return key.name as string;
-  if (key.type === "Literal" && typeof key.value === "string") return key.value;
-  return undefined;
-}
 
 /** Whether an expression is the follow list's kind, as the code writes it: 3, or `FOLLOW_KIND`. */
 function isFollowKind(node: unknown): boolean {
   const value = bare(node);
   return value !== undefined && ((value.type === "Literal" && value.value === 3) || (value.type === "Identifier" && value.name === "FOLLOW_KIND"));
 }
-
-/** The project path of what `file` imports as `specifier`, when that is a file of the project's own. */
-function imported(file: string, specifier: string): string | undefined {
-  return specifier.startsWith(".") ? posix.normalize(posix.join(posix.dirname(file), specifier)) : undefined;
-}
-
-/** Whether `path` is the module `module`, however the import wrote its ending. */
-const isModule = (path: string | undefined, module: string) => path !== undefined && path.replace(/\.tsx?$/, "") === module.replace(/\.tsx?$/, "");
 
 /** Whether an object literal has a property of this name, written out (not one a spread may bring). */
 const hasProperty = (object: Node, name: string) =>
@@ -144,8 +101,7 @@ interface Facts {
 }
 
 function factsOf(file: string, source: string): Facts {
-  const { program, errors } = parseSync(file, source, { lang: file.endsWith(".tsx") ? "tsx" : "ts" });
-  if (errors.length > 0) throw new Error(`${file} did not parse: ${errors.map((error) => error.message).join("; ")}`);
+  const program = programOf(file, source);
   const facts: Facts = { builds: [], copies: [], builders: [], knows: [], signsOrSends: [] };
   if (FOLLOW_LIST_CODE.includes(file)) facts.knows.push({ at: 0, why: `is ${file}` });
 
@@ -226,27 +182,6 @@ function breaches(file: string, source: string): string[] {
   }
   return found;
 }
-
-/** The names a module exports, of values and of types alike, in order of name; `* from <module>` for all of another's. */
-function exportsOf(file: string, source: string): string[] {
-  const { program, errors } = parseSync(file, source, { lang: file.endsWith(".tsx") ? "tsx" : "ts" });
-  if (errors.length > 0) throw new Error(`${file} did not parse: ${errors.map((error) => error.message).join("; ")}`);
-  const names: string[] = [];
-  for (const node of program.body as unknown as Node[]) {
-    if (node.type === "ExportDefaultDeclaration") names.push("default");
-    if (node.type === "ExportAllDeclaration") names.push(nameOf(node.exported) ?? `* from ${String((node.source as Node).value)}`);
-    if (node.type !== "ExportNamedDeclaration") continue;
-    for (const specifier of (node.specifiers as Node[] | undefined) ?? []) names.push(nameOf(specifier.exported) ?? "?");
-    const declared = node.declaration as Node | null;
-    if (declared === null) continue;
-    // A `const` may declare several; anything else that is exported has one name.
-    const ids = declared.type === "VariableDeclaration" ? (declared.declarations as Node[]).map((each) => each.id) : [declared.id];
-    for (const id of ids) names.push(nameOf(id) ?? "?");
-  }
-  return names.sort();
-}
-
-const read = (file: string) => readFileSync(resolve(root, file), "utf8");
 
 describe("the follow list's one writer (ruling R2)", () => {
   it("is the only module in src that builds, signs or sends a follow list", () => {
@@ -486,8 +421,7 @@ interface Asks {
  * method named `unfollow`), and what uses `press`, the function a press runs (by default, `onPress`).
  */
 function asksOf(file: string, source: string, asked = "unfollow", press = PRESS): Asks {
-  const { program, errors } = parseSync(file, source, { lang: file.endsWith(".tsx") ? "tsx" : "ts" });
-  if (errors.length > 0) throw new Error(`${file} did not parse: ${errors.map((error) => error.message).join("; ")}`);
+  const program = programOf(file, source);
   const asks: Asks = { calls: [], uses: [] };
 
   const walk = (node: unknown, around: Node[]) => {
@@ -575,8 +509,7 @@ function callersOf(sources: Array<[file: string, source: string]>, asked: string
  * each time. A function that is only ever called is named nowhere else; one that is handed on is.
  */
 function handedOn(file: string, source: string, name: string): string[] {
-  const { program, errors } = parseSync(file, source, { lang: file.endsWith(".tsx") ? "tsx" : "ts" });
-  if (errors.length > 0) throw new Error(`${file} did not parse: ${errors.map((error) => error.message).join("; ")}`);
+  const program = programOf(file, source);
   const found: string[] = [];
   const walk = (node: unknown, parent: Node | undefined) => {
     if (Array.isArray(node)) return node.forEach((each) => walk(each, parent));
@@ -595,8 +528,7 @@ function handedOn(file: string, source: string, name: string): string[] {
 
 /** The functions each node of `source` that `matches` is in, nearest first: one list for each such node, in the order of the code. */
 function whereIn(file: string, source: string, matches: (node: Node) => boolean): string[][] {
-  const { program, errors } = parseSync(file, source, { lang: file.endsWith(".tsx") ? "tsx" : "ts" });
-  if (errors.length > 0) throw new Error(`${file} did not parse: ${errors.map((error) => error.message).join("; ")}`);
+  const program = programOf(file, source);
   const found: string[][] = [];
   const walk = (node: unknown, around: Node[]) => {
     if (Array.isArray(node)) return node.forEach((each) => walk(each, around));
@@ -665,8 +597,7 @@ const GOES_ON_FROM = "allowed";
  * the `if`s whose own branch it is in), as the names they are made of.
  */
 function setsOf(file: string, source: string, member: string): Array<{ within: string[]; under: string[] }> {
-  const { program, errors } = parseSync(file, source, { lang: file.endsWith(".tsx") ? "tsx" : "ts" });
-  if (errors.length > 0) throw new Error(`${file} did not parse: ${errors.map((error) => error.message).join("; ")}`);
+  const program = programOf(file, source);
   const found: Array<{ within: string[]; under: string[] }> = [];
   /** Every `a.b.c` read in an expression, outermost first, each once. */
   const readsIn = (test: unknown): string[] => {

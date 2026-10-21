@@ -1,8 +1,9 @@
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
-import { configuredRelayAddress, publicRelayAddress, type RelayListRead, readRelayList, readWithin } from "../account/writeRelays.ts";
+import { configuredRelayAddress, type RelayListRead, readRelayList, readWithin } from "../account/writeRelays.ts";
 import { config } from "../config.ts";
 import { asEvent, type Readers, type ReadOptions } from "../nostr/events.ts";
+import { type ListRelays, listRelaysWith, NEW_LIST_QUORUM, newListQuorum } from "../nostr/listRelays.ts";
 import { PROFILE_KIND } from "../nostr/profiles.ts";
 import { FOLLOW_KIND, names, newestList } from "./list.ts";
 
@@ -47,12 +48,10 @@ export const FOLLOW_READ_MS = 6_000;
  */
 export const MAX_FOLLOW_RELAYS = 16;
 
-/**
- * The fewest of the app's follow-list relays whose having nothing of a person is ever believed, so
- * that a fresh list may be made for them (ruling R7). One relay's nothing proves nothing: some keep
- * no lists, and answer as if the person had none.
- */
-export const NEW_LIST_QUORUM = 3;
+// The fewest of the app's follow-list relays whose having nothing of a person is ever believed, and
+// how many must answer before it is, are kept with the choice of relays for any list a person keeps
+// as one record (src/nostr/listRelays.ts), and handed on from here.
+export { NEW_LIST_QUORUM, newListQuorum };
 
 /**
  * The fewest of the app's follow-list relays that must hold the very same list as their newest of a
@@ -79,17 +78,6 @@ export const COPY_NOT_BEFORE_S = 1_577_836_800;
  * anyone since.
  */
 export const COPY_AHEAD_S = 86_400;
-
-/**
- * How many of the app's follow-list relays must answer before their nothing is believed, when
- * `appRelays` of them were asked: more than half, and never fewer than `NEW_LIST_QUORUM` (ruling
- * R16). Of six, four: three that never held the person's list cannot stand for the three that hold
- * it and did not answer. Of four, three. Of fewer than three it is more than there are, and is
- * never met.
- */
-export function newListQuorum(appRelays: number): number {
-  return Math.max(NEW_LIST_QUORUM, Math.floor(appRelays / 2) + 1);
-}
 
 /** The app's own follow-list relays, as the addresses a list is read from: each once (`followRelaysWith`). */
 const appRelays = (): Set<string> => new Set(followRelaysWith(null).relays);
@@ -122,49 +110,17 @@ async function ask(url: string, filter: NostrFilter, readers: Readers, signal: A
 }
 
 /** Where a person's follow list is read and saved, and which of those relays the person writes to (`followRelaysWith`). */
-export interface FollowRelays {
-  /** Where the list is read, and a changed one saved, as far as each answers. */
-  relays: string[];
-  /** Those of `relays` the person's relay list writes to, in its order: a changed list goes to them whether they answered or not. */
-  writes: string[];
-}
+export type FollowRelays = ListRelays;
 
 /**
  * Where the follow list of a person is read and saved, given their relay list (as `readRelayList`
- * found it; null when they have none): the relays it writes to and then reads from, then
- * `config.followListRelays`. Each address once, at its first place. Not the review relays as such
- * (ruling R12): the search relay keeps no follow lists, and answers as if the person had none; one
- * is among these only when it is a follow-list relay too, or the person's own list names it. The
- * person's are `wss://` only and public (`publicRelayAddress`); the app's own are as it is set up
- * with them. At most `MAX_FOLLOW_RELAYS`, and when the person names more than there is room for, the
- * app's own stay and the person's last give way. With no relay list, the follow-list relays, and
- * nowhere the person writes.
+ * found it; null when they have none), as `listRelaysWith` chooses them, with the follow-list relays
+ * (`config.followListRelays`) as the app's own and at most `MAX_FOLLOW_RELAYS`. Not the review relays
+ * as such: the search relay keeps no follow lists, and answers as if the person had none; one is
+ * among these only when it is a follow-list relay too, or the person's own list names it.
  */
 export function followRelaysWith(theirList: { write: readonly string[]; read: readonly string[] } | null): FollowRelays {
-  const writtenTo = new Set<string>();
-  for (const url of theirList?.write ?? []) {
-    const address = publicRelayAddress(url);
-    if (address !== null) writtenTo.add(address);
-  }
-  const theirs = new Set(writtenTo);
-  for (const url of theirList?.read ?? []) {
-    const address = publicRelayAddress(url);
-    if (address !== null) theirs.add(address);
-  }
-  const ours = new Set<string>();
-  for (const url of config.followListRelays) {
-    const address = configuredRelayAddress(url);
-    if (address !== null) ours.add(address);
-  }
-
-  let room = Math.max(0, MAX_FOLLOW_RELAYS - ours.size);
-  const relays: string[] = [];
-  for (const address of new Set([...theirs, ...ours])) {
-    if (ours.has(address)) relays.push(address);
-    else if (room-- > 0) relays.push(address);
-  }
-  const kept = relays.slice(0, MAX_FOLLOW_RELAYS);
-  return { relays: kept, writes: kept.filter((address) => writtenTo.has(address)) };
+  return listRelaysWith(theirList, config.followListRelays, MAX_FOLLOW_RELAYS);
 }
 
 /**

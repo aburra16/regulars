@@ -12,13 +12,14 @@ import { PersonRoute } from "./person/PersonRoute.tsx";
 import { PlacePage } from "./place/PlacePage.tsx";
 import { RecentPage } from "./recent/RecentPage.tsx";
 import { ReviewRoute } from "./review/ReviewPage.tsx";
+import { SavedPage } from "./saved/SavedPage.tsx";
 import { FiltersPage } from "./search/FiltersPage.tsx";
 import { SearchPage } from "./search/SearchPage.tsx";
 import { NotFound, PageError, ShellError } from "./shell/PageError.tsx";
 import { type Chrome, Shell } from "./shell/Shell.tsx";
 import { useWide } from "./shell/useWide.ts";
 import { SignInPage } from "./signin/SignInPage.tsx";
-import { SavedPage, YouPage } from "./you/YouPage.tsx";
+import { YouPage } from "./you/YouPage.tsx";
 
 const chrome = (value: Chrome): Chrome => value;
 
@@ -62,8 +63,9 @@ export const routes: RouteObject[] = [
           // Why you see what you see: "How this works", beside the toggle, links here. It shows no places.
           { path: WHY_PATH.slice(1), element: <WhyPage />, handle: chrome({ needsPlaces: false }) },
           { path: "signin", element: <SignInPage />, handle: chrome({ topBar: false, needsPlaces: false, night: true }) },
-          // Both ask the person to sign in, until they have. Saved is in no tab or bar until saved
-          // lists open (config.features.saved); a link to it still opens it.
+          // Both ask the person to sign in, until they have. Signed in, Saved lists the person's saved
+          // places, and waits for the places itself: its prompt, and what it says of the list, need none.
+          // While saving is closed (config.features.saved) it is in no tab or bar; a link to it still opens it.
           { path: "saved", element: <SavedPage />, handle: chrome({ tabs: true, needsPlaces: false }) },
           { path: "you", element: <YouPage />, handle: chrome({ tabs: true, needsPlaces: false }) },
           { path: "*", element: <NotFound />, handle: chrome({ needsPlaces: false }) },

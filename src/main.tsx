@@ -33,6 +33,7 @@ import { FollowProvider } from "./follow/FollowProvider.tsx";
 import { HereProvider } from "./location/HereProvider.tsx";
 import { PlacesProvider } from "./places/store.tsx";
 import { routes } from "./routes.tsx";
+import { SavedProvider } from "./saved/SavedProvider.tsx";
 import { ScoresProvider } from "./score/ScoresProvider.tsx";
 import { FramedLink, isFramed } from "./shell/Framed.tsx";
 import { forgetScrollOfFreshVisit } from "./shell/scrollKey.ts";
@@ -50,14 +51,16 @@ followDevice();
 // The places load once for the whole app; the reviews, ranks and names of the places that pages ask
 // about are read once a session (nothing until a page asks); who is signed in is restored from what
 // this tab kept; the people they follow are read once a page shows a Follow button, and kept for the
-// session; their circle (My circle) is where this tab left it; where the places are near is named
-// from their towns; the pages, and the shell around them, come from the router.
+// session; the places they saved are read once they are signed in, and kept for the session too;
+// their circle (My circle) is where this tab left it; where the places are near is named from their
+// towns; the pages, and the shell around them, come from the router.
 //
 // ScoresProvider and ForgetCircleOnSignOut must stay outside AccountProvider: they give the account
 // provider what to forget when the person signs out (src/account/forgetOnSignOut.ts), their reviews
 // held for the tab, their circle and Brainstorm's token, and a provider can only use what a provider
-// around it gives. FollowProvider and CircleProvider are inside it, as they follow who is signed in;
-// FollowProvider is inside ScoresProvider too, whose readers and writers of relays it uses.
+// around it gives. FollowProvider, SavedProvider and CircleProvider are inside it, as they follow who
+// is signed in; FollowProvider and SavedProvider are inside ScoresProvider too, whose readers and
+// writers of relays they use.
 //
 // In another site's frame, none of it: only a link that opens the page on its own (src/shell/Framed.tsx).
 if (isFramed()) {
@@ -75,11 +78,13 @@ if (isFramed()) {
           <ForgetCircleOnSignOut>
             <AccountProvider>
               <FollowProvider>
-                <CircleProvider>
-                  <HereProvider>
-                    <RouterProvider router={router} />
-                  </HereProvider>
-                </CircleProvider>
+                <SavedProvider>
+                  <CircleProvider>
+                    <HereProvider>
+                      <RouterProvider router={router} />
+                    </HereProvider>
+                  </CircleProvider>
+                </SavedProvider>
               </FollowProvider>
             </AccountProvider>
           </ForgetCircleOnSignOut>

@@ -239,8 +239,9 @@ describe("the policy and the addresses the code reaches", () => {
 
   it("lets the page reach the relays, Brainstorm and the map's style as the config and the map have them", async () => {
     const connect = CSP_DIRECTIVES["connect-src"];
-    // The review relays and the follow-list relays as a production build has them: the tests run as
-    // development does, where both come from the machine's settings, and are empty.
+    // The review relays, the follow-list relays and the saved-list relays as a production build has
+    // them: the tests run as development does, where each comes from the machine's settings, and is
+    // empty.
     vi.stubEnv("DEV", false);
     vi.stubEnv("PROD", true);
     vi.resetModules();
@@ -249,12 +250,14 @@ describe("the policy and the addresses the code reaches", () => {
     vi.resetModules();
     expect(production.reviewRelays).toHaveLength(3);
     expect(production.followListRelays).toHaveLength(6);
+    expect(production.savedListRelays).toHaveLength(5);
     const addresses = [
       config.placesRelay,
       config.connectRelay,
       ...config.relayListRelays,
       ...production.reviewRelays,
       ...production.followListRelays,
+      ...production.savedListRelays,
       ...config.houseTrustRelays,
       ...Object.keys(config.relayReadExtras),
       config.brainstormApi,

@@ -1,5 +1,5 @@
-import { type JSX, useContext, useEffect, useMemo, useRef } from "react";
-import { Link, useLocation, useOutlet, useParams } from "react-router-dom";
+import { type JSX, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useOutlet, useParams } from "react-router-dom";
 
 import { useOwnPubkey } from "../account/useOwnPubkey.ts";
 import { config } from "../config.ts";
@@ -14,6 +14,7 @@ import type { Place } from "../places/place.ts";
 import { useIndexes } from "../places/useIndexes.ts";
 import { type RemoveReview, type RemoveStatus, useRemoveReview } from "../review/useRemoveReview.ts";
 import type { Paid, Review } from "../reviews/review.ts";
+import { SaveButton } from "../saved/SaveButton.tsx";
 import type { PlaceScore } from "../score/score.ts";
 import { seenBy, type ShownScore, shownScore } from "../score/shown.ts";
 import type { ViewState } from "../score/store.ts";
@@ -25,7 +26,6 @@ import { useNow } from "../shell/useNow.ts";
 import { useWide } from "../shell/useWide.ts";
 import { BackLink } from "../ui/BackLink.tsx";
 import { DetailsCredit } from "../ui/DetailsCredit.tsx";
-import { SavedIcon } from "../ui/icons.tsx";
 import { KindTile } from "../ui/KindTile.tsx";
 import { NewTabHint } from "../ui/NewTab.tsx";
 import { NotListedOrLoading } from "../ui/NotListed.tsx";
@@ -65,19 +65,6 @@ function OutLink({ href, className, children }: { href: string; className: strin
       {children}
       <NewTabHint />
     </a>
-  );
-}
-
-/**
- * The bookmark at the top right of a phone's page, once saved lists open (`config.features.saved`).
- * Saving needs sign in, which can come back here.
- */
-function SaveLink(): JSX.Element {
-  const location = useLocation();
-  return (
-    <Link to="/signin" state={{ from: location }} aria-label={copy.place.save} className="flex size-11 items-center justify-center text-ink">
-      <SavedIcon size={22} />
-    </Link>
   );
 }
 
@@ -372,16 +359,24 @@ function RemovalStatus({ status }: { status: RemoveStatus }): JSX.Element {
  * The phone's page (the design): the score panel under the header, then the actions, the strip of
  * photos, the map and the facts, then the reviews, and the places nearby. The strip comes after the
  * actions, so that they do not move down when the photos come.
+ *
+ * Save is the bookmark at the top right, across from the way back (src/saved/SaveButton.tsx). What a
+ * press of it left to say is drawn under the header, as wide as the page: beside the bookmark there is
+ * no room for it, and the bookmark and the name stay where they were when it comes.
  */
 function PhonePlace({ view }: { view: View }): JSX.Element {
   const { place, actions, state, nearby, nearbyScores, locale, now } = view;
+  // The row Save's lines are drawn in, once it is on the page.
+  const [savedLines, setSavedLines] = useState<HTMLDivElement | null>(null);
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex items-center justify-between px-3 pt-3.5">
         <BackLink wide={false} />
-        {config.features.saved && <SaveLink />}
+        <SaveButton place={place} look="phone" linesIn={savedLines} />
       </div>
       <PhoneHeader {...view} />
+      {/* Empty, it takes no room: its room is for a line that is seen. */}
+      <div ref={setSavedLines} className="min-w-0 px-gutter-phone has-[p]:pt-2.5" />
       <div className="px-gutter-phone pt-[18px]">
         <ScorePanel name={place.name} wide={false} shown={view.shown} onRetry={view.retry} />
       </div>
@@ -431,7 +426,7 @@ function DeskPlace({ view }: { view: View }): JSX.Element {
         </div>
         <aside aria-label={copy.place.railLabel} className="flex w-rail min-w-0 shrink-0 flex-col gap-4">
           <RateButton />
-          <RailActions actions={actions} />
+          <RailActions actions={actions} place={place} />
           <MissingDetails place={place} actions={actions} state={state} />
           <PlaceMap place={place} className="h-[220px] rounded-panel" />
           <Facts place={place} now={now} locale={locale} price={view.price} paid={view.paid} />

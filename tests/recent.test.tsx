@@ -1039,12 +1039,12 @@ describe("Trending: the person's own review, and coming back", () => {
 });
 
 describe("Trending: getting there", () => {
-  it("is a tab on a phone, between Map and You, marked while it is open", async () => {
+  it("is a tab on a phone, between Map and Saved, marked while it is open", async () => {
     const net = network();
     await openRecent(net);
     const tabs = within(tabBar()!).getAllByRole("link");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Trending", "You"]);
-    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/trending", "/you"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Explore", "Map", "Trending", "Saved", "You"]);
+    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/map", "/trending", "/saved", "/you"]);
     const recent = within(tabBar()!).getByRole("link", { name: copy.nav.recent });
     expect(recent).toHaveAttribute("aria-current", "page");
     expect(recent.querySelector("svg")).toHaveAttribute("aria-hidden", "true");

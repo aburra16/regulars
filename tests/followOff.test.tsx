@@ -68,6 +68,10 @@ let logs: Logs;
 beforeEach(() => {
   logs = startScene(change, brainstorm);
   forgetFollowedSeen();
+  // Saving is closed in this file: it reads the person's relay list too, and asks a phone app to sign
+  // their saved places, and what is counted here is what Follow alone asks for. Saving's own switch
+  // is held by tests/savedPage.test.tsx and tests/account.test.tsx.
+  config.features.saved = false;
 });
 
 afterEach(async () => {

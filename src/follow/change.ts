@@ -5,7 +5,8 @@ import { type Account, REQUEST_TIMEOUT_MS } from "../account/session.ts";
 import { withTabLock } from "../account/tabLock.ts";
 import { abortable } from "../account/writeRelays.ts";
 import { asEvent, isNewer, type Readers, type Writers } from "../nostr/events.ts";
-import { PUBLISH_TIMEOUT_MS, SIGN_TIMEOUT_MS, sameTag, sendOnce, signInTime, signTimeFor } from "../nostr/send.ts";
+import { exactly, sendToAll, signatureCheck } from "../nostr/listWrite.ts";
+import { PUBLISH_TIMEOUT_MS, SIGN_TIMEOUT_MS, signInTime, signTimeFor } from "../nostr/send.ts";
 import { isHex64 } from "../nostr/shapes.ts";
 import { KEEP_WAIT_MS, type KeptFor } from "./kept.ts";
 import { FOLLOW_KIND, type Removed, removedBy, withFollow, withoutFollow, withRestored, withWholeList } from "./list.ts";
@@ -74,8 +75,9 @@ import {
  * those they were asked about; and `putBackList` only when they press Put it back, on the page
  * that lists their copies.
  * Nothing here loads Nostrify (its imports are types), and nostr-tools' check of a signature is
- * fetched when a write first needs it, before the signer is asked (`signatureCheck`). Nothing here
- * is logged: a list, its entries and the relays a person keeps it on are theirs.
+ * fetched when a write first needs it, before the signer is asked (`signatureCheck`,
+ * src/nostr/listWrite.ts). Nothing here is logged: a list, its entries and the relays a person keeps
+ * it on are theirs.
  */
 
 /**
@@ -343,129 +345,6 @@ async function isNewAccount(pubkey: string, read: OwnListRead, readers: Readers,
 }
 
 /**
- * `signed` as an event of its seven fields, when it is exactly `template` signed by `pubkey`: the
- * same kind, time and `content`, and the same tags, each the same value for value, in the same
- * order, with none more and none fewer. Null otherwise. A review may carry a tag its signer adds
- * (src/review/post.ts); a follow list may not, as whatever is signed here replaces the person's
- * whole list.
- */
-function exactly(signed: unknown, template: EventTemplate, pubkey: string): NostrEvent | null {
-  const event = asEvent(signed);
-  if (event === null) return null;
-  const same =
-    event.pubkey === pubkey &&
-    event.kind === template.kind &&
-    event.created_at === template.created_at &&
-    event.content === template.content &&
-    event.tags.length === template.tags.length &&
-    template.tags.every((tag, at) => sameTag(tag, event.tags[at]));
-  return same ? event : null;
-}
-
-/**
- * The check that an event is valid: its id is the hash of its fields, and its signature is over
- * that id by the key it names. It is nostr-tools' own (`verifyEvent`), with its hashing and its
- * curve: none of it is written here. A list that fails it is one the person never signed, and relays
- * that check would refuse it while one that did not would keep it in their name (ruling R41).
- *
- * Its code is fetched when a change first needs it, as the curve it brings is no part of the first
- * screen (tests/relay-chunk.test.ts), and it is had BEFORE the signer is asked: null when it cannot
- * be fetched, so that the change stops with nothing signed, and the person is not asked to approve
- * what could not then be sent. The fetch is waited for under `signal`: one that hangs ends with the
- * change, and does not hold the tab's turn or the lock. Throws only when `signal` aborts.
- *
- * The check is given a copy of the event, as nostr-tools notes its verdict on what it checks, and
- * takes such a note at its word: what it is asked about is the seven fields `exactly` read
- * (`asEvent`), which carry no note, and stay so.
- */
-async function signatureCheck(signal: AbortSignal): Promise<((event: NostrEvent) => boolean) | null> {
-  try {
-    const { verifyEvent } = await abortable(import("nostr-tools/pure"), signal);
-    return (event) => verifyEvent({ ...event });
-  } catch {
-    signal.throwIfAborted();
-    return null;
-  }
-}
-
-/** How a relay answered a list it was sent. */
-interface Answer {
-  /** Whether it took it, on its first try or its second. */
-  took: boolean;
-  /** Whether it said, on either try, that it holds a newer one: said once, it stands, whatever the other try came to. */
-  saidNewer: boolean;
-}
-
-/**
- * Whether a relay's refusal says that it holds a newer list than the one it was sent: `replaced:`,
- * as relays that keep one list a person say, or any reason that speaks of a newer one. What the
- * relay said is read here and goes no further: it is not logged, and not kept.
- */
-const saysNewer = (reason: string): boolean => /^replaced:/i.test(reason) || /\bnewer\b/i.test(reason);
-
-/**
- * Sends `event` to the relay at `url`, and how it answered: one try of `PUBLISH_TIMEOUT_MS`
- * (`sendOnce`), and one more when the first failed in a way that may pass (its connection was lost,
- * or it refused for now). Not a second when the first was refused for good or had no answer in its
- * time, which is no failure that may pass, nor once `signal` has aborted, whatever its reason reads
- * as.
- */
-async function sendTo(url: string, event: NostrEvent, writers: Writers, signal: AbortSignal): Promise<Answer> {
-  const first = await sendOnce(url, event, writers, signal);
-  if (first === null) return { took: true, saidNewer: false };
-  const saidNewer = saysNewer(first.reason);
-  if (!first.mayPass || signal.aborted) return { took: false, saidNewer };
-  const second = await sendOnce(url, event, writers, signal);
-  return { took: second === null, saidNewer: saidNewer || (second !== null && saysNewer(second.reason)) };
-}
-
-/** What the relays did with a list they were sent, as far as they had answered (`sendToAll`). */
-interface Sent {
-  /** The relays that had taken it, in the order they were given. */
-  took: string[];
-  /** Whether one of them said it holds a newer list: then this one is not the newest everywhere, whoever took it. */
-  newerElsewhere: boolean;
-}
-
-/**
- * Sends `event` to every one of `places` at once (`sendTo`), and resolves with what they did with
- * it: once every relay has answered or run out of time, or `FOLLOW_SETTLE_MS` after the first took
- * it, whichever comes first. So no relay took it only once all have answered. A send still under way
- * when this resolves goes on to its own end, and `signal` still stops it; nothing it does then can
- * throw, and it leaves no timer behind.
- */
-function sendToAll(places: readonly string[], event: NostrEvent, writers: Writers, signal: AbortSignal): Promise<Sent> {
-  return new Promise((resolve) => {
-    const took = new Set<string>();
-    let newerElsewhere = false;
-    let waiting = places.length;
-    let settle: ReturnType<typeof setTimeout> | undefined;
-    const done = () => {
-      clearTimeout(settle);
-      // As the relays have answered by now: one that answers later changes nothing of this.
-      resolve({ took: places.filter((url) => took.has(url)), newerElsewhere });
-    };
-    const answered = (url: string, answer: Answer) => {
-      waiting -= 1;
-      if (answer.saidNewer) newerElsewhere = true;
-      if (answer.took) {
-        took.add(url);
-        // Counted from the first that takes it, once: a later one starts no clock of its own.
-        settle ??= setTimeout(done, FOLLOW_SETTLE_MS);
-      }
-      if (waiting === 0) done();
-    };
-    if (waiting === 0) done();
-    for (const url of places) {
-      void sendTo(url, event, writers, signal).then(
-        (answer) => answered(url, answer),
-        () => answered(url, { took: false, saidNewer: false }),
-      );
-    }
-  });
-}
-
-/**
  * How a fresh read stands for a write: whether the write may be built on it.
  *
  *   - `yes`: it may.
@@ -711,7 +590,7 @@ async function write(account: Account, writing: Writing, deps: FollowDeps, signa
   if (belowFollowFloor(account.pubkey, read.list)) return { kind: "not-loaded" };
 
   // Save: everywhere the list was read from, and everywhere the person writes, all at once.
-  const { took, newerElsewhere } = await sendToAll([...new Set([...read.answered, ...read.writes])], event, writers, signal);
+  const { took, newerElsewhere } = await sendToAll([...new Set([...read.answered, ...read.writes])], event, writers, signal, FOLLOW_SETTLE_MS);
   // A change that was stopped meanwhile leaves nothing behind: the person signed out, what this tab
   // had seen was forgotten then (`forgetFollowFloor`), and the next to sign in starts afresh.
   signal.throwIfAborted();

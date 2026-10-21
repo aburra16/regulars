@@ -262,8 +262,8 @@ describe("the place page: header", () => {
     expect(router.state.historyAction).toBe("PUSH");
   });
 
-  it("asks the person to sign in to save the place, once saved lists open", async () => {
-    config.features.saved = true;
+  it("asks the person to sign in to save the place, while saving is open", async () => {
+    expect(config.features.saved).toBe(true);
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { router } = await openPlace(`/place/${JACAFE.d}`);
     const save = link(copy.place.save);
@@ -276,8 +276,8 @@ describe("the place page: header", () => {
     expect(router.state.location.state).toMatchObject({ from: { pathname: `/place/${JACAFE.d}` } });
   });
 
-  it("has no bookmark on a phone until saved lists open, and the way back stands alone in its row", async () => {
-    expect(config.features.saved).toBe(false);
+  it("has no bookmark on a phone while saving is closed, and the way back stands alone in its row", async () => {
+    config.features.saved = false;
     await openPlace(`/place/${JACAFE.d}`);
     expect(queryLink(copy.place.save)).not.toBeInTheDocument();
     expect(screen.queryByText(copy.place.save)).not.toBeInTheDocument();
@@ -1027,8 +1027,8 @@ describe("the place page at 1360 px (D2)", () => {
     expect(screen.getAllByRole("link", { name: "Rate this place" })).toHaveLength(1);
   });
 
-  it("has no Save in the rail until saved lists open, and the actions fill the row with no gap", async () => {
-    expect(config.features.saved).toBe(false);
+  it("has no Save in the rail while saving is closed, and the actions fill the row with no gap", async () => {
+    config.features.saved = false;
     await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP });
     const rail = within(screen.getByRole("complementary"));
     expect(rail.queryByRole("link", { name: copy.place.saveShort })).not.toBeInTheDocument();
@@ -1049,8 +1049,8 @@ describe("the place page at 1360 px (D2)", () => {
     expect(only.parentElement!.children).toHaveLength(1);
   });
 
-  it("puts Save last in the rail's actions once saved lists open", async () => {
-    config.features.saved = true;
+  it("puts Save last in the rail's actions while saving is open", async () => {
+    expect(config.features.saved).toBe(true);
     await openPlace(`/place/${JACAFE.d}`, { px: DESKTOP });
     const rail = within(screen.getByRole("complementary"));
     const save = rail.getByRole("link", { name: copy.place.saveShort });

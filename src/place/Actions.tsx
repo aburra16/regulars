@@ -1,9 +1,8 @@
-import type { JSX, ReactNode } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { type JSX, type ReactNode, useState } from "react";
 
-import { config } from "../config.ts";
 import { copy } from "../copy/en.ts";
 import type { Place } from "../places/place.ts";
+import { SaveButton } from "../saved/SaveButton.tsx";
 import { NewTabHint, Unseen } from "../ui/NewTab.tsx";
 import { goUrl } from "./osmLinks.ts";
 
@@ -200,21 +199,23 @@ const railButton =
 
 /**
  * The desktop's actions, in the rail (the design): Directions, Call and Website, those the place has,
- * and Save, which asks the person to sign in first, once saved lists open (`config.features.saved`).
- * As many to a row as fit.
+ * and Save, last, once saved lists open (src/saved/SaveButton.tsx: a link to sign in for someone
+ * signed out). As many to a row as fit. What a press of Save left to say is drawn under the row, as
+ * wide as the rail: in a third of it, beside the other actions, a line would take several.
  */
-export function RailActions({ actions }: { actions: PlaceActions }): JSX.Element {
-  const location = useLocation();
+export function RailActions({ actions, place }: { actions: PlaceActions; place: Place }): JSX.Element {
+  // The row Save's lines are drawn in, once it is on the page.
+  const [savedLines, setSavedLines] = useState<HTMLDivElement | null>(null);
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(86px,100%),1fr))] gap-2">
-      {actionList(actions, false).map((action) => (
-        <ActionLink key={action.kind} action={action} icon={false} className={railButton} />
-      ))}
-      {config.features.saved && (
-        <Link to="/signin" state={{ from: location }} className={railButton}>
-          {copy.place.saveShort}
-        </Link>
-      )}
+    <div className="flex min-w-0 flex-col">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(86px,100%),1fr))] gap-2">
+        {actionList(actions, false).map((action) => (
+          <ActionLink key={action.kind} action={action} icon={false} className={railButton} />
+        ))}
+        <SaveButton place={place} look="rail" linesIn={savedLines} />
+      </div>
+      {/* Empty, it takes no room: its room is for a line that is seen. */}
+      <div ref={setSavedLines} className="min-w-0 has-[p]:pt-2" />
     </div>
   );
 }

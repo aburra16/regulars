@@ -37,7 +37,8 @@ const approveLine = (how: Account["how"] | undefined): ReactNode => (
  * Keeps a key held down from pressing what the focus has just moved to (review I1): My circle's half
  * puts the focus on Personalize, and Enter or Space, still down from tapping the half, would tap it,
  * the person's consent not asked for. In a panel, only a fresh press of a key presses a button. A
- * Follow button uses it too, where a key still down would make a second change to the person's list.
+ * Follow button uses it too, and a Save button, where a key still down would make a second change to
+ * the person's list.
  */
 export function heldKeyPressesNothing(event: KeyboardEvent<HTMLElement>): void {
   if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault();

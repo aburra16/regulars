@@ -176,6 +176,8 @@ describe("when the section is not there", () => {
   it("is not on You with Follow off, for a person signed in whose copies are kept here, and the storage is not read", async () => {
     await kept(MAYA_LIST, { did: "follow", who: SOL });
     config.features.follow = false;
+    // Saving closed too: it reads the person's relay list from these relays, and what is counted here is what Follow asks.
+    config.features.saved = false;
 
     const { s } = await openYou([MAYA_LIST_WITH_SOL]);
     await screen.findByRole("heading", { level: 1, name: "Maya" });

@@ -71,7 +71,7 @@ export function SignedOutPrompt({ page, focusHeading }: { page: "saved" | "you";
   );
 }
 
-/** Saved after sign in, before saving places opens: it says so. */
+/** Saved after sign in, while saving places is closed (`config.features.saved`, its off switch): it says it opens soon. */
 export function SavedSoon(): JSX.Element {
   return <Prompt page="saved" sentence={copy.saved.soon} />;
 }

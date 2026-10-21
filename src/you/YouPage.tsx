@@ -10,7 +10,7 @@ import { personPath } from "../person/npub.ts";
 import { useDocumentTitle } from "../shell/useDocumentTitle.ts";
 import { ThemeSwitch } from "../theme/ThemeSwitch.tsx";
 import { scriptLang } from "../ui/scriptLang.ts";
-import { SavedSoon, SignedOutPrompt } from "./SignedOutPrompt.tsx";
+import { SignedOutPrompt } from "./SignedOutPrompt.tsx";
 
 /**
  * The person's own page, as far as M2b has one: their name over what is theirs to do here, which is
@@ -116,13 +116,4 @@ export function YouPage(): JSX.Element {
   }
   if (restoring) return <YouFrame name={undefined} />;
   return <SignedOutPrompt page="you" focusHeading={signedOutHere} />;
-}
-
-/**
- * Saved. Before sign in, the prompt to sign in. After, saving places is not open yet (M2b), and the
- * page says so, with no way to sign in again.
- */
-export function SavedPage(): JSX.Element {
-  const { account, restoring } = useAccount();
-  return account === undefined && !restoring ? <SignedOutPrompt page="saved" /> : <SavedSoon />;
 }

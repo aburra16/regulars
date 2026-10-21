@@ -58,11 +58,30 @@ export function MapIcon(props: IconProps): JSX.Element {
   );
 }
 
-/** The bookmark: the Saved tab. */
+/** The bookmark: the Saved tab, and Save on a place's page while the place is not saved. */
 export function SavedIcon(props: IconProps): JSX.Element {
   return (
     <Icon {...props}>
       <path d="M6 4h12v16l-6-4-6 4z" />
+    </Icon>
+  );
+}
+
+/** The same bookmark, filled: Save on a place's page once the place is saved. */
+export function SavedFilledIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <path d="M6 4h12v16l-6-4-6 4z" fill="currentColor" />
+    </Icon>
+  );
+}
+
+/** A circle struck through: on the Saved page, a saved place that came off the map. */
+export function NotListedIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props} strokeWidth={2}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M6.5 6.5l11 11" />
     </Icon>
   );
 }

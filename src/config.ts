@@ -34,6 +34,20 @@ const publicFollowListRelays = [
   "wss://nostr.oxtr.dev",
 ];
 
+/**
+ * Where a person's saved places are read and saved in production, beside their own relays: five
+ * public relays that keep bookmark sets. Five, as a first list is made only when more than half of
+ * them answer with none. Not Purplepages or the list hub, which keep no bookmark sets and would
+ * answer as if a person had none, nor the search relay, which asks readers to sign in.
+ */
+const publicSavedListRelays = [
+  "wss://nos.lol",
+  "wss://relay.primal.net",
+  "wss://relay.damus.io",
+  "wss://nostr.mom",
+  "wss://nostr.oxtr.dev",
+];
+
 function npubToHex(npub: string): string {
   const decoded = nip19.decode(npub);
   if (decoded.type !== "npub") throw new Error(`Expected an npub, got ${decoded.type}`);
@@ -97,8 +111,11 @@ interface Config {
    * their circle is ready (src/circle/CircleProvider.tsx), its scores worked out from their circle's
    * ranks (src/score/store.ts; the M3 plan, Task 3). Closed, nothing asks Brainstorm, and the half
    * reads "soon" for a person who has signed in.
-   * `saved`: Saved in the phone's tabs and the desktop's top bar; it comes back with saved lists
-   * (brief § 13, step 7). Until then a link to /saved still opens its page, which says saving opens soon.
+   * `saved`: saving places: the Save button on a place's page, Saved in the phone's tabs and the
+   * desktop's top bar, and with them every read and every change of a person's saved places. It is on
+   * for everyone, in every build. It is the off switch too: set to `false` here and deployed, there is
+   * no Save button and no Saved tab, nobody's saved places are read or changed, and a phone app is not
+   * asked to sign them. A link to /saved still opens its page, which then says saving opens soon.
    * `follow`: the Follow button, and with it every read and every change of a follow list (ruling
    * R39). It is on for everyone, in every build. It is the off switch too: set to `false` here and
    * deployed, Follow is hidden for everyone again. Off, there is no Follow button and no line of who
@@ -142,6 +159,16 @@ interface Config {
    * The two public review relays are named among the six, and so are.
    */
   followListRelays: string[];
+  /**
+   * Where a person's saved places (one bookmark set, kind 30003, NIP-51) are read and saved, beside
+   * the relays their own relay list names. In production, five public relays (`publicSavedListRelays`),
+   * so that the list is found on any device and a changed one is kept in more than one place. In
+   * development, VITE_SAVED_LIST_RELAYS, and none when it is unset: none of the app's own is a public
+   * relay in development. The person's own relays are another matter, as for follow lists: signed in
+   * with a real key, a development build reads that key's relay list (`relayListRelays`) and saves a
+   * change to the public relays it names, so development is for throwaway keys.
+   */
+  savedListRelays: string[];
   /** Where the house's kind 10040 is read, which names the scorer whose ranks are House picks. */
   houseTrustRelays: string[];
   /**
@@ -182,13 +209,14 @@ export const config: Config = {
   placesSignatureSample: 64,
   defaultCity: { name: "Funchal", lat: 32.6507, lon: -16.9084, radiusKm: 25 },
   mapTiles: true,
-  features: { signIn: true, circle: true, saved: false, follow: true },
+  features: { signIn: true, circle: true, saved: true, follow: true },
   connectRelay: "wss://relay.nsec.app",
   // In a production build `import.meta.env.DEV` is false, so none of these variables is read there.
   reviewRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_REVIEW_RELAYS) : [searchRelay, ...publicReviewRelays],
   relayReadExtras: { [searchRelay]: { search: "include:spam" } },
   relayListRelays: ["wss://purplepag.es"],
   followListRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_FOLLOW_LIST_RELAYS) : [...publicFollowListRelays],
+  savedListRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_SAVED_LIST_RELAYS) : [...publicSavedListRelays],
   houseTrustRelays: ["wss://scores.brainstorm.world"],
   brainstormApi: "https://api.brainstorm.world",
   brainstormSite: "https://brainstorm.world",

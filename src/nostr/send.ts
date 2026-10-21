@@ -6,11 +6,11 @@ import { abortable } from "../account/writeRelays.ts";
 import type { Writers } from "./events.ts";
 
 /*
- * What posting a review (src/review/post.ts) and changing a follow list (src/follow/change.ts) share:
- * signing with the person's signer within a time, and one try at sending an event to a relay, with
- * whether a failure may pass. Each of them checks what was signed by its own rule, and decides for
- * itself how often a relay is tried. Nothing here loads Nostrify (its imports are types), and nothing
- * here is logged.
+ * What posting a review (src/review/post.ts), changing a follow list (src/follow/change.ts) and
+ * changing a person's saved places (src/saved/change.ts) share: signing with the person's signer
+ * within a time, and one try at sending an event to a relay, with whether a failure may pass. Each of
+ * them checks what was signed by its own rule, and decides for itself how often a relay is tried.
+ * Nothing here loads Nostrify (its imports are types), and nothing here is logged.
  */
 
 /**

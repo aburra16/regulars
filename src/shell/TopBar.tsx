@@ -213,7 +213,7 @@ const pageLink = ({ isActive }: { isActive: boolean }) =>
  * The desktop's one top bar (the design): the wordmark, the search field with the
  * location inside it, the House picks / My circle toggle (whose My circle half opens Personalize in a
  * panel under it, before the person's circle is asked for), the dark mode switch, the links to pages
- * (Trending, the newest reviews, with its rising arrow before the word; Saved once saved lists open,
+ * (Trending, the newest reviews, with its rising arrow before the word; Saved while saving is open,
  * `config.features.saved`), and the account
  * button. The links sit with the account button, past the switch, as the way to other pages, apart
  * from the toggle that changes the scores, in a navigation of their own (`copy.nav.pages`). Under it, the lines of the account button signing the

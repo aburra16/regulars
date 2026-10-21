@@ -53,14 +53,22 @@ export { REQUEST_TIMEOUT_MS };
  * What the nostrconnect link asks the phone app to let the app do without asking each time: say who
  * the person is, sign their reviews (34259), and, while Follow is open (`config.features.follow`,
  * ruling R39), sign their follow list (3), which changes only when they tap Follow, Following or
- * Undo (src/follow/change.ts). Nothing more: while Follow is not open the app changes no follow
- * list, and does not ask to sign one. A connection made before the follow list was asked for has no
- * such yes: its phone app asks the person the first time, and a no is a follow that wasn't approved.
+ * Undo (src/follow/change.ts); while saving is open (`config.features.saved`), sign their saved
+ * places (30003), which change only when they press Save, Saved, Try again or Remove from list
+ * (src/saved/change.ts). Nothing more: while Follow is not open the app changes no follow list, and
+ * does not ask to sign one, and the same for saved places while saving is closed. A connection made
+ * before either was asked for has no such yes: its phone app asks the person the first time, and a
+ * no is a change that wasn't approved.
  * A removal (5) is rare, and the phone app asks the person each time: a standing yes would let
  * anyone holding this connection's key delete their notes. The app never signs a relay list (10002),
  * so it does not ask to.
  */
-const permissions = (): string[] => ["get_public_key", "sign_event:34259", ...(config.features.follow ? ["sign_event:3"] : [])];
+const permissions = (): string[] => [
+  "get_public_key",
+  "sign_event:34259",
+  ...(config.features.follow ? ["sign_event:3"] : []),
+  ...(config.features.saved ? ["sign_event:30003"] : []),
+];
 
 /** The relay at an address. The app's own opens a socket; tests pass one held in memory. */
 export type RelayFor = (url: string) => NRelay;

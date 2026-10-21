@@ -1,8 +1,9 @@
 /*
  * One thing at a time across the person's tabs, by a lock of the browser's (Web Locks). Brainstorm's
- * sign-in (src/circle/brainstorm.ts) and a change to the follow list (src/follow/change.ts) each run
- * under one, with a name and a wait of their own. This imports nothing, so the chunk of either can
- * hold it, and it asks for no lock until it is called.
+ * sign-in (src/circle/brainstorm.ts), a change to the follow list (src/follow/change.ts) and a change
+ * to the saved places (src/saved/change.ts) each run under one, with a name and a wait of their own.
+ * This imports nothing, so the chunk of any of them can hold it, and it asks for no lock until it is
+ * called.
  */
 
 /**

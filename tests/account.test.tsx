@@ -62,11 +62,12 @@ const REVIEWS = "wss://reviews.example.test";
 
 /**
  * What the app asks a signer app to let it do without asking each time, as the link says it: who the
- * person is, signing their reviews, and signing their follow list (kind 3), which a tap of Follow
- * changes. Not a removal (kind 5), which the phone app asks about each time, nor a relay list
- * (kind 10002), which the app never signs.
+ * person is, signing their reviews, signing their follow list (kind 3), which a tap of Follow
+ * changes, and signing their saved places (kind 30003), which a press of Save changes. Not a removal
+ * (kind 5), which the phone app asks about each time, nor a relay list (kind 10002), which the app
+ * never signs.
  */
-const PERMS = "get_public_key%2Csign_event%3A34259%2Csign_event%3A3";
+const PERMS = "get_public_key%2Csign_event%3A34259%2Csign_event%3A3%2Csign_event%3A30003";
 const LINK = new RegExp(
   `^nostrconnect://([0-9a-f]{64})\\?relay=wss%3A%2F%2Frelay\\.nsec\\.app&secret=([0-9a-f]{32})&name=Regulars&url=https%3A%2F%2Faskregulars\\.world&perms=${PERMS}$`,
 );
@@ -192,14 +193,27 @@ describe("the link the app shows a phone", () => {
     await expect(second.account).rejects.toThrow();
   });
 
-  it("asks to sign reviews and the follow list without asking each time, and nothing else: no standing yes to remove, nor to sign a relay list", async () => {
+  it("asks to sign reviews, the follow list and the saved places without asking each time, and nothing else: no standing yes to remove, nor to sign a relay list", async () => {
+    const relay = new MemoryConnectRelay();
+    const controller = new AbortController();
+    const { link, account } = connecting(relay, controller.signal);
+    const perms = new URL((await link).replace(/^nostrconnect:/, "https:")).searchParams.get("perms")?.split(",");
+    expect(perms).toEqual(["get_public_key", "sign_event:34259", "sign_event:3", "sign_event:30003"]);
+    expect(perms).not.toContain("sign_event:5");
+    expect(perms).not.toContain("sign_event:10002");
+    // Nor the person's own list of bookmarks, which the app never writes.
+    expect(perms).not.toContain("sign_event:10003");
+    controller.abort();
+    await expect(account).rejects.toThrow();
+  });
+
+  it("does not ask to sign the saved places while saving is closed", async () => {
+    config.features.saved = false;
     const relay = new MemoryConnectRelay();
     const controller = new AbortController();
     const { link, account } = connecting(relay, controller.signal);
     const perms = new URL((await link).replace(/^nostrconnect:/, "https:")).searchParams.get("perms")?.split(",");
     expect(perms).toEqual(["get_public_key", "sign_event:34259", "sign_event:3"]);
-    expect(perms).not.toContain("sign_event:5");
-    expect(perms).not.toContain("sign_event:10002");
     controller.abort();
     await expect(account).rejects.toThrow();
   });
@@ -1434,19 +1448,20 @@ describe("signed in", () => {
   });
 
   // The two tests that follow are a pair: the first leaves a picture that will not load and Saved
-  // open, and the second starts, as every test does (tests/setup.ts), without them.
-  it("(setup, first) leaves a picture that would not load, and Saved shown", async () => {
+  // closed, and the second starts, as every test does (tests/setup.ts), with the picture asked for
+  // and Saved open.
+  it("(setup, first) leaves a picture that would not load, and Saved closed", async () => {
     const pubkey = signedInWithBrowser();
-    config.features.saved = true;
+    config.features.saved = false;
     await openApp("/", { events: fixtures, readers: readersWith([profileWith(pubkey, { name: "Sofia", picture: "https://img.example.test/gone.jpg" })]) });
     const button = await within(screen.getByRole("banner")).findByRole("link", { name: "Sofia, your account" });
     fireEvent.error(pictureIn(button)!);
     expect(button).toHaveTextContent(/^S$/);
   });
 
-  it("(setup, second) starts with that picture asked for again, and Saved out", async () => {
+  it("(setup, second) starts with that picture asked for again, and Saved open", async () => {
     const pubkey = signedInWithBrowser();
-    expect(config.features.saved).toBe(false);
+    expect(config.features.saved).toBe(true);
     await openApp("/", { events: fixtures, readers: readersWith([profileWith(pubkey, { name: "Sofia", picture: "https://img.example.test/gone.jpg" })]) });
     const button = await within(screen.getByRole("banner")).findByRole("link", { name: "Sofia, your account" });
     expect(pictureIn(button)).toHaveAttribute("src", "https://img.example.test/gone.jpg");
@@ -1552,11 +1567,21 @@ describe("signed in", () => {
     expect(within(toggle).getByRole("button", { name: copy.view.house })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("has Saved say it is coming, with no way to sign in again", async () => {
+  it("has Saved say, while saving is closed, that it is coming, with no way to sign in again", async () => {
+    config.features.saved = false;
     signedInWithBrowser();
     await openApp("/saved", { events: fixtures, readers: readersWith([]) });
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(copy.pages.saved);
     expect(screen.getByText(copy.saved.soon)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: copy.signin.button })).not.toBeInTheDocument();
+  });
+
+  it("has Saved show the person's own saved places, with no way to sign in again", async () => {
+    signedInWithBrowser();
+    await openApp("/saved", { events: fixtures, readers: readersWith([]) });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(copy.pages.saved);
+    expect(screen.getByText(copy.saved.public)).toBeInTheDocument();
+    expect(screen.queryByText(copy.saved.soon)).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: copy.signin.button })).not.toBeInTheDocument();
   });
 });

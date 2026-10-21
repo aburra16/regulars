@@ -37,6 +37,8 @@ When the person's relay list names relays to write to and none of them answers, 
 
 Follow is on for everyone (`features.follow` in `src/config.ts`). It is also the off switch: set it to `false` and deploy, and the app has no Follow button and no line of who follows a person, reads and changes nobody's follow list, and does not ask a phone app to sign one.
 
+A signed-in person's saved places are one public list (a bookmark set, kind 30003, named `regulars-saved`), which anyone can read. It is read once they sign in, from the relays their relay list names and five public relays, `wss://nos.lol`, `wss://relay.primal.net`, `wss://relay.damus.io`, `wss://nostr.mom` and `wss://nostr.oxtr.dev` (`config.savedListRelays`; in development, only the relays in `VITE_SAVED_LIST_RELAYS`), and a changed list is saved to them only when they press to save a place or take one out. Saving is on for everyone (`features.saved`), which is its off switch too.
+
 ## Test
 
 ```sh

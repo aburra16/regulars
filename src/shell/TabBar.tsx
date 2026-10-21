@@ -15,8 +15,8 @@ const TABS = [
 
 /**
  * The phone's tabs, at the foot of the screen (the design): Explore, Map, Trending, Saved and You,
- * each an equal share of the bar. Trending is the newest reviews (named Recent until
- * decision 31). Saved is left out until saved lists open (`config.features.saved`).
+ * each an equal share of the bar. Trending is the newest reviews (once named Recent). Saved is left
+ * out while saving is closed (`config.features.saved`, its off switch).
  */
 export function TabBar(): JSX.Element {
   const tabs = TABS.filter(({ to }) => to !== "/saved" || config.features.saved);

@@ -8,6 +8,7 @@ import { copy } from "../copy/en.ts";
 import { useClearFollowLinesOnLeave } from "../follow/FollowProvider.tsx";
 import { useHere } from "../location/useLocation.ts";
 import { type PlacesValue, usePlaces } from "../places/store.tsx";
+import { useClearSavedLinesOnLeave } from "../saved/SavedProvider.tsx";
 import { Banner, LoadFailed, PageMessage } from "../ui/Banner.tsx";
 import { ViewProvider } from "../view/ViewProvider.tsx";
 import { ArrivalMark, HeadingIn, PlacedFocus, useHeadingFocus } from "./headingFocus.ts";
@@ -80,8 +81,10 @@ function loadState(
 function Frame(): JSX.Element {
   // Update now's last word is for the Why page's visit it was said in.
   useClearUpdateOffWhy();
-  // And what a Follow button said of a change, for the visit of the page it was said on.
+  // And what a Follow button said of a change, for the visit of the page it was said on, as a Save
+  // button's is.
   useClearFollowLinesOnLeave();
+  useClearSavedLinesOnLeave();
   const wide = useWide();
   const chrome = useChrome();
   const places = usePlaces();

@@ -13,6 +13,7 @@ import type { RelayReader, RelayWriter } from "../../src/nostr/events";
 import { writeSaved } from "../../src/places/cache";
 import { PlacesProvider, usePlaces } from "../../src/places/store";
 import { routes } from "../../src/routes";
+import { SavedProvider } from "../../src/saved/SavedProvider";
 import { ScoresProvider } from "../../src/score/ScoresProvider";
 import { createMemoryReader } from "./memoryReader";
 
@@ -127,11 +128,13 @@ export async function openApp(
         <ForgetCircleOnSignOut>
           <AccountProvider relays={relays}>
             <FollowProvider>
-              <CircleProvider>
-                <HereProvider>
-                  <RouterProvider router={router} />
-                </HereProvider>
-              </CircleProvider>
+              <SavedProvider>
+                <CircleProvider>
+                  <HereProvider>
+                    <RouterProvider router={router} />
+                  </HereProvider>
+                </CircleProvider>
+              </SavedProvider>
             </FollowProvider>
           </AccountProvider>
         </ForgetCircleOnSignOut>
@@ -175,11 +178,13 @@ export async function openAppWithSaved(path: string, saved: NostrEvent[], latest
         <ForgetCircleOnSignOut>
           <AccountProvider>
             <FollowProvider>
-              <CircleProvider>
-                <HereProvider>
-                  <RouterProvider router={router} />
-                </HereProvider>
-              </CircleProvider>
+              <SavedProvider>
+                <CircleProvider>
+                  <HereProvider>
+                    <RouterProvider router={router} />
+                  </HereProvider>
+                </CircleProvider>
+              </SavedProvider>
             </FollowProvider>
           </AccountProvider>
         </ForgetCircleOnSignOut>

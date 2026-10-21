@@ -155,6 +155,18 @@ const updateNow = "Update now";
 /** The word that puts a question off, and changes nothing: in the panel My circle's half opens, and under a Follow button that asks before it uses a copy. */
 const notNow = "Not now";
 
+/** A Follow or Save button while its change is being saved: it can't be pressed again. */
+const saving = "Saving…";
+
+/** Under a Follow or Save button: the person's add-on or phone app said no, or did not answer. Try again follows. */
+const notApproved = "That wasn't approved, so nothing was changed.";
+
+/** Under a Follow or Save button: nothing took the changed list. Try again follows. */
+const notSaved = "That didn't save. Nothing was changed.";
+
+/** Beside a line under a Follow or Save button that says a change was not made: makes it again. */
+const tryAgain = "Try again";
+
 /** Times in words where English has them ("now", "yesterday"), in the app's language. */
 const relativeWords = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
@@ -617,7 +629,7 @@ export const copy = {
      */
     pressAgain: (name: string) => `Press again to unfollow ${name}.`,
     /** The button while the change is being saved: it can't be pressed again. */
-    saving: "Saving…",
+    saving,
     /** Under the button for ten seconds once a reviewer is taken out of the list: who, and the way back. */
     unfollowed: (name: string) => `You no longer follow ${name}.`,
     /** Beside `unfollowed`: puts them back in the list as they were. */
@@ -639,13 +651,13 @@ export const copy = {
      */
     notKept: "We couldn't keep a copy of your list in this browser, so nothing was changed.",
     /** The person's add-on or phone app said no, or did not answer. Try again follows. */
-    notApproved: "That wasn't approved, so nothing was changed.",
+    notApproved,
     /** Nothing took the changed list. Try again follows. */
-    notSaved: "That didn't save. Nothing was changed.",
+    notSaved,
     /** The changed list was saved, and could not be read back yet: the button shows the new state. */
     unconfirmed: "Saved, but we couldn't check it yet.",
     /** Beside a line that says a change was not made: makes it again. */
-    tryAgain: "Try again",
+    tryAgain,
     /**
      * Under the button, in place of a change that was not made: where the person's other apps keep
      * their list could not be reached, and the list the change would be built on is a copy found
@@ -916,11 +928,58 @@ export const copy = {
     /** Stops waiting, on the add-on or the phone app, and gives Continue (or what was pressed) back. */
     cancel: "Cancel",
   },
-  /** The pages that need a person (Saved and You). The design draws neither signed out. */
+  /**
+   * The pages that need a person (Saved and You). The design draws neither signed out. And saving a
+   * place: the Save button on a place's page, the lines under it, and the Saved page for someone
+   * signed in.
+   */
   saved: {
     signedOut: "Sign in to save places and make lists you can share.",
-    /** Saved after sign in, before saving opens. */
+    /** Saved after sign in, while saving is closed (`config.features.saved`, its off switch). */
     soon: "Saving places and lists opens soon.",
+    // DRAFT
+    /**
+     * The Save button on a place's page, for someone signed in, while the place is not in their saved
+     * places: the word in the desktop's rail. And the button's name for a screen reader in either
+     * state, the phone's bookmark and the rail's word alike.
+     */
+    save: "Save",
+    // DRAFT
+    /** The word on the same button in the rail once the place is in their saved places: a press takes it out. Its name stays `save`. */
+    saved: "Saved",
+    // DRAFT
+    /** The button, and Remove from list on the Saved page, while the change is being saved: it can't be pressed again. On a phone, a line under the page's header too. */
+    saving,
+    // DRAFT
+    /** The person's saved places could not be read, so the change was not made. Try again follows. */
+    notLoaded: "We couldn't load your saved places, so nothing was changed.",
+    // DRAFT
+    /** The person's add-on or phone app said no, or did not answer. Try again follows. */
+    notApproved,
+    // DRAFT
+    /** Nothing took the changed list. Try again follows. */
+    notSaved,
+    // DRAFT
+    /** Beside a line that says a change was not made: makes it again. And beside `failed`, on the Saved page: reads the list again. */
+    tryAgain,
+    // DRAFT
+    /** Under the button once a save has put the first place in the person's saved places: they are public. `seeSaved` follows. */
+    firstSave: "Saved. Your saved places are public: anyone can see them.",
+    // DRAFT
+    /** Beside `firstSave`: a link to the person's saved places. */
+    seeSaved: "See Saved",
+    // DRAFT
+    /** Under the Saved page's heading, for someone signed in: what they save, anyone can see. */
+    public: "Saved places are public. Anyone can see them.",
+    // DRAFT
+    /** The Saved page when the person has saved no place. */
+    empty: "Nothing saved yet. Save a place to keep it here.",
+    // DRAFT
+    /** The Saved page when the person's saved places could not be read. `tryAgain` follows. */
+    failed: "We couldn't load your saved places.",
+    // DRAFT
+    /** Under a saved place that came off the map, on the Saved page: takes it out of the person's saved places. */
+    removeFromList: "Remove from list",
   },
   you: {
     signedOut: "Sign in to see your reviews and the people you trust.",
