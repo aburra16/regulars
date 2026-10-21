@@ -3,13 +3,16 @@ import type { Map as MapLibreMap, StyleSpecification } from "maplibre-gl";
 import { currentTheme, type Theme } from "../theme/theme.ts";
 
 /**
- * OpenFreeMap's public servers, which need no key: the map's styles, and the tiles, fonts and sprite
- * the styles name, all come from this one host. Another tile server changes this, and the host the
- * policy lets the page reach (`connect-src` in tools/csp.ts).
+ * NosFabrica's copy of OpenFreeMap (brainstorm-k8s, charts/tiles): the same planet build, styles,
+ * fonts and sprite, at the same paths as OpenFreeMap's public servers, and no key. The map's styles,
+ * and the tiles, fonts and sprite the styles name, all come from this one host. It answers only the
+ * app's own origins (askregulars.world, its nSite, the Android app's loopback, localhost). Another
+ * tile server changes this, and the host the policy lets the page reach (`connect-src` in
+ * tools/csp.ts).
  */
-export const TILES_BASE = "https://tiles.openfreemap.org";
+export const TILES_BASE = "https://map-tiles-server.brainstorm.world";
 
-/** OpenFreeMap's Positron: a quiet map in greys, which the tokens' land, park and water colours are laid over. */
+/** OpenFreeMap's Positron (served from TILES_BASE): a quiet map in greys, which the tokens' land, park and water colours are laid over. */
 export const LIGHT_STYLE_URL = `${TILES_BASE}/styles/positron`;
 
 /** OpenFreeMap's Dark, from the same host, for the dark theme: its roads, buildings and labels are drawn for a dark ground. */

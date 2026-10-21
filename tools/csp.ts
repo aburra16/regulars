@@ -41,11 +41,11 @@ export const CSP_DIRECTIVES = {
   "img-src": ["'self'", "data:", "blob:", "https:"],
   // The fonts are the app's own files (Fontsource's). data: for a font small enough that Vite writes it into the stylesheet.
   "font-src": ["'self'", "data:"],
-  // OpenFreeMap's styles, tiles, sprites and fonts (src/map/style.ts); Brainstorm's API (My circle);
-  // and relays. A review goes to the relays the person writes to, which can be any wss host
+  // The map's styles, tiles, sprites and fonts, from NosFabrica's copy of OpenFreeMap
+  // (src/map/style.ts); Brainstorm's API (My circle); and relays. A review goes to the relays the person writes to, which can be any wss host
   // (src/account/writeRelays.ts takes no ws:), and reads go to several. 'self' for the module
   // preloads Vite fetches in older browsers.
-  "connect-src": ["'self'", "https://tiles.openfreemap.org", "https://api.brainstorm.world", "wss:"],
+  "connect-src": ["'self'", "https://map-tiles-server.brainstorm.world", "https://api.brainstorm.world", "wss:"],
   // MapLibre's worker, a file of the app's own (src/map/maplibre.ts). MapLibre makes a blob: worker
   // only for a worker file on another site.
   "worker-src": ["'self'"],

@@ -825,7 +825,7 @@ describe("the map in the dark", () => {
   const coloursSet = (map: FakeMap) => map.setPaintProperty.mock.calls.filter(([, property]) => property.endsWith("-color"));
 
   it("is OpenFreeMap's Dark, from the same host as the light style, with no key", () => {
-    expect(DARK_STYLE_URL).toBe("https://tiles.openfreemap.org/styles/dark");
+    expect(DARK_STYLE_URL).toBe("https://map-tiles-server.brainstorm.world/styles/dark");
     expect(new URL(DARK_STYLE_URL).host).toBe(new URL(LIGHT_STYLE_URL).host);
     for (const url of [LIGHT_STYLE_URL, DARK_STYLE_URL]) expect(url.startsWith(`${TILES_BASE}/`), url).toBe(true);
     expect(mapStyle(true, "dark")).toBe(DARK_STYLE_URL);

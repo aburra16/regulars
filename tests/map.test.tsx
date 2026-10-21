@@ -167,10 +167,10 @@ afterEach(() => {
 // ---- The style ----
 
 describe("the map's style", () => {
-  it("is OpenFreeMap's Positron, with no key, when the map has tiles", () => {
-    expect(TILES_BASE).toBe("https://tiles.openfreemap.org");
-    expect(LIGHT_STYLE_URL).toBe("https://tiles.openfreemap.org/styles/positron");
-    expect(mapStyle(true, "light")).toBe("https://tiles.openfreemap.org/styles/positron");
+  it("is OpenFreeMap's Positron from NosFabrica's copy, with no key, when the map has tiles", () => {
+    expect(TILES_BASE).toBe("https://map-tiles-server.brainstorm.world");
+    expect(LIGHT_STYLE_URL).toBe("https://map-tiles-server.brainstorm.world/styles/positron");
+    expect(mapStyle(true, "light")).toBe("https://map-tiles-server.brainstorm.world/styles/positron");
     expect(mapStyle(true)).toBe(LIGHT_STYLE_URL);
   });
 
