@@ -59,6 +59,8 @@ function track(changing: Promise<FollowOutcome>) {
 
 /** Lets the code that was held back come, at the end of a test that held it: nothing is left waiting on it. */
 let comes: (() => void) | undefined;
+/** Each fetch of that code that was held back, from when it was asked for: the test that held it waits, as it ends, for each to end. */
+let fetches: Promise<unknown>[] = [];
 
 /** Makes the fetch of nostr-tools' code, which the change fetches for the check, fail. */
 function checkCodeCannotBeFetched() {
@@ -72,10 +74,11 @@ function checkCodeDoesNotCome(asked: () => void = () => {}) {
   const held = new Promise<void>((resolve) => {
     comes = resolve;
   });
-  vi.doMock("nostr-tools/pure", async () => {
+  vi.doMock("nostr-tools/pure", () => {
     asked();
-    await held;
-    return vi.importActual("nostr-tools/pure");
+    const coming = held.then(() => vi.importActual("nostr-tools/pure"));
+    fetches.push(coming);
+    return coming;
   });
 }
 
@@ -98,6 +101,13 @@ afterEach(async () => {
     life.abort(new Error("The test is over"));
     comes?.();
     comes = undefined;
+    // What was held back comes, and its fetch ends, here: one still under way as the next test
+    // begins would take up that test's own mock of the same code, and could hand that test's
+    // change the real code at once. (`vi.dynamicImportSettled` alone does not wait for a fetch
+    // inside a mock's factory; it is here for what the module runner does once the fetch ends.)
+    await Promise.allSettled(fetches);
+    fetches = [];
+    await vi.dynamicImportSettled();
     vi.doUnmock("nostr-tools/pure");
     await vi.advanceTimersByTimeAsync(0);
     vi.useRealTimers();
@@ -107,9 +117,8 @@ afterEach(async () => {
 });
 
 describe("the check of what the signer returns, had before the signer is asked", () => {
-  // The three that play a list being kept, or a copy being put back, come before the rest: a test that
-  // leaves the fetch held back lets it come as it ends, and the test runner may hand what came then to
-  // the test after it.
+  // A test that holds the fetch back waits until it has been asked for, so that it can be waited for
+  // as the test ends (`afterEach`): nothing of it then reaches the test after it.
   it("is fetched only once the list the change is built on has been kept, and the signer is asked only once it has come: kept, then the check's code, then the signer", async () => {
     const old = buildFollowList(SECRET);
     const w = everywhere([old]);
@@ -222,11 +231,13 @@ describe("the check of what the signer returns, had before the signer is asked",
     const w = everywhere([buildFollowList(SECRET)]);
     const by = signer();
     const stop = new AbortController();
-    checkCodeDoesNotCome();
+    const asked = vi.fn();
+    checkCodeDoesNotCome(asked);
     const ended = track(follow(w, ABSENT, { by, signal: stop.signal }));
 
     await vi.advanceTimersByTimeAsync(FOLLOW_READ_MS);
-    // The list is read, and the change waits for the check's code: nothing is signed meanwhile.
+    // The list is read, and the change waits for the check's code, which it has asked for: nothing is signed meanwhile.
+    await vi.waitFor(() => expect(asked).toHaveBeenCalledOnce());
     expect(ended).toEqual({});
     expect(by.signEvent).not.toHaveBeenCalled();
 
@@ -249,9 +260,11 @@ describe("the check of what the signer returns, had before the signer is asked",
     useLocks(locks);
     const w = everywhere([buildFollowList(SECRET)]);
     const stop = new AbortController();
-    checkCodeDoesNotCome();
+    const asked = vi.fn();
+    checkCodeDoesNotCome(asked);
     const ended = track(follow(w, ABSENT, { signal: stop.signal }));
     await vi.advanceTimersByTimeAsync(FOLLOW_READ_MS);
+    await vi.waitFor(() => expect(asked).toHaveBeenCalledOnce());
     // Another tab asks for the lock, and waits: the change holds it while it waits for the code.
     let lent = false;
     void locks.request(FOLLOW_LOCK, {}, async () => {
