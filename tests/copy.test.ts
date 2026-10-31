@@ -522,13 +522,6 @@ describe("copy", () => {
     expect(copy.meta.description).toBe("Places to eat and drink, rated by people you'd actually ask.");
   });
 
-  it("has the words given for the line at the foot of every page (a draft): Brainstorm by its name, and no word of the network's", () => {
-    expect(copy.common.builtOn).toBe("Built on Brainstorm");
-    expect(bannedWordsIn(copy.common.builtOn)).toEqual([]);
-    // Said once: the line is the one place the app says it.
-    expect(leavesOf(copy, "").filter((leaf) => leaf.text === copy.common.builtOn).map((leaf) => leaf.path)).toEqual(["common.builtOn"]);
-  });
-
   it("says the circle is built, never worked out", () => {
     expect(leavesOf(copy, "").filter((leaf) => /\bwork(?:s|ed|ing)? (?:it )?out\b/i.test(leaf.text))).toEqual([]);
   });

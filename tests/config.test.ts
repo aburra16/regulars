@@ -81,13 +81,6 @@ describe("config", () => {
     expect(config.connectRelay).toBe("wss://relay.nsec.app");
   });
 
-  it("links to Brainstorm's own site from the foot of every page, in a production build as in development", async () => {
-    expect(config.brainstormSite).toBe("https://brainstorm.world");
-    expect((await configWith({ production: true })).brainstormSite).toBe("https://brainstorm.world");
-    // The site a person opens is not the API the app asks.
-    expect(config.brainstormSite).not.toBe(config.brainstormApi);
-  });
-
   it("draws every map with tiles, in development and in a production build, with no key", async () => {
     for (const production of [false, true]) {
       const fresh = await configWith({ production });

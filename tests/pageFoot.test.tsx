@@ -15,6 +15,7 @@ import type { PlacesValue } from "../src/places/store";
 import { routes } from "../src/routes";
 import { ScoresProvider } from "../src/score/ScoresProvider";
 import { FramedLink } from "../src/shell/Framed";
+import { TONES } from "../src/ui/BuiltOnBrainstorm";
 import { DESKTOP, openApp, PHONE, resetWidth, resizeTo, setWidth } from "./support/app";
 import { hex64 } from "./support/events";
 import { JACAFE, newWorld, PLACE_PATH, places, profileOf, readersOf, REVIEW_PATH, SEARCH, signedIn, writersOf } from "./support/reviewWorld";
@@ -35,8 +36,7 @@ vi.mock("../src/places/store", async (importOriginal) => {
   return { ...actual, usePlaces: () => placesOverride.value ?? actual.usePlaces() };
 });
 
-const SITE = "https://brainstorm.world";
-const NAME = `${copy.common.builtOn} ${copy.common.newTab}`;
+const NAME = `Built on Brainstorm ${copy.common.newTab}`;
 
 /** A reviewer, Sol. The key is made up. */
 const SOL = hex64("c");
@@ -44,22 +44,26 @@ const SOL = hex64("c");
 const CHAIN = buildIndexes(parsePlaces(places)).chains.get("PT:a confeitaria coffee & bakery")!;
 
 /**
- * Every "Built on Brainstorm" on the page, found by where it goes and not by its role: a dialog over
- * a page hides the page from a screen reader, and the line is still on it.
+ * Every "Built on Brainstorm" on the page: Brainstorm's shared element, found by what it is and not by
+ * its role. A dialog over a page hides the page from a screen reader, and the line is still on it.
  */
-const lines = () => [...document.querySelectorAll<HTMLAnchorElement>(`a[href="${SITE}"]`)];
+const lines = () => [...document.querySelectorAll<HTMLElement>("built-on-brainstorm")];
 const main = () => document.querySelector("main")!;
 /** The footers that are not a page's own: outside `main`. */
 const shellFeet = () => [...document.querySelectorAll("footer")].filter((footer) => !main().contains(footer));
+/** What can be pressed in `foot`: its links and buttons, and the line, whose link is in its own shadow root. */
+const pressable = (foot: Element) => [...foot.querySelectorAll("a, button, built-on-brainstorm")];
 
 /** The one line the page has, which is the link it should be. */
-function theLine(): HTMLAnchorElement {
+function theLine(): HTMLElement {
   const all = lines();
   expect(all).toHaveLength(1);
-  const [line] = all as [HTMLAnchorElement];
-  expect(line).toHaveAccessibleName(NAME);
-  expect(line).toHaveAttribute("target", "_blank");
-  expect(line).toHaveAttribute("rel", "noopener noreferrer");
+  const [line] = all as [HTMLElement];
+  const link = line.shadowRoot!.querySelector("a")!;
+  expect(link).toHaveAccessibleName(NAME);
+  expect(link).toHaveAttribute("href", "https://brainstorm.world");
+  expect(link).toHaveAttribute("target", "_blank");
+  expect(link).toHaveAttribute("rel", "noopener noreferrer");
   return line;
 }
 
@@ -83,7 +87,7 @@ function expectLine(where: Where): void {
     const [foot] = feet as [HTMLElement];
     expect(foot).toContainElement(line);
     expect(main().compareDocumentPosition(foot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(foot.querySelectorAll("a, button")).toHaveLength(1);
+    expect(pressable(foot)).toEqual([line]);
     expect(screen.getAllByRole("contentinfo", { hidden: true }).filter((each) => !main().contains(each))).toEqual([foot]);
     return;
   }
@@ -93,7 +97,7 @@ function expectLine(where: Where): void {
     const foot = line.closest("footer")!;
     expect(main().lastElementChild).toBe(foot);
     expect(document.querySelectorAll("footer")).toHaveLength(1);
-    expect(foot.querySelectorAll("a, button")).toHaveLength(1);
+    expect(pressable(foot)).toEqual([line]);
     expect(within(main()).getByRole("alert").compareDocumentPosition(foot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     return;
   }
@@ -267,14 +271,14 @@ describe("where the shell draws the line", () => {
       const [foot] = shellFeet() as [HTMLElement];
       expect(foot, `${px} px`).toHaveClass("bg-night", "on-dark");
       expect(foot).toHaveAttribute("data-theme", "light");
-      expect(theLine()).toHaveClass("text-line-dashed");
+      expect(theLine()).toHaveClass(...TONES.night.split(" "));
       signin.unmount();
 
       const about = await open("/about", px, false);
       const [plain] = shellFeet() as [HTMLElement];
       expect(plain.className, `${px} px`).not.toMatch(/night|on-dark/);
       expect(plain).not.toHaveAttribute("data-theme");
-      expect(theLine()).toHaveClass("text-muted");
+      expect(theLine()).toHaveClass(...TONES.page.split(" "));
       about.unmount();
     }
   });
@@ -435,6 +439,6 @@ describe("the site in another site's frame", () => {
     expect(screen.getByRole("link", { name: copy.framed.open })).toBeInTheDocument();
     expect(lines()).toEqual([]);
     expect(document.querySelector("footer")).toBeNull();
-    expect(document.body).not.toHaveTextContent(copy.common.builtOn);
+    expect(document.body).not.toHaveTextContent("Built on Brainstorm");
   });
 });

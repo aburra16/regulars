@@ -115,7 +115,7 @@ describe("the policy in the built page", () => {
   it("lets in styles written into the page, and scripts only by their hash", () => {
     // A style a library writes into the page would otherwise break in production alone, where a test
     // in jsdom, which has no policy, cannot see it; a style does little harm beside strict scripts.
-    expect(policyOf(html)!.get("style-src")).toEqual(["'self'", "'unsafe-inline'"]);
+    expect(policyOf(html)!.get("style-src")).toEqual(["'self'", "'unsafe-inline'", "https://brainstorm.world"]);
     expect(policyOf(html)!.get("script-src")).not.toContain("'unsafe-inline'");
   });
 
@@ -172,7 +172,7 @@ function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) return sourceFiles(path);
-    return /\.(tsx?|css)$/.test(entry.name) ? [path] : [];
+    return /\.(tsx?|js|css)$/.test(entry.name) ? [path] : [];
   });
 }
 
@@ -198,8 +198,6 @@ const NOT_REACHED: ReadonlyArray<readonly [file: string, address: string]> = [
   ["src/about/AboutPage.tsx", "https://www.openstreetmap.org/copyright"],
   ["src/about/AboutPage.tsx", "https://creativecommons.org/licenses/by/4.0/"],
   ["src/account/connect.ts", "https://${config.domain}"],
-  // Brainstorm's own site, which "Built on Brainstorm" at the foot of every page links to: a new tab the person opens.
-  ["src/config.ts", "https://brainstorm.world"],
   ["src/place/Actions.tsx", "https://${website}"],
   ["src/place/osmLinks.ts", "https://www.openstreetmap.org"],
   ["src/place/osmLinks.ts", "https://www.google.com/maps/dir/?api=1&destination=${place.lat.toFixed(6)},${place.lon.toFixed(6)}"],
@@ -210,6 +208,16 @@ const NOT_REACHED: ReadonlyArray<readonly [file: string, address: string]> = [
   ["src/ui/Attribution.tsx", "https://openfreemap.org"],
   ["src/ui/Attribution.tsx", "https://www.openmaptiles.org/"],
   ["src/ui/Attribution.tsx", "https://www.openstreetmap.org/copyright"],
+  // Brainstorm's own site, which "Built on Brainstorm" at the foot of every page links to: a new tab the person opens.
+  ["src/ui/built-on-brainstorm.js", "https://brainstorm.world"],
+  // The SVG namespace the line draws Brainstorm's mark in: a name, which nothing fetches.
+  ["src/ui/built-on-brainstorm.js", "http://www.w3.org/2000/svg"],
+];
+
+/** The stylesheets the code loads from another site, which the page's style-src governs, not its connect-src. */
+const STYLESHEETS: ReadonlyArray<readonly [file: string, address: string]> = [
+  // The look of "Built on Brainstorm", from Brainstorm's own site, so a restyle there reaches the app.
+  ["src/ui/built-on-brainstorm.js", "https://brainstorm.world/built-on/v1.css"],
 ];
 
 describe("the policy and the addresses the code reaches", () => {
@@ -217,7 +225,8 @@ describe("the policy and the addresses the code reaches", () => {
     addressesIn(readFileSync(path, "utf8")).map((address) => [relative(ROOT, path).split("\\").join("/"), address] as const),
   );
   const notReached = new Set(NOT_REACHED.map(([file, address]) => `${file} ${address}`));
-  const reached = found.filter(([file, address]) => !notReached.has(`${file} ${address}`));
+  const stylesheets = new Set(STYLESHEETS.map(([file, address]) => `${file} ${address}`));
+  const reached = found.filter(([file, address]) => !notReached.has(`${file} ${address}`) && !stylesheets.has(`${file} ${address}`));
 
   it("finds the addresses in the code: the relays, Brainstorm and the map's tile server", () => {
     const hosts = new Set(reached.map(([, address]) => new URL(address).host));
@@ -234,7 +243,12 @@ describe("the policy and the addresses the code reaches", () => {
 
   it("lists only addresses the code still has as never reached", () => {
     const written = new Set(found.map(([file, address]) => `${file} ${address}`));
-    expect([...notReached].filter((entry) => !written.has(entry))).toEqual([]);
+    expect([...notReached, ...stylesheets].filter((entry) => !written.has(entry))).toEqual([]);
+  });
+
+  it("lets the page load every stylesheet the code names from another site", () => {
+    const style = CSP_DIRECTIVES["style-src"];
+    expect(STYLESHEETS.filter(([, address]) => !allows(style, address))).toEqual([]);
   });
 
   it("lets the page reach the relays, Brainstorm and the map's style as the config and the map have them", async () => {

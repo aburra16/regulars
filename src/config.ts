@@ -180,11 +180,6 @@ interface Config {
    */
   brainstormApi: string;
   /**
-   * Brainstorm's own site, which "Built on Brainstorm" at the foot of every page links to
-   * (src/ui/BuiltOnBrainstorm.tsx). A page the person opens in a new tab: the app never fetches it.
-   */
-  brainstormSite: string;
-  /**
    * `line`: the lowest rank that counts, out of 100 (decision 18). A list is ordered as
    * if each place also had `priorWeight` of a vote of `priorMean` stars, so one five-star review
    * does not top it (brief § 5). Tunable.
@@ -219,7 +214,6 @@ export const config: Config = {
   savedListRelays: import.meta.env.DEV ? relayList(import.meta.env.VITE_SAVED_LIST_RELAYS) : [...publicSavedListRelays],
   houseTrustRelays: ["wss://scores.brainstorm.world"],
   brainstormApi: "https://api.brainstorm.world",
-  brainstormSite: "https://brainstorm.world",
   scoring: { line: 5, priorWeight: 1.5, priorMean: 3.5 },
   devScorer: import.meta.env.DEV ? scorerOverride(import.meta.env.VITE_DEV_SCORER) : undefined,
 };

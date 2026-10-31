@@ -219,11 +219,6 @@ export const copy = {
     /** The link beside where the place details come from, to the page that says more. */
     aboutData: "About this data",
     // DRAFT
-    /**
-     * The line at the foot of every page, after Brainstorm's mark: a link to Brainstorm's own site
-     * (src/ui/BuiltOnBrainstorm.tsx). "Brainstorm" is the partner's name.
-     */
-    builtOn: "Built on Brainstorm",
     /** A line of copy as a sentence on its own, in a panel: "2 other people have rated it." */
     sentence: (text: string) => `${text}.`,
   },

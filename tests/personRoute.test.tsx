@@ -152,7 +152,7 @@ describe("the page's code, fetched when a person's page is first opened", () => 
     expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
     expect(load).toHaveBeenCalledTimes(1);
     // The shell's foot is under it, as under any page that scrolls: the page that says so draws none of its own.
-    const built = [...document.querySelectorAll(`a[href="${config.brainstormSite}"]`)];
+    const built = [...document.querySelectorAll("built-on-brainstorm")];
     expect(built).toHaveLength(1);
     expect(main()).not.toContainElement(built[0] as HTMLElement);
 

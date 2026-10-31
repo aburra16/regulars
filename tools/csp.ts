@@ -34,7 +34,9 @@ export const CSP_DIRECTIVES = {
   // not govern. But a style attribute or element a library writes later would break in production
   // alone: jsdom has no policy, so no test would see it. A style does little harm beside scripts that
   // run only from the site's files and the theme's hash, so styles are let in and scripts are not.
-  "style-src": ["'self'", "'unsafe-inline'"],
+  // And the look of "Built on Brainstorm" at the foot of every page, which Brainstorm's shared line
+  // loads from Brainstorm's own site (src/ui/BuiltOnBrainstorm.tsx): a stylesheet, which runs nothing.
+  "style-src": ["'self'", "'unsafe-inline'", "https://brainstorm.world"],
   // The house's pictures, the kinds' icons and MapLibre's controls (some as data: addresses),
   // MapLibre's images where the browser cannot decode them itself (blob:), and reviewers' pictures,
   // which come from any https site they name (src/nostr/profiles.ts takes no other).
